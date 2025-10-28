@@ -26,6 +26,11 @@ extensions = [
     'sphinx.ext.intersphinx',
     'sphinx_autodoc_typehints',
     'myst_parser',
+    'sphinx_copybutton',
+    'sphinx_design',
+    'sphinx_tabs.tabs',
+    'sphinxcontrib.mermaid',
+    'sphinxext.opengraph',
 ]
 
 # MyST parser configuration
@@ -86,3 +91,18 @@ html_theme_options = {
 
 # The master toctree document
 master_doc = 'index'
+
+# -- Extension configuration -------------------------------------------------
+
+# sphinx-copybutton: Copy button for code blocks
+copybutton_prompt_text = r">>> |\.\.\. |\$ |In \[\d*\]: | {2,5}\.\.\.: | {5,8}: "
+copybutton_prompt_is_regexp = True
+
+# sphinxext-opengraph: Open Graph meta tags for social media
+ogp_site_url = "https://dreamlake.readthedocs.io/"
+ogp_site_name = "Dreamlake Documentation"
+ogp_description = "ML experiment tracking and data storage"
+ogp_type = "website"
+
+# sphinxcontrib-mermaid: Mermaid diagram configuration
+mermaid_version = "latest"
