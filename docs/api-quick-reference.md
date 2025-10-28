@@ -1,6 +1,6 @@
-# Dreamlake Python SDK - API Quick Reference
+# Dreamlake - API Quick Reference
 
-Quick reference for common Dreamlake SDK operations.
+Quick reference for common Dreamlake operations.
 
 ## Session Creation
 

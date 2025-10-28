@@ -1,6 +1,6 @@
 # Getting Started with Dreamlake
 
-This guide will help you get started with the Dreamlake Python SDK.
+This guide will help you get started with Dreamlake.
 
 ## Installation
 
@@ -209,11 +209,11 @@ except Exception as e:
 ## Next Steps
 
 Now that you understand the basics, explore:
-- [Sessions](02-sessions.md) - Advanced session management
-- [Logging](03-logging.md) - Structured logging
-- [Parameters](04-parameters.md) - Parameter tracking
-- [Tracks](05-tracks.md) - Time-series metrics
-- [Files](06-files.md) - File uploads
+- [Sessions](sessions.md) - Advanced session management
+- [Logging](logging.md) - Structured logging
+- [Parameters](parameters.md) - Parameter tracking
+- [Tracks](tracks.md) - Time-series metrics
+- [Files](files.md) - File uploads
 
 ## Quick Reference
 

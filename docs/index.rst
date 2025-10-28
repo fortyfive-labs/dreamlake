@@ -1,7 +1,7 @@
-Dreamlake Python SDK Documentation
-===================================
+Dreamlake Documentation
+=======================
 
-A simple and flexible Python SDK for ML experiment tracking and data storage.
+A simple and flexible SDK for ML experiment tracking and data storage.
 
 Features
 --------

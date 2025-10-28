@@ -1,4 +1,4 @@
-# Dreamlake Python SDK Examples
+# Dreamlake Examples
 
 This directory contains runnable examples demonstrating Dreamlake features.
 
