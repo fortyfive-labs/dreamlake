@@ -1,0 +1,60 @@
+{
+  "files": [
+    {
+      "id": "7214765051025486",
+      "sessionId": "tutorials/files-demo",
+      "path": "/models",
+      "filename": "model.txt",
+      "description": "Trained model weights",
+      "tags": [
+        "model",
+        "final"
+      ],
+      "contentType": "text/plain",
+      "sizeBytes": 240,
+      "checksum": "a14fefc8dd30a120b4df5c318620fde66421746b32b2530a3303d9bf1d5b446c",
+      "metadata": null,
+      "uploadedAt": "2025-10-25T18:34:08.785695Z",
+      "updatedAt": "2025-10-25T18:34:08.785699Z",
+      "deletedAt": null
+    },
+    {
+      "id": "7214765051027497",
+      "sessionId": "tutorials/files-demo",
+      "path": "/config",
+      "filename": "config.json",
+      "description": "Training configuration",
+      "tags": [
+        "config"
+      ],
+      "contentType": "application/json",
+      "sizeBytes": 71,
+      "checksum": "abc4dbdbdb7cd253a70d7d1f3c357803665330db8260935e27fcf8ba684bbdd5",
+      "metadata": null,
+      "uploadedAt": "2025-10-25T18:34:08.786298Z",
+      "updatedAt": "2025-10-25T18:34:08.786301Z",
+      "deletedAt": null
+    },
+    {
+      "id": "7214765051028482",
+      "sessionId": "tutorials/files-demo",
+      "path": "/results",
+      "filename": "results.txt",
+      "description": "Training results per epoch",
+      "tags": [
+        "results",
+        "metrics"
+      ],
+      "contentType": "text/plain",
+      "sizeBytes": 181,
+      "checksum": "f1a626bcf8f0e2913d3534aeb105fa52df8faa961279c5e31fe1d840a95613c9",
+      "metadata": {
+        "epochs": 10,
+        "format": "csv"
+      },
+      "uploadedAt": "2025-10-25T18:34:08.786765Z",
+      "updatedAt": "2025-10-25T18:34:08.786767Z",
+      "deletedAt": null
+    }
+  ]
+}

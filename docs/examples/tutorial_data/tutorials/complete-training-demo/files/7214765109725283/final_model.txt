@@ -1,0 +1,2 @@
+Final model after 10 epochs
+Best validation accuracy: 0.8515 at epoch 10

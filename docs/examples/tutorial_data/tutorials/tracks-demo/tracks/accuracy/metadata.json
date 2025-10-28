@@ -1,0 +1,11 @@
+{
+  "trackId": "local-track-accuracy",
+  "name": "accuracy",
+  "description": null,
+  "tags": [],
+  "metadata": null,
+  "totalDataPoints": 20,
+  "nextIndex": 20,
+  "createdAt": "2025-10-25T12:40:58.106498Z",
+  "updatedAt": "2025-10-25T18:33:55.953511Z"
+}

@@ -1,0 +1,14 @@
+{
+  "name": "hello-dreamlake",
+  "workspace": "tutorials",
+  "description": "My first Dreamlake session",
+  "tags": [
+    "tutorial",
+    "basic"
+  ],
+  "folder": null,
+  "metadata": null,
+  "created_at": "2025-10-25T12:00:22.940085Z",
+  "write_protected": false,
+  "updated_at": "2025-10-25T18:33:14.808403Z"
+}
