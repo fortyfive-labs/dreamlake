@@ -27,3 +27,6 @@ docs_origin/
 
 # Sphinx build output
 docs/_build/
+
+# macOS
+.DS_Store
