@@ -1,0 +1,9 @@
+# Sphinx and documentation dependencies
+# Required for building documentation on Read the Docs
+
+sphinx>=7.2.0
+sphinx-rtd-theme>=2.0.0
+sphinx-autodoc-typehints>=2.0.0
+sphinx-autobuild>=2024.0.0
+myst-parser>=2.0.0
+linkify-it-py>=2.0.0
