@@ -1,7 +1,0 @@
-Training Results
-==================================================
-Model: resnet50
-Dataset: cifar10
-Epochs: 10
-Best validation accuracy: 0.8515
-Best epoch: 10

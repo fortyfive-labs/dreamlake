@@ -98,8 +98,10 @@ pip install -e ".[dev]"
 This installs:
 - `pytest>=8.0.0` - Testing framework
 - `pytest-asyncio>=0.23.0` - Async test support
-- `mkdocs>=1.5.0` - Documentation builder
-- `mkdocs-material>=9.5.0` - Material theme for MkDocs
+- `sphinx>=7.2.0` - Documentation builder
+- `sphinx-rtd-theme>=2.0.0` - Read the Docs theme
+- `sphinx-autobuild>=2024.0.0` - Live preview for documentation
+- `myst-parser>=2.0.0` - Markdown support for Sphinx
 - `ruff>=0.3.0` - Linter and formatter
 - `mypy>=1.9.0` - Type checker
 
@@ -130,29 +132,47 @@ pytest
 
 ### Building Documentation
 
+Documentation is built using Sphinx with Read the Docs theme.
+
 <table>
 <tr>
 <td>Build docs</td>
-<td>Preview docs locally</td>
+<td>Live preview</td>
+<td>Clean build</td>
 </tr>
 <tr>
 <td>
 
 ```bash
-uv run docs
+uv run python -m sphinx -b html docs docs/_build/html
 ```
 
 </td>
 <td>
 
 ```bash
-uv run preview
+uv run sphinx-autobuild docs docs/_build/html
+```
+
+</td>
+<td>
+
+```bash
+rm -rf docs/_build
 ```
 
 </td>
 </tr>
 </table>
 
-The `preview` command starts a local server at `http://127.0.0.1:8000` for viewing documentation.
+The live preview command starts a local server and automatically rebuilds when files change.
+
+Alternatively, you can use the Makefile from within the docs directory:
+
+```bash
+cd docs
+make html          # Build HTML documentation
+make clean         # Clean build files
+```
 
 For maintainers, to build and publish a new release: `uv build && uv publish`

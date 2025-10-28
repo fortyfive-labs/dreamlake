@@ -1,2 +1,0 @@
-Best model at epoch 10
-Validation accuracy: 0.8515

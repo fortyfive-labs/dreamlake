@@ -17,3 +17,13 @@ wheels/
 
 # Local tests
 local_test/
+
+# IDE files
+.idea/
+.vscode/
+
+# Documentation backup
+docs_origin/
+
+# Sphinx build output
+docs/_build/

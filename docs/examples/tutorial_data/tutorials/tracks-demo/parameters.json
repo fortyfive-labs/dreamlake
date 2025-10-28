@@ -1,8 +1,0 @@
-{
-  "version": 2,
-  "data": {
-    "epochs": 10,
-    "learning_rate": 0.001
-  },
-  "updatedAt": "2025-10-25T18:33:55.945302Z"
-}
