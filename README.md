@@ -98,6 +98,10 @@ pip install -e ".[dev]"
 This installs:
 - `pytest>=8.0.0` - Testing framework
 - `pytest-asyncio>=0.23.0` - Async test support
+- `mkdocs>=1.5.0` - Documentation builder
+- `mkdocs-material>=9.5.0` - Material theme for MkDocs
+- `ruff>=0.3.0` - Linter and formatter
+- `mypy>=1.9.0` - Type checker
 
 ### Running Tests
 
@@ -123,5 +127,32 @@ pytest
 </td>
 </tr>
 </table>
+
+### Building Documentation
+
+<table>
+<tr>
+<td>Build docs</td>
+<td>Preview docs locally</td>
+</tr>
+<tr>
+<td>
+
+```bash
+uv run docs
+```
+
+</td>
+<td>
+
+```bash
+uv run preview
+```
+
+</td>
+</tr>
+</table>
+
+The `preview` command starts a local server at `http://127.0.0.1:8000` for viewing documentation.
 
 For maintainers, to build and publish a new release: `uv build && uv publish`
