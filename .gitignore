@@ -24,9 +24,12 @@ local_test/
 
 # Documentation backup
 docs_origin/
+docs_backup/
 
 # Sphinx build output
 docs/_build/
 
 # macOS
 .DS_Store
+
+docs_demo

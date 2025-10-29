@@ -86,8 +86,18 @@ html_theme = 'furo'
 html_static_path = ['_static']
 
 html_theme_options = {
-    "sidebar_hide_name": False,
+    "sidebar_hide_name": True,
+    "light_logo": "logo_light.png",
+    "dark_logo": "logo_dark.png",
+    "source_repository": "https://github.com/fortyfive-labs/dreamlake/",
+    "source_branch": "main",
+    "source_directory": "docs/",
 }
+
+# Custom CSS files
+html_css_files = [
+    'custom.css',
+]
 
 # The master toctree document
 master_doc = 'index'

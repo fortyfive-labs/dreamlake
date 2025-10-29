@@ -454,12 +454,19 @@ python hyperparameter_search.py
 python architecture_comparison.py
 ```
 
-## Next Steps
+## See Also
 
-- Explore individual feature docs:
-  - [Logging](03-logging.md)
-  - [Parameters](04-parameters.md)
-  - [Tracks](05-tracks.md)
-  - [Files](06-files.md)
+**Feature-specific guides:**
+- [Logging](logging.md) - Structured logging with levels and metadata
+- [Parameters](parameters.md) - Hyperparameter tracking and flattening
+- [Tracks](tracks.md) - Time-series metrics tracking
+- [Files](files.md) - File upload and management
 
-- Check out runnable examples in `docs/examples/`
+**Deployment & Operations:**
+- **[Deployment Guide](deployment.md)** - Deploy your own Dreamlake server
+- **[Architecture](architecture.md)** - How Dreamlake works internally
+- **[FAQ & Troubleshooting](faq.md)** - Common problems and solutions
+
+**Getting Started:**
+- [Getting Started](getting-started.md) - Quick start tutorial
+- [API Quick Reference](api-quick-reference.md) - API cheat sheet

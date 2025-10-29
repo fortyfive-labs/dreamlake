@@ -254,6 +254,13 @@ Choose **Remote Mode** if:
 - Need web UI
 - Production workflows
 
-## Next Steps
+## See Also
 
-- [Complete Examples](08-complete-examples.md) - Full examples for both modes
+**Deployment & Operations:**
+- **[Deployment Guide](deployment.md)** - Deploy your own Dreamlake server (Docker, Kubernetes, Cloud)
+- **[Architecture](architecture.md)** - Understand the technical differences between modes
+- **[FAQ](faq.md)** - When should I use local vs remote mode?
+
+**Getting Started:**
+- [Complete Examples](complete-examples.md) - Full examples for both modes
+- [Getting Started](getting-started.md) - Quick start tutorial

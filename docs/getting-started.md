@@ -295,3 +295,22 @@ def train(session):
 ```
 
 **Note**: Using `user_name` is simpler for development - it automatically generates an API key from your username.
+
+---
+
+## See Also
+
+Now that you know the basics, explore these guides:
+
+- **[Architecture](architecture.md)** - Understand how Dreamlake works internally
+- **[Deployment Guide](deployment.md)** - Deploy your own Dreamlake server
+- **[API Quick Reference](api-quick-reference.md)** - Cheat sheet for common patterns
+- **[Complete Examples](complete-examples.md)** - End-to-end ML workflows
+- **[FAQ & Troubleshooting](faq.md)** - Common questions and solutions
+
+**Feature-specific guides:**
+- [Sessions](sessions.md) - Session lifecycle and management
+- [Logging](logging.md) - Structured logging with levels
+- [Parameters](parameters.md) - Hyperparameter tracking
+- [Tracks](tracks.md) - Time-series metrics
+- [Files](files.md) - File upload and management
