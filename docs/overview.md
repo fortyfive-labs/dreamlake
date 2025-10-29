@@ -21,7 +21,6 @@ session.track("loss").append(value=0.5, epoch=1)
 session.file(file_path="model.pth", prefix="/models").save()
 ```
 
-**Your Data** - Full control over your experiment data. Self-host or keep everything local.
 
 ## Core Concepts
 

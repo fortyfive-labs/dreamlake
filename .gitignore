@@ -33,3 +33,5 @@ docs/_build/
 .DS_Store
 
 docs_demo
+
+website/
