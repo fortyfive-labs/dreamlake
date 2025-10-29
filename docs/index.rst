@@ -1,96 +1,67 @@
-Dreamlake Documentation
-=======================
+Welcome to Dreamlake
+====================
 
-A simple and flexible SDK for ML experiment tracking and data storage.
+**Dreamlake** is a lightweight Python SDK for ML experiment tracking and data storage.
 
-Features
---------
+Track your machine learning experiments with zero setup. Start locally on your laptop, then seamlessly scale to a remote server when you need team collaboration. No configuration files, no complex setup - just clean, intuitive code.
 
-* **Three Usage Styles**: Decorator, context manager, or direct instantiation
-* **Dual Operation Modes**: Remote (API server) or local (filesystem)
-* **Auto-creation**: Automatically creates namespace, workspace, and folder hierarchy
-* **Upsert Behavior**: Updates existing sessions or creates new ones
-* **Simple API**: Minimal configuration, maximum flexibility
+**Key highlights:**
+
+- **Zero setup** - Start tracking in 60 seconds with local filesystem storage
+- **Dual modes** - Work offline (local) or collaborate (remote server)
+- **Fluent API** - Intuitive builder pattern for logs, parameters, metrics, and files
+- **Your data, your control** - Self-hosted option with full data ownership
 
 Installation
 ------------
-
-Using uv (recommended):
-
-.. code-block:: bash
-
-   uv add dreamlake
-
-Using pip:
 
 .. code-block:: bash
 
    pip install dreamlake
 
-Quick Start
------------
-
-Remote Mode (with API Server)
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-.. code-block:: python
-
-   from dreamlake import Session
-
-   with Session(
-       name="my-experiment",
-       workspace="my-workspace",
-       remote="https://cu3thurmv3.us-east-1.awsapprunner.com",
-       api_key="your-jwt-token"
-   ) as session:
-       print(f"Session ID: {session.id}")
-
-Local Mode (Filesystem)
-~~~~~~~~~~~~~~~~~~~~~~~
-
-.. code-block:: python
-
-   from dreamlake import Session
-
-   with Session(
-       name="my-experiment",
-       workspace="my-workspace",
-       local_path=".dreamlake"
-   ) as session:
-       pass  # Your code here
-
-Documentation
+Quick Example
 -------------
+
+.. code-block:: python
+   :linenos:
+
+   from dreamlake import Session
+
+   with Session(name="my-experiment", workspace="my-workspace") as session:
+       # Log messages
+       session.log("Training started")
+
+       # Track parameters
+       session.parameters().set(learning_rate=0.001, batch_size=32)
+
+       # Track metrics
+       session.track("loss").append(value=0.5, epoch=1)
 
 .. toctree::
    :maxdepth: 2
    :caption: Getting Started
+   :hidden:
 
-   getting-started
-   api-quick-reference
-   examples
+   overview
+   quickstart
 
 .. toctree::
    :maxdepth: 2
-   :caption: User Guide
+   :caption: Tutorials
+   :hidden:
 
    sessions
    logging
    parameters
    tracks
    files
-   local-vs-remote
-   complete-examples
 
 .. toctree::
    :maxdepth: 2
-   :caption: API Reference
+   :caption: Examples
+   :hidden:
 
-   api/modules
+   basic-training
+   hyperparameter-search
+   model-comparison
 
-Indices and tables
-==================
-
-* :ref:`genindex`
-* :ref:`modindex`
-* :ref:`search`
