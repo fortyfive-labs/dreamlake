@@ -10,7 +10,6 @@ Track your machine learning experiments with zero setup. Start locally on your l
 - **Zero setup** - Start tracking in 60 seconds with local filesystem storage
 - **Dual modes** - Work offline (local) or collaborate (remote server)
 - **Fluent API** - Intuitive builder pattern for logs, parameters, metrics, and files
-- **Your data, your control** - Self-hosted option with full data ownership
 
 Installation
 ------------
