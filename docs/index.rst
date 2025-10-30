@@ -26,7 +26,7 @@ Quick Example
 
    from dreamlake import Session
 
-   with Session(name="my-experiment", workspace="my-workspace") as session:
+   with Session(name="my-experiment", workspace="my-workspace", local_path=".dreamlake") as session:
        # Log messages
        session.log("Training started")
 
