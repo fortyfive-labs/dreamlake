@@ -9,8 +9,9 @@ Upload and manage experiment artifacts - models, plots, configs, and results. Fi
 
 from dreamlake import Session
 
-with Session(name="my-experiment", workspace="project") as session:
-    result = session.files().upload("model.pth", path="/models")
+with Session(name="my-experiment", workspace="project",
+        local_path=".dreamlake") as session:
+    result = session.file("model.pth", prefix="/models")
 
     print(f"Uploaded: {result['filename']}")
     print(f"Size: {result['sizeBytes']} bytes")
@@ -24,20 +25,21 @@ Use paths to organize files logically:
 ```{code-block} python
 :linenos:
 
-with Session(name="my-experiment", workspace="project") as session:
+with Session(name="my-experiment", workspace="project",
+        local_path=".dreamlake") as session:
     # Models
-    session.files().upload("model.pth", path="/models")
-    session.files().upload("best_model.pth", path="/models/checkpoints")
+    session.file("model.pth", prefix="/models")
+    session.file("best_model.pth", prefix="/models/checkpoints")
 
     # Visualizations
-    session.files().upload("loss_curve.png", path="/visualizations")
-    session.files().upload("confusion_matrix.png", path="/visualizations")
+    session.file("loss_curve.png", prefix="/visualizations")
+    session.file("confusion_matrix.png", prefix="/visualizations")
 
     # Configuration
-    session.files().upload("config.json", path="/config")
+    session.file("config.json", prefix="/config")
 
     # Results
-    session.files().upload("results.csv", path="/results")
+    session.file("results.csv", prefix="/results")
 ```
 
 ## File Metadata
@@ -47,10 +49,11 @@ Add description, tags, and custom metadata:
 ```{code-block} python
 :linenos:
 
-with Session(name="my-experiment", workspace="project") as session:
-    session.files().upload(
+with Session(name="my-experiment", workspace="project",
+        local_path=".dreamlake") as session:
+    session.file(
         "best_model.pth",
-        path="/models",
+        prefix="/models",
         description="Best model from epoch 50",
         tags=["checkpoint", "best"],
         metadata={
@@ -71,7 +74,8 @@ Save models during training:
 import torch
 from dreamlake import Session
 
-with Session(name="resnet-training", workspace="cv") as session:
+with Session(name="resnet-training", workspace="cv",
+        local_path=".dreamlake") as session:
     session.parameters().set(model="resnet50", epochs=100)
     session.log("Starting training")
 
@@ -90,9 +94,9 @@ with Session(name="resnet-training", workspace="cv") as session:
             checkpoint_path = f"checkpoint_epoch_{epoch + 1}.pth"
             torch.save(model.state_dict(), checkpoint_path)
 
-            session.files().upload(
+            session.file(
                 checkpoint_path,
-                path="/checkpoints",
+                prefix="/checkpoints",
                 tags=["checkpoint"],
                 metadata={"epoch": epoch + 1, "val_accuracy": val_accuracy}
             )
@@ -102,9 +106,9 @@ with Session(name="resnet-training", workspace="cv") as session:
             best_accuracy = val_accuracy
 
             torch.save(model.state_dict(), "best_model.pth")
-            session.files().upload(
+            session.file(
                 "best_model.pth",
-                path="/models",
+                prefix="/models",
                 description=f"Best model (accuracy: {best_accuracy:.4f})",
                 tags=["best"],
                 metadata={"epoch": epoch + 1, "accuracy": best_accuracy}
@@ -125,7 +129,8 @@ Upload matplotlib plots:
 import matplotlib.pyplot as plt
 from dreamlake import Session
 
-with Session(name="my-experiment", workspace="project") as session:
+with Session(name="my-experiment", workspace="project",
+        local_path=".dreamlake") as session:
     # Generate plot
     losses = [0.5, 0.4, 0.3, 0.25, 0.2]
     plt.plot(losses)
@@ -135,9 +140,9 @@ with Session(name="my-experiment", workspace="project") as session:
 
     # Save and upload
     plt.savefig("loss_curve.png")
-    session.files().upload(
+    session.file(
         "loss_curve.png",
-        path="/visualizations",
+        prefix="/visualizations",
         description="Training loss over epochs",
         tags=["plot"]
     )
@@ -160,7 +165,8 @@ config = {
     "training": {"epochs": 100, "batch_size": 32, "lr": 0.001}
 }
 
-with Session(name="my-experiment", workspace="project") as session:
+with Session(name="my-experiment", workspace="project",
+        local_path=".dreamlake") as session:
     # Track as parameters
     session.parameters().set(**config)
 
@@ -168,9 +174,9 @@ with Session(name="my-experiment", workspace="project") as session:
     with open("config.json", "w") as f:
         json.dump(config, f, indent=2)
 
-    session.files().upload(
+    session.file(
         "config.json",
-        path="/config",
+        prefix="/config",
         description="Experiment configuration",
         tags=["config"]
     )
@@ -202,4 +208,4 @@ with Session(name="my-experiment", workspace="project") as session:
 
 ---
 
-**That's it!** You've completed all the core Dreamlake tutorials. Check out the API Reference for detailed method documentation.
+**That's it!** You've completed all the core DreamLake tutorials. Check out the API Reference for detailed method documentation.

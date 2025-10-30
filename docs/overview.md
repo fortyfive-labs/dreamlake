@@ -1,6 +1,6 @@
 # Overview
 
-Dreamlake is a lightweight Python SDK for tracking machine learning experiments and storing experiment data. It provides a simple, intuitive API for logging, parameter tracking, metrics monitoring, and file management.
+DreamLake is a lightweight Python SDK for tracking machine learning experiments and storing experiment data. It provides a simple, intuitive API for logging, parameter tracking, metrics monitoring, and file management.
 
 **Start in 60 seconds.** Install, import, and start tracking - no configuration needed.
 
@@ -18,7 +18,7 @@ Dreamlake is a lightweight Python SDK for tracking machine learning experiments 
 session.log("Training started")
 session.parameters().set(learning_rate=0.001, batch_size=32)
 session.track("loss").append(value=0.5, epoch=1)
-session.file(file_path="model.pth", prefix="/models").save()
+session.file(file_prefix="model.pth", prefix="/models").save()
 ```
 
 

@@ -52,7 +52,8 @@ def hyperparameter_search():
             name=session_name,
             workspace="hyperparameter-search",
             description=f"Grid search: lr={lr}, batch_size={bs}",
-            tags=["grid-search", f"lr-{lr}", f"bs-{bs}"]
+            tags=["grid-search", f"lr-{lr}", f"bs-{bs}"],
+        local_path=".dreamlake"
         ) as session:
             # Track hyperparameters
             session.parameters().set(
@@ -143,7 +144,8 @@ for i in range(20):
     lr = 10 ** random.uniform(-4, -1)  # 0.0001 to 0.1
     bs = random.choice([16, 32, 64, 128])
 
-    with Session(name=f"random-{i}", workspace="random-search") as session:
+    with Session(name=f"random-{i}", workspace="random-search",
+        local_path=".dreamlake") as session:
         session.parameters().set(learning_rate=lr, batch_size=bs)
         # Train and track...
 ```
@@ -154,7 +156,8 @@ for trial in range(100):
     # Get next params from Bayesian optimizer
     params = optimizer.suggest()
 
-    with Session(name=f"trial-{trial}", workspace="bayes-opt") as session:
+    with Session(name=f"trial-{trial}", workspace="bayes-opt",
+        local_path=".dreamlake") as session:
         session.parameters().set(**params)
         accuracy = train_and_evaluate(params, session)
 

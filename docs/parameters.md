@@ -9,7 +9,8 @@ Track hyperparameters, configuration values, and experiment settings. Parameters
 
 from dreamlake import Session
 
-with Session(name="my-experiment", workspace="project") as session:
+with Session(name="my-experiment", workspace="project",
+        local_path=".dreamlake") as session:
     session.parameters().set(
         learning_rate=0.001,
         batch_size=32,
@@ -25,7 +26,8 @@ Use nested dictionaries - they're automatically flattened with dot notation:
 ```{code-block} python
 :linenos:
 
-with Session(name="my-experiment", workspace="project") as session:
+with Session(name="my-experiment", workspace="project",
+        local_path=".dreamlake") as session:
     session.parameters().set(**{
         "model": {
             "architecture": "resnet50",
@@ -53,7 +55,8 @@ Call `parameters().set()` multiple times - values merge and overwrite:
 ```{code-block} python
 :linenos:
 
-with Session(name="my-experiment", workspace="project") as session:
+with Session(name="my-experiment", workspace="project",
+        local_path=".dreamlake") as session:
     # Initial parameters
     session.parameters().set(learning_rate=0.001, batch_size=32)
 
@@ -83,7 +86,8 @@ from dreamlake import Session
 with open("config.json", "r") as f:
     config = json.load(f)
 
-with Session(name="my-experiment", workspace="project") as session:
+with Session(name="my-experiment", workspace="project",
+        local_path=".dreamlake") as session:
     session.parameters().set(**config)
     session.log("Configuration loaded")
 ```
@@ -101,7 +105,8 @@ parser.add_argument("--lr", type=float, default=0.001)
 parser.add_argument("--batch-size", type=int, default=32)
 args = parser.parse_args()
 
-with Session(name="my-experiment", workspace="project") as session:
+with Session(name="my-experiment", workspace="project",
+        local_path=".dreamlake") as session:
     session.parameters().set(**vars(args))
 ```
 
@@ -121,7 +126,8 @@ class TrainingConfig:
 
 config = TrainingConfig()
 
-with Session(name="my-experiment", workspace="project") as session:
+with Session(name="my-experiment", workspace="project",
+        local_path=".dreamlake") as session:
     session.parameters().set(**asdict(config))
 ```
 
@@ -130,7 +136,8 @@ with Session(name="my-experiment", workspace="project") as session:
 ```{code-block} python
 :linenos:
 
-with Session(name="resnet-imagenet", workspace="cv") as session:
+with Session(name="resnet-imagenet", workspace="cv",
+        local_path=".dreamlake") as session:
     session.parameters().set(**{
         "model": {
             "architecture": "resnet50",

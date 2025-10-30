@@ -1,6 +1,6 @@
-# Dreamlake - API Quick Reference
+# DreamLake - API Quick Reference
 
-Quick reference for common Dreamlake operations.
+Quick reference for common DreamLake operations.
 
 ## Session Creation
 
@@ -11,7 +11,8 @@ from dreamlake import Session
 with Session(
     name="experiment-name",
     workspace="workspace-name",
-    local_path="./data"
+    local_prefix="./data",
+        local_path=".dreamlake"
 ) as session:
     # Your code here
     pass
@@ -110,7 +111,7 @@ for track in tracks:
 ```python
 # Upload file
 session.file(
-    file_path="model.pth",
+    file_prefix="model.pth",
     prefix="models/",
     description="Trained model",
     tags=["final", "best"]
@@ -118,7 +119,7 @@ session.file(
 
 # Upload with metadata
 session.file(
-    file_path="model.pth",
+    file_prefix="model.pth",
     prefix="models/checkpoints/",
     metadata={"epoch": 50, "accuracy": 0.95}
 ).save()
@@ -137,7 +138,8 @@ from dreamlake import Session
 with Session(
     name="mnist-training",
     workspace="computer-vision",
-    local_path="./experiments"
+    local_prefix="./experiments",
+        local_path=".dreamlake"
 ) as session:
     # Configuration
     session.parameters().set(
@@ -170,7 +172,7 @@ with Session(
 
     # Save model
     save_model("model.pth")
-    session.file(file_path="model.pth", prefix="models/").save()
+    session.file(file_prefix="model.pth", prefix="models/").save()
 
     session.log("Training complete!", level="info")
 ```

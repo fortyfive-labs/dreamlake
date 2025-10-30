@@ -1,6 +1,6 @@
 # Complete Examples
 
-This document contains complete, runnable examples showcasing common use cases for Dreamlake.
+This document contains complete, runnable examples showcasing common use cases for DreamLake.
 
 ## Example 1: Simple Training Loop
 
@@ -12,14 +12,15 @@ import random
 from dreamlake import Session
 
 def train_simple_model():
-    """Train a simple model and track with Dreamlake."""
+    """Train a simple model and track with DreamLake."""
 
     with Session(
         name="simple-training",
         workspace="tutorials",
-        local_path="./experiments",
+        local_prefix="./experiments",
         description="Simple training example",
-        tags=["tutorial", "simple"]
+        tags=["tutorial", "simple"],
+        local_path=".dreamlake"
     ) as session:
         # Track hyperparameters
         session.parameters().set(
@@ -66,7 +67,7 @@ if __name__ == "__main__":
 Complete PyTorch MNIST training with full experiment tracking.
 
 ```python
-"""PyTorch MNIST training with Dreamlake tracking."""
+"""PyTorch MNIST training with DreamLake tracking."""
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -88,7 +89,7 @@ class SimpleNet(nn.Module):
         return self.fc3(x)
 
 def train_mnist():
-    """Train MNIST model with Dreamlake tracking."""
+    """Train MNIST model with DreamLake tracking."""
 
     # Setup
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -113,13 +114,14 @@ def train_mnist():
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
     criterion = nn.CrossEntropyLoss()
 
-    # Dreamlake session
+    # DreamLake session
     with Session(
         name="mnist-pytorch",
         workspace="computer-vision",
-        local_path="./experiments",
+        local_prefix="./experiments",
         description="MNIST classification with PyTorch",
-        tags=["mnist", "pytorch", "classification"]
+        tags=["mnist", "pytorch", "classification"],
+        local_path=".dreamlake"
     ) as session:
         # Track configuration
         session.parameters().set({
@@ -208,9 +210,9 @@ def train_mnist():
             if val_accuracy > best_accuracy:
                 best_accuracy = val_accuracy
                 torch.save(model.state_dict(), "best_model.pth")
-                session.files().upload(
+                session.file(
                     "best_model.pth",
-                    path="/models",
+                    prefix="/models",
                     description=f"Best model (accuracy: {best_accuracy:.4f})",
                     tags=["best"],
                     metadata={"epoch": epoch, "accuracy": best_accuracy}
@@ -219,9 +221,9 @@ def train_mnist():
 
         # Save final model
         torch.save(model.state_dict(), "final_model.pth")
-        session.files().upload(
+        session.file(
             "final_model.pth",
-            path="/models",
+            prefix="/models",
             description="Final model after all epochs",
             tags=["final"]
         )
@@ -272,9 +274,10 @@ def hyperparameter_search():
         with Session(
             name=session_name,
             workspace="hyperparameter-search",
-            local_path="./experiments",
+            local_prefix="./experiments",
             description=f"Grid search: lr={lr}, batch_size={bs}",
-            tags=["grid-search", f"lr-{lr}", f"bs-{bs}"]
+            tags=["grid-search", f"lr-{lr}", f"bs-{bs}"],
+        local_path=".dreamlake"
         ) as session:
             # Track hyperparameters
             session.parameters().set(
@@ -343,9 +346,10 @@ def compare_architectures():
         with Session(
             name=f"comparison-{arch}",
             workspace="architecture-comparison",
-            local_path="./experiments",
+            local_prefix="./experiments",
             description=f"Training {arch} on CIFAR-10",
-            tags=["comparison", arch, "cifar10"]
+            tags=["comparison", arch, "cifar10"],
+        local_path=".dreamlake"
         ) as session:
             # Configuration
             session.parameters().set(
@@ -390,9 +394,10 @@ def train_with_debug():
     with Session(
         name="debug-training",
         workspace="debugging",
-        local_path="./experiments",
+        local_prefix="./experiments",
         description="Training with debug logging",
-        tags=["debug"]
+        tags=["debug"],
+        local_path=".dreamlake"
     ) as session:
         session.parameters().set(
             learning_rate=0.001,
@@ -463,8 +468,8 @@ python architecture_comparison.py
 - [Files](files.md) - File upload and management
 
 **Deployment & Operations:**
-- **[Deployment Guide](deployment.md)** - Deploy your own Dreamlake server
-- **[Architecture](architecture.md)** - How Dreamlake works internally
+- **[Deployment Guide](deployment.md)** - Deploy your own DreamLake server
+- **[Architecture](architecture.md)** - How DreamLake works internally
 - **[FAQ & Troubleshooting](faq.md)** - Common problems and solutions
 
 **Getting Started:**

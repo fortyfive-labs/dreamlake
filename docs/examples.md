@@ -1,6 +1,6 @@
-# Dreamlake Examples
+# DreamLake Examples
 
-This directory contains runnable examples demonstrating Dreamlake features.
+This directory contains runnable examples demonstrating DreamLake features.
 
 ## Running Examples
 
@@ -22,7 +22,7 @@ PYTHONPATH=./src python docs/examples/06_complete_training.py
 | Example | Description | Features |
 |---------|-------------|----------|
 | `three_usage_styles.py` | **NEW!** Three ways to use sessions | Decorator, context manager, direct instantiation |
-| `01_basic_session.py` | Your first Dreamlake session | Session creation, logging, parameters |
+| `01_basic_session.py` | Your first DreamLake session | Session creation, logging, parameters |
 | `02_logging_example.py` | Structured logging | Log levels, metadata, progress logging |
 | `03_parameters_example.py` | Hyperparameters tracking | Simple params, nested params, updates |
 | `04_tracks_example.py` | Time-series metrics | Tracks, batch append, reading data, stats |
@@ -83,14 +83,14 @@ rm -rf tutorial_data/
 
 ### Three Usage Styles (`three_usage_styles.py`)
 
-Demonstrates all three ways to use Dreamlake sessions:
+Demonstrates all three ways to use DreamLake sessions:
 - **Decorator style**: Best for ML training functions
 - **Context manager style**: Best for scripts
 - **Direct instantiation**: Advanced usage with manual lifecycle management
 
 ### Basic Session (`01_basic_session.py`)
 
-Your first Dreamlake session showing:
+Your first DreamLake session showing:
 - Creating a local session
 - Basic logging
 - Setting parameters

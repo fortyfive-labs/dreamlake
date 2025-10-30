@@ -9,7 +9,8 @@ Track events, progress, and debugging information throughout your experiments. L
 
 from dreamlake import Session
 
-with Session(name="my-experiment", workspace="project") as session:
+with Session(name="my-experiment", workspace="project",
+        local_path=".dreamlake") as session:
     session.log("Training started")
     session.log("Model architecture: ResNet-50", level="info")
     session.log("GPU memory low", level="warn")
@@ -23,7 +24,8 @@ with Session(name="my-experiment", workspace="project") as session:
 ```{code-block} python
 :linenos:
 
-with Session(name="my-experiment", workspace="project") as session:
+with Session(name="my-experiment", workspace="project",
+        local_path=".dreamlake") as session:
     session.log("Detailed debugging info", level="debug")
     session.log("Training epoch 1", level="info")
     session.log("Learning rate decreased", level="warn")
@@ -38,7 +40,8 @@ Add context and metrics to your logs:
 ```{code-block} python
 :linenos:
 
-with Session(name="my-experiment", workspace="project") as session:
+with Session(name="my-experiment", workspace="project",
+        local_path=".dreamlake") as session:
     # Log with metrics
     session.log(
         "Epoch completed",
@@ -69,7 +72,8 @@ with Session(name="my-experiment", workspace="project") as session:
 ```{code-block} python
 :linenos:
 
-with Session(name="mnist-training", workspace="ml") as session:
+with Session(name="mnist-training", workspace="ml",
+        local_path=".dreamlake") as session:
     session.log("Starting training", level="info")
 
     for epoch in range(10):
@@ -94,7 +98,8 @@ with Session(name="mnist-training", workspace="ml") as session:
 ```{code-block} python
 :linenos:
 
-with Session(name="my-experiment", workspace="project") as session:
+with Session(name="my-experiment", workspace="project",
+        local_path=".dreamlake") as session:
     try:
         result = risky_operation()
         session.log("Operation succeeded", level="info")
@@ -115,7 +120,8 @@ with Session(name="my-experiment", workspace="project") as session:
 ```{code-block} python
 :linenos:
 
-with Session(name="data-processing", workspace="etl") as session:
+with Session(name="data-processing", workspace="etl",
+        local_path=".dreamlake") as session:
     total = 10000
     session.log(f"Processing {total} items", level="info")
 

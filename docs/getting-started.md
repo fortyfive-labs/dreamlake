@@ -1,6 +1,6 @@
-# Getting Started with Dreamlake
+# Getting Started with DreamLake
 
-This guide will help you get started with Dreamlake.
+This guide will help you get started with DreamLake.
 
 ## Installation
 
@@ -26,14 +26,14 @@ A **Workspace** is a container for organizing related sessions. Think of it as a
 
 ### Local vs Remote Mode
 
-Dreamlake operates in two modes:
+DreamLake operates in two modes:
 
 - **Local Mode**: Data stored in filesystem (`.dreamlake/` directory)
 - **Remote Mode**: Data stored in MongoDB + S3 via API
 
 ## Your First Session
 
-Dreamlake supports **three usage styles**. Choose the one that fits your workflow best:
+DreamLake supports **three usage styles**. Choose the one that fits your workflow best:
 
 ### Style 1: Decorator (Recommended for ML Training)
 
@@ -45,12 +45,12 @@ from dreamlake import dreamlake_session
 @dreamlake_session(
     name="hello-dreamlake",
     workspace="tutorials",
-    local_path="./my_experiments"
+    local_prefix="./my_experiments"
 )
 def my_first_experiment(session):
     """Session is automatically injected as a parameter"""
     # Log a message
-    session.log("Hello from Dreamlake!", level="info")
+    session.log("Hello from DreamLake!", level="info")
 
     # Track a parameter
     session.parameters().set(message="Hello World")
@@ -73,10 +73,11 @@ from dreamlake import Session
 with Session(
     name="hello-dreamlake",
     workspace="tutorials",
-    local_path="./my_experiments"
+    local_prefix="./my_experiments",
+        local_path=".dreamlake"
 ) as session:
     # Log a message
-    session.log("Hello from Dreamlake!", level="info")
+    session.log("Hello from DreamLake!", level="info")
 
     # Track a parameter
     session.parameters().set(message="Hello World")
@@ -96,7 +97,8 @@ from dreamlake import Session
 session = Session(
     name="hello-dreamlake",
     workspace="tutorials",
-    local_path="./my_experiments"
+    local_prefix="./my_experiments",
+        local_path=".dreamlake"
 )
 
 # Explicitly open
@@ -104,7 +106,7 @@ session.open()
 
 try:
     # Log a message
-    session.log("Hello from Dreamlake!", level="info")
+    session.log("Hello from DreamLake!", level="info")
 
     # Track a parameter
     session.parameters().set(message="Hello World")
@@ -151,17 +153,19 @@ cat ./my_experiments/.dreamlake/tutorials/hello-dreamlake/parameters.json
 
 ## Session Context Manager
 
-Dreamlake uses Python's context manager pattern (`with` statement) to ensure proper cleanup:
+DreamLake uses Python's context manager pattern (`with` statement) to ensure proper cleanup:
 
 ```python
 # ✓ Good - Automatic cleanup
-with Session(name="my-session", workspace="test", local_path="./data") as session:
+with Session(name="my-session", workspace="test", local_prefix="./data",
+        local_path=".dreamlake") as session:
     session.log("Training started")
     # ... do work ...
 # Session automatically closed here
 
 # ✗ Manual cleanup (not recommended)
-session = Session(name="my-session", workspace="test", local_path="./data")
+session = Session(name="my-session", workspace="test", local_prefix="./data",
+        local_path=".dreamlake")
 session.open()
 try:
     session.log("Training started")
@@ -177,10 +181,11 @@ You can add metadata to your sessions:
 with Session(
     name="mnist-baseline",
     workspace="computer-vision",
-    local_path="./experiments",
+    local_prefix="./experiments",
     description="Baseline CNN for MNIST classification",
     tags=["mnist", "cnn", "baseline"],
-    folder="/experiments/mnist"
+    folder="/experiments/mnist",
+        local_path=".dreamlake"
 ) as session:
     session.log("Session created with metadata")
 ```
@@ -196,7 +201,8 @@ try:
     with Session(
         name="test-session",
         workspace="test",
-        local_path="./data"
+        local_prefix="./data",
+        local_path=".dreamlake"
     ) as session:
         session.log("Starting work...")
         # Your code here
@@ -228,7 +234,7 @@ from dreamlake import Session, dreamlake_session
 @dreamlake_session(
     name="session-name",
     workspace="workspace-name",
-    local_path="./path/to/data"
+    local_prefix="./path/to/data"
 )
 def train(session):
     session.log("Training...")
@@ -242,7 +248,8 @@ train()  # Session managed automatically
 with Session(
     name="session-name",
     workspace="workspace-name",
-    local_path="./path/to/data"
+    local_prefix="./path/to/data",
+        local_path=".dreamlake"
 ) as session:
     pass
 
@@ -270,7 +277,8 @@ with Session(
 session = Session(
     name="session-name",
     workspace="workspace-name",
-    local_path="./path/to/data"
+    local_prefix="./path/to/data",
+        local_path=".dreamlake"
 )
 session.open()
 try:
@@ -302,8 +310,8 @@ def train(session):
 
 Now that you know the basics, explore these guides:
 
-- **[Architecture](architecture.md)** - Understand how Dreamlake works internally
-- **[Deployment Guide](deployment.md)** - Deploy your own Dreamlake server
+- **[Architecture](architecture.md)** - Understand how DreamLake works internally
+- **[Deployment Guide](deployment.md)** - Deploy your own DreamLake server
 - **[API Quick Reference](api-quick-reference.md)** - Cheat sheet for common patterns
 - **[Complete Examples](complete-examples.md)** - End-to-end ML workflows
 - **[FAQ & Troubleshooting](faq.md)** - Common questions and solutions

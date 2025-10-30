@@ -1,6 +1,6 @@
 # Basic Training Loop
 
-A complete example showing how to track a simple training loop with Dreamlake.
+A complete example showing how to track a simple training loop with DreamLake.
 
 ## The Scenario
 
@@ -19,13 +19,14 @@ import random
 from dreamlake import Session
 
 def train_simple_model():
-    """Train a simple model and track everything with Dreamlake."""
+    """Train a simple model and track everything with DreamLake."""
 
     with Session(
         name="simple-training",
         workspace="tutorials",
         description="Basic training loop example",
-        tags=["tutorial", "simple"]
+        tags=["tutorial", "simple"],
+        local_path=".dreamlake"
     ) as session:
         # Track hyperparameters
         session.parameters().set(
@@ -66,12 +67,12 @@ def train_simple_model():
         with open("model.pth", "w") as f:
             f.write("model weights")
 
-        session.files().upload(
-            "model.pth",
-            path="/models",
+        session.file(
+            file_path="model.pth",
+            prefix="/models",
             description="Final trained model",
             tags=["final"]
-        )
+        ).save()
 
         session.log("Training complete!", level="info")
         print(f"✓ Experiment tracked successfully")

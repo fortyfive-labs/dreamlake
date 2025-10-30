@@ -9,7 +9,8 @@ Track time-series metrics that change over time - loss, accuracy, learning rate,
 
 from dreamlake import Session
 
-with Session(name="my-experiment", workspace="project") as session:
+with Session(name="my-experiment", workspace="project",
+        local_path=".dreamlake") as session:
     # Append a single data point
     session.track("train_loss").append(value=0.5, epoch=1)
 
@@ -24,7 +25,8 @@ Define your own data structure for each track:
 ```{code-block} python
 :linenos:
 
-with Session(name="my-experiment", workspace="project") as session:
+with Session(name="my-experiment", workspace="project",
+        local_path=".dreamlake") as session:
     # Simple value
     session.track("loss").append(value=0.5)
 
@@ -52,7 +54,8 @@ Append multiple data points at once for better performance:
 ```{code-block} python
 :linenos:
 
-with Session(name="my-experiment", workspace="project") as session:
+with Session(name="my-experiment", workspace="project",
+        local_path=".dreamlake") as session:
     result = session.track("train_loss").append_batch([
         {"value": 0.5, "step": 1, "epoch": 1},
         {"value": 0.45, "step": 2, "epoch": 1},
@@ -70,7 +73,8 @@ Read track data by index range:
 ```{code-block} python
 :linenos:
 
-with Session(name="my-experiment", workspace="project") as session:
+with Session(name="my-experiment", workspace="project",
+        local_path=".dreamlake") as session:
     # Append data
     for i in range(100):
         session.track("loss").append(value=1.0 / (i + 1), step=i)
@@ -87,7 +91,8 @@ with Session(name="my-experiment", workspace="project") as session:
 ```{code-block} python
 :linenos:
 
-with Session(name="mnist-training", workspace="cv") as session:
+with Session(name="mnist-training", workspace="cv",
+        local_path=".dreamlake") as session:
     session.parameters().set(learning_rate=0.001, batch_size=32)
     session.log("Starting training")
 
@@ -115,7 +120,8 @@ Collect points in memory, then append in batches:
 ```{code-block} python
 :linenos:
 
-with Session(name="my-experiment", workspace="project") as session:
+with Session(name="my-experiment", workspace="project",
+        local_path=".dreamlake") as session:
     batch = []
 
     for step in range(1000):
@@ -140,7 +146,8 @@ Combine related metrics:
 ```{code-block} python
 :linenos:
 
-with Session(name="my-experiment", workspace="project") as session:
+with Session(name="my-experiment", workspace="project",
+        local_path=".dreamlake") as session:
     for epoch in range(10):
         session.track("all_metrics").append(
             epoch=epoch,

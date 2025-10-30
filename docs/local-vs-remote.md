@@ -1,6 +1,6 @@
 # Local vs Remote Mode
 
-Dreamlake operates in two modes: **Local** (filesystem) and **Remote** (API + Cloud storage). Understanding the differences helps you choose the right mode for your use case.
+DreamLake operates in two modes: **Local** (filesystem) and **Remote** (API + Cloud storage). Understanding the differences helps you choose the right mode for your use case.
 
 ## Local Mode
 
@@ -22,12 +22,13 @@ from dreamlake import Session
 with Session(
     name="my-experiment",
     workspace="my-workspace",
-    local_path="./experiments"  # Required for local mode
+    local_prefix="./experiments"  # Required for local mode,
+        local_path=".dreamlake"
 ) as session:
     session.log("Running in local mode")
     session.parameters().set(batch_size=32)
     session.track("loss").append(value=0.5)
-    session.files().upload("model.pth", path="/models")
+    session.file("model.pth", prefix="/models")
 ```
 
 ### Local Storage Structure
@@ -88,7 +89,7 @@ with Session(
     session.log("Running in remote mode")
     session.parameters().set(batch_size=32)
     session.track("loss").append(value=0.5)
-    session.files().upload("model.pth", path="/models")
+    session.file("model.pth", prefix="/models")
 
 # Or with API key (advanced)
 with Session(
@@ -100,7 +101,7 @@ with Session(
     session.log("Running in remote mode")
     session.parameters().set(batch_size=32)
     session.track("loss").append(value=0.5)
-    session.files().upload("model.pth", path="/models")
+    session.file("model.pth", prefix="/models")
 ```
 
 ### Remote Storage Architecture
@@ -162,7 +163,8 @@ You can't directly convert between modes, but you can export/import data.
 
 ```python
 # Development (local)
-with Session(name="experiment", workspace="dev", local_path="./data") as session:
+with Session(name="experiment", workspace="dev", local_prefix="./data",
+        local_path=".dreamlake") as session:
     # Develop your code...
     pass
 
@@ -225,7 +227,8 @@ else:
         "local_path": "./experiments"
     }
 
-with Session(name="experiment", workspace="ml", **session_config) as session:
+with Session(name="experiment", workspace="ml", **session_config,
+        local_path=".dreamlake") as session:
     session.log("Starting training")
     # Your training code...
 ```
@@ -257,7 +260,7 @@ Choose **Remote Mode** if:
 ## See Also
 
 **Deployment & Operations:**
-- **[Deployment Guide](deployment.md)** - Deploy your own Dreamlake server (Docker, Kubernetes, Cloud)
+- **[Deployment Guide](deployment.md)** - Deploy your own DreamLake server (Docker, Kubernetes, Cloud)
 - **[Architecture](architecture.md)** - Understand the technical differences between modes
 - **[FAQ](faq.md)** - When should I use local vs remote mode?
 

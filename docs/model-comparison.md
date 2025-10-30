@@ -54,7 +54,8 @@ def compare_architectures():
             name=f"comparison-{arch}",
             workspace="architecture-comparison",
             description=f"Training {arch} on CIFAR-10",
-            tags=["comparison", arch, "cifar10"]
+            tags=["comparison", arch, "cifar10"],
+        local_path=".dreamlake"
         ) as session:
             # Same configuration for fair comparison
             session.parameters().set(
@@ -192,7 +193,8 @@ def train_and_evaluate(model, train_loader, val_loader, session):
 
 # Compare architectures
 for arch in ["cnn", "resnet", "vit"]:
-    with Session(name=f"comparison-{arch}", workspace="arch-comp") as session:
+    with Session(name=f"comparison-{arch}", workspace="arch-comp",
+        local_path=".dreamlake") as session:
         session.parameters().set(architecture=arch, dataset="cifar10")
 
         model = create_model(arch)
@@ -200,7 +202,7 @@ for arch in ["cnn", "resnet", "vit"]:
 
         # Save best model
         torch.save(model.state_dict(), f"{arch}_model.pth")
-        session.files().upload(f"{arch}_model.pth", path="/models")
+        session.file(f"{arch}_model.pth", prefix="/models")
 ```
 
 ---

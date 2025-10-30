@@ -1,6 +1,6 @@
 # Quickstart
 
-Get started with Dreamlake in under 5 minutes.
+Get started with DreamLake in under 5 minutes.
 
 ## Installation
 
@@ -20,7 +20,8 @@ Local mode stores everything on your filesystem - perfect for getting started:
 from dreamlake import Session
 
 # Create a session (stores data in .dreamlake/ directory)
-with Session(name="my-first-experiment", workspace="tutorial") as session:
+with Session(name="my-first-experiment", workspace="tutorial",
+        local_path=".dreamlake") as session:
     # Log messages
     session.log("Training started")
 
@@ -66,7 +67,8 @@ After running the code above, your data is organized like this:
 
 from dreamlake import Session
 
-with Session(name="train-model", workspace="project") as session:
+with Session(name="train-model", workspace="project",
+        local_path=".dreamlake") as session:
     # Set hyperparameters
     session.parameters().set(
         model="resnet50",
@@ -96,19 +98,20 @@ with Session(name="train-model", workspace="project") as session:
 
 from dreamlake import Session
 
-with Session(name="my-experiment", workspace="project") as session:
+with Session(name="my-experiment", workspace="project",
+        local_path=".dreamlake") as session:
     # Train your model...
     # model.save("model.pth")
 
     # Upload the model file
     session.file(
-        file_path="model.pth",
+        file_prefix="model.pth",
         prefix="/models"
     ).save()
 
     # Upload a config file with metadata
     session.file(
-        file_path="config.yaml",
+        file_prefix="config.yaml",
         prefix="/configs",
         metadata={"version": "1.0"}
     ).save()
@@ -116,7 +119,7 @@ with Session(name="my-experiment", workspace="project") as session:
 
 ## Remote Mode
 
-To collaborate with your team, switch to remote mode by pointing to a Dreamlake server:
+To collaborate with your team, switch to remote mode by pointing to a DreamLake server:
 
 ```{code-block} python
 :linenos:
@@ -140,4 +143,3 @@ The API is identical - just add `remote` and `user_name` parameters.
 
 - **Learn the basics**: Read the [Overview](overview.md) to understand core concepts
 - **Explore features**: Check out guides for [Logging](logging.md), [Parameters](parameters.md), [Tracks](tracks.md), and [Files](files.md)
-- **Deploy a server**: See the [Deployment Guide](deployment.md) for setting up a remote server

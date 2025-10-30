@@ -1,10 +1,10 @@
 # Architecture & Design
 
-This document provides an in-depth look at Dreamlake's architecture, design decisions, and internal workings.
+This document provides an in-depth look at DreamLake's architecture, design decisions, and internal workings.
 
 ## Overview
 
-Dreamlake is built with a clean, modular architecture that supports both local filesystem and remote API server backends. The design emphasizes simplicity, flexibility, and ease of use while maintaining powerful functionality for ML experiment tracking.
+DreamLake is built with a clean, modular architecture that supports both local filesystem and remote API server backends. The design emphasizes simplicity, flexibility, and ease of use while maintaining powerful functionality for ML experiment tracking.
 
 ### High-Level Architecture
 
@@ -41,7 +41,7 @@ flowchart TB
 
 ### 1. Session Manager
 
-The `Session` class is the entry point for all Dreamlake operations. It:
+The `Session` class is the entry point for all DreamLake operations. It:
 
 - **Manages lifecycle**: Creation, opening, closing of experiment sessions
 - **Handles backends**: Automatically selects LocalStorage or RemoteClient based on configuration
@@ -60,7 +60,7 @@ Session
 
 ### 2. Builder APIs
 
-Dreamlake uses the **Builder Pattern** to provide a fluent, chainable API for data operations:
+DreamLake uses the **Builder Pattern** to provide a fluent, chainable API for data operations:
 
 #### LogBuilder
 ```python
@@ -92,7 +92,7 @@ session.track("loss").append_batch([...])
 
 #### FileBuilder
 ```python
-session.file(file_path="model.pth", prefix="/models").save()
+session.file(file_prefix="model.pth", prefix="/models").save()
 ```
 - File upload and organization
 - Checksum validation (SHA256)
@@ -101,7 +101,7 @@ session.file(file_path="model.pth", prefix="/models").save()
 
 ### 3. Backend Layer
 
-The backend layer abstracts storage implementation, allowing Dreamlake to work with different backends without changing user code.
+The backend layer abstracts storage implementation, allowing DreamLake to work with different backends without changing user code.
 
 #### LocalStorage
 
@@ -268,7 +268,8 @@ Session(
     name="baseline",
     workspace="my-workspace",
     folder="/experiments/2024",
-    local_path=".dreamlake"
+    local_prefix=".dreamlake",
+        local_path=".dreamlake"
 )
 ```
 
@@ -315,7 +316,7 @@ Benefits:
 
 ### Custom Storage Backends
 
-Dreamlake's architecture allows for custom storage backends by implementing the storage interface:
+DreamLake's architecture allows for custom storage backends by implementing the storage interface:
 
 ```python
 class CustomStorage:
@@ -416,7 +417,7 @@ Session(remote="...", api_key="actual-jwt-token")
 
 ## Comparison with Other Tools
 
-| Feature | Dreamlake | MLflow | Weights & Biases | Neptune.ai |
+| Feature | DreamLake | MLflow | Weights & Biases | Neptune.ai |
 |---------|-----------|---------|------------------|------------|
 | **Local Mode** | ✅ First-class | ✅ Yes | ❌ Cloud-only | ❌ Cloud-only |
 | **Self-hosted** | ✅ Easy | ✅ Yes | ❌ Enterprise only | ❌ No |
@@ -425,7 +426,7 @@ Session(remote="...", api_key="actual-jwt-token")
 | **Learning Curve** | ✅ Low | ⚠️ Medium | ⚠️ Medium | ⚠️ Medium |
 | **Setup Time** | ✅ < 1 min | ⚠️ 5-10 min | ✅ 2 min | ✅ 2 min |
 
-**Dreamlake's sweet spot**:
+**DreamLake's sweet spot**:
 - Quick local experiments with zero setup
 - Easy transition to collaborative remote mode
 - Simple, intuitive API

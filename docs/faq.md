@@ -1,6 +1,6 @@
 # FAQ & Troubleshooting
 
-Common questions and solutions for using Dreamlake.
+Common questions and solutions for using DreamLake.
 
 ## General Questions
 
@@ -45,7 +45,7 @@ Session(
 from dreamlake import migrate
 
 migrate.local_to_remote(
-    local_path=".dreamlake",
+    local_prefix=".dreamlake",
     remote_url="http://localhost:3000",
     api_key="your-key"
 )
@@ -62,7 +62,7 @@ Not yet! **Hybrid mode** is planned for v0.3:
 Session(
     name="my-experiment",
     workspace="my-workspace",
-    local_path=".dreamlake",  # Local backup
+    local_prefix=".dreamlake",  # Local backup
     remote="http://localhost:3000",  # Syncs to remote
     user_name="your-name"
 )
@@ -72,9 +72,9 @@ This will automatically sync local data to remote server.
 
 ---
 
-### How does Dreamlake compare to MLflow, Weights & Biases, and Neptune?
+### How does DreamLake compare to MLflow, Weights & Biases, and Neptune?
 
-| Feature | Dreamlake | MLflow | W&B | Neptune |
+| Feature | DreamLake | MLflow | W&B | Neptune |
 |---------|-----------|--------|-----|---------|
 | **Local Mode** | ✅ Zero setup | ✅ Yes | ❌ Cloud only | ❌ Cloud only |
 | **Self-hosted** | ✅ Easy Docker | ✅ Complex | ⚠️ Enterprise | ❌ No |
@@ -85,7 +85,7 @@ This will automatically sync local data to remote server.
 | **File Storage** | ✅ Built-in | ✅ Artifacts | ✅ Yes | ✅ Yes |
 | **Web UI** | 🔜 v0.3 | ✅ Yes | ✅ Advanced | ✅ Advanced |
 
-**Dreamlake's strengths**:
+**DreamLake's strengths**:
 - Simplest setup (literally zero for local mode)
 - True offline capability
 - Full data ownership
@@ -100,7 +100,7 @@ This will automatically sync local data to remote server.
 
 ### What happens if my session crashes mid-training?
 
-Dreamlake sessions are designed for **resilience**:
+DreamLake sessions are designed for **resilience**:
 
 1. **Data is written immediately**: Logs, parameters, and tracks are saved as soon as you call them (not buffered)
 2. **Re-open sessions**: Use the same session name to continue
@@ -108,7 +108,8 @@ Dreamlake sessions are designed for **resilience**:
 ```python
 # First run - crashes at epoch 5
 try:
-    with Session(name="training", workspace="test", local_path=".dreamlake") as session:
+    with Session(name="training", workspace="test", local_prefix=".dreamlake",
+        local_path=".dreamlake") as session:
         for epoch in range(10):
             session.track("loss").append(value=loss, epoch=epoch)
             # Crashes here at epoch 5
@@ -116,7 +117,8 @@ except Exception:
     pass
 
 # Second run - continue from crash
-with Session(name="training", workspace="test", local_path=".dreamlake") as session:
+with Session(name="training", workspace="test", local_prefix=".dreamlake",
+        local_path=".dreamlake") as session:
     # Continue from epoch 6
     for epoch in range(6, 10):
         session.track("loss").append(value=loss, epoch=epoch)
@@ -126,7 +128,7 @@ with Session(name="training", workspace="test", local_path=".dreamlake") as sess
 
 ---
 
-### Does Dreamlake support distributed training?
+### Does DreamLake support distributed training?
 
 **Current**: Basic support - each worker can log to the same session
 
@@ -300,7 +302,7 @@ def _generate_api_key_from_username(user_name: str) -> str:
        with gzip.open("model.pth.gz", "wb") as f_out:
            f_out.writelines(f_in)
 
-   session.file(file_path="model.pth.gz", prefix="/models").save()
+   session.file(file_prefix="model.pth.gz", prefix="/models").save()
    ```
 
 2. **Split large files**:
@@ -669,6 +671,6 @@ ModuleNotFoundError: No module named 'dreamlake'
 ## See Also
 
 - [Getting Started](getting-started.md) - Quick start guide
-- [Architecture](architecture.md) - How Dreamlake works internally
+- [Architecture](architecture.md) - How DreamLake works internally
 - [Deployment Guide](deployment.md) - Setting up your server
 - [API Reference](api/modules.rst) - Detailed API documentation

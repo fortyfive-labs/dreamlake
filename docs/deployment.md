@@ -1,10 +1,10 @@
 # Deployment Guide
 
-This guide covers deploying your own Dreamlake server for remote mode operation.
+This guide covers deploying your own DreamLake server for remote mode operation.
 
 ## Overview
 
-Dreamlake's remote mode requires a backend server that provides:
+DreamLake's remote mode requires a backend server that provides:
 - **REST API** for session, log, parameter, track, and file operations
 - **MongoDB** for metadata and structured data storage
 - **S3-compatible storage** (AWS S3, MinIO, etc.) for file storage
@@ -31,7 +31,7 @@ Local mode requires no deployment - just install the SDK and start tracking!
 
 ## Quick Start with Docker Compose
 
-The fastest way to deploy Dreamlake server is using Docker Compose.
+The fastest way to deploy DreamLake server is using Docker Compose.
 
 ### 1. Create docker-compose.yml
 
@@ -39,7 +39,7 @@ The fastest way to deploy Dreamlake server is using Docker Compose.
 version: '3.8'
 
 services:
-  # Dreamlake API Server
+  # DreamLake API Server
   dreamlake-server:
     image: dreamlake/server:latest  # Replace with actual image
     container_name: dreamlake-server
@@ -248,7 +248,7 @@ aws s3 mb s3://dreamlake-files --region us-east-1
 # Use AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY
 ```
 
-### 4. Install Dreamlake Server
+### 4. Install DreamLake Server
 
 ```bash
 # Clone repository (replace with actual repo)
@@ -673,7 +673,7 @@ mc ls myminio/dreamlake-files
 
 ### Horizontal Scaling
 
-Dreamlake server is stateless and can be scaled horizontally:
+DreamLake server is stateless and can be scaled horizontally:
 
 ```bash
 # Docker Compose
@@ -708,7 +708,7 @@ server {
 ## Next Steps
 
 - ✅ Server deployed and running
-- → [Getting Started](getting-started.md) - Start using Dreamlake
+- → [Getting Started](getting-started.md) - Start using DreamLake
 - → [Architecture](architecture.md) - Understand the internals
 - → [FAQ](faq.md) - Common questions and issues
 
