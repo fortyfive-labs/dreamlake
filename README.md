@@ -20,14 +20,14 @@ A simple and flexible SDK for ML experiment tracking and data storage.
 <tr>
 <td>
 
-```bash
+```shell
 uv add dreamlake
 ```
 
 </td>
 <td>
 
-```bash
+```shell
 pip install dreamlake
 ```
 
@@ -80,14 +80,14 @@ To contribute to Dreamlake or run tests, install the development dependencies:
 <tr>
 <td>
 
-```bash
+```shell
 uv sync --extra dev
 ```
 
 </td>
 <td>
 
-```bash
+```shell
 pip install -e ".[dev]"
 ```
 
@@ -115,14 +115,14 @@ This installs:
 <tr>
 <td>
 
-```bash
+```shell
 uv run pytest
 ```
 
 </td>
 <td>
 
-```bash
+```shell
 pytest
 ```
 
@@ -143,21 +143,21 @@ Documentation is built using Sphinx with Read the Docs theme.
 <tr>
 <td>
 
-```bash
+```shell
 uv run python -m sphinx -b html docs docs/_build/html
 ```
 
 </td>
 <td>
 
-```bash
+```shell
 uv run sphinx-autobuild docs docs/_build/html
 ```
 
 </td>
 <td>
 
-```bash
+```shell
 rm -rf docs/_build
 ```
 
@@ -169,7 +169,7 @@ The live preview command starts a local server and automatically rebuilds when f
 
 Alternatively, you can use the Makefile from within the docs directory:
 
-```bash
+```shell
 cd docs
 make html          # Build HTML documentation
 make clean         # Clean build files
