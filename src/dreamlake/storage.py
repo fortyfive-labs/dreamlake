@@ -288,14 +288,14 @@ class LocalStorage:
         """
         Write file to local storage.
 
-        Copies file to: files/<file_id>/<filename>
+        Copies file to: files/<prefix>/<file_id>/<filename>
         Updates .files_metadata.json with file metadata
 
         Args:
             workspace: Workspace name
             session: Session name
             file_path: Source file path
-            prefix: Logical path prefix
+            prefix: Logical path prefix (e.g., "/models", "/config")
             filename: Original filename
             description: Optional description
             tags: Optional tags
@@ -317,8 +317,11 @@ class LocalStorage:
         # Generate Snowflake ID for file
         file_id = generate_snowflake_id()
 
-        # Create file directory
-        file_dir = files_dir / file_id
+        # Normalize prefix: strip leading slash
+        prefix_folder = prefix.lstrip("/") if prefix else ""
+
+        # Create file directory: files/{prefix}/{file_id}/
+        file_dir = files_dir / prefix_folder / file_id if prefix_folder else files_dir / file_id
         file_dir.mkdir(parents=True, exist_ok=True)
 
         # Copy file
@@ -363,7 +366,8 @@ class LocalStorage:
         if existing_index is not None:
             # Overwrite: remove old file and update metadata
             old_file = files_metadata["files"][existing_index]
-            old_file_dir = files_dir / old_file["id"]
+            old_prefix_folder = old_file["path"].lstrip("/") if old_file["path"] else ""
+            old_file_dir = files_dir / old_prefix_folder / old_file["id"] if old_prefix_folder else files_dir / old_file["id"]
             if old_file_dir.exists():
                 shutil.rmtree(old_file_dir)
             files_metadata["files"][existing_index] = file_metadata
@@ -469,8 +473,9 @@ class LocalStorage:
         if not file_metadata:
             raise FileNotFoundError(f"File {file_id} not found")
 
-        # Get source file
-        source_file = files_dir / file_id / file_metadata["filename"]
+        # Get source file with prefix structure
+        prefix_folder = file_metadata["path"].lstrip("/") if file_metadata["path"] else ""
+        source_file = files_dir / prefix_folder / file_id / file_metadata["filename"] if prefix_folder else files_dir / file_id / file_metadata["filename"]
         if not source_file.exists():
             raise FileNotFoundError(f"File {file_id} not found on disk")
 
