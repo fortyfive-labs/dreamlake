@@ -44,8 +44,10 @@ with Session(
         │       ├── data.jsonl      # Track data points
         │       └── metadata.json   # Track metadata
         └── files/                  # Uploaded files
-            └── models/
-                └── model.pth
+            ├── .files_metadata.json    # File metadata
+            └── models/                 # Prefix folder
+                └── {file_id}/          # Unique file ID
+                    └── model.pth       # Actual file
 ```
 
 ### Advantages of Local Mode

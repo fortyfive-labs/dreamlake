@@ -184,21 +184,28 @@ with Session(name="my-experiment", workspace="project",
 
 ## Storage Format
 
-**Local mode** - Files stored in session directory:
+**Local mode** - Files stored in session directory with prefix organization:
 
 ```
 ./experiments/
 └── project/
     └── my-experiment/
         └── files/
-            ├── models/
-            │   ├── model.pth
-            │   └── best_model.pth
+            ├── .files_metadata.json        # Centralized metadata
+            ├── models/                     # Prefix folder
+            │   ├── {file_id_1}/           # Unique file ID
+            │   │   └── model.pth
+            │   └── {file_id_2}/
+            │       └── best_model.pth
             ├── visualizations/
-            │   └── loss_curve.png
+            │   └── {file_id_3}/
+            │       └── loss_curve.png
             └── config/
-                └── config.json
+                └── {file_id_4}/
+                    └── config.json
 ```
+
+Each file is stored in a unique ID folder within its prefix directory, ensuring no conflicts and enabling easy tracking.
 
 **Remote mode** - Files uploaded to S3, metadata in MongoDB:
 - Files stored: `s3://bucket/files/{namespace}/{workspace}/{session}/{file_id}/filename`

@@ -246,8 +246,10 @@ with Session(...) as session:
         │       ├── data.jsonl
         │       └── metadata.json
         └── files/                  # Uploaded files
+            ├── .files_metadata.json
             └── models/
-                └── model.pth
+                └── {file_id}/
+                    └── model.pth
 ```
 
 ### Remote Mode

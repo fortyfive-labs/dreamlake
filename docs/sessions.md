@@ -163,8 +163,10 @@ with Session(name="demo", workspace="test",
         │   └── loss/
         │       └── data.jsonl
         └── files/
+            ├── .files_metadata.json
             └── models/
-                └── model.pth
+                └── {file_id}/
+                    └── model.pth
 ```
 
 **Remote mode** stores data in MongoDB + S3 on your server.

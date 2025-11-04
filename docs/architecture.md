@@ -120,8 +120,12 @@ The backend layer abstracts storage implementation, allowing DreamLake to work w
         │       └── data.jsonl   # Time-series data
         └── files/
             ├── .files_metadata.json
-            └── <file_id>/
-                └── <filename>
+            ├── <prefix>/               # e.g., models/
+            │   └── <file_id>/
+            │       └── <filename>
+            └── <another_prefix>/       # e.g., config/
+                └── <file_id>/
+                    └── <filename>
 ```
 
 **Data Formats**:
