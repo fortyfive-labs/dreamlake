@@ -49,19 +49,15 @@ class TestCompleteWorkflows:
                 )
 
             # 3. Upload artifacts
-            session.file(
-                file_path=sample_files["model"],
-                prefix="/models/final",
+            session.files().upload(sample_files["model"], path="/models/final",
                 tags=["final", "best"],
                 description="Final trained model"
-            ).save()
+            )
 
-            session.file(
-                file_path=sample_files["config"],
-                prefix="/configs",
+            session.files().upload(sample_files["config"], path="/configs",
                 tags=["config"],
                 description="Training configuration"
-            ).save()
+            )
 
             session.log("Experiment completed successfully", level="info")
 
@@ -97,7 +93,7 @@ class TestCompleteWorkflows:
                 session.track("loss").append(value=loss, epoch=epoch)
                 session.log(f"Epoch {epoch + 1}/5", metadata={"loss": loss})
 
-            session.file(file_path=sample_files["model"], prefix="/models").save()
+            session.files().upload(sample_files["model"], path="/models")
             session.log("Remote experiment completed", level="info")
 
 
@@ -227,7 +223,7 @@ class TestMultiSessionPipeline:
                 preprocessing_steps=["normalize", "augment", "split"]
             )
             session.track("samples_processed").append(value=10000, step=0)
-            session.file(file_path=sample_files["results"], prefix="/data").save()
+            session.files().upload(sample_files["results"], path="/data")
             session.log("Preprocessing complete", level="info")
 
         # Stage 2: Training
@@ -245,7 +241,7 @@ class TestMultiSessionPipeline:
             )
             for i in range(10):
                 session.track("loss").append(value=1.0 / (i + 1), epoch=i)
-            session.file(file_path=sample_files["model"], prefix="/models").save()
+            session.files().upload(sample_files["model"], path="/models")
             session.log("Training complete", level="info")
 
         # Stage 3: Evaluation
@@ -385,9 +381,9 @@ class TestAllFeaturesCombined:
                 session.log(f"Epoch {i+1} metrics tracked", level="info")
 
             # Upload multiple files
-            session.file(file_path=sample_files["model"], prefix="/models").save()
-            session.file(file_path=sample_files["config"], prefix="/configs").save()
-            session.file(file_path=sample_files["results"], prefix="/results").save()
+            session.files().upload(sample_files["model"], path="/models")
+            session.files().upload(sample_files["config"], path="/configs")
+            session.files().upload(sample_files["results"], path="/results")
 
             # Warnings and errors
             session.log("Simulated warning", level="warn")
@@ -437,8 +433,8 @@ class TestAllFeaturesCombined:
                 session.track("accuracy").append(value=0.8 + i * 0.05, epoch=i)
 
             # Files
-            session.file(file_path=sample_files["model"], prefix="/models").save()
-            session.file(file_path=sample_files["config"], prefix="/configs").save()
+            session.files().upload(sample_files["model"], path="/models")
+            session.files().upload(sample_files["config"], path="/configs")
 
             session.log("Remote comprehensive test complete", level="info")
 
