@@ -92,7 +92,7 @@ session.track("loss").append_batch([...])
 
 #### FileBuilder
 ```python
-session.file(file_prefix="model.pth", prefix="/models").save()
+session.files().upload("model.pth", path="/models")
 ```
 - File upload and organization
 - Checksum validation (SHA256)

@@ -104,17 +104,13 @@ with Session(name="my-experiment", workspace="project",
     # model.save("model.pth")
 
     # Upload the model file
-    session.file(
-        file_prefix="model.pth",
-        prefix="/models"
-    ).save()
+    session.files().upload("model.pth", path="/models"
+    )
 
     # Upload a config file with metadata
-    session.file(
-        file_prefix="config.yaml",
-        prefix="/configs",
+    session.files().upload("config.yaml", path="/configs",
         metadata={"version": "1.0"}
-    ).save()
+    )
 ```
 
 ## Remote Mode

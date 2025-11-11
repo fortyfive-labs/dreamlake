@@ -67,12 +67,10 @@ def train_simple_model():
         with open("model.pth", "w") as f:
             f.write("model weights")
 
-        session.file(
-            file_path="model.pth",
-            prefix="/models",
+        session.files().upload("model.pth", path="/models",
             description="Final trained model",
             tags=["final"]
-        ).save()
+        )
 
         session.log("Training complete!", level="info")
         print(f"✓ Experiment tracked successfully")
