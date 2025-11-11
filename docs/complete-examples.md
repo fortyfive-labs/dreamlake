@@ -210,9 +210,7 @@ def train_mnist():
             if val_accuracy > best_accuracy:
                 best_accuracy = val_accuracy
                 torch.save(model.state_dict(), "best_model.pth")
-                session.file(
-                    "best_model.pth",
-                    prefix="/models",
+                session.files().upload("best_model.pth", path="/models",
                     description=f"Best model (accuracy: {best_accuracy:.4f})",
                     tags=["best"],
                     metadata={"epoch": epoch, "accuracy": best_accuracy}
@@ -221,12 +219,9 @@ def train_mnist():
 
         # Save final model
         torch.save(model.state_dict(), "final_model.pth")
-        session.file(
-            "final_model.pth",
-            prefix="/models",
+        session.files().upload("final_model.pth", path="/models",
             description="Final model after all epochs",
-            tags=["final"]
-        )
+            tags=["final"])
 
         session.log("Training complete!", level="info")
         print(f"✓ Best accuracy: {best_accuracy:.4f}")

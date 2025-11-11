@@ -17,7 +17,7 @@ from .client import RemoteClient
 from .storage import LocalStorage
 from .log import LogLevel, LogBuilder
 from .params import ParametersBuilder
-from .files import FileBuilder
+from .files import FileBuilder, FilesBuilder
 
 
 class OperationMode(Enum):
@@ -331,6 +331,29 @@ class Session:
                 metadata=log_entry.get("metadata"),
                 timestamp=log_entry["timestamp"]
             )
+
+    def files(self) -> FilesBuilder:
+        """
+        Get a FilesBuilder for fluent file operations (plural API).
+
+        Returns:
+            FilesBuilder instance for chaining
+
+        Raises:
+            RuntimeError: If session is not open
+
+        Examples:
+            # Upload file
+            session.files().upload("./model.pt", path="/models")
+
+            # List files
+            files = session.files().list()
+            files = session.files().list(path="/models")
+        """
+        if not self._is_open:
+            raise RuntimeError("Session not open. Use session.open() or context manager.")
+
+        return FilesBuilder(self)
 
     def file(self, **kwargs) -> FileBuilder:
         """

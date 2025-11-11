@@ -28,7 +28,7 @@ with Session(
     session.log("Running in local mode")
     session.parameters().set(batch_size=32)
     session.track("loss").append(value=0.5)
-    session.file("model.pth", prefix="/models")
+    session.files().upload("model.pth", path="/models")
 ```
 
 ### Local Storage Structure
@@ -91,7 +91,7 @@ with Session(
     session.log("Running in remote mode")
     session.parameters().set(batch_size=32)
     session.track("loss").append(value=0.5)
-    session.file("model.pth", prefix="/models")
+    session.files().upload("model.pth", path="/models")
 
 # Or with API key (advanced)
 with Session(
@@ -103,7 +103,7 @@ with Session(
     session.log("Running in remote mode")
     session.parameters().set(batch_size=32)
     session.track("loss").append(value=0.5)
-    session.file("model.pth", prefix="/models")
+    session.files().upload("model.pth", path="/models")
 ```
 
 ### Remote Storage Architecture

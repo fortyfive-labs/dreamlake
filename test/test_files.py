@@ -11,12 +11,10 @@ class TestBasicFileOperations:
     def test_upload_single_file_local(self, local_session, sample_files, temp_workspace):
         """Test uploading a single file in local mode."""
         with local_session(name="file-test", workspace="test") as session:
-            result = session.file(
-                file_path=sample_files["model"],
-                prefix="/models",
+            result = session.files().upload(sample_files["model"], path="/models",
                 description="Model weights",
                 tags=["model"]
-            ).save()
+            )
 
             assert result["filename"] == "model.txt"
             assert result["sizeBytes"] > 0
@@ -31,20 +29,18 @@ class TestBasicFileOperations:
     def test_upload_single_file_remote(self, remote_session, sample_files):
         """Test uploading a file in remote mode."""
         with remote_session(name="file-test-remote", workspace="test") as session:
-            result = session.file(
-                file_path=sample_files["model"],
-                prefix="/models",
+            result = session.files().upload(sample_files["model"], path="/models",
                 tags=["model", "remote"]
-            ).save()
+            )
 
             assert result["filename"] == "model.txt"
 
     def test_upload_multiple_files_local(self, local_session, sample_files, temp_workspace):
         """Test uploading multiple files."""
         with local_session(name="multi-file", workspace="test") as session:
-            session.file(file_path=sample_files["model"], prefix="/models").save()
-            session.file(file_path=sample_files["config"], prefix="/config").save()
-            session.file(file_path=sample_files["results"], prefix="/results").save()
+            session.files().upload(sample_files["model"], path="/models")
+            session.files().upload(sample_files["config"], path="/config")
+            session.files().upload(sample_files["results"], path="/results")
 
         files_dir = temp_workspace / "test" / "multi-file" / "files"
         file_dirs = [d for d in files_dir.iterdir() if d.is_dir()]
@@ -54,8 +50,8 @@ class TestBasicFileOperations:
     def test_upload_multiple_files_remote(self, remote_session, sample_files):
         """Test uploading multiple files in remote mode."""
         with remote_session(name="multi-file-remote", workspace="test") as session:
-            session.file(file_path=sample_files["model"], prefix="/models").save()
-            session.file(file_path=sample_files["config"], prefix="/config").save()
+            session.files().upload(sample_files["model"], path="/models")
+            session.files().upload(sample_files["config"], path="/config")
 
 
 class TestFileMetadata:
@@ -64,13 +60,11 @@ class TestFileMetadata:
     def test_file_with_metadata_local(self, local_session, sample_files, temp_workspace):
         """Test uploading file with custom metadata."""
         with local_session(name="file-meta", workspace="test") as session:
-            result = session.file(
-                file_path=sample_files["results"],
-                prefix="/results",
+            result = session.files().upload(sample_files["results"], path="/results",
                 description="Training results per epoch",
                 tags=["results", "metrics"],
                 metadata={"epochs": 10, "format": "csv"}
-            ).save()
+            )
 
             assert "uploadedAt" in result
             assert result["tags"] == ["results", "metrics"]
@@ -91,13 +85,11 @@ class TestFileMetadata:
     def test_file_with_metadata_remote(self, remote_session, sample_files):
         """Test file metadata in remote mode."""
         with remote_session(name="file-meta-remote", workspace="test") as session:
-            result = session.file(
-                file_path=sample_files["config"],
-                prefix="/config",
+            result = session.files().upload(sample_files["config"], path="/config",
                 description="Training configuration",
                 tags=["config"],
                 metadata={"version": "1.0"}
-            ).save()
+            )
 
             assert result["tags"] == ["config"]
 
@@ -107,7 +99,7 @@ class TestFileMetadata:
             expected_checksum = hashlib.sha256(f.read()).hexdigest()
 
         with local_session(name="file-checksum", workspace="test") as session:
-            result = session.file(file_path=sample_files["model"], prefix="/models").save()
+            result = session.files().upload(sample_files["model"], path="/models")
             assert result["checksum"] == expected_checksum
 
     def test_file_size_tracking_local(self, local_session, sample_files):
@@ -115,19 +107,17 @@ class TestFileMetadata:
         model_size = Path(sample_files["model"]).stat().st_size
 
         with local_session(name="file-size", workspace="test") as session:
-            result = session.file(file_path=sample_files["model"], prefix="/models").save()
+            result = session.files().upload(sample_files["model"], path="/models")
             assert result["sizeBytes"] == model_size
 
     def test_file_tags_local(self, local_session, sample_files, temp_workspace):
         """Test file tagging."""
         with local_session(name="file-tags", workspace="test") as session:
-            session.file(
-                file_path=sample_files["model"],
-                prefix="/models",
+            session.files().upload(sample_files["model"], path="/models",
                 tags=["best", "final", "v1.0", "production"]
-            ).save()
+            )
 
-            files = session.file().list()
+            files = session.files().list()
 
         assert len(files) == 1
         assert "best" in files[0]["tags"]
@@ -141,10 +131,10 @@ class TestListFiles:
     def test_list_files_local(self, local_session, sample_files):
         """Test listing all files in a session."""
         with local_session(name="file-list", workspace="test") as session:
-            session.file(file_path=sample_files["model"], prefix="/models").save()
-            session.file(file_path=sample_files["config"], prefix="/config").save()
+            session.files().upload(sample_files["model"], path="/models")
+            session.files().upload(sample_files["config"], path="/config")
 
-            files = session.file().list()
+            files = session.files().list()
 
         assert len(files) == 2
         filenames = [f["filename"] for f in files]
@@ -155,10 +145,10 @@ class TestListFiles:
     def test_list_files_remote(self, remote_session, sample_files):
         """Test listing files in remote mode."""
         with remote_session(name="file-list-remote", workspace="test") as session:
-            session.file(file_path=sample_files["model"], prefix="/models").save()
-            session.file(file_path=sample_files["config"], prefix="/config").save()
+            session.files().upload(sample_files["model"], path="/models")
+            session.files().upload(sample_files["config"], path="/config")
 
-            files = session.file().list()
+            files = session.files().list()
             assert len(files) >= 2
 
     def test_list_empty_files_local(self, local_session):
@@ -174,10 +164,10 @@ class TestFilePrefixes:
     def test_file_prefixes_local(self, local_session, sample_files):
         """Test that file prefixes are correctly stored."""
         with local_session(name="file-prefix", workspace="test") as session:
-            session.file(file_path=sample_files["model"], prefix="/models/v1").save()
-            session.file(file_path=sample_files["config"], prefix="/configs/prod").save()
+            session.files().upload(sample_files["model"], path="/models/v1")
+            session.files().upload(sample_files["config"], path="/configs/prod")
 
-            files = session.file().list()
+            files = session.files().list()
 
         assert len(files) == 2
         paths = [f["path"] for f in files]
@@ -187,12 +177,10 @@ class TestFilePrefixes:
     def test_nested_prefixes_local(self, local_session, sample_files):
         """Test deeply nested prefix paths."""
         with local_session(name="nested-prefix", workspace="test") as session:
-            session.file(
-                file_path=sample_files["model"],
-                prefix="/a/b/c/d/e/models"
-            ).save()
+            session.files().upload(sample_files["model"], path="/a/b/c/d/e/models"
+            )
 
-            files = session.file().list()
+            files = session.files().list()
 
         assert len(files) == 1
         assert files[0]["path"] == "/a/b/c/d/e/models"
@@ -200,11 +188,11 @@ class TestFilePrefixes:
     def test_same_file_different_prefixes_local(self, local_session, sample_files):
         """Test uploading same file to different locations."""
         with local_session(name="same-file-diff-prefix", workspace="test") as session:
-            session.file(file_path=sample_files["model"], prefix="/models/v1").save()
-            session.file(file_path=sample_files["model"], prefix="/models/v2").save()
-            session.file(file_path=sample_files["model"], prefix="/backup").save()
+            session.files().upload(sample_files["model"], path="/models/v1")
+            session.files().upload(sample_files["model"], path="/models/v2")
+            session.files().upload(sample_files["model"], path="/backup")
 
-            files = session.file().list()
+            files = session.files().list()
 
         assert len(files) == 3
         assert all(f["filename"] == "model.txt" for f in files)
@@ -220,7 +208,7 @@ class TestFileTypes:
     def test_text_file_upload_local(self, local_session, sample_files, temp_workspace):
         """Test uploading text files."""
         with local_session(name="text-file", workspace="test") as session:
-            session.file(file_path=sample_files["model"], prefix="/text").save()
+            session.files().upload(sample_files["model"], path="/text")
 
         files_dir = temp_workspace / "test" / "text-file" / "files"
         saved_files = list(files_dir.glob("**/model.txt"))
@@ -229,26 +217,26 @@ class TestFileTypes:
     def test_json_file_upload_local(self, local_session, sample_files):
         """Test uploading JSON files."""
         with local_session(name="json-file", workspace="test") as session:
-            result = session.file(file_path=sample_files["config"], prefix="/json").save()
+            result = session.files().upload(sample_files["config"], path="/json")
             assert result["filename"] == "config.json"
 
     def test_csv_file_upload_local(self, local_session, sample_files):
         """Test uploading CSV files."""
         with local_session(name="csv-file", workspace="test") as session:
-            result = session.file(file_path=sample_files["results"], prefix="/csv").save()
+            result = session.files().upload(sample_files["results"], path="/csv")
             assert result["filename"] == "results.csv"
 
     def test_binary_file_upload_local(self, local_session, sample_files):
         """Test uploading binary files."""
         with local_session(name="binary-file", workspace="test") as session:
-            result = session.file(file_path=sample_files["image"], prefix="/images").save()
+            result = session.files().upload(sample_files["image"], path="/images")
             assert result["filename"] == "test_image.png"
             assert result["sizeBytes"] > 0
 
     def test_large_file_upload_local(self, local_session, sample_files):
         """Test uploading larger files."""
         with local_session(name="large-file", workspace="test") as session:
-            result = session.file(file_path=sample_files["large"], prefix="/large").save()
+            result = session.files().upload(sample_files["large"], path="/large")
             assert result["filename"] == "large_file.bin"
             assert result["sizeBytes"] == 1024 * 100  # 100 KB
 
@@ -256,9 +244,9 @@ class TestFileTypes:
     def test_various_file_types_remote(self, remote_session, sample_files):
         """Test uploading various file types in remote mode."""
         with remote_session(name="file-types-remote", workspace="test") as session:
-            session.file(file_path=sample_files["model"], prefix="/text").save()
-            session.file(file_path=sample_files["config"], prefix="/json").save()
-            session.file(file_path=sample_files["image"], prefix="/images").save()
+            session.files().upload(sample_files["model"], path="/text")
+            session.files().upload(sample_files["config"], path="/json")
+            session.files().upload(sample_files["image"], path="/images")
 
 
 class TestFileEdgeCases:
@@ -270,7 +258,7 @@ class TestFileEdgeCases:
         file_with_spaces.write_text("Content with spaces in filename")
 
         with local_session(name="spaces-file", workspace="test") as session:
-            result = session.file(file_path=str(file_with_spaces), prefix="/files").save()
+            result = session.files().upload(str(file_with_spaces), path="/files")
             assert "my file with spaces.txt" in result["filename"]
 
     def test_file_with_unicode_name_local(self, local_session, tmp_path):
@@ -279,7 +267,7 @@ class TestFileEdgeCases:
         unicode_file.write_text("Unicode filename test")
 
         with local_session(name="unicode-file", workspace="test") as session:
-            result = session.file(file_path=str(unicode_file), prefix="/files").save()
+            result = session.files().upload(str(unicode_file), path="/files")
             assert result["sizeBytes"] > 0
 
     def test_file_with_long_filename_local(self, local_session, tmp_path):
@@ -289,14 +277,14 @@ class TestFileEdgeCases:
         long_file.write_text("Long filename test")
 
         with local_session(name="long-filename", workspace="test") as session:
-            result = session.file(file_path=str(long_file), prefix="/files").save()
+            result = session.files().upload(str(long_file), path="/files")
             assert result["sizeBytes"] > 0
 
     def test_multiple_uploads_same_file_local(self, local_session, sample_files):
         """Test uploading the same file multiple times to same location."""
         with local_session(name="duplicate-upload", workspace="test") as session:
-            result1 = session.file(file_path=sample_files["model"], prefix="/models").save()
-            result2 = session.file(file_path=sample_files["model"], prefix="/models").save()
+            result1 = session.files().upload(sample_files["model"], path="/models")
+            result2 = session.files().upload(sample_files["model"], path="/models")
 
             # Both uploads should succeed
             assert result1["filename"] == result2["filename"]
@@ -307,7 +295,7 @@ class TestFileEdgeCases:
         special_file.write_text("Special characters test")
 
         with local_session(name="special-chars-file", workspace="test") as session:
-            result = session.file(file_path=str(special_file), prefix="/files").save()
+            result = session.files().upload(str(special_file), path="/files")
             assert result["sizeBytes"] > 0
 
     def test_empty_file_upload_local(self, local_session, tmp_path):
@@ -316,7 +304,7 @@ class TestFileEdgeCases:
         empty_file.write_text("")
 
         with local_session(name="empty-file", workspace="test") as session:
-            result = session.file(file_path=str(empty_file), prefix="/files").save()
+            result = session.files().upload(str(empty_file), path="/files")
             assert result["sizeBytes"] == 0
 
     def test_file_with_long_metadata_local(self, local_session, sample_files):
@@ -324,11 +312,9 @@ class TestFileEdgeCases:
         large_metadata = {f"key_{i}": f"value_{i}" for i in range(100)}
 
         with local_session(name="large-file-meta", workspace="test") as session:
-            result = session.file(
-                file_path=sample_files["model"],
-                prefix="/models",
+            result = session.files().upload(sample_files["model"], path="/models",
                 metadata=large_metadata
-            ).save()
+            )
 
             assert result["filename"] == "model.txt"
 
@@ -337,11 +323,9 @@ class TestFileEdgeCases:
         many_tags = [f"tag-{i}" for i in range(50)]
 
         with local_session(name="many-tags-file", workspace="test") as session:
-            result = session.file(
-                file_path=sample_files["model"],
-                prefix="/models",
+            result = session.files().upload(sample_files["model"], path="/models",
                 tags=many_tags
-            ).save()
+            )
 
             assert len(result["tags"]) == 50
 
@@ -349,7 +333,7 @@ class TestFileEdgeCases:
     def test_large_file_remote(self, remote_session, sample_files):
         """Test uploading large file in remote mode."""
         with remote_session(name="large-file-remote", workspace="test") as session:
-            result = session.file(file_path=sample_files["large"], prefix="/large").save()
+            result = session.files().upload(sample_files["large"], path="/large")
             assert result["sizeBytes"] == 1024 * 100
 
 
@@ -359,11 +343,11 @@ class TestFileOrganization:
     def test_organize_by_type_local(self, local_session, sample_files):
         """Test organizing files by type."""
         with local_session(name="organized", workspace="test") as session:
-            session.file(file_path=sample_files["model"], prefix="/models", tags=["model"]).save()
-            session.file(file_path=sample_files["config"], prefix="/configs", tags=["config"]).save()
-            session.file(file_path=sample_files["results"], prefix="/results", tags=["results"]).save()
+            session.files().upload(sample_files["model"], path="/models", tags=["model"])
+            session.files().upload(sample_files["config"], path="/configs", tags=["config"])
+            session.files().upload(sample_files["results"], path="/results", tags=["results"])
 
-            files = session.file().list()
+            files = session.files().list()
 
         # Group by prefix
         models = [f for f in files if f["path"] == "/models"]
@@ -377,11 +361,11 @@ class TestFileOrganization:
     def test_organize_by_version_local(self, local_session, sample_files):
         """Test organizing files by version."""
         with local_session(name="versioned", workspace="test") as session:
-            session.file(file_path=sample_files["model"], prefix="/models/v1", tags=["v1"]).save()
-            session.file(file_path=sample_files["model"], prefix="/models/v2", tags=["v2"]).save()
-            session.file(file_path=sample_files["model"], prefix="/models/v3", tags=["v3", "latest"]).save()
+            session.files().upload(sample_files["model"], path="/models/v1", tags=["v1"])
+            session.files().upload(sample_files["model"], path="/models/v2", tags=["v2"])
+            session.files().upload(sample_files["model"], path="/models/v3", tags=["v3", "latest"])
 
-            files = session.file().list()
+            files = session.files().list()
 
         assert len(files) == 3
         versions = [f["path"] for f in files]

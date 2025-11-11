@@ -13,6 +13,118 @@ if TYPE_CHECKING:
     from .session import Session
 
 
+class FilesBuilder:
+    """
+    Fluent interface for files operations (plural).
+
+    Usage:
+        # Upload file
+        session.files().upload("./model.pt", path="/models")
+
+        # List files
+        files = session.files().list()
+    """
+
+    def __init__(self, session: 'Session'):
+        """
+        Initialize files builder.
+
+        Args:
+            session: Parent session instance
+        """
+        self._session = session
+
+    def upload(
+        self,
+        file_path: str,
+        *,
+        path: str = "/",
+        description: Optional[str] = None,
+        tags: Optional[List[str]] = None,
+        metadata: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """
+        Upload a file.
+
+        Args:
+            file_path: Path to file to upload (required positional argument)
+            path: Logical path prefix (default: "/")
+            description: Optional description
+            tags: Optional list of tags
+            metadata: Optional metadata dict
+
+        Returns:
+            File metadata dict with id, path, filename, checksum, etc.
+
+        Examples:
+            result = session.files().upload("./model.pt", path="/models")
+            result = session.files().upload("./config.json", path="/config", tags=["config"])
+        """
+        if not self._session._is_open:
+            raise RuntimeError("Session not open. Use session.open() or context manager.")
+
+        if self._session.write_protected:
+            raise RuntimeError("Session is write-protected and cannot be modified.")
+
+        file_path_obj = Path(file_path)
+        if not file_path_obj.exists():
+            raise ValueError(f"File not found: {file_path}")
+
+        if not file_path_obj.is_file():
+            raise ValueError(f"Path is not a file: {file_path}")
+
+        # Check file size (max 5GB)
+        file_size = file_path_obj.stat().st_size
+        MAX_FILE_SIZE = 5 * 1024 * 1024 * 1024  # 5GB in bytes
+        if file_size > MAX_FILE_SIZE:
+            raise ValueError(f"File size ({file_size} bytes) exceeds 5GB limit")
+
+        # Compute checksum
+        checksum = compute_sha256(file_path)
+
+        # Detect MIME type
+        content_type = get_mime_type(file_path)
+
+        # Get filename
+        filename = file_path_obj.name
+
+        # Upload through session (use 'path' but internally it's still 'prefix')
+        return self._session._upload_file(
+            file_path=file_path,
+            prefix=path,  # Map path -> prefix internally
+            filename=filename,
+            description=description,
+            tags=tags or [],
+            metadata=metadata,
+            checksum=checksum,
+            content_type=content_type,
+            size_bytes=file_size
+        )
+
+    def list(self, *, path: Optional[str] = None, tags: Optional[List[str]] = None) -> List[Dict[str, Any]]:
+        """
+        List files with optional filters.
+
+        Args:
+            path: Filter by path prefix
+            tags: Filter by tags
+
+        Returns:
+            List of file metadata dicts
+
+        Examples:
+            files = session.files().list()  # All files
+            files = session.files().list(path="/models")  # Filter by path
+        """
+        if not self._session._is_open:
+            raise RuntimeError("Session not open. Use session.open() or context manager.")
+
+        return self._session._list_files(
+            prefix=path,  # Map path -> prefix internally
+            tags=tags
+        )
+
+
 class FileBuilder:
     """
     Fluent interface for file operations.

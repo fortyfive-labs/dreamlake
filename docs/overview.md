@@ -18,7 +18,7 @@ DreamLake is a lightweight Python SDK for tracking machine learning experiments 
 session.log("Training started")
 session.parameters().set(learning_rate=0.001, batch_size=32)
 session.track("loss").append(value=0.5, epoch=1)
-session.file(file_prefix="model.pth", prefix="/models").save()
+session.files().upload("model.pth", path="/models")
 ```
 
 

@@ -145,7 +145,7 @@ with Session(name="demo", workspace="test",
     session.track("loss").append(value=0.5, epoch=1)
 
     # File uploads
-    session.file("model.pth", prefix="/models")
+    session.files().upload("model.pth", path="/models")
 ```
 
 ## Storage Structure

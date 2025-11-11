@@ -110,22 +110,18 @@ for track in tracks:
 
 ```python
 # Upload file
-session.file(
-    file_prefix="model.pth",
-    prefix="models/",
+session.files().upload("model.pth", path="models/",
     description="Trained model",
     tags=["final", "best"]
-).save()
+)
 
 # Upload with metadata
-session.file(
-    file_prefix="model.pth",
-    prefix="models/checkpoints/",
+session.files().upload("model.pth", path="models/checkpoints/",
     metadata={"epoch": 50, "accuracy": 0.95}
-).save()
+)
 
 # List files
-files = session.file().list()
+files = session.files().list()
 for file in files:
     print(f"{file['prefix']}{file['filename']}")
 ```
@@ -172,7 +168,7 @@ with Session(
 
     # Save model
     save_model("model.pth")
-    session.file(file_prefix="model.pth", prefix="models/").save()
+    session.files().upload("model.pth", path="models/")
 
     session.log("Training complete!", level="info")
 ```
@@ -193,11 +189,9 @@ with Session(...) as session:
         if acc > best_acc:
             best_acc = acc
             save_checkpoint(f"checkpoint_{epoch}.pth")
-            session.file(
-                file_path=f"checkpoint_{epoch}.pth",
-                prefix="checkpoints/",
+            session.files().upload(f"checkpoint_{epoch}.pth", path="checkpoints/",
                 tags=["best"]
-            ).save()
+            )
 ```
 
 ### Hyperparameter Search

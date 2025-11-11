@@ -302,14 +302,14 @@ def _generate_api_key_from_username(user_name: str) -> str:
        with gzip.open("model.pth.gz", "wb") as f_out:
            f_out.writelines(f_in)
 
-   session.file(file_prefix="model.pth.gz", prefix="/models").save()
+   session.files().upload("model.pth.gz", path="/models")
    ```
 
 2. **Split large files**:
    ```python
    # Split into chunks
    for i, chunk in enumerate(split_file("large_dataset.tar", chunk_size_mb=100)):
-       session.file(file_path=chunk, prefix=f"/data/part-{i}").save()
+       session.files().upload(chunk, path=f"/data/part-{i}")
    ```
 
 3. **Use external storage** (for very large files):
@@ -538,7 +538,7 @@ Error uploading file: File not found / Permission denied
    elif not os.access(file_path, os.R_OK):
        print(f"Cannot read file: {file_path}")
    else:
-       session.file(file_path=file_path, prefix="/models").save()
+       session.files().upload(file_path, path="/models")
    ```
 
 2. **Check file size**:

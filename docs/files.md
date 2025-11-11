@@ -11,7 +11,7 @@ from dreamlake import Session
 
 with Session(name="my-experiment", workspace="project",
         local_path=".dreamlake") as session:
-    result = session.file("model.pth", prefix="/models")
+    result = session.files().upload("model.pth", path="/models")
 
     print(f"Uploaded: {result['filename']}")
     print(f"Size: {result['sizeBytes']} bytes")
@@ -28,18 +28,18 @@ Use paths to organize files logically:
 with Session(name="my-experiment", workspace="project",
         local_path=".dreamlake") as session:
     # Models
-    session.file("model.pth", prefix="/models")
-    session.file("best_model.pth", prefix="/models/checkpoints")
+    session.files().upload("model.pth", path="/models")
+    session.files().upload("best_model.pth", path="/models/checkpoints")
 
     # Visualizations
-    session.file("loss_curve.png", prefix="/visualizations")
-    session.file("confusion_matrix.png", prefix="/visualizations")
+    session.files().upload("loss_curve.png", path="/visualizations")
+    session.files().upload("confusion_matrix.png", path="/visualizations")
 
     # Configuration
-    session.file("config.json", prefix="/config")
+    session.files().upload("config.json", path="/config")
 
     # Results
-    session.file("results.csv", prefix="/results")
+    session.files().upload("results.csv", path="/results")
 ```
 
 ## File Metadata
@@ -51,9 +51,7 @@ Add description, tags, and custom metadata:
 
 with Session(name="my-experiment", workspace="project",
         local_path=".dreamlake") as session:
-    session.file(
-        "best_model.pth",
-        prefix="/models",
+    session.files().upload("best_model.pth", path="/models",
         description="Best model from epoch 50",
         tags=["checkpoint", "best"],
         metadata={
@@ -106,9 +104,7 @@ with Session(name="resnet-training", workspace="cv",
             best_accuracy = val_accuracy
 
             torch.save(model.state_dict(), "best_model.pth")
-            session.file(
-                "best_model.pth",
-                prefix="/models",
+            session.files().upload("best_model.pth", path="/models",
                 description=f"Best model (accuracy: {best_accuracy:.4f})",
                 tags=["best"],
                 metadata={"epoch": epoch + 1, "accuracy": best_accuracy}
@@ -140,9 +136,7 @@ with Session(name="my-experiment", workspace="project",
 
     # Save and upload
     plt.savefig("loss_curve.png")
-    session.file(
-        "loss_curve.png",
-        prefix="/visualizations",
+    session.files().upload("loss_curve.png", path="/visualizations",
         description="Training loss over epochs",
         tags=["plot"]
     )
@@ -174,9 +168,7 @@ with Session(name="my-experiment", workspace="project",
     with open("config.json", "w") as f:
         json.dump(config, f, indent=2)
 
-    session.file(
-        "config.json",
-        prefix="/config",
+    session.files().upload("config.json", path="/config",
         description="Experiment configuration",
         tags=["config"]
     )
