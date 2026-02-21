@@ -5,6 +5,7 @@ Commands:
     dreamlake upload  - Upload videos from current folder to BSS
     dreamlake list    - List uploaded videos
     dreamlake status  - Check connection status
+    dreamlake label   - Generate text track labels from video
 """
 
 import sys
@@ -13,6 +14,7 @@ from typing import Optional
 from .upload import UploadCommand
 from .list import ListCommand
 from .status import StatusCommand
+from .label import LabelCommand
 
 
 def main(args: Optional[list] = None) -> int:
@@ -44,6 +46,8 @@ def main(args: Optional[list] = None) -> int:
         return run_list(command_args)
     elif command == "status":
         return run_status(command_args)
+    elif command == "label":
+        return run_label(command_args)
     else:
         print(f"Unknown command: {command}")
         print_help()
@@ -62,6 +66,7 @@ Commands:
     upload    Upload videos from current folder to BSS (Big Streaming Server)
     list      List uploaded videos
     status    Check connection status to BSS
+    label     Generate text track labels from video files
 
 Options:
     -h, --help    Show this help message
@@ -70,6 +75,7 @@ Examples:
     dreamlake upload --path ./videos --endpoint bss://localhost:3112
     dreamlake list --endpoint bss://localhost:3112
     dreamlake status --endpoint bss://localhost:3112
+    dreamlake label video.mp4 --interval 1.0 --format tsv
 
 For command-specific help:
     dreamlake <command> --help
@@ -108,9 +114,20 @@ def run_status(args: list) -> int:
     return StatusCommand.run()
 
 
+def run_label(args: list) -> int:
+    """Run the label command."""
+    if "--help" in args or "-h" in args:
+        LabelCommand.print_help()
+        return 0
+
+    LabelCommand._parse_args(args)
+    return LabelCommand.run()
+
+
 __all__ = [
     "main",
     "UploadCommand",
     "ListCommand",
     "StatusCommand",
+    "LabelCommand",
 ]
