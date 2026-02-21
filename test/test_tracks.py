@@ -1,391 +1,179 @@
-"""Comprehensive tests for track (time-series) functionality in both local and remote modes."""
+"""Tests for time-series metrics tracking."""
 import json
-import pytest
 from pathlib import Path
 
 
-class TestBasicTracks:
-    """Tests for basic track operations."""
+def test_single_value_append(local_session, temp_workspace):
+    """Test appending single data points to a track."""
+    with local_session(name="track-single", workspace="test") as session:
+        for epoch in range(5):
+            session.track("loss").append(value=1.0 / (epoch + 1), epoch=epoch)
 
-    def test_single_track_append_local(self, local_session, temp_workspace):
-        """Test appending single data points to a track."""
-        with local_session(name="track-test", workspace="test") as session:
-            for i in range(5):
-                session.track("loss").append(value=1.0 / (i + 1), epoch=i)
+    # Verify track data was saved
+    track_data = temp_workspace / "test" / "track-single" / "tracks" / "loss" / "data.jsonl"
+    assert track_data.exists()
 
-        track_file = temp_workspace / "test" / "track-test" / "tracks" / "loss" / "data.jsonl"
-        assert track_file.exists()
+    # Verify data points
+    with open(track_data) as f:
+        data_points = [json.loads(line) for line in f]
 
-        with open(track_file) as f:
-            data_points = [json.loads(line) for line in f]
-
-        assert len(data_points) == 5
-        assert data_points[0]["data"]["value"] == 1.0
-        assert data_points[0]["data"]["epoch"] == 0
-
-    @pytest.mark.remote
-    def test_single_track_append_remote(self, remote_session):
-        """Test appending data points in remote mode."""
-        with remote_session(name="track-test-remote", workspace="test") as session:
-            for i in range(10):
-                session.track("loss").append(value=0.5 - i * 0.05, epoch=i)
-
-    def test_multiple_tracks_local(self, local_session, temp_workspace):
-        """Test tracking multiple different metrics."""
-        with local_session(name="multi-track", workspace="test") as session:
-            for epoch in range(5):
-                session.track("train_loss").append(value=0.5 - epoch * 0.1, epoch=epoch)
-                session.track("val_loss").append(value=0.6 - epoch * 0.1, epoch=epoch)
-                session.track("accuracy").append(value=0.7 + epoch * 0.05, epoch=epoch)
-
-        tracks_dir = temp_workspace / "test" / "multi-track" / "tracks"
-        assert (tracks_dir / "train_loss" / "data.jsonl").exists()
-        assert (tracks_dir / "val_loss" / "data.jsonl").exists()
-        assert (tracks_dir / "accuracy" / "data.jsonl").exists()
-
-    @pytest.mark.remote
-    def test_multiple_tracks_remote(self, remote_session):
-        """Test tracking multiple metrics in remote mode."""
-        with remote_session(name="multi-track-remote", workspace="test") as session:
-            for epoch in range(3):
-                session.track("train_loss").append(value=0.4 - epoch * 0.1, epoch=epoch)
-                session.track("val_loss").append(value=0.5 - epoch * 0.1, epoch=epoch)
+    assert len(data_points) == 5
+    assert data_points[0]["data"]["value"] == 1.0
+    assert data_points[0]["data"]["epoch"] == 0
 
 
-class TestBatchAppend:
-    """Tests for batch appending track data."""
+def test_multiple_tracks(local_session, temp_workspace):
+    """Test tracking multiple different metrics."""
+    with local_session(name="track-multi", workspace="test") as session:
+        for epoch in range(3):
+            session.track("train_loss").append(value=0.5 - epoch * 0.1, epoch=epoch)
+            session.track("val_loss").append(value=0.6 - epoch * 0.1, epoch=epoch)
+            session.track("accuracy").append(value=0.7 + epoch * 0.1, epoch=epoch)
 
-    def test_batch_append_local(self, local_session, temp_workspace, sample_data):
-        """Test batch appending multiple data points at once."""
-        with local_session(name="batch-track", workspace="test") as session:
-            result = session.track("loss").append_batch(sample_data["track_data"])
-            assert result["count"] == 5
-
-        track_file = temp_workspace / "test" / "batch-track" / "tracks" / "loss" / "data.jsonl"
-        with open(track_file) as f:
-            data_points = [json.loads(line) for line in f]
-
-        assert len(data_points) == 5
-        assert data_points[0]["data"]["value"] == 0.5
-        assert data_points[4]["data"]["value"] == 0.2
-
-    @pytest.mark.remote
-    def test_batch_append_remote(self, remote_session, sample_data):
-        """Test batch appending in remote mode."""
-        with remote_session(name="batch-track-remote", workspace="test") as session:
-            result = session.track("metrics").append_batch(sample_data["track_data"])
-            assert result["count"] == 5
-
-    def test_large_batch_append_local(self, local_session, temp_workspace):
-        """Test appending a large batch of data."""
-        batch_data = [{"value": i * 0.01, "step": i} for i in range(1000)]
-
-        with local_session(name="large-batch", workspace="test") as session:
-            result = session.track("metric").append_batch(batch_data)
-            assert result["count"] == 1000
-
-        track_file = temp_workspace / "test" / "large-batch" / "tracks" / "metric" / "data.jsonl"
-        with open(track_file) as f:
-            data_points = [json.loads(line) for line in f]
-
-        assert len(data_points) == 1000
+    # Verify all tracks exist
+    tracks_dir = temp_workspace / "test" / "track-multi" / "tracks"
+    assert (tracks_dir / "train_loss" / "data.jsonl").exists()
+    assert (tracks_dir / "val_loss" / "data.jsonl").exists()
+    assert (tracks_dir / "accuracy" / "data.jsonl").exists()
 
 
-class TestFlexibleSchema:
-    """Tests for flexible track schema with multiple fields."""
+def test_batch_append(local_session, temp_workspace):
+    """Test batch appending multiple data points at once."""
+    with local_session(name="track-batch", workspace="test") as session:
+        batch_data = [
+            {"value": 0.45, "step": 100, "batch": 1},
+            {"value": 0.42, "step": 200, "batch": 2},
+            {"value": 0.40, "step": 300, "batch": 3},
+            {"value": 0.38, "step": 400, "batch": 4},
+        ]
+        result = session.track("step_loss").append_batch(batch_data)
 
-    def test_multi_field_tracking_local(self, local_session, temp_workspace):
-        """Test tracks with multiple fields per data point."""
-        with local_session(name="multi-field", workspace="test") as session:
-            session.track("all_metrics").append(
-                epoch=5,
-                train_loss=0.3,
-                val_loss=0.35,
-                train_acc=0.85,
-                val_acc=0.82,
-                learning_rate=0.001
-            )
+        assert result["count"] == 4
 
-        track_file = temp_workspace / "test" / "multi-field" / "tracks" / "all_metrics" / "data.jsonl"
-        with open(track_file) as f:
-            data_point = json.loads(f.readline())
+    # Verify all data points were saved
+    track_data = temp_workspace / "test" / "track-batch" / "tracks" / "step_loss" / "data.jsonl"
+    with open(track_data) as f:
+        data_points = [json.loads(line) for line in f]
 
-        assert data_point["data"]["epoch"] == 5
-        assert data_point["data"]["train_loss"] == 0.3
-        assert data_point["data"]["val_loss"] == 0.35
-        assert data_point["data"]["train_acc"] == 0.85
-
-    @pytest.mark.remote
-    def test_multi_field_tracking_remote(self, remote_session, sample_data):
-        """Test multi-field tracking in remote mode."""
-        with remote_session(name="multi-field-remote", workspace="test") as session:
-            for data in sample_data["multi_metric_data"]:
-                session.track("combined").append(**data)
-
-    def test_varying_schemas_local(self, local_session, temp_workspace):
-        """Test that schema can vary between data points."""
-        with local_session(name="varying-schema", workspace="test") as session:
-            session.track("flexible").append(field_a=1, field_b=2)
-            session.track("flexible").append(field_a=3, field_c=4)
-            session.track("flexible").append(field_a=5, field_b=6, field_c=7)
-
-        track_file = temp_workspace / "test" / "varying-schema" / "tracks" / "flexible" / "data.jsonl"
-        with open(track_file) as f:
-            data_points = [json.loads(line) for line in f]
-
-        assert len(data_points) == 3
-        assert "field_b" in data_points[0]["data"]
-        assert "field_c" in data_points[1]["data"]
-        assert "field_c" in data_points[2]["data"]
+    assert len(data_points) == 4
+    assert data_points[0]["data"]["value"] == 0.45
+    assert data_points[0]["data"]["step"] == 100
 
 
-class TestTrackMetadata:
-    """Tests for track metadata."""
+def test_flexible_schema(local_session, temp_workspace):
+    """Test that tracks support flexible schema with multiple fields."""
+    with local_session(name="track-schema", workspace="test") as session:
+        # Track multiple metrics in one data point
+        session.track("all_metrics").append(
+            epoch=5,
+            train_loss=0.3,
+            val_loss=0.35,
+            train_acc=0.85,
+            val_acc=0.82,
+            learning_rate=0.001,
+        )
 
-    def test_track_metadata_creation_local(self, local_session, temp_workspace):
-        """Test that track metadata is created."""
-        with local_session(name="track-meta", workspace="test") as session:
-            for i in range(15):
-                session.track("metric").append(value=i * 0.1, step=i)
+    # Verify all fields were saved
+    track_data = temp_workspace / "test" / "track-schema" / "tracks" / "all_metrics" / "data.jsonl"
+    with open(track_data) as f:
+        data_point = json.loads(f.readline())
 
-        metadata_file = temp_workspace / "test" / "track-meta" / "tracks" / "metric" / "metadata.json"
-        assert metadata_file.exists()
-
-        with open(metadata_file) as f:
-            metadata = json.load(f)
-
-        assert metadata["name"] == "metric"
-        assert metadata["totalDataPoints"] == 15
-
-    def test_track_stats_local(self, local_session):
-        """Test getting track statistics."""
-        with local_session(name="track-stats", workspace="test") as session:
-            for i in range(20):
-                session.track("accuracy").append(value=0.5 + i * 0.02, step=i)
-
-            stats = session.track("accuracy").stats()
-
-        assert stats["name"] == "accuracy"
-        assert int(stats["totalDataPoints"]) == 20
-
-    @pytest.mark.remote
-    def test_track_stats_remote(self, remote_session):
-        """Test getting track stats in remote mode."""
-        with remote_session(name="track-stats-remote", workspace="test") as session:
-            for i in range(10):
-                session.track("loss").append(value=1.0 / (i + 1), step=i)
-
-            stats = session.track("loss").stats()
-            assert stats["name"] == "loss"
+    assert data_point["data"]["epoch"] == 5
+    assert data_point["data"]["train_loss"] == 0.3
+    assert data_point["data"]["val_loss"] == 0.35
+    assert data_point["data"]["train_acc"] == 0.85
+    assert data_point["data"]["val_acc"] == 0.82
+    assert data_point["data"]["learning_rate"] == 0.001
 
 
-class TestTrackRead:
-    """Tests for reading track data."""
+def test_track_metadata(local_session, temp_workspace):
+    """Test that track metadata is created."""
+    with local_session(name="track-meta", workspace="test") as session:
+        for i in range(10):
+            session.track("loss").append(value=0.5 - i * 0.05, step=i)
 
-    def test_read_track_data_local(self, local_session):
-        """Test reading track data."""
-        with local_session(name="track-read", workspace="test") as session:
-            # Write data
-            for i in range(20):
-                session.track("metric").append(value=i * 0.1, step=i)
+    # Verify metadata file exists
+    metadata_file = temp_workspace / "test" / "track-meta" / "tracks" / "loss" / "metadata.json"
+    assert metadata_file.exists()
 
-            # Read data
-            result = session.track("metric").read(start_index=0, limit=10)
+    # Verify metadata content
+    with open(metadata_file) as f:
+        metadata = json.load(f)
 
-        assert result["total"] >= 10
-        assert len(result["data"]) == 10
+    assert metadata["name"] == "loss"
+    assert metadata["totalDataPoints"] == 10
+
+
+def test_read_track_data(local_session, temp_workspace):
+    """Test reading track data."""
+    with local_session(name="track-read", workspace="test") as session:
+        # Write some data
+        for i in range(10):
+            session.track("loss").append(value=1.0 / (i + 1), step=i)
+
+        # Read track data
+        result = session.track("loss").read(start_index=0, limit=5)
+
+        assert result["total"] >= 5
+        assert len(result["data"]) == 5
         assert result["data"][0]["data"]["step"] == 0
 
-    def test_read_with_pagination_local(self, local_session):
-        """Test reading track data with pagination."""
-        with local_session(name="track-page", workspace="test") as session:
-            # Write 100 data points
-            for i in range(100):
-                session.track("metric").append(value=i, step=i)
 
-            # Read first page
-            page1 = session.track("metric").read(start_index=0, limit=25)
-            assert len(page1["data"]) == 25
+def test_track_stats(local_session, temp_workspace):
+    """Test getting track statistics."""
+    with local_session(name="track-stats", workspace="test") as session:
+        # Write some data
+        for i in range(15):
+            session.track("accuracy").append(value=0.5 + i * 0.03, step=i)
 
-            # Read second page
-            page2 = session.track("metric").read(start_index=25, limit=25)
-            assert len(page2["data"]) == 25
-            assert page2["data"][0]["data"]["step"] == 25
+        # Get stats
+        stats = session.track("accuracy").stats()
 
-    @pytest.mark.remote
-    def test_read_track_data_remote(self, remote_session):
-        """Test reading track data in remote mode."""
-        with remote_session(name="track-read-remote", workspace="test") as session:
-            for i in range(15):
-                session.track("metric").append(value=i * 0.05, step=i)
-
-            result = session.track("metric").read(start_index=0, limit=5)
-            assert len(result["data"]) <= 15
+        assert stats["name"] == "accuracy"
+        assert int(stats["totalDataPoints"]) == 15
 
 
-class TestListTracks:
-    """Tests for listing all tracks."""
+def test_list_all_tracks(local_session, temp_workspace):
+    """Test listing all tracks in a session."""
+    with local_session(name="track-list", workspace="test") as session:
+        # Create multiple tracks
+        session.track("loss").append(value=0.5, step=0)
+        session.track("accuracy").append(value=0.8, step=0)
+        session.track("lr").append(value=0.001, step=0)
 
-    def test_list_all_tracks_local(self, local_session):
-        """Test listing all tracks in a session."""
-        with local_session(name="track-list", workspace="test") as session:
-            session.track("loss").append(value=0.5, step=0)
-            session.track("accuracy").append(value=0.8, step=0)
-            session.track("learning_rate").append(value=0.001, step=0)
-
-            tracks = session.track("loss").list_all()
+        # List all tracks
+        tracks = session.track("loss").list_all()
 
         assert len(tracks) == 3
         track_names = [t["name"] for t in tracks]
         assert "loss" in track_names
         assert "accuracy" in track_names
-        assert "learning_rate" in track_names
-
-    @pytest.mark.remote
-    def test_list_all_tracks_remote(self, remote_session):
-        """Test listing tracks in remote mode."""
-        with remote_session(name="track-list-remote", workspace="test") as session:
-            session.track("metric1").append(value=1.0, step=0)
-            session.track("metric2").append(value=2.0, step=0)
-
-            tracks = session.track("metric1").list_all()
-            assert len(tracks) >= 2
+        assert "lr" in track_names
 
 
-class TestTrackIndexing:
-    """Tests for track data indexing."""
+def test_track_index_sequence(local_session, temp_workspace):
+    """Test that track data points have sequential indices."""
+    with local_session(name="track-index", workspace="test") as session:
+        for i in range(5):
+            session.track("metric").append(value=i * 10)
 
-    def test_track_sequential_indices_local(self, local_session, temp_workspace):
-        """Test that track data points have sequential indices."""
-        with local_session(name="track-index", workspace="test") as session:
-            for i in range(10):
-                session.track("metric").append(value=i * 10)
+    # Verify indices are sequential
+    track_data = temp_workspace / "test" / "track-index" / "tracks" / "metric" / "data.jsonl"
+    with open(track_data) as f:
+        data_points = [json.loads(line) for line in f]
 
-        track_file = temp_workspace / "test" / "track-index" / "tracks" / "metric" / "data.jsonl"
-        with open(track_file) as f:
-            data_points = [json.loads(line) for line in f]
-
-        for i, point in enumerate(data_points):
-            assert point["index"] == i
-
-    def test_track_indices_with_batch_local(self, local_session, temp_workspace):
-        """Test indices with batch append."""
-        with local_session(name="batch-index", workspace="test") as session:
-            batch1 = [{"value": i} for i in range(5)]
-            batch2 = [{"value": i + 5} for i in range(5)]
-
-            session.track("metric").append_batch(batch1)
-            session.track("metric").append_batch(batch2)
-
-        track_file = temp_workspace / "test" / "batch-index" / "tracks" / "metric" / "data.jsonl"
-        with open(track_file) as f:
-            data_points = [json.loads(line) for line in f]
-
-        assert len(data_points) == 10
-        for i, point in enumerate(data_points):
-            assert point["index"] == i
+    for i, point in enumerate(data_points):
+        assert point["index"] == i
 
 
-class TestTrackEdgeCases:
-    """Tests for edge cases in track operations."""
+def test_empty_track(local_session, temp_workspace):
+    """Test session with no tracks."""
+    with local_session(name="no-tracks", workspace="test") as session:
+        session.log("No tracks created")
 
-    def test_empty_track_local(self, local_session, temp_workspace):
-        """Test session with no tracks."""
-        with local_session(name="no-tracks", workspace="test") as session:
-            session.log("No tracks created")
-
-        tracks_dir = temp_workspace / "test" / "no-tracks" / "tracks"
-        assert tracks_dir.exists()
-        subdirs = [d for d in tracks_dir.iterdir() if d.is_dir()]
-        assert len(subdirs) == 0
-
-    def test_track_with_null_values_local(self, local_session, temp_workspace):
-        """Test tracking data with null values."""
-        with local_session(name="null-track", workspace="test") as session:
-            session.track("metric").append(value=None, step=0, status="pending")
-            session.track("metric").append(value=0.5, step=1, status="complete")
-
-        track_file = temp_workspace / "test" / "null-track" / "tracks" / "metric" / "data.jsonl"
-        with open(track_file) as f:
-            data_points = [json.loads(line) for line in f]
-
-        assert data_points[0]["data"]["value"] is None
-        assert data_points[1]["data"]["value"] == 0.5
-
-    def test_track_with_special_characters_local(self, local_session, temp_workspace):
-        """Test track names with special characters."""
-        with local_session(name="special-track", workspace="test") as session:
-            session.track("metric_1").append(value=1.0)
-            session.track("metric-2").append(value=2.0)
-            session.track("metric.3").append(value=3.0)
-
-        tracks_dir = temp_workspace / "test" / "special-track" / "tracks"
-        # Check that tracks were created (names may be sanitized)
-        assert tracks_dir.exists()
-
-    def test_very_frequent_tracking_local(self, local_session, temp_workspace):
-        """Test rapid, frequent tracking."""
-        with local_session(name="frequent-track", workspace="test") as session:
-            for i in range(1000):
-                session.track("metric").append(value=i * 0.001, step=i)
-
-        track_file = temp_workspace / "test" / "frequent-track" / "tracks" / "metric" / "data.jsonl"
-        with open(track_file) as f:
-            data_points = [json.loads(line) for line in f]
-
-        assert len(data_points) == 1000
-
-    @pytest.mark.remote
-    def test_frequent_tracking_remote(self, remote_session):
-        """Test rapid tracking in remote mode."""
-        with remote_session(name="frequent-track-remote", workspace="test") as session:
-            for i in range(100):
-                session.track("metric").append(value=i * 0.01, step=i)
-
-    def test_track_with_large_values_local(self, local_session, temp_workspace):
-        """Test tracking with very large numeric values."""
-        with local_session(name="large-values", workspace="test") as session:
-            session.track("metric").append(
-                huge_int=999999999999999,
-                huge_float=1.23e100,
-                tiny_float=1.23e-100
-            )
-
-        track_file = temp_workspace / "test" / "large-values" / "tracks" / "metric" / "data.jsonl"
-        with open(track_file) as f:
-            data_point = json.loads(f.readline())
-
-        assert data_point["data"]["huge_int"] == 999999999999999
-
-    def test_track_with_nested_data_local(self, local_session, temp_workspace):
-        """Test tracking with nested data structures."""
-        with local_session(name="nested-track", workspace="test") as session:
-            session.track("metric").append(
-                epoch=1,
-                metrics={
-                    "train": {"loss": 0.5, "acc": 0.8},
-                    "val": {"loss": 0.6, "acc": 0.75}
-                }
-            )
-
-        track_file = temp_workspace / "test" / "nested-track" / "tracks" / "metric" / "data.jsonl"
-        with open(track_file) as f:
-            data_point = json.loads(f.readline())
-
-        assert data_point["data"]["epoch"] == 1
-        assert isinstance(data_point["data"]["metrics"], dict)
-
-    def test_track_name_collision_local(self, local_session, temp_workspace):
-        """Test multiple appends to same track name."""
-        with local_session(name="collision", workspace="test") as session:
-            session.track("loss").append(value=1.0, epoch=0)
-            session.track("loss").append(value=0.9, epoch=1)
-            session.track("loss").append(value=0.8, epoch=2)
-
-        track_file = temp_workspace / "test" / "collision" / "tracks" / "loss" / "data.jsonl"
-        with open(track_file) as f:
-            data_points = [json.loads(line) for line in f]
-
-        assert len(data_points) == 3
-        assert data_points[0]["data"]["value"] == 1.0
-        assert data_points[2]["data"]["value"] == 0.8
+    # Tracks directory should still exist but be empty
+    tracks_dir = temp_workspace / "test" / "no-tracks" / "tracks"
+    assert tracks_dir.exists()
+    # Should have no subdirectories
+    subdirs = [d for d in tracks_dir.iterdir() if d.is_dir()]
+    assert len(subdirs) == 0

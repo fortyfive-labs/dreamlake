@@ -1,0 +1,11 @@
+{
+  "trackId": "local-track-val_accuracy",
+  "name": "val_accuracy",
+  "description": null,
+  "tags": [],
+  "metadata": null,
+  "totalDataPoints": 21,
+  "nextIndex": 21,
+  "createdAt": "2025-10-25T12:40:58.500316Z",
+  "updatedAt": "2025-10-25T18:34:23.112806Z"
+}

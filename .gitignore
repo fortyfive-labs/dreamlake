@@ -17,23 +17,3 @@ wheels/
 
 # Local tests
 local_test/
-
-# IDE files
-.idea/
-.vscode/
-
-# Documentation backup
-docs_origin/
-docs_backup/
-
-# Sphinx build output
-docs/_build/
-
-# macOS
-.DS_Store
-
-docs_demo
-
-website/
-
-.pytest_cache

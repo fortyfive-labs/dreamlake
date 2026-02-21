@@ -1,0 +1,2 @@
+{"index": 0, "data": {"epoch": 5, "train_loss": 0.3, "val_loss": 0.35, "train_acc": 0.85, "val_acc": 0.82, "learning_rate": 0.001}, "createdAt": "2025-10-25T12:40:58.109864Z"}
+{"index": 1, "data": {"epoch": 5, "train_loss": 0.3, "val_loss": 0.35, "train_acc": 0.85, "val_acc": 0.82, "learning_rate": 0.001}, "createdAt": "2025-10-25T18:33:55.954251Z"}

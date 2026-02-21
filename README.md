@@ -1,6 +1,8 @@
-# Dreamlake
+# Dreamlake Python SDK
 
-A simple and flexible SDK for ML experiment tracking and data storage.
+A simple and flexible Python SDK for ML experiment tracking and data storage.
+
+**Looking for the web app?** See [dreamlake-ai](https://github.com/vuer-ai/dreamlake-ai).
 
 ## Features
 
@@ -20,14 +22,14 @@ A simple and flexible SDK for ML experiment tracking and data storage.
 <tr>
 <td>
 
-```shell
+```bash
 uv add dreamlake
 ```
 
 </td>
 <td>
 
-```shell
+```bash
 pip install dreamlake
 ```
 
@@ -80,14 +82,14 @@ To contribute to Dreamlake or run tests, install the development dependencies:
 <tr>
 <td>
 
-```shell
+```bash
 uv sync --extra dev
 ```
 
 </td>
 <td>
 
-```shell
+```bash
 pip install -e ".[dev]"
 ```
 
@@ -98,12 +100,6 @@ pip install -e ".[dev]"
 This installs:
 - `pytest>=8.0.0` - Testing framework
 - `pytest-asyncio>=0.23.0` - Async test support
-- `sphinx>=7.2.0` - Documentation builder
-- `sphinx-rtd-theme>=2.0.0` - Read the Docs theme
-- `sphinx-autobuild>=2024.0.0` - Live preview for documentation
-- `myst-parser>=2.0.0` - Markdown support for Sphinx
-- `ruff>=0.3.0` - Linter and formatter
-- `mypy>=1.9.0` - Type checker
 
 ### Running Tests
 
@@ -115,64 +111,19 @@ This installs:
 <tr>
 <td>
 
-```shell
+```bash
 uv run pytest
 ```
 
 </td>
 <td>
 
-```shell
+```bash
 pytest
 ```
 
 </td>
 </tr>
 </table>
-
-### Building Documentation
-
-Documentation is built using Sphinx with Read the Docs theme.
-
-<table>
-<tr>
-<td>Build docs</td>
-<td>Live preview</td>
-<td>Clean build</td>
-</tr>
-<tr>
-<td>
-
-```shell
-uv run python -m sphinx -b html docs docs/_build/html
-```
-
-</td>
-<td>
-
-```shell
-uv run sphinx-autobuild docs docs/_build/html
-```
-
-</td>
-<td>
-
-```shell
-rm -rf docs/_build
-```
-
-</td>
-</tr>
-</table>
-
-The live preview command starts a local server and automatically rebuilds when files change.
-
-Alternatively, you can use the Makefile from within the docs directory:
-
-```shell
-cd docs
-make html          # Build HTML documentation
-make clean         # Clean build files
-```
 
 For maintainers, to build and publish a new release: `uv build && uv publish`
