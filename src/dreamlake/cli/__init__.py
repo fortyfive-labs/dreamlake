@@ -2,10 +2,10 @@
 Dreamlake CLI - Command-line interface for dreamlake SDK.
 
 Commands:
-    dreamlake upload  - Upload videos from current folder to BSS
-    dreamlake list    - List uploaded videos
-    dreamlake status  - Check connection status
-    dreamlake label   - Generate text track labels from video
+    dreamlake upload   - Upload videos from current folder to BSS
+    dreamlake list     - List uploaded videos
+    dreamlake status   - Check connection status
+    dreamlake pipeline - Run video processing pipelines
 """
 
 import sys
@@ -14,7 +14,7 @@ from typing import Optional
 from .upload import UploadCommand
 from .list import ListCommand
 from .status import StatusCommand
-from .label import LabelCommand
+from .pipeline import PipelineCommand
 
 
 def main(args: Optional[list] = None) -> int:
@@ -46,8 +46,8 @@ def main(args: Optional[list] = None) -> int:
         return run_list(command_args)
     elif command == "status":
         return run_status(command_args)
-    elif command == "label":
-        return run_label(command_args)
+    elif command == "pipeline":
+        return run_pipeline(command_args)
     else:
         print(f"Unknown command: {command}")
         print_help()
@@ -66,7 +66,7 @@ Commands:
     upload    Upload videos from current folder to BSS (Big Streaming Server)
     list      List uploaded videos
     status    Check connection status to BSS
-    label     Generate text track labels from video files
+    pipeline  Run video processing pipelines
 
 Options:
     -h, --help    Show this help message
@@ -75,7 +75,8 @@ Examples:
     dreamlake upload --path ./videos --endpoint bss://localhost:3112
     dreamlake list --endpoint bss://localhost:3112
     dreamlake status --endpoint bss://localhost:3112
-    dreamlake label video.mp4 --interval 1.0 --format tsv
+    dreamlake pipeline list
+    dreamlake pipeline run --id pipeline:example-timestamp video.mp4
 
 For command-specific help:
     dreamlake <command> --help
@@ -114,14 +115,14 @@ def run_status(args: list) -> int:
     return StatusCommand.run()
 
 
-def run_label(args: list) -> int:
-    """Run the label command."""
+def run_pipeline(args: list) -> int:
+    """Run the pipeline command."""
     if "--help" in args or "-h" in args:
-        LabelCommand.print_help()
+        PipelineCommand.print_help()
         return 0
 
-    LabelCommand._parse_args(args)
-    return LabelCommand.run()
+    PipelineCommand._parse_args(args)
+    return PipelineCommand.run()
 
 
 __all__ = [
@@ -129,5 +130,5 @@ __all__ = [
     "UploadCommand",
     "ListCommand",
     "StatusCommand",
-    "LabelCommand",
+    "PipelineCommand",
 ]
