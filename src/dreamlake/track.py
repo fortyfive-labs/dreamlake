@@ -101,6 +101,26 @@ class TrackBuilder:
         )
         return self
 
+    def log(self, **kwargs) -> 'TrackBuilder':
+        """
+        Log a data point (ML-Dash compatible alias for append).
+
+        This is an alias for append() with auto-generated timestamps.
+        Use this method for ML-Dash style metrics logging.
+
+        Args:
+            **kwargs: Data point fields (flexible schema)
+
+        Returns:
+            self for method chaining
+
+        Examples:
+            # ML-Dash style metrics
+            session.metrics("train/loss").log(value=0.5, epoch=1)
+            session.metrics("train/accuracy").log(value=0.85, epoch=1)
+        """
+        return self.append(**kwargs)
+
     def append_batch(self, data_points: List[Dict[str, Any]]) -> Dict[str, Any]:
         """
         Append multiple data points in batch (more efficient than multiple append calls).
