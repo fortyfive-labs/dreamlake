@@ -126,7 +126,7 @@ class Session:
         # Track buffering for timestamp-based merging
         self._track_buffers: Dict[str, List[Dict[str, Any]]] = {}
         self._track_buffer_lock = threading.Lock()
-        self._track_last_timestamp: Dict[str, float] = {}
+        self._last_timestamp: Optional[float] = None  # Global last timestamp (for _ts=-1)
         self._track_last_auto_timestamp: float = 0.0  # Ensure unique auto-generated timestamps
 
         if self.mode in (OperationMode.REMOTE, OperationMode.HYBRID):
@@ -837,9 +837,9 @@ class Session:
             self._track_last_auto_timestamp = ts
             data['_ts'] = ts
         elif data['_ts'] == -1:
-            # Inherit previous timestamp
-            if name in self._track_last_timestamp:
-                data['_ts'] = self._track_last_timestamp[name]
+            # Inherit global last timestamp (works across all tracks)
+            if self._last_timestamp is not None:
+                data['_ts'] = self._last_timestamp
             else:
                 # No previous timestamp, use current time
                 ts = time.time()
@@ -852,8 +852,8 @@ class Session:
         if not isinstance(data['_ts'], (int, float)):
             raise ValueError("_ts must be a number (seconds since epoch)")
 
-        # Store last timestamp for this track (for _ts=-1 inheritance)
-        self._track_last_timestamp[name] = data['_ts']
+        # Store global last timestamp (for _ts=-1 inheritance across tracks)
+        self._last_timestamp = data['_ts']
 
         # Add to buffer
         with self._track_buffer_lock:

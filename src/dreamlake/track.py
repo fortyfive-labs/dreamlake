@@ -60,7 +60,7 @@ class TrackBuilder:
 
         Timestamp handling:
         - _ts=<number>: Use that timestamp (seconds since epoch)
-        - _ts=-1: Inherit timestamp from previous append on this track
+        - _ts=-1: Inherit timestamp from previous append (across ALL tracks in session)
         - _ts not provided: Auto-generate using time.time()
 
         Args:
@@ -77,10 +77,14 @@ class TrackBuilder:
             # Explicit timestamp
             session.track("robot/position").append(q=[0.1, 0.2], _ts=1.234)
 
-            # Inherit timestamp (merge with previous point)
+            # Inherit timestamp within same track (merge fields)
             session.track("robot/state").append(q=[0.1, 0.2], _ts=1.0)
             session.track("robot/state").append(v=[0.01, 0.02], _ts=-1)  # Uses _ts=1.0
             # After flush: {_ts: 1.0, q: [0.1, 0.2], v: [0.01, 0.02]}
+
+            # Inherit timestamp across different tracks (sync pose + image)
+            session.track("robot/pose").append(position=[1.0, 2.0])  # _ts auto-generated
+            session.track("camera/left/image").append(image=img_data, _ts=-1)  # Same _ts!
         """
         # Prepare data dict
         data = kwargs.copy()

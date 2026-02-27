@@ -58,7 +58,7 @@ def test_explicit_timestamps():
 
 
 def test_timestamp_inheritance():
-    """Test timestamp inheritance with _ts=-1."""
+    """Test timestamp inheritance with _ts=-1 (same track)."""
     with tempfile.TemporaryDirectory() as tmpdir:
         local_path = Path(tmpdir) / ".dreamlake"
 
@@ -82,6 +82,44 @@ def test_timestamp_inheritance():
         assert merged["_ts"] == 1.5
         assert merged["q"] == [0.1, 0.2]
         assert merged["v"] == [0.01, 0.02]
+
+
+def test_timestamp_inheritance_across_tracks():
+    """Test timestamp inheritance with _ts=-1 across different tracks."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        local_path = Path(tmpdir) / ".dreamlake"
+
+        with Session(
+            name="cross-track-ts-test",
+            workspace="test",
+            local_path=str(local_path)
+        ) as session:
+            # First append - auto-generates timestamp
+            session.track("robot/pose").append(position=[1.0, 2.0, 3.0])
+
+            # Second append on different track - inherits same timestamp
+            session.track("camera/left/image").append(width=640, height=480, _ts=-1)
+
+            # Third append on another track - also inherits same timestamp
+            session.track("robot/velocity").append(linear=[0.1, 0.2, 0.3], _ts=-1)
+
+            # Read back from all tracks
+            pose_data = session.track("robot/pose").read(start_index=0, limit=10)
+            image_data = session.track("camera/left/image").read(start_index=0, limit=10)
+            velocity_data = session.track("robot/velocity").read(start_index=0, limit=10)
+
+        # All three tracks should have same timestamp
+        pose_ts = pose_data["data"][0]["data"]["_ts"]
+        image_ts = image_data["data"][0]["data"]["_ts"]
+        velocity_ts = velocity_data["data"][0]["data"]["_ts"]
+
+        assert pose_ts == image_ts == velocity_ts, \
+            "All tracks with _ts=-1 should share the same timestamp"
+
+        # Verify data is correct
+        assert pose_data["data"][0]["data"]["position"] == [1.0, 2.0, 3.0]
+        assert image_data["data"][0]["data"]["width"] == 640
+        assert velocity_data["data"][0]["data"]["linear"] == [0.1, 0.2, 0.3]
 
 
 def test_timestamp_merging():
