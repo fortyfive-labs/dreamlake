@@ -1,10 +1,10 @@
 # Deployment Guide
 
-This guide covers deploying your own DreamLake server for dash_url mode operation.
+This guide covers deploying your own DreamLake server for url mode operation.
 
 ## Overview
 
-DreamLake's dash_url mode requires a backend server that provides:
+DreamLake's url mode requires a backend server that provides:
 - **REST API** for session, log, parameter, track, and file operations
 - **MongoDB** for metadata and structured data storage
 - **S3-compatible storage** (AWS S3, MinIO, etc.) for file storage
@@ -173,7 +173,7 @@ curl http://localhost:3000/health
 from dreamlake import Session
 
 with Session(prefix="test-workspace/test-session",
-    dash_url="http://localhost:3000",
+    url="http://localhost:3000",
     user_name="test-user"
 ) as session:
     session.log("Deployment successful!")
@@ -499,7 +499,7 @@ node -e "console.log(require('crypto').randomBytes(64).toString('base64'))"
 **Development** (user_name auto-generation):
 ```python
 Session(
-    dash_url="http://localhost:3000",
+    url="http://localhost:3000",
     user_name="alice"  # Generates JWT automatically
 )
 ```
@@ -511,7 +511,7 @@ Session(
 api_key = authenticate_user("alice", "password")
 
 Session(
-    dash_url="https://dreamlake.yourcompany.com",
+    url="https://dreamlake.yourcompany.com",
     api_key=api_key  # Use real JWT token
 )
 ```

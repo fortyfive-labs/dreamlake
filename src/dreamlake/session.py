@@ -123,13 +123,13 @@ class Session:
     # Custom local storage directory
     session = Session(
         prefix="my-workspace/my-experiment",
-        dash_root=".dreamlake"
+        root=".dreamlake"
     )
 
     # Remote mode (requires DREAMLAKE_API_KEY env var)
     session = Session(
         prefix="my-workspace/my-experiment",
-        dash_url="http://localhost:3000"
+        url="http://localhost:3000"
     )
 
     # Context manager (recommended)
@@ -147,8 +147,8 @@ class Session:
         tags: Optional[List[str]] = None,
         metadata: Optional[Dict[str, Any]] = None,
         # Mode configuration
-        dash_url: Optional[str] = None,
-        dash_root: Optional[str] = ".dreamlake",
+        url: Optional[str] = None,
+        root: Optional[str] = ".dreamlake",
         # Internal
         _write_protected: bool = False,
     ):
@@ -160,8 +160,8 @@ class Session:
             readme: Optional experiment description/readme
             tags: Optional list of tags
             metadata: Optional metadata dict
-            dash_url: Remote API URL (e.g., "http://localhost:3000"). None = local-only mode
-            dash_root: Local storage root path (defaults to ".dreamlake")
+            url: Remote API URL (e.g., "http://localhost:3000"). None = local-only mode
+            root: Local storage root path (defaults to ".dreamlake")
             _write_protected: Internal - if True, session becomes immutable after creation
 
         Prefix Format:
@@ -169,9 +169,9 @@ class Session:
             - "owner/workspace/name" → workspace="workspace", name="name"
 
         Mode Selection:
-            - dash_url=None: Local-only mode (writes to dash_root)
-            - dash_url + dash_root: Hybrid mode (local + remote)
-            - dash_url + dash_root=None: Remote-only mode
+            - url=None: Local-only mode (writes to root)
+            - url + root: Hybrid mode (local + remote)
+            - url + root=None: Remote-only mode
         """
         # Parse prefix into components
         if not prefix:
@@ -192,15 +192,15 @@ class Session:
         self.metadata = metadata
 
         # Determine operation mode
-        if dash_url and dash_root:
+        if url and root:
             self.mode = OperationMode.HYBRID
-        elif dash_url:
+        elif url:
             self.mode = OperationMode.REMOTE
-        elif dash_root:
+        elif root:
             self.mode = OperationMode.LOCAL
         else:
             raise ValueError(
-                "Must specify either 'dash_url' (remote) or 'dash_root' (local)"
+                "Must specify either 'url' (remote) or 'root' (local)"
             )
 
         # Initialize backend
@@ -224,12 +224,12 @@ class Session:
             if not api_key:
                 raise ValueError(
                     "DREAMLAKE_API_KEY environment variable required for remote mode. "
-                    "Set it or use dash_root for local-only mode."
+                    "Set it or use root for local-only mode."
                 )
-            self._client = RemoteClient(base_url=dash_url, api_key=api_key)
+            self._client = RemoteClient(base_url=url, api_key=api_key)
 
         if self.mode in (OperationMode.LOCAL, OperationMode.HYBRID):
-            self._storage = LocalStorage(root_path=Path(dash_root))
+            self._storage = LocalStorage(root_path=Path(root))
 
     @staticmethod
     def _generate_api_key_from_username(user_name: str) -> str:

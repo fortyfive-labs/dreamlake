@@ -17,14 +17,14 @@ Run tests that don't require a server:
 
 ```bash
 cd dreamlake-py
-uv run pytest test/ -v -m "not dash_url"
+uv run pytest test/ -v -m "not url"
 ```
 
-**Result**: 127 tests pass, 38 dash_url tests skipped
+**Result**: 127 tests pass, 38 url tests skipped
 
 ### All Tests (Local + Remote)
 
-To run all tests including dash_url integration tests, you need to start the test environment first.
+To run all tests including url integration tests, you need to start the test environment first.
 
 #### 1. Start Test Environment
 
@@ -141,7 +141,7 @@ NODE_ENV=test
 
 ### dreamlake-py/.env.test
 
-Python SDK configuration for running dash_url tests:
+Python SDK configuration for running url tests:
 
 ```bash
 # DreamLake Server URL
@@ -188,11 +188,11 @@ uv run pytest test/test_logging.py::TestBasicLogging::test_simple_log_remote -v
 # Run only local mode tests
 uv run pytest test/ -v -m local_only
 
-# Run only dash_url mode tests
+# Run only url mode tests
 uv run pytest test/ -v -m remote_only
 
-# Run tests excluding dash_url tests
-uv run pytest test/ -v -m "not dash_url"
+# Run tests excluding url tests
+uv run pytest test/ -v -m "not url"
 ```
 
 ## Test Coverage
@@ -329,13 +329,13 @@ cd ../dreamlake-py && uv run pytest test/ -v
 
 2. **Run local tests** to verify basic functionality:
    ```bash
-   uv run pytest test/ -v -m "not dash_url"
+   uv run pytest test/ -v -m "not url"
    ```
 
-3. **Run dash_url tests** to verify server integration:
+3. **Run url tests** to verify server integration:
    ```bash
    cd docker && docker compose -f docker-compose.test.yml up -d
-   cd ../dreamlake-py && uv run pytest test/ -v -m dash_url
+   cd ../dreamlake-py && uv run pytest test/ -v -m url
    ```
 
 4. **Run all tests** before committing:
@@ -356,7 +356,7 @@ If you're also developing the DreamLake server:
 
 3. **Run integration tests**:
    ```bash
-   cd dreamlake-py && uv run pytest test/ -v -m dash_url
+   cd dreamlake-py && uv run pytest test/ -v -m url
    ```
 
 **Note**: The Docker Compose test setup mounts `dreamlake-server` as a volume, so server code changes are reflected after restart. However, dependency changes require rebuilding:

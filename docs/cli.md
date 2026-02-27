@@ -43,7 +43,7 @@ dreamlake upload --file ./model.pt --workspace my-ws --session exp-001 \
 
 # Remote mode
 dreamlake upload --file ./model.pt --workspace my-ws --session exp-001 \
-    --dash_url http://localhost:3000 \
+    --url http://localhost:3000 \
     --api-key $DREAMLAKE_API_KEY
 ```
 
@@ -57,8 +57,8 @@ dreamlake upload --file ./model.pt --workspace my-ws --session exp-001 \
 | `--path` | Logical path prefix (default: `/`) |
 | `--description` | Optional file description |
 | `--tags` | Comma-separated tags |
-| `--dash_url` | Remote API URL (uses local mode if not set) |
-| `--api-key` | API key for dash_url mode |
+| `--url` | Remote API URL (uses local mode if not set) |
+| `--api-key` | API key for url mode |
 | `--local-path` | Local storage path (default: `.dreamlake`) |
 
 ### Download
@@ -82,8 +82,8 @@ dreamlake download --file-id abc123 --workspace my-ws --session exp-001 \
 | `--workspace` | Workspace name (required) |
 | `--session` | Session/experiment name (required) |
 | `--output` | Output path (default: current directory) |
-| `--dash_url` | Remote API URL |
-| `--api-key` | API key for dash_url mode |
+| `--url` | Remote API URL |
+| `--api-key` | API key for url mode |
 | `--local-path` | Local storage path |
 
 ### List
@@ -113,8 +113,8 @@ dreamlake list --workspace my-ws --session exp-001 --json-output
 | `--path` | Filter by path prefix |
 | `--tags` | Filter by tags (comma-separated) |
 | `--json-output` | Output as JSON |
-| `--dash_url` | Remote API URL |
-| `--api-key` | API key for dash_url mode |
+| `--url` | Remote API URL |
+| `--api-key` | API key for url mode |
 | `--local-path` | Local storage path |
 
 ## Video Commands (BSS)

@@ -207,4 +207,4 @@ for arch in ["cnn", "resnet", "vit"]:
 
 ---
 
-**Next:** See [Remote Collaboration](dash_url-collaboration.md) for team workflows.
+**Next:** See [Remote Collaboration](url-collaboration.md) for team workflows.

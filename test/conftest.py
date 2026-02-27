@@ -37,7 +37,7 @@ def local_session(temp_workspace):
     """
     def _create_session(prefix="test-workspace/test-session", **kwargs):
         defaults = {
-            "dash_root": str(temp_workspace),
+            "root": str(temp_workspace),
         }
         defaults.update(kwargs)
         return Session(prefix=prefix, **defaults)
@@ -56,7 +56,7 @@ def remote_session():
     """
     def _create_session(prefix="test-workspace/test-session", **kwargs):
         defaults = {
-            "dash_url": REMOTE_SERVER_URL,
+            "url": REMOTE_SERVER_URL,
         }
         defaults.update(kwargs)
         # Note: Requires DREAMLAKE_API_KEY environment variable

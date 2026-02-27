@@ -20,7 +20,7 @@ Local mode stores all data on your local filesystem in a `.dreamlake/` directory
 from dreamlake import Session
 
 with Session(prefix="my-workspace/my-experiment",
-    dash_root="./experiments"  # Required for local mode,
+    root="./experiments"  # Required for local mode,
         local_path=".dreamlake"
 ) as session:
     session.log("Running in local mode")
@@ -81,20 +81,20 @@ from dreamlake import Session
 
 # With username (simpler for development)
 with Session(prefix="my-workspace/my-experiment",
-    dash_url="https://cu3thurmv3.us-east-1.awsapprunner.com",     # API endpoint
+    url="https://cu3thurmv3.us-east-1.awsapprunner.com",     # API endpoint
     user_name="your-username"            # Authentication
 ) as session:
-    session.log("Running in dash_url mode")
+    session.log("Running in url mode")
     session.params.set(batch_size=32)
     session.track("loss").append(value=0.5)
     session.files.upload("model.pth", path="/models")
 
 # Or with API key (advanced)
 with Session(prefix="my-workspace/my-experiment",
-    dash_url="https://cu3thurmv3.us-east-1.awsapprunner.com",     # API endpoint
+    url="https://cu3thurmv3.us-east-1.awsapprunner.com",     # API endpoint
     api_key="your-api-key-here"          # Authentication
 ) as session:
-    session.log("Running in dash_url mode")
+    session.log("Running in url mode")
     session.params.set(batch_size=32)
     session.track("loss").append(value=0.5)
     session.files.upload("model.pth", path="/models")
@@ -159,13 +159,13 @@ You can't directly convert between modes, but you can export/import data.
 
 ```python
 # Development (local)
-with Session(prefix="dev/experiment", dash_root="./data",
+with Session(prefix="dev/experiment", root="./data",
         local_path=".dreamlake") as session:
     # Develop your code...
     pass
 
-# Production (dash_url)
-with Session(prefix="prod/experiment", dash_url="https://api", api_key="key") as session:
+# Production (url)
+with Session(prefix="prod/experiment", url="https://api", api_key="key") as session:
     # Run at scale...
     pass
 ```
@@ -192,7 +192,7 @@ from dreamlake import Session
 # Will use environment variables
 with Session(prefix="my-workspace/experiment",
     local_path=os.getenv("DREAMLAKE_LOCAL_PATH"),
-    dash_url=os.getenv("DREAMLAKE_API_URL"),
+    url=os.getenv("DREAMLAKE_API_URL"),
     api_key=os.getenv("DREAMLAKE_API_KEY")
 ) as session:
     pass
@@ -200,7 +200,7 @@ with Session(prefix="my-workspace/experiment",
 
 ## Hybrid Approach
 
-Run locally during development, dash_url in production:
+Run locally during development, url in production:
 
 ```python
 import os
@@ -212,7 +212,7 @@ is_production = os.getenv("ENVIRONMENT") == "production"
 if is_production:
     # Remote mode for production
     session_config = {
-        "dash_url": "https://api.dreamlake.ai",
+        "url": "https://api.dreamlake.ai",
         "api_key": os.getenv("DREAMLAKE_API_KEY")
     }
 else:
@@ -230,7 +230,7 @@ with Session(prefix="ml/experiment", **session_config,
 ## Best Practices
 
 1. **Development**: Start with local mode for fast iteration
-2. **Production**: Use dash_url mode for team collaboration
+2. **Production**: Use url mode for team collaboration
 3. **Backup**: Regularly back up `.dreamlake/` in local mode
 4. **Environment vars**: Use environment variables for configuration
 5. **Testing**: Test both modes before deploying
@@ -256,7 +256,7 @@ Choose **Remote Mode** if:
 **Deployment & Operations:**
 - **[Deployment Guide](deployment.md)** - Deploy your own DreamLake server (Docker, Kubernetes, Cloud)
 - **[Architecture](architecture.md)** - Understand the technical differences between modes
-- **[FAQ](faq.md)** - When should I use local vs dash_url mode?
+- **[FAQ](faq.md)** - When should I use local vs url mode?
 
 **Getting Started:**
 - [Complete Examples](complete-examples.md) - Full examples for both modes

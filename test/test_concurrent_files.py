@@ -32,7 +32,7 @@ def test_concurrent_file_uploads():
         # Create session
         session = Session(
             prefix="test-workspace/concurrent-test",
-            dash_root=str(local_path)
+            root=str(local_path)
         )
         session.open()
 
@@ -118,7 +118,7 @@ def test_concurrent_file_operations_mixed():
         # Create session
         session = Session(
             prefix="test-workspace/mixed-ops-test",
-            dash_root=str(local_path)
+            root=str(local_path)
         )
         session.open()
 
@@ -233,7 +233,7 @@ def test_concurrent_file_uploads_new_api():
         # Create session
         with Session(
             prefix="test-workspace/newapi-test",
-            dash_root=str(local_path)
+            root=str(local_path)
         ) as session:
             results = [None] * num_files
             errors = [None] * num_files

@@ -9,7 +9,7 @@ from dreamlake import Session
 
 # Local mode
 with Session(prefix="workspace-name/experiment-name",
-    dash_root="./data",
+    root="./data",
         local_path=".dreamlake"
 ) as session:
     # Your code here
@@ -17,7 +17,7 @@ with Session(prefix="workspace-name/experiment-name",
 
 # Remote mode (with username - auto-generates API key)
 with Session(prefix="workspace-name/experiment-name",
-    dash_url="https://cu3thurmv3.us-east-1.awsapprunner.com",
+    url="https://cu3thurmv3.us-east-1.awsapprunner.com",
     user_name="your-username"
 ) as session:
     # Your code here
@@ -151,7 +151,7 @@ for file in files:
 from dreamlake import Session
 
 with Session(prefix="computer-vision/mnist-training",
-    dash_root="./experiments",
+    root="./experiments",
         local_path=".dreamlake"
 ) as session:
     # Configuration

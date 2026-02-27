@@ -8,7 +8,7 @@ DreamLake is a lightweight Python SDK for tracking machine learning experiments 
 
 **Zero Setup** - Start tracking experiments instantly with filesystem-based storage. No server configuration, no database setup.
 
-**Dual Modes** - Choose local (filesystem) or dash_url (server with MongoDB + S3) based on your needs. Switch between them easily.
+**Dual Modes** - Choose local (filesystem) or url (server with MongoDB + S3) based on your needs. Switch between them easily.
 
 **Fluent API** - Clean, chainable syntax that feels natural:
 

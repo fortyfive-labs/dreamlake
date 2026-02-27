@@ -22,7 +22,7 @@ def test_concurrent_logging():
 
         with Session(
             prefix="test-workspace/log-test",
-            dash_root=str(local_path)
+            root=str(local_path)
         ) as session:
             num_logs = 100
             errors = []
@@ -72,7 +72,7 @@ def test_concurrent_parameters():
 
         with Session(
             prefix="test-workspace/param-test",
-            dash_root=str(local_path)
+            root=str(local_path)
         ) as session:
             num_threads = 20
             params_per_thread = 5
@@ -121,7 +121,7 @@ def test_concurrent_track_append():
 
         with Session(
             prefix="test-workspace/track-test",
-            dash_root=str(local_path)
+            root=str(local_path)
         ) as session:
             num_appends = 100
             errors = []
@@ -173,7 +173,7 @@ def test_concurrent_batch_track_append():
 
         with Session(
             prefix="test-workspace/batch-track-test",
-            dash_root=str(local_path)
+            root=str(local_path)
         ) as session:
             num_batches = 20
             batch_size = 10
@@ -235,7 +235,7 @@ def test_concurrent_session_updates():
         # Create initial session
         session1 = Session(
             prefix="test-workspace/session-update-test",
-            dash_root=str(local_path),
+            root=str(local_path),
             readme="Initial description"
         )
         session1.open()
@@ -250,7 +250,7 @@ def test_concurrent_session_updates():
             try:
                 session = Session(
             prefix="test-workspace/session-update-test",
-                    dash_root=str(local_path),
+                    root=str(local_path),
                     tags=[f"tag_{thread_id}"]
                 )
                 session.open()
@@ -291,7 +291,7 @@ def test_mixed_concurrent_operations():
 
         with Session(
             prefix="test-workspace/mixed-test",
-            dash_root=str(local_path)
+            root=str(local_path)
         ) as session:
             errors = []
 

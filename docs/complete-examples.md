@@ -15,7 +15,7 @@ def train_simple_model():
     """Train a simple model and track with DreamLake."""
 
     with Session(prefix="tutorials/simple-training",
-        dash_root="./experiments",
+        root="./experiments",
         readme="Simple training example",
         tags=["tutorial", "simple"],
         local_path=".dreamlake"
@@ -114,7 +114,7 @@ def train_mnist():
 
     # DreamLake session
     with Session(prefix="computer-vision/mnist-pytorch",
-        dash_root="./experiments",
+        root="./experiments",
         readme="MNIST classification with PyTorch",
         tags=["mnist", "pytorch", "classification"],
         local_path=".dreamlake"
@@ -265,7 +265,7 @@ def hyperparameter_search():
         with Session(
             name=session_name,
             workspace="hyperparameter-search",
-            dash_root="./experiments",
+            root="./experiments",
             readme=f"Grid search: lr={lr}, batch_size={bs}",
             tags=["grid-search", f"lr-{lr}", f"bs-{bs}"],
         local_path=".dreamlake"
@@ -337,7 +337,7 @@ def compare_architectures():
         with Session(
             name=f"comparison-{arch}",
             workspace="architecture-comparison",
-            dash_root="./experiments",
+            root="./experiments",
             readme=f"Training {arch} on CIFAR-10",
             tags=["comparison", arch, "cifar10"],
         local_path=".dreamlake"
@@ -383,7 +383,7 @@ def train_with_debug():
     """Training with extensive debugging logs."""
 
     with Session(prefix="debugging/debug-training",
-        dash_root="./experiments",
+        root="./experiments",
         readme="Training with debug logging",
         tags=["debug"],
         local_path=".dreamlake"

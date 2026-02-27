@@ -14,7 +14,7 @@ def test_auto_generated_timestamps():
 
         with Session(
             prefix="test/auto-ts-test",
-            dash_root=str(local_path)
+            root=str(local_path)
         ) as session:
             # Append without _ts (should auto-generate)
             session.track("metric").append(value=0.5, step=1)
@@ -41,7 +41,7 @@ def test_explicit_timestamps():
 
         with Session(
             prefix="test/explicit-ts-test",
-            dash_root=str(local_path)
+            root=str(local_path)
         ) as session:
             # Append with explicit timestamps
             session.track("robot/position").append(q=[0.1, 0.2], _ts=1.0)
@@ -62,7 +62,7 @@ def test_timestamp_inheritance():
 
         with Session(
             prefix="test/inherit-ts-test",
-            dash_root=str(local_path)
+            root=str(local_path)
         ) as session:
             # First append with explicit timestamp
             session.track("robot/state").append(q=[0.1, 0.2], _ts=1.5)
@@ -88,7 +88,7 @@ def test_timestamp_inheritance_across_tracks():
 
         with Session(
             prefix="test/cross-track-ts-test",
-            dash_root=str(local_path)
+            root=str(local_path)
         ) as session:
             # First append - auto-generates timestamp
             session.track("robot/pose").append(position=[1.0, 2.0, 3.0])
@@ -125,7 +125,7 @@ def test_timestamp_merging():
 
         with Session(
             prefix="test/merge-ts-test",
-            dash_root=str(local_path)
+            root=str(local_path)
         ) as session:
             # Append multiple fields with same timestamp
             session.track("robot/state").append(q=[0.1, 0.2], _ts=1.0)
@@ -152,7 +152,7 @@ def test_timestamp_merging_with_inheritance():
 
         with Session(
             prefix="test/merge-inherit-test",
-            dash_root=str(local_path)
+            root=str(local_path)
         ) as session:
             # First point with explicit timestamp
             session.track("robot/state").append(q=[0.1, 0.2], _ts=2.0)
@@ -190,7 +190,7 @@ def test_flush_and_chaining():
 
         with Session(
             prefix="test/flush-test",
-            dash_root=str(local_path)
+            root=str(local_path)
         ) as session:
             # Method chaining
             session.track("loss").append(value=0.5, epoch=1, _ts=1.0).append(value=0.4, epoch=2, _ts=2.0)
@@ -213,7 +213,7 @@ def test_hierarchical_track_names():
 
         with Session(
             prefix="test/hierarchical-test",
-            dash_root=str(local_path)
+            root=str(local_path)
         ) as session:
             # Use hierarchical names
             session.track("robot/position/left-camera").append(x=1.0, y=2.0, _ts=1.0)

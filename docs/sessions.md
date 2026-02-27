@@ -65,7 +65,7 @@ finally:
 :linenos:
 
 with Session(prefix="project/my-experiment",
-    dash_root="./experiments",
+    root="./experiments",
         local_path=".dreamlake"
 ) as session:
     session.log("Using local storage")
@@ -77,10 +77,10 @@ with Session(prefix="project/my-experiment",
 :linenos:
 
 with Session(prefix="project/my-experiment",
-    dash_url="https://your-server.com",
+    url="https://your-server.com",
     user_name="alice"
 ) as session:
-    session.log("Using dash_url server")
+    session.log("Using url server")
 ```
 
 ## Session Metadata
@@ -91,7 +91,7 @@ Add description, tags, and folders for organization:
 :linenos:
 
 with Session(prefix="computer-vision/resnet50-imagenet",
-    dash_root="./experiments",
+    root="./experiments",
     readme="ResNet-50 training with new augmentation",
     tags=["resnet", "imagenet", "baseline"],
     folder="/experiments/2025/resnet",

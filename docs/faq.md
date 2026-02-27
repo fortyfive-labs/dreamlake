@@ -4,7 +4,7 @@ Common questions and solutions for using DreamLake.
 
 ## General Questions
 
-### When should I use local vs dash_url mode?
+### When should I use local vs url mode?
 
 **Use Local Mode when:**
 - ✅ Rapid prototyping and development
@@ -20,19 +20,19 @@ Common questions and solutions for using DreamLake.
 - ✅ Want web UI for visualization
 - ✅ Running experiments across multiple machines
 
-**Summary**: Start with local mode for development, switch to dash_url for collaboration.
+**Summary**: Start with local mode for development, switch to url for collaboration.
 
 ---
 
-### How do I migrate from local to dash_url mode?
+### How do I migrate from local to url mode?
 
 Currently, you need to manually sync data. We recommend:
 
 **Option 1: Re-run experiments** (recommended)
 ```python
-# Change from local to dash_url, re-run your code
+# Change from local to url, re-run your code
 Session(prefix="my-workspace/my-experiment",
-    dash_url="http://localhost:3000",  # Changed from local_path
+    url="http://localhost:3000",  # Changed from local_path
     user_name="your-name"
 )
 ```
@@ -43,7 +43,7 @@ Session(prefix="my-workspace/my-experiment",
 from dreamlake import migrate
 
 migrate.local_to_remote(
-    dash_root=".dreamlake",
+    root=".dreamlake",
     remote_url="http://localhost:3000",
     api_key="your-key"
 )
@@ -51,20 +51,20 @@ migrate.local_to_remote(
 
 ---
 
-### Can I use both local and dash_url mode simultaneously?
+### Can I use both local and url mode simultaneously?
 
 Not yet! **Hybrid mode** is planned for v0.3:
 
 ```python
 # Coming soon
 Session(prefix="my-workspace/my-experiment",
-    dash_root=".dreamlake",  # Local backup
-    dash_url="http://localhost:3000",  # Syncs to dash_url
+    root=".dreamlake",  # Local backup
+    url="http://localhost:3000",  # Syncs to url
     user_name="your-name"
 )
 ```
 
-This will automatically sync local data to dash_url server.
+This will automatically sync local data to url server.
 
 ---
 
@@ -104,7 +104,7 @@ DreamLake sessions are designed for **resilience**:
 ```python
 # First run - crashes at epoch 5
 try:
-    with Session(prefix="test/training", dash_root=".dreamlake",
+    with Session(prefix="test/training", root=".dreamlake",
         local_path=".dreamlake") as session:
         for epoch in range(10):
             session.track("loss").append(value=loss, epoch=epoch)
@@ -113,7 +113,7 @@ except Exception:
     pass
 
 # Second run - continue from crash
-with Session(prefix="test/training", dash_root=".dreamlake",
+with Session(prefix="test/training", root=".dreamlake",
         local_path=".dreamlake") as session:
     # Continue from epoch 6
     for epoch in range(6, 10):
@@ -177,7 +177,7 @@ results = query.search(
 ```python
 # SDK automatically generates JWT from username
 Session(
-    dash_url="http://localhost:3000",
+    url="http://localhost:3000",
     user_name="alice"  # No API key needed!
 )
 ```
@@ -194,7 +194,7 @@ The SDK generates a deterministic JWT token using the username and the server's 
 api_key = your_auth_service.login("alice", "password")
 
 Session(
-    dash_url="https://dreamlake.company.com",
+    url="https://dreamlake.company.com",
     api_key=api_key
 )
 ```
@@ -399,7 +399,7 @@ httpx.HTTPStatusError: Client error '401 Unauthorized'
 
 1. **Use `user_name` for development**:
    ```python
-   Session(dash_url="http://localhost:3000", user_name="test-user")
+   Session(url="http://localhost:3000", user_name="test-user")
    ```
 
 2. **Check JWT secret matches**:
@@ -426,7 +426,7 @@ httpx.HTTPStatusError: Client error '401 Unauthorized'
 
 **Causes**:
 1. Session not properly closed
-2. Buffering in dash_url mode
+2. Buffering in url mode
 3. File permissions (local mode)
 
 **Solutions**:
@@ -484,13 +484,13 @@ httpx.ConnectTimeout: Connection timeout
    ```python
    # Common mistakes:
    # ❌ Missing http://
-   dash_url="localhost:3000"
+   url="localhost:3000"
 
    # ❌ Wrong port
-   dash_url="http://localhost:8000"
+   url="http://localhost:8000"
 
    # ✅ Correct
-   dash_url="http://localhost:3000"
+   url="http://localhost:3000"
    ```
 
 3. **Check server logs**:
@@ -547,7 +547,7 @@ Error uploading file: File not found / Permission denied
        print("File too large, consider compression or splitting")
    ```
 
-3. **Check S3 configuration** (dash_url mode):
+3. **Check S3 configuration** (url mode):
    ```bash
    # Server logs
    docker-compose logs dreamlake-server | grep "S3"

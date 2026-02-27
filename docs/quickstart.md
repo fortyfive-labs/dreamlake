@@ -123,7 +123,7 @@ with Session(prefix="project/my-experiment",
 
 ## Remote Mode
 
-To collaborate with your team, switch to dash_url mode by pointing to a DreamLake server:
+To collaborate with your team, switch to url mode by pointing to a DreamLake server:
 
 ```{code-block} python
 :linenos:
@@ -131,15 +131,15 @@ To collaborate with your team, switch to dash_url mode by pointing to a DreamLak
 from dreamlake import Session
 
 with Session(prefix="team-project/my-experiment",
-    dash_url="http://your-server:3000",
+    url="http://your-server:3000",
     user_name="your-name"
 ) as session:
     # Use exactly the same API as local mode!
-    session.log("Running on dash_url server")
+    session.log("Running on url server")
     session.params.set(learning_rate=0.001)
 ```
 
-The API is identical - just add `dash_url` and `user_name` parameters.
+The API is identical - just add `url` and `user_name` parameters.
 
 ## Next Steps
 
