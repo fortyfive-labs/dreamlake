@@ -12,6 +12,8 @@ from enum import Enum
 import functools
 from pathlib import Path
 from datetime import datetime
+import time
+import threading
 
 from .client import RemoteClient
 from .storage import LocalStorage
@@ -121,6 +123,12 @@ class Session:
         self._session_data: Optional[Dict[str, Any]] = None
         self._is_open = False
 
+        # Track buffering for timestamp-based merging
+        self._track_buffers: Dict[str, List[Dict[str, Any]]] = {}
+        self._track_buffer_lock = threading.Lock()
+        self._track_last_timestamp: Dict[str, float] = {}
+        self._track_last_auto_timestamp: float = 0.0  # Ensure unique auto-generated timestamps
+
         if self.mode in (OperationMode.REMOTE, OperationMode.HYBRID):
             if not api_key:
                 raise ValueError("Either api_key or user_name is required for remote mode")
@@ -207,9 +215,12 @@ class Session:
         return self
 
     def close(self):
-        """Close the session."""
+        """Close the session and flush all buffered tracks."""
         if not self._is_open:
             return
+
+        # Flush all buffered tracks
+        self._flush_all_tracks()
 
         # Flush any pending writes
         if self._storage:
@@ -708,6 +719,93 @@ class Session:
 
         return TrackBuilder(self, name, description, tags, metadata)
 
+    def _merge_by_timestamp(self, data_points: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        Merge data points with same _ts value.
+
+        Args:
+            data_points: List of data points (each with _ts field)
+
+        Returns:
+            List of merged data points, sorted by _ts
+        """
+        merged = {}
+        for point in data_points:
+            ts = point['_ts']
+            if ts in merged:
+                # Merge fields (later fields override earlier ones)
+                merged[ts].update(point)
+            else:
+                merged[ts] = point.copy()
+
+        # Sort by timestamp
+        return [merged[ts] for ts in sorted(merged.keys())]
+
+    def _flush_track(
+        self,
+        name: str,
+        description: Optional[str] = None,
+        tags: Optional[List[str]] = None,
+        metadata: Optional[Dict[str, Any]] = None
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Flush buffered data for a specific track.
+
+        Args:
+            name: Track name
+            description: Optional track description
+            tags: Optional tags
+            metadata: Optional metadata
+
+        Returns:
+            Result from backend (trackId, startIndex, endIndex, count, ...) or None if no data
+        """
+        with self._track_buffer_lock:
+            buffer = self._track_buffers.get(name, [])
+            if not buffer:
+                return None
+
+            # Merge by timestamp
+            merged = self._merge_by_timestamp(buffer)
+
+            # Clear buffer before sending (avoid re-sending on retry)
+            self._track_buffers[name] = []
+
+        # Send to backend (outside lock to allow concurrent appends)
+        result = None
+        if self._client:
+            result = self._client.append_batch_to_track(
+                session_id=self._session_id,
+                track_name=name,
+                data_points=merged,
+                description=description,
+                tags=tags,
+                metadata=metadata
+            )
+
+        if self._storage:
+            result = self._storage.append_batch_to_track(
+                workspace=self.workspace,
+                session=self.name,
+                track_name=name,
+                data_points=merged,
+                description=description,
+                tags=tags,
+                metadata=metadata
+            )
+
+        return result
+
+    def _flush_all_tracks(self):
+        """Flush all buffered tracks."""
+        # Get snapshot of track names to avoid holding lock during flush
+        with self._track_buffer_lock:
+            track_names = [name for name, buffer in self._track_buffers.items() if buffer]
+
+        # Flush each track
+        for name in track_names:
+            self._flush_track(name)
+
     def _append_to_track(
         self,
         name: str,
@@ -715,46 +813,57 @@ class Session:
         description: Optional[str],
         tags: Optional[List[str]],
         metadata: Optional[Dict[str, Any]]
-    ) -> Dict[str, Any]:
+    ) -> 'TrackBuilder':
         """
-        Internal method to append a single data point to a track.
+        Internal method to append a single data point to a track (buffered).
 
         Args:
             name: Track name
-            data: Data point (flexible schema)
+            data: Data point (flexible schema, _ts will be added if missing)
             description: Optional track description
             tags: Optional tags
             metadata: Optional metadata
 
         Returns:
-            Dict with trackId, index, bufferedDataPoints, chunkSize
+            TrackBuilder for chaining
         """
-        result = None
+        # Handle _ts field
+        if '_ts' not in data:
+            # Auto-generate unique timestamp
+            ts = time.time()
+            # Ensure monotonically increasing (avoid collisions in rapid succession)
+            if ts <= self._track_last_auto_timestamp:
+                ts = self._track_last_auto_timestamp + 0.000001
+            self._track_last_auto_timestamp = ts
+            data['_ts'] = ts
+        elif data['_ts'] == -1:
+            # Inherit previous timestamp
+            if name in self._track_last_timestamp:
+                data['_ts'] = self._track_last_timestamp[name]
+            else:
+                # No previous timestamp, use current time
+                ts = time.time()
+                if ts <= self._track_last_auto_timestamp:
+                    ts = self._track_last_auto_timestamp + 0.000001
+                self._track_last_auto_timestamp = ts
+                data['_ts'] = ts
 
-        if self._client:
-            # Remote mode: append via API
-            result = self._client.append_to_track(
-                session_id=self._session_id,
-                track_name=name,
-                data=data,
-                description=description,
-                tags=tags,
-                metadata=metadata
-            )
+        # Validate _ts is numeric
+        if not isinstance(data['_ts'], (int, float)):
+            raise ValueError("_ts must be a number (seconds since epoch)")
 
-        if self._storage:
-            # Local mode: append to local storage
-            result = self._storage.append_to_track(
-                workspace=self.workspace,
-                session=self.name,
-                track_name=name,
-                data=data,
-                description=description,
-                tags=tags,
-                metadata=metadata
-            )
+        # Store last timestamp for this track (for _ts=-1 inheritance)
+        self._track_last_timestamp[name] = data['_ts']
 
-        return result
+        # Add to buffer
+        with self._track_buffer_lock:
+            if name not in self._track_buffers:
+                self._track_buffers[name] = []
+            self._track_buffers[name].append(data)
+
+        # Return TrackBuilder for chaining
+        from .track import TrackBuilder
+        return TrackBuilder(self, name, description, tags, metadata)
 
     def _append_batch_to_track(
         self,
@@ -904,6 +1013,64 @@ class Session:
     def data(self) -> Optional[Dict[str, Any]]:
         """Get the full session data (only available after open in remote mode)."""
         return self._session_data
+
+    @property
+    def tracks(self) -> 'TracksNamespace':
+        """
+        Access tracks namespace for global track operations.
+
+        Returns:
+            TracksNamespace instance
+
+        Examples:
+            # Flush all buffered tracks
+            session.tracks.flush()
+
+            # List all tracks
+            tracks = session.tracks.list()
+        """
+        return TracksNamespace(self)
+
+
+class TracksNamespace:
+    """Namespace for global track operations."""
+
+    def __init__(self, session: 'Session'):
+        """
+        Initialize TracksNamespace.
+
+        Args:
+            session: Parent Session instance
+        """
+        self._session = session
+
+    def flush(self):
+        """
+        Flush all buffered tracks.
+
+        Example:
+            session.tracks.flush()
+        """
+        return self._session._flush_all_tracks()
+
+    def list(self) -> List[Dict[str, Any]]:
+        """
+        List all tracks in the session.
+
+        Automatically flushes all buffered tracks before listing.
+
+        Returns:
+            List of track summaries
+
+        Example:
+            tracks = session.tracks.list()
+            for track in tracks:
+                print(f"{track['name']}: {track['totalDataPoints']} points")
+        """
+        # Auto-flush all tracks before listing
+        self._session._flush_all_tracks()
+
+        return self._session._list_tracks()
 
 
 def dreamlake_session(

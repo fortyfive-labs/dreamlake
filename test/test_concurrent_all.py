@@ -151,11 +151,15 @@ def test_concurrent_track_append():
             # Check for errors
             assert len(errors) == 0, f"Track append errors: {errors}"
 
-            # Verify all appends succeeded
+            # Verify all appends succeeded (returns TrackBuilder for chaining)
             assert all(r is not None for r in results), "Some appends failed"
 
+            # Flush and read back to verify indices
+            session.track("metrics").flush()
+            data = session.track("metrics").read(start_index=0, limit=num_appends)
+
             # Verify all indices are unique
-            indices = [int(r["index"]) for r in results]
+            indices = [int(point["index"]) for point in data["data"]]
             assert len(set(indices)) == num_appends, "Duplicate track indices detected"
             assert sorted(indices) == list(range(num_appends)), "Indices are not consecutive"
 

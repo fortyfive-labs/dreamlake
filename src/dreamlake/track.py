@@ -52,33 +52,50 @@ class TrackBuilder:
         self._tags = tags
         self._metadata = metadata
 
-    def append(self, **kwargs) -> 'TrackBuilder':
+    def append(self, _ts: Optional[float] = None, **kwargs) -> 'TrackBuilder':
         """
-        Append a single data point to the track.
+        Append a single data point to the track (buffered, call flush() to persist).
 
-        The data point can have any structure - common patterns:
-        - {value: 0.5, step: 100}
-        - {loss: 0.3, accuracy: 0.92, epoch: 5}
-        - {timestamp: "...", temperature: 25.5, humidity: 60}
+        The data point can have any structure. The _ts field is used for timestamp-based merging.
+
+        Timestamp handling:
+        - _ts=<number>: Use that timestamp (seconds since epoch)
+        - _ts=-1: Inherit timestamp from previous append on this track
+        - _ts not provided: Auto-generate using time.time()
 
         Args:
+            _ts: Timestamp in seconds since epoch (optional, auto-generated if not provided)
             **kwargs: Data point fields (flexible schema)
 
         Returns:
-            Dict with trackId, index, bufferedDataPoints, chunkSize
+            self for method chaining
 
-        Example:
-            result = session.track(name="train_loss").append(value=0.5, step=100, epoch=1)
-            print(f"Appended at index {result['index']}")
+        Examples:
+            # Auto-generated timestamp
+            session.track("loss").append(value=0.5, epoch=1)
+
+            # Explicit timestamp
+            session.track("robot/position").append(q=[0.1, 0.2], _ts=1.234)
+
+            # Inherit timestamp (merge with previous point)
+            session.track("robot/state").append(q=[0.1, 0.2], _ts=1.0)
+            session.track("robot/state").append(v=[0.01, 0.02], _ts=-1)  # Uses _ts=1.0
+            # After flush: {_ts: 1.0, q: [0.1, 0.2], v: [0.01, 0.02]}
         """
-        result = self._session._append_to_track(
+        # Prepare data dict
+        data = kwargs.copy()
+        if _ts is not None:
+            data['_ts'] = _ts
+
+        # Append to buffer (returns TrackBuilder)
+        self._session._append_to_track(
             name=self._name,
-            data=kwargs,
+            data=data,
             description=self._description,
             tags=self._tags,
             metadata=self._metadata
         )
-        return result
+        return self
 
     def append_batch(self, data_points: List[Dict[str, Any]]) -> Dict[str, Any]:
         """
@@ -110,9 +127,37 @@ class TrackBuilder:
         )
         return result
 
+    def flush(self) -> Optional[Dict[str, Any]]:
+        """
+        Flush buffered data for this track to storage/remote.
+
+        This merges all buffered data points with the same _ts before writing.
+
+        Returns:
+            Result from backend (trackId, startIndex, endIndex, count, ...) or None if no data
+
+        Example:
+            # Append and flush
+            session.track("robot/state").append(q=[0.1, 0.2], _ts=1.0)
+            session.track("robot/state").append(v=[0.01, 0.02], _ts=1.0)
+            result = session.track("robot/state").flush()
+            # Writes merged: {_ts: 1.0, q: [0.1, 0.2], v: [0.01, 0.02]}
+
+            # Can also chain
+            session.track("loss").append(value=0.5, epoch=1).flush()
+        """
+        return self._session._flush_track(
+            name=self._name,
+            description=self._description,
+            tags=self._tags,
+            metadata=self._metadata
+        )
+
     def read(self, start_index: int = 0, limit: int = 1000) -> Dict[str, Any]:
         """
         Read data points from the track by index range.
+
+        Automatically flushes buffered data before reading.
 
         Args:
             start_index: Starting index (inclusive, default 0)
@@ -131,6 +176,9 @@ class TrackBuilder:
             for point in result['data']:
                 print(f"Index {point['index']}: {point['data']}")
         """
+        # Auto-flush before reading
+        self.flush()
+
         return self._session._read_track_data(
             name=self._name,
             start_index=start_index,
@@ -140,6 +188,8 @@ class TrackBuilder:
     def stats(self) -> Dict[str, Any]:
         """
         Get track statistics and metadata.
+
+        Automatically flushes buffered data before querying stats.
 
         Returns:
             Dict with track info:
@@ -163,11 +213,16 @@ class TrackBuilder:
             print(f"Total points: {stats['totalDataPoints']}")
             print(f"Buffered: {stats['bufferedDataPoints']}, Chunked: {stats['chunkedDataPoints']}")
         """
+        # Auto-flush before getting stats
+        self.flush()
+
         return self._session._get_track_stats(name=self._name)
 
     def list_all(self) -> List[Dict[str, Any]]:
         """
         List all tracks in the session.
+
+        Automatically flushes all buffered tracks before listing.
 
         Returns:
             List of track summaries with keys:
@@ -183,4 +238,7 @@ class TrackBuilder:
             for track in tracks:
                 print(f"{track['name']}: {track['totalDataPoints']} points")
         """
+        # Auto-flush all tracks before listing
+        self._session._flush_all_tracks()
+
         return self._session._list_tracks()

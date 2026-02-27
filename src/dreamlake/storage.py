@@ -787,7 +787,7 @@ class LocalStorage:
         tracks_dir.mkdir(parents=True, exist_ok=True)
 
         track_dir = tracks_dir / track_name
-        track_dir.mkdir(exist_ok=True)
+        track_dir.mkdir(parents=True, exist_ok=True)
 
         data_file = track_dir / "data.jsonl"
         metadata_file = track_dir / "metadata.json"
@@ -869,7 +869,7 @@ class LocalStorage:
         tracks_dir.mkdir(parents=True, exist_ok=True)
 
         track_dir = tracks_dir / track_name
-        track_dir.mkdir(exist_ok=True)
+        track_dir.mkdir(parents=True, exist_ok=True)
 
         data_file = track_dir / "data.jsonl"
         metadata_file = track_dir / "metadata.json"
@@ -1035,6 +1035,8 @@ class LocalStorage:
         """
         List all tracks in a session from local storage.
 
+        Supports hierarchical track names (e.g., "robot/position/left-camera").
+
         Args:
             workspace: Workspace name
             session: Session name
@@ -1049,19 +1051,17 @@ class LocalStorage:
             return []
 
         tracks = []
-        for track_dir in tracks_dir.iterdir():
-            if track_dir.is_dir():
-                metadata_file = track_dir / "metadata.json"
-                if metadata_file.exists():
-                    with open(metadata_file, "r") as f:
-                        track_meta = json.load(f)
-                        tracks.append({
-                            "trackId": track_meta["trackId"],
-                            "name": track_meta["name"],
-                            "description": track_meta.get("description"),
-                            "tags": track_meta.get("tags", []),
-                            "totalDataPoints": str(track_meta["totalDataPoints"]),
-                            "createdAt": track_meta.get("createdAt")
-                        })
+        # Use rglob to find all metadata.json files recursively (supports hierarchical names)
+        for metadata_file in tracks_dir.rglob("metadata.json"):
+            with open(metadata_file, "r") as f:
+                track_meta = json.load(f)
+                tracks.append({
+                    "trackId": track_meta["trackId"],
+                    "name": track_meta["name"],
+                    "description": track_meta.get("description"),
+                    "tags": track_meta.get("tags", []),
+                    "totalDataPoints": str(track_meta["totalDataPoints"]),
+                    "createdAt": track_meta.get("createdAt")
+                })
 
         return tracks
