@@ -65,3 +65,11 @@ Quick Example
    hyperparameter-search
    model-comparison
 
+.. toctree::
+   :maxdepth: 2
+   :caption: Development
+   :hidden:
+
+   testing
+   deployment
+
