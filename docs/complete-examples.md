@@ -38,9 +38,9 @@ def train_simple_model():
             accuracy = min(0.95, 0.5 + epoch * 0.05)
 
             # Track metrics
-            session.track("train_loss").append(value=train_loss, epoch=epoch)
-            session.track("val_loss").append(value=val_loss, epoch=epoch)
-            session.track("accuracy").append(value=accuracy, epoch=epoch)
+            session.track("train").append(loss=train_loss, epoch=epoch)
+            session.track("val").append(loss=val_loss, epoch=epoch)
+            session.track("metrics").append(accuracy=accuracy, epoch=epoch)
 
             # Log progress
             session.log(
@@ -185,10 +185,10 @@ def train_mnist():
             val_accuracy = correct / total
 
             # Track metrics
-            session.track("train_loss").append(value=avg_train_loss, epoch=epoch)
-            session.track("train_accuracy").append(value=train_accuracy, epoch=epoch)
-            session.track("val_loss").append(value=avg_val_loss, epoch=epoch)
-            session.track("val_accuracy").append(value=val_accuracy, epoch=epoch)
+            session.track("train").append(loss=avg_train_loss, epoch=epoch)
+            session.track("train").append(accuracy=train_accuracy, epoch=epoch)
+            session.track("val").append(loss=avg_val_loss, epoch=epoch)
+            session.track("val").append(accuracy=val_accuracy, epoch=epoch)
 
             # Log progress
             session.log(
@@ -246,8 +246,8 @@ def train_with_config(lr, batch_size, session):
         # Larger batch size = slightly worse performance
         accuracy = min(0.95, 0.5 + epoch * 0.05 * (32 / batch_size))
 
-        session.track("loss").append(value=loss, epoch=epoch)
-        session.track("accuracy").append(value=accuracy, epoch=epoch)
+        session.track("loss").append(loss=loss, epoch=epoch)
+        session.track("metrics").append(accuracy=accuracy, epoch=epoch)
 
     return accuracy
 
@@ -323,7 +323,7 @@ def train_model(architecture, session):
 
     for epoch in range(epochs):
         acc = min(base_lr, 0.5 + epoch * (base_lr - 0.5) / epochs + random.uniform(-0.02, 0.02))
-        session.track("accuracy").append(value=acc, epoch=epoch)
+        session.track("metrics").append(accuracy=acc, epoch=epoch)
 
     return acc
 
@@ -420,7 +420,7 @@ def train_with_debug():
                     metadata={"gradient_norm": 15.5, "max_norm": 10.0}
                 )
 
-            session.track("loss").append(value=loss, epoch=epoch)
+            session.track("loss").append(loss=loss, epoch=epoch)
 
             session.log(
                 f"Epoch {epoch + 1} complete",

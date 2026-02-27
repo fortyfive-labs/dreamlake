@@ -37,8 +37,8 @@ def train_model(architecture, session):
 
         loss = (1 - progress) * 2.0 + random.uniform(-0.1, 0.1)
 
-        session.track("accuracy").append(value=accuracy, epoch=epoch)
-        session.track("loss").append(value=loss, epoch=epoch)
+        session.track("metrics").append(accuracy=accuracy, epoch=epoch)
+        session.track("loss").append(loss=loss, epoch=epoch)
 
     return accuracy
 
@@ -186,8 +186,8 @@ def train_and_evaluate(model, train_loader, val_loader, session):
         accuracy = correct / total
 
         # Track metrics
-        session.track("train_loss").append(value=train_loss, epoch=epoch)
-        session.track("val_accuracy").append(value=accuracy, epoch=epoch)
+        session.track("train").append(loss=train_loss, epoch=epoch)
+        session.track("val").append(accuracy=accuracy, epoch=epoch)
 
     return accuracy
 

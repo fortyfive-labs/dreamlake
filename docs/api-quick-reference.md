@@ -71,7 +71,7 @@ session.params.set(learning_rate=0.0001)
 
 ```python
 # Append single data point (auto-generated timestamp)
-session.track("train_loss").append(value=0.5, epoch=1)
+session.track("train").append(loss=0.5, epoch=1)
 
 # Flexible schema
 session.track("metrics").append(
@@ -169,9 +169,9 @@ with Session(prefix="computer-vision/mnist-training",
         train_loss, val_loss, accuracy = train_one_epoch()
 
         # Track metrics
-        session.track("train_loss").append(value=train_loss, epoch=epoch)
-        session.track("val_loss").append(value=val_loss, epoch=epoch)
-        session.track("accuracy").append(value=accuracy, epoch=epoch)
+        session.track("train").append(loss=train_loss, epoch=epoch)
+        session.track("val").append(loss=val_loss, epoch=epoch)
+        session.track("metrics").append(accuracy=accuracy, epoch=epoch)
 
         # Log progress
         session.log(
@@ -201,7 +201,7 @@ with Session(...) as session:
         train()
         acc = validate()
 
-        session.track("accuracy").append(value=acc, epoch=epoch)
+        session.track("metrics").append(accuracy=acc, epoch=epoch)
 
         if acc > best_acc:
             best_acc = acc
@@ -223,7 +223,7 @@ for lr in [0.1, 0.01, 0.001]:
             )
 
             accuracy = train(lr, bs)
-            session.track("accuracy").append(value=accuracy)
+            session.track("metrics").append(accuracy=accuracy)
 ```
 
 ### Progress Logging

@@ -32,7 +32,7 @@ def train_model(session):
 
     for epoch in range(10):
         loss = train_epoch()
-        session.track("loss").append(value=loss, epoch=epoch)
+        session.track("loss").append(loss=loss, epoch=epoch)
 
     return "Training complete!"
 
@@ -111,13 +111,13 @@ Sessions use **upsert behavior** - reopen by using the same name:
 with Session(prefix="ml/long-training",
         local_path=".dreamlake") as session:
     session.log("Starting epoch 1")
-    session.track("loss").append(value=0.5, epoch=1)
+    session.track("loss").append(loss=0.5, epoch=1)
 
 # Later - continues same session
 with Session(prefix="ml/long-training",
         local_path=".dreamlake") as session:
     session.log("Resuming from checkpoint")
-    session.track("loss").append(value=0.3, epoch=2)
+    session.track("loss").append(loss=0.3, epoch=2)
 ```
 
 ## Available Operations
@@ -136,7 +136,7 @@ with Session(prefix="test/demo",
     session.params.set(lr=0.001, batch_size=32)
 
     # Metrics tracking
-    session.track("loss").append(value=0.5, epoch=1)
+    session.track("loss").append(loss=0.5, epoch=1)
 
     # File uploads
     session.files.upload("model.pth", path="/models")

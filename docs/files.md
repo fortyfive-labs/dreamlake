@@ -84,8 +84,8 @@ with Session(prefix="cv/resnet-training",
         val_loss, val_accuracy = validate(model, val_loader)
 
         # Track metrics
-        session.track("train_loss").append(value=train_loss, epoch=epoch)
-        session.track("val_accuracy").append(value=val_accuracy, epoch=epoch)
+        session.track("train").append(loss=train_loss, epoch=epoch)
+        session.track("val").append(accuracy=val_accuracy, epoch=epoch)
 
         # Save checkpoint every 10 epochs
         if (epoch + 1) % 10 == 0:

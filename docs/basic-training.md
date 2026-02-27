@@ -45,9 +45,9 @@ def train_simple_model():
             accuracy = min(0.95, 0.5 + epoch * 0.05)
 
             # Track metrics
-            session.track("train_loss").append(value=train_loss, epoch=epoch)
-            session.track("val_loss").append(value=val_loss, epoch=epoch)
-            session.track("accuracy").append(value=accuracy, epoch=epoch)
+            session.track("train").append(loss=train_loss, epoch=epoch)
+            session.track("val").append(loss=val_loss, epoch=epoch)
+            session.track("metrics").append(accuracy=accuracy, epoch=epoch)
 
             # Log progress
             session.log(
@@ -124,7 +124,7 @@ session.params.set(learning_rate=0.001, batch_size=32)
 
 **Track metrics in the loop** - Every epoch:
 ```python
-session.track("loss").append(value=loss, epoch=epoch)
+session.track("loss").append(loss=loss, epoch=epoch)
 ```
 
 **Log important events** - Progress and completion:

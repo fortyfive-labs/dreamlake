@@ -82,7 +82,7 @@ session.params.set(lr=0.001, batch_size=32)
 
 #### TrackBuilder
 ```python
-session.track("loss").append(value=0.5, epoch=0)
+session.track("loss").append(loss=0.5, epoch=0)
 session.track("loss").append_batch([...])
 ```
 - Time-series metrics tracking
@@ -233,7 +233,7 @@ sequenceDiagram
 **Example**:
 ```python
 # Clean, readable API
-session.track("accuracy").append(value=0.95, epoch=10)
+session.track("metrics").append(accuracy=0.95, epoch=10)
 
 # vs procedural approach
 session.append_track("accuracy", {"value": 0.95, "epoch": 10})

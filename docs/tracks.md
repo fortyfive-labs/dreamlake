@@ -12,10 +12,10 @@ from dreamlake import Session
 with Session(prefix="project/my-experiment",
         local_path=".dreamlake") as session:
     # Append a single data point
-    session.track("train_loss").append(value=0.5, epoch=1)
+    session.track("train").append(loss=0.5, epoch=1)
 
     # With step and epoch
-    session.track("accuracy").append(value=0.85, step=100, epoch=1)
+    session.track("metrics").append(accuracy=0.85, step=100, epoch=1)
 ```
 
 ## Flexible Schema
@@ -28,7 +28,7 @@ Define your own data structure for each track:
 with Session(prefix="project/my-experiment",
         local_path=".dreamlake") as session:
     # Simple value
-    session.track("loss").append(value=0.5)
+    session.track("loss").append(loss=0.5)
 
     # Multiple fields per point
     session.track("metrics").append(
@@ -77,7 +77,7 @@ with Session(prefix="project/my-experiment",
         local_path=".dreamlake") as session:
     # Append data
     for i in range(100):
-        session.track("loss").append(value=1.0 / (i + 1), step=i)
+        session.track("loss").append(loss=1.0 / (i + 1), step=i)
 
     # Read first 10 points
     result = session.track("loss").read(start_index=0, limit=10)
@@ -101,9 +101,9 @@ with Session(prefix="cv/mnist-training",
         val_loss, val_accuracy = validate(model, val_loader)
 
         # Track metrics
-        session.track("train_loss").append(value=train_loss, epoch=epoch + 1)
-        session.track("val_loss").append(value=val_loss, epoch=epoch + 1)
-        session.track("val_accuracy").append(value=val_accuracy, epoch=epoch + 1)
+        session.track("train").append(loss=train_loss, epoch=epoch + 1)
+        session.track("val").append(loss=val_loss, epoch=epoch + 1)
+        session.track("val").append(accuracy=val_accuracy, epoch=epoch + 1)
 
         session.log(
             f"Epoch {epoch + 1}/10 complete",
@@ -173,7 +173,7 @@ from dreamlake import Session
 with Session(prefix="project/my-experiment",
         local_path=".dreamlake") as session:
     # Auto-generated timestamp
-    session.track("loss").append(value=0.5, epoch=1)
+    session.track("loss").append(loss=0.5, epoch=1)
 
     # Read back - _ts was added automatically
     data = session.track("loss").read(start_index=0, limit=1)
@@ -276,8 +276,8 @@ Track appends are buffered in memory and merged by timestamp before writing:
 with Session(prefix="project/my-experiment",
         local_path=".dreamlake") as session:
     # Append data (buffered)
-    session.track("loss").append(value=0.5, epoch=1)
-    session.track("loss").append(value=0.4, epoch=2)
+    session.track("loss").append(loss=0.5, epoch=1)
+    session.track("loss").append(loss=0.4, epoch=2)
 
     # Flush specific track
     session.track("loss").flush()

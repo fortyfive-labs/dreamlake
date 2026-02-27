@@ -43,7 +43,7 @@ with Session(prefix="tutorial/my-first-experiment",
     # Track metrics over time
     for epoch in range(10):
         loss = 1.0 - epoch * 0.08  # Simulated decreasing loss
-        session.track("loss").append(value=loss, epoch=epoch)
+        session.track("loss").append(loss=loss, epoch=epoch)
 
     session.log("Training completed")
 ```
@@ -91,8 +91,8 @@ with Session(prefix="project/train-model",
         val_acc = 0.9     # your actual accuracy
 
         # Track metrics
-        session.track("train_loss").append(value=train_loss, epoch=epoch)
-        session.track("val_accuracy").append(value=val_acc, epoch=epoch)
+        session.track("train").append(loss=train_loss, epoch=epoch)
+        session.track("val").append(accuracy=val_acc, epoch=epoch)
 
         # Log important events
         if epoch % 10 == 0:

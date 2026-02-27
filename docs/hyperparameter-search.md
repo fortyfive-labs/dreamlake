@@ -29,8 +29,8 @@ def train_with_config(lr, batch_size, session):
         # Simulate: larger batch_size = slightly worse performance
         accuracy = min(0.95, 0.5 + epoch * 0.05 * (32 / batch_size))
 
-        session.track("loss").append(value=loss, epoch=epoch)
-        session.track("accuracy").append(value=accuracy, epoch=epoch)
+        session.track("loss").append(loss=loss, epoch=epoch)
+        session.track("metrics").append(accuracy=accuracy, epoch=epoch)
 
         final_accuracy = accuracy
 
