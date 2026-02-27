@@ -74,7 +74,7 @@ session.parameters().set(learning_rate=0.0001)
 ## Tracks (Time-Series Metrics)
 
 ```python
-# Append single data point
+# Append single data point (auto-generated timestamp)
 session.track("train_loss").append(value=0.5, epoch=1)
 
 # Flexible schema
@@ -84,12 +84,35 @@ session.track("metrics").append(
     epoch=1
 )
 
+# Explicit timestamp
+import time
+session.track("robot/position").append(q=[0.1, 0.2], _ts=time.time())
+
+# Timestamp inheritance for multi-modal synchronization
+session.track("robot/pose").append(position=[1.0, 2.0])  # Auto-generated _ts
+session.track("camera/left").append(width=640, _ts=-1)   # Inherits same _ts!
+session.track("robot/velocity").append(linear=[0.1], _ts=-1)  # Same _ts!
+
+# Timestamp merging (same _ts merges fields)
+ts = time.time()
+session.track("robot/state").append(q=[0.1, 0.2], _ts=ts)
+session.track("robot/state").append(v=[0.01, 0.02], _ts=ts)
+session.track("robot/state").flush()
+# Result: {_ts: ts, q: [0.1, 0.2], v: [0.01, 0.02]}
+
+# Hierarchical track names
+session.track("robot/position/left-camera").append(x=1.0, y=2.0)
+
 # Batch append
 session.track("loss").append_batch([
     {"value": 0.5, "epoch": 1},
     {"value": 0.4, "epoch": 2},
     {"value": 0.3, "epoch": 3}
 ])
+
+# Flush operations
+session.track("loss").flush()      # Flush one track
+session.tracks.flush()             # Flush all tracks
 
 # Read data
 result = session.track("loss").read(start_index=0, limit=10)
@@ -101,7 +124,7 @@ stats = session.track("loss").stats()
 print(f"Total points: {stats['totalDataPoints']}")
 
 # List all tracks
-tracks = session.track("loss").list_all()
+tracks = session.tracks.list()
 for track in tracks:
     print(f"{track['name']}: {track['totalDataPoints']} points")
 ```
