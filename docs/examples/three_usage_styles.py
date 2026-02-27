@@ -48,7 +48,7 @@ def train_with_decorator(session):
     # Simulate training
     for epoch in range(3):
         loss = 1.0 / (epoch + 1)  # Fake decreasing loss
-        session.track("loss").append(value=loss, epoch=epoch)
+        session.track("train").append(loss=loss, epoch=epoch)
         session.log(f"Epoch {epoch}: loss={loss:.4f}")
 
     session.log("Training completed", level="info")
@@ -93,7 +93,7 @@ def train_with_context_manager():
         # Simulate training
         for epoch in range(3):
             loss = 0.8 / (epoch + 1)  # Fake decreasing loss
-            session.track("loss").append(value=loss, epoch=epoch)
+            session.track("train").append(loss=loss, epoch=epoch)
             session.log(f"Epoch {epoch}: loss={loss:.4f}")
 
         session.log("Training completed", level="info")
@@ -145,7 +145,7 @@ def train_with_direct_instantiation():
         # Simulate training
         for epoch in range(3):
             loss = 0.6 / (epoch + 1)  # Fake decreasing loss
-            session.track("loss").append(value=loss, epoch=epoch)
+            session.track("train").append(loss=loss, epoch=epoch)
             session.log(f"Epoch {epoch}: loss={loss:.4f}")
 
         session.log("Training completed", level="info")
@@ -180,7 +180,7 @@ def train_remote_decorator(session):
     session.parameters().set(mode="remote", style="decorator")
 
     for i in range(3):
-        session.track("metrics").append(value=i * 0.1, step=i)
+        session.track("metrics").append(metric=i * 0.1, step=i)
 
     print("✓ Data stored remotely (MongoDB + S3)")
 
@@ -202,7 +202,7 @@ def train_remote_context_manager():
         session.parameters().set(mode="remote", style="context_manager")
 
         for i in range(3):
-            session.track("metrics").append(value=i * 0.2, step=i)
+            session.track("metrics").append(metric=i * 0.2, step=i)
 
         print("✓ Data stored remotely (MongoDB + S3)")
 

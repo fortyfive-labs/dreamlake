@@ -38,7 +38,7 @@ def train_model(architecture, session):
         loss = (1 - progress) * 2.0 + random.uniform(-0.1, 0.1)
 
         session.track("metrics").append(accuracy=accuracy, epoch=epoch)
-        session.track("loss").append(loss=loss, epoch=epoch)
+        session.track("train").append(loss=loss, epoch=epoch)
 
     return accuracy
 

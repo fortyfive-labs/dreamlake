@@ -43,7 +43,7 @@ with Session(prefix="tutorial/my-first-experiment",
     # Track metrics over time
     for epoch in range(10):
         loss = 1.0 - epoch * 0.08  # Simulated decreasing loss
-        session.track("loss").append(loss=loss, epoch=epoch)
+        session.track("train").append(loss=loss, epoch=epoch)
 
     session.log("Training completed")
 ```

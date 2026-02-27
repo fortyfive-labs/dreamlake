@@ -36,7 +36,7 @@ Quick Example
        session.parameters().set(learning_rate=0.001, batch_size=32)
 
        # Track metrics
-       session.track("loss").append(value=0.5, epoch=1)
+       session.track("train").append(loss=0.5, epoch=1)
 
 .. toctree::
    :maxdepth: 2

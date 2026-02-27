@@ -107,7 +107,7 @@ try:
     with Session(prefix="test/training", root=".dreamlake",
         local_path=".dreamlake") as session:
         for epoch in range(10):
-            session.track("loss").append(loss=loss, epoch=epoch)
+            session.track("train").append(loss=loss, epoch=epoch)
             # Crashes here at epoch 5
 except Exception:
     pass
@@ -117,7 +117,7 @@ with Session(prefix="test/training", root=".dreamlake",
         local_path=".dreamlake") as session:
     # Continue from epoch 6
     for epoch in range(6, 10):
-        session.track("loss").append(loss=loss, epoch=epoch)
+        session.track("train").append(loss=loss, epoch=epoch)
 ```
 
 **Result**: You'll have all data from both runs in the same session!
@@ -133,7 +133,7 @@ with Session(prefix="test/training", root=".dreamlake",
 rank = dist.get_rank()
 with Session(name=f"training-rank-{rank}", workspace="distributed", ...) as session:
     # Each worker tracks its own metrics
-    session.track("loss").append(loss=local_loss, epoch=epoch)
+    session.track("train").append(loss=local_loss, epoch=epoch)
 ```
 
 **Planned (v0.4)**: First-class distributed training support with:

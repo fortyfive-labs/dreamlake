@@ -124,7 +124,7 @@ session.params.set(learning_rate=0.001, batch_size=32)
 
 **Track metrics in the loop** - Every epoch:
 ```python
-session.track("loss").append(loss=loss, epoch=epoch)
+session.track("train").append(loss=loss, epoch=epoch)
 ```
 
 **Log important events** - Progress and completion:

@@ -25,7 +25,7 @@ with Session(prefix="my-workspace/my-experiment",
 ) as session:
     session.log("Running in local mode")
     session.params.set(batch_size=32)
-    session.track("loss").append(loss=0.5)
+    session.track("train").append(loss=0.5)
     session.files.upload("model.pth", path="/models")
 ```
 
@@ -86,7 +86,7 @@ with Session(prefix="my-workspace/my-experiment",
 ) as session:
     session.log("Running in url mode")
     session.params.set(batch_size=32)
-    session.track("loss").append(loss=0.5)
+    session.track("train").append(loss=0.5)
     session.files.upload("model.pth", path="/models")
 
 # Or with API key (advanced)
@@ -96,7 +96,7 @@ with Session(prefix="my-workspace/my-experiment",
 ) as session:
     session.log("Running in url mode")
     session.params.set(batch_size=32)
-    session.track("loss").append(loss=0.5)
+    session.track("train").append(loss=0.5)
     session.files.upload("model.pth", path="/models")
 ```
 

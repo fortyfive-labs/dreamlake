@@ -87,14 +87,14 @@ def main():
             val_acc = min(0.92, val_acc + epoch * 0.01)
 
             # Track metrics
-            session.track("train_loss").append(value=train_loss, epoch=epoch)
-            session.track("train_accuracy").append(value=train_acc, epoch=epoch)
-            session.track("val_loss").append(value=val_loss, epoch=epoch)
-            session.track("val_accuracy").append(value=val_acc, epoch=epoch)
+            session.track("train").append(loss=train_loss, epoch=epoch)
+            session.track("train").append(accuracy=train_acc, epoch=epoch)
+            session.track("val").append(loss=val_loss, epoch=epoch)
+            session.track("val").append(accuracy=val_acc, epoch=epoch)
 
             # Track learning rate (simulated schedule)
             lr = config["training"]["learning_rate"] * (0.95 ** epoch)
-            session.track("learning_rate").append(value=lr, epoch=epoch)
+            session.track("train").append(learning_rate=lr, epoch=epoch)
 
             # Log epoch summary
             session.log(

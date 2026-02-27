@@ -27,9 +27,9 @@ def main():
             accuracy = min(0.95, 0.5 + epoch * 0.05)
 
             # Append single data points
-            session.track("train_loss").append(value=train_loss, epoch=epoch)
-            session.track("val_loss").append(value=val_loss, epoch=epoch)
-            session.track("accuracy").append(value=accuracy, epoch=epoch)
+            session.track("train").append(loss=train_loss, epoch=epoch)
+            session.track("val").append(loss=val_loss, epoch=epoch)
+            session.track("metrics").append(accuracy=accuracy, epoch=epoch)
 
             print(f"   Epoch {epoch + 1}: loss={train_loss:.4f}, acc={accuracy:.4f}")
 

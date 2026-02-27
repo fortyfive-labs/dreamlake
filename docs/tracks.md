@@ -28,7 +28,7 @@ Define your own data structure for each track:
 with Session(prefix="project/my-experiment",
         local_path=".dreamlake") as session:
     # Simple value
-    session.track("loss").append(loss=0.5)
+    session.track("train").append(loss=0.5)
 
     # Multiple fields per point
     session.track("metrics").append(
@@ -77,7 +77,7 @@ with Session(prefix="project/my-experiment",
         local_path=".dreamlake") as session:
     # Append data
     for i in range(100):
-        session.track("loss").append(loss=1.0 / (i + 1), step=i)
+        session.track("train").append(loss=1.0 / (i + 1), step=i)
 
     # Read first 10 points
     result = session.track("loss").read(start_index=0, limit=10)
@@ -173,7 +173,7 @@ from dreamlake import Session
 with Session(prefix="project/my-experiment",
         local_path=".dreamlake") as session:
     # Auto-generated timestamp
-    session.track("loss").append(loss=0.5, epoch=1)
+    session.track("train").append(loss=0.5, epoch=1)
 
     # Read back - _ts was added automatically
     data = session.track("loss").read(start_index=0, limit=1)
@@ -276,8 +276,8 @@ Track appends are buffered in memory and merged by timestamp before writing:
 with Session(prefix="project/my-experiment",
         local_path=".dreamlake") as session:
     # Append data (buffered)
-    session.track("loss").append(loss=0.5, epoch=1)
-    session.track("loss").append(loss=0.4, epoch=2)
+    session.track("train").append(loss=0.5, epoch=1)
+    session.track("train").append(loss=0.4, epoch=2)
 
     # Flush specific track
     session.track("loss").flush()

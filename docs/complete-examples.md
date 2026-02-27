@@ -246,7 +246,7 @@ def train_with_config(lr, batch_size, session):
         # Larger batch size = slightly worse performance
         accuracy = min(0.95, 0.5 + epoch * 0.05 * (32 / batch_size))
 
-        session.track("loss").append(loss=loss, epoch=epoch)
+        session.track("train").append(loss=loss, epoch=epoch)
         session.track("metrics").append(accuracy=accuracy, epoch=epoch)
 
     return accuracy
@@ -420,7 +420,7 @@ def train_with_debug():
                     metadata={"gradient_norm": 15.5, "max_norm": 10.0}
                 )
 
-            session.track("loss").append(loss=loss, epoch=epoch)
+            session.track("train").append(loss=loss, epoch=epoch)
 
             session.log(
                 f"Epoch {epoch + 1} complete",

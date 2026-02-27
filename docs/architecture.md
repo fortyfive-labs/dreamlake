@@ -82,7 +82,7 @@ session.params.set(lr=0.001, batch_size=32)
 
 #### TrackBuilder
 ```python
-session.track("loss").append(loss=0.5, epoch=0)
+session.track("train").append(loss=0.5, epoch=0)
 session.track("loss").append_batch([...])
 ```
 - Time-series metrics tracking
