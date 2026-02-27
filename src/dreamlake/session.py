@@ -94,21 +94,54 @@ class TracksManager:
 
     Tracks are timestamped data indexed by float timestamps.
     Usage:
+        # Named track
         session.tracks("robot/position").append(q=[0.1, 0.2], _ts=1.0)
-        session.tracks.flush()  # Flush all tracks
+
+        # Default track (uses track name "default")
+        session.tracks.append(loss=0.5, epoch=1)
+
+        # Flush all tracks
+        session.tracks.flush()
     """
 
     def __init__(self, session: 'Session'):
         self._session = session
+        self._default_track_name = "default"
 
     def __call__(self, topic: str) -> 'TrackBuilder':
         """Get a TrackBuilder for the named track topic."""
         from .track import TrackBuilder
-        return self._session.track(topic)
+        return self._session._track(topic)
+
+    def append(self, _ts=None, **kwargs) -> 'TrackBuilder':
+        """Append to default track."""
+        return self._session._track(self._default_track_name).append(_ts=_ts, **kwargs)
+
+    def log(self, **kwargs) -> 'TrackBuilder':
+        """Log to default track (alias for append)."""
+        return self._session._track(self._default_track_name).log(**kwargs)
 
     def flush(self):
         """Flush all buffered tracks."""
         return self._session._flush_all_tracks()
+
+    def list(self) -> List['Dict[str, Any]']:
+        """
+        List all tracks in the session.
+
+        Automatically flushes all buffered tracks before listing.
+
+        Returns:
+            List of track summaries
+
+        Example:
+            tracks = session.tracks.list()
+            for track in tracks:
+                print(f"{track['name']}: {track['totalDataPoints']} points")
+        """
+        # Auto-flush all tracks before listing
+        self._session._flush_all_tracks()
+        return self._session._list_tracks()
 
 
 class Session:
@@ -438,6 +471,23 @@ class Session:
         if not self._is_open:
             raise RuntimeError("Session not open. Use session.open() or context manager.")
         return TracksManager(self)
+
+    @property
+    def track(self) -> TracksManager:
+        """
+        Get track manager (alias for tracks, supports both named and default patterns).
+
+        Returns:
+            TracksManager instance
+
+        Examples:
+            # Named track
+            session.track("robot/position").append(x=1.0, y=2.0)
+
+            # Default track
+            session.track.append(loss=0.5, epoch=1)
+        """
+        return self.tracks
 
     # ===== End ML-Dash Property Aliases =====
 
@@ -857,10 +907,12 @@ class Session:
 
         return params
 
-    def track(self, name: str, description: Optional[str] = None,
+    def _track(self, name: str, description: Optional[str] = None,
               tags: Optional[List[str]] = None, metadata: Optional[Dict[str, Any]] = None) -> 'TrackBuilder':
         """
-        Get a TrackBuilder for fluent track operations.
+        Internal method to get a TrackBuilder for fluent track operations.
+
+        Use session.track("name") or session.tracks("name") instead.
 
         Args:
             name: Track name (unique within session)
@@ -876,16 +928,16 @@ class Session:
 
         Examples:
             # Append single data point
-            session.track(name="train_loss").append(value=0.5, step=100)
+            session.track("train_loss").append(loss=0.5, step=100)
 
             # Append batch
-            session.track(name="metrics").append_batch([
+            session.track("metrics").append_batch([
                 {"loss": 0.5, "acc": 0.8, "step": 1},
                 {"loss": 0.4, "acc": 0.85, "step": 2}
             ])
 
             # Read data
-            data = session.track(name="train_loss").read(start_index=0, limit=100)
+            data = session.track("train_loss").read(start_index=0, limit=100)
 
             # Get statistics
             stats = session.track(name="train_loss").stats()
@@ -1195,63 +1247,6 @@ class Session:
         """Get the full session data (only available after open in remote mode)."""
         return self._session_data
 
-    @property
-    def tracks(self) -> 'TracksNamespace':
-        """
-        Access tracks namespace for global track operations.
-
-        Returns:
-            TracksNamespace instance
-
-        Examples:
-            # Flush all buffered tracks
-            session.tracks.flush()
-
-            # List all tracks
-            tracks = session.tracks.list()
-        """
-        return TracksNamespace(self)
-
-
-class TracksNamespace:
-    """Namespace for global track operations."""
-
-    def __init__(self, session: 'Session'):
-        """
-        Initialize TracksNamespace.
-
-        Args:
-            session: Parent Session instance
-        """
-        self._session = session
-
-    def flush(self):
-        """
-        Flush all buffered tracks.
-
-        Example:
-            session.tracks.flush()
-        """
-        return self._session._flush_all_tracks()
-
-    def list(self) -> List[Dict[str, Any]]:
-        """
-        List all tracks in the session.
-
-        Automatically flushes all buffered tracks before listing.
-
-        Returns:
-            List of track summaries
-
-        Example:
-            tracks = session.tracks.list()
-            for track in tracks:
-                print(f"{track['name']}: {track['totalDataPoints']} points")
-        """
-        # Auto-flush all tracks before listing
-        self._session._flush_all_tracks()
-
-        return self._session._list_tracks()
 
 
 def dreamlake_session(
