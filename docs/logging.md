@@ -9,7 +9,7 @@ Track events, progress, and debugging information throughout your experiments. L
 
 from dreamlake import Session
 
-with Session(name="my-experiment", workspace="project",
+with Session(prefix="project/my-experiment",
         local_path=".dreamlake") as session:
     session.log("Training started")
     session.log("Model architecture: ResNet-50", level="info")
@@ -24,7 +24,7 @@ with Session(name="my-experiment", workspace="project",
 ```{code-block} python
 :linenos:
 
-with Session(name="my-experiment", workspace="project",
+with Session(prefix="project/my-experiment",
         local_path=".dreamlake") as session:
     session.log("Detailed debugging info", level="debug")
     session.log("Training epoch 1", level="info")
@@ -40,7 +40,7 @@ Add context and metrics to your logs:
 ```{code-block} python
 :linenos:
 
-with Session(name="my-experiment", workspace="project",
+with Session(prefix="project/my-experiment",
         local_path=".dreamlake") as session:
     # Log with metrics
     session.log(
@@ -72,7 +72,7 @@ with Session(name="my-experiment", workspace="project",
 ```{code-block} python
 :linenos:
 
-with Session(name="mnist-training", workspace="ml",
+with Session(prefix="ml/mnist-training",
         local_path=".dreamlake") as session:
     session.log("Starting training", level="info")
 
@@ -98,7 +98,7 @@ with Session(name="mnist-training", workspace="ml",
 ```{code-block} python
 :linenos:
 
-with Session(name="my-experiment", workspace="project",
+with Session(prefix="project/my-experiment",
         local_path=".dreamlake") as session:
     try:
         result = risky_operation()
@@ -120,7 +120,7 @@ with Session(name="my-experiment", workspace="project",
 ```{code-block} python
 :linenos:
 
-with Session(name="data-processing", workspace="etl",
+with Session(prefix="etl/data-processing",
         local_path=".dreamlake") as session:
     total = 10000
     session.log(f"Processing {total} items", level="info")

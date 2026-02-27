@@ -14,16 +14,14 @@ from dreamlake import Session
 def train_simple_model():
     """Train a simple model and track with DreamLake."""
 
-    with Session(
-        name="simple-training",
-        workspace="tutorials",
-        local_prefix="./experiments",
-        description="Simple training example",
+    with Session(prefix="tutorials/simple-training",
+        dash_root="./experiments",
+        readme="Simple training example",
         tags=["tutorial", "simple"],
         local_path=".dreamlake"
     ) as session:
         # Track hyperparameters
-        session.parameters().set(
+        session.params.set(
             learning_rate=0.001,
             batch_size=32,
             epochs=10,
@@ -111,20 +109,18 @@ def train_mnist():
 
     # Model
     model = SimpleNet().to(device)
-    optimizer = optim.Adam(model.parameters(), lr=learning_rate)
+    optimizer = optim.Adam(model.params, lr=learning_rate)
     criterion = nn.CrossEntropyLoss()
 
     # DreamLake session
-    with Session(
-        name="mnist-pytorch",
-        workspace="computer-vision",
-        local_prefix="./experiments",
-        description="MNIST classification with PyTorch",
+    with Session(prefix="computer-vision/mnist-pytorch",
+        dash_root="./experiments",
+        readme="MNIST classification with PyTorch",
         tags=["mnist", "pytorch", "classification"],
         local_path=".dreamlake"
     ) as session:
         # Track configuration
-        session.parameters().set({
+        session.params.set({
             "model": {
                 "architecture": "SimpleMLP",
                 "layers": [784, 128, 64, 10]
@@ -210,7 +206,7 @@ def train_mnist():
             if val_accuracy > best_accuracy:
                 best_accuracy = val_accuracy
                 torch.save(model.state_dict(), "best_model.pth")
-                session.files().upload("best_model.pth", path="/models",
+                session.files.upload("best_model.pth", path="/models",
                     description=f"Best model (accuracy: {best_accuracy:.4f})",
                     tags=["best"],
                     metadata={"epoch": epoch, "accuracy": best_accuracy}
@@ -219,7 +215,7 @@ def train_mnist():
 
         # Save final model
         torch.save(model.state_dict(), "final_model.pth")
-        session.files().upload("final_model.pth", path="/models",
+        session.files.upload("final_model.pth", path="/models",
             description="Final model after all epochs",
             tags=["final"])
 
@@ -269,13 +265,13 @@ def hyperparameter_search():
         with Session(
             name=session_name,
             workspace="hyperparameter-search",
-            local_prefix="./experiments",
-            description=f"Grid search: lr={lr}, batch_size={bs}",
+            dash_root="./experiments",
+            readme=f"Grid search: lr={lr}, batch_size={bs}",
             tags=["grid-search", f"lr-{lr}", f"bs-{bs}"],
         local_path=".dreamlake"
         ) as session:
             # Track hyperparameters
-            session.parameters().set(
+            session.params.set(
                 learning_rate=lr,
                 batch_size=bs,
                 optimizer="sgd",
@@ -341,13 +337,13 @@ def compare_architectures():
         with Session(
             name=f"comparison-{arch}",
             workspace="architecture-comparison",
-            local_prefix="./experiments",
-            description=f"Training {arch} on CIFAR-10",
+            dash_root="./experiments",
+            readme=f"Training {arch} on CIFAR-10",
             tags=["comparison", arch, "cifar10"],
         local_path=".dreamlake"
         ) as session:
             # Configuration
-            session.parameters().set(
+            session.params.set(
                 architecture=arch,
                 dataset="cifar10",
                 batch_size=128,
@@ -386,15 +382,13 @@ import random
 def train_with_debug():
     """Training with extensive debugging logs."""
 
-    with Session(
-        name="debug-training",
-        workspace="debugging",
-        local_prefix="./experiments",
-        description="Training with debug logging",
+    with Session(prefix="debugging/debug-training",
+        dash_root="./experiments",
+        readme="Training with debug logging",
         tags=["debug"],
         local_path=".dreamlake"
     ) as session:
-        session.parameters().set(
+        session.params.set(
             learning_rate=0.001,
             batch_size=32,
             model="debug_net"

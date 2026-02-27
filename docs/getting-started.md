@@ -45,7 +45,7 @@ from dreamlake import dreamlake_session
 @dreamlake_session(
     name="hello-dreamlake",
     workspace="tutorials",
-    local_prefix="./my_experiments"
+    dash_root="./my_experiments"
 )
 def my_first_experiment(session):
     """Session is automatically injected as a parameter"""
@@ -53,7 +53,7 @@ def my_first_experiment(session):
     session.log("Hello from DreamLake!", level="info")
 
     # Track a parameter
-    session.parameters().set(message="Hello World")
+    session.params.set(message="Hello World")
 
     print("Session created successfully!")
     return "Done!"
@@ -70,17 +70,15 @@ The most common and Pythonic approach:
 from dreamlake import Session
 
 # Create a session in local mode
-with Session(
-    name="hello-dreamlake",
-    workspace="tutorials",
-    local_prefix="./my_experiments",
+with Session(prefix="tutorials/hello-dreamlake",
+    dash_root="./my_experiments",
         local_path=".dreamlake"
 ) as session:
     # Log a message
     session.log("Hello from DreamLake!", level="info")
 
     # Track a parameter
-    session.parameters().set(message="Hello World")
+    session.params.set(message="Hello World")
 
     print("Session created successfully!")
     print(f"Data stored in: {session._storage.root_path}")
@@ -94,10 +92,8 @@ For fine-grained control:
 from dreamlake import Session
 
 # Create a session
-session = Session(
-    name="hello-dreamlake",
-    workspace="tutorials",
-    local_prefix="./my_experiments",
+session = Session(prefix="tutorials/hello-dreamlake",
+    dash_root="./my_experiments",
         local_path=".dreamlake"
 )
 
@@ -109,7 +105,7 @@ try:
     session.log("Hello from DreamLake!", level="info")
 
     # Track a parameter
-    session.parameters().set(message="Hello World")
+    session.params.set(message="Hello World")
 
     print("Session created successfully!")
 finally:
@@ -157,14 +153,14 @@ DreamLake uses Python's context manager pattern (`with` statement) to ensure pro
 
 ```python
 # ✓ Good - Automatic cleanup
-with Session(name="my-session", workspace="test", local_prefix="./data",
+with Session(prefix="test/my-session", dash_root="./data",
         local_path=".dreamlake") as session:
     session.log("Training started")
     # ... do work ...
 # Session automatically closed here
 
 # ✗ Manual cleanup (not recommended)
-session = Session(name="my-session", workspace="test", local_prefix="./data",
+session = Session(prefix="test/my-session", dash_root="./data",
         local_path=".dreamlake")
 session.open()
 try:
@@ -178,11 +174,9 @@ finally:
 You can add metadata to your sessions:
 
 ```python
-with Session(
-    name="mnist-baseline",
-    workspace="computer-vision",
-    local_prefix="./experiments",
-    description="Baseline CNN for MNIST classification",
+with Session(prefix="computer-vision/mnist-baseline",
+    dash_root="./experiments",
+    readme="Baseline CNN for MNIST classification",
     tags=["mnist", "cnn", "baseline"],
     folder="/experiments/mnist",
         local_path=".dreamlake"
@@ -198,10 +192,8 @@ Sessions handle errors gracefully:
 from dreamlake import Session
 
 try:
-    with Session(
-        name="test-session",
-        workspace="test",
-        local_prefix="./data",
+    with Session(prefix="test/test-session",
+        dash_root="./data",
         local_path=".dreamlake"
     ) as session:
         session.log("Starting work...")
@@ -234,7 +226,7 @@ from dreamlake import Session, dreamlake_session
 @dreamlake_session(
     name="session-name",
     workspace="workspace-name",
-    local_prefix="./path/to/data"
+    dash_root="./path/to/data"
 )
 def train(session):
     session.log("Training...")
@@ -245,28 +237,22 @@ train()  # Session managed automatically
 # Style 2: Context Manager (Scripts)
 # ========================================
 # Local mode (filesystem)
-with Session(
-    name="session-name",
-    workspace="workspace-name",
-    local_prefix="./path/to/data",
+with Session(prefix="workspace-name/session-name",
+    dash_root="./path/to/data",
         local_path=".dreamlake"
 ) as session:
     pass
 
 # Remote mode (API + S3) - with username
-with Session(
-    name="session-name",
-    workspace="workspace-name",
-    remote="https://cu3thurmv3.us-east-1.awsapprunner.com",
+with Session(prefix="workspace-name/session-name",
+    dash_url="https://cu3thurmv3.us-east-1.awsapprunner.com",
     user_name="your-username"
 ) as session:
     pass
 
 # Remote mode (API + S3) - with API key (advanced)
-with Session(
-    name="session-name",
-    workspace="workspace-name",
-    remote="https://cu3thurmv3.us-east-1.awsapprunner.com",
+with Session(prefix="workspace-name/session-name",
+    dash_url="https://cu3thurmv3.us-east-1.awsapprunner.com",
     api_key="your-api-key"
 ) as session:
     pass
@@ -274,10 +260,8 @@ with Session(
 # ========================================
 # Style 3: Direct Instantiation (Advanced)
 # ========================================
-session = Session(
-    name="session-name",
-    workspace="workspace-name",
-    local_prefix="./path/to/data",
+session = Session(prefix="workspace-name/session-name",
+    dash_root="./path/to/data",
         local_path=".dreamlake"
 )
 session.open()
@@ -295,7 +279,7 @@ finally:
 @dreamlake_session(
     name="session-name",
     workspace="workspace-name",
-    remote="https://cu3thurmv3.us-east-1.awsapprunner.com",
+    dash_url="https://cu3thurmv3.us-east-1.awsapprunner.com",
     user_name="your-username"
 )
 def train(session):

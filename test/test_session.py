@@ -9,7 +9,7 @@ class TestSessionCreation:
 
     def test_context_manager_local(self, local_session, temp_workspace):
         """Test session creation using context manager in local mode."""
-        with local_session(name="test-ctx", workspace="test-ws") as session:
+        with local_session(prefix="test-ws/test-ctx") as session:
             assert session._is_open
             assert session.name == "test-ctx"
             assert session.workspace == "test-ws"
@@ -23,7 +23,7 @@ class TestSessionCreation:
     @pytest.mark.remote
     def test_context_manager_remote(self, remote_session):
         """Test session creation using context manager in remote mode."""
-        with remote_session(name="test-ctx-remote", workspace="test-ws-remote") as session:
+        with remote_session(prefix="test-ws-remote/test-ctx-remote") as session:
             assert session._is_open
             assert session.name == "test-ctx-remote"
             assert session.workspace == "test-ws-remote"
@@ -33,14 +33,14 @@ class TestSessionCreation:
 
     def test_manual_open_close_local(self, local_session, temp_workspace):
         """Test manual session lifecycle management in local mode."""
-        session = local_session(name="manual-test", workspace="test-ws")
+        session = local_session(prefix="test-ws/manual-test")
         assert not session._is_open
 
         session.open()
         assert session._is_open
 
         session.log("Working...")
-        session.parameters().set(test_param="test_value")
+        session.params.set(test_param="test_value")
 
         session.close()
         assert not session._is_open
@@ -53,26 +53,24 @@ class TestSessionCreation:
     @pytest.mark.remote
     def test_manual_open_close_remote(self, remote_session):
         """Test manual session lifecycle management in remote mode."""
-        session = remote_session(name="manual-test-remote", workspace="test-ws")
+        session = remote_session(prefix="test-ws/manual-test-remote")
         assert not session._is_open
 
         session.open()
         assert session._is_open
 
         session.log("Working remotely...")
-        session.parameters().set(test_param="remote_value")
+        session.params.set(test_param="remote_value")
 
         session.close()
         assert not session._is_open
 
     def test_session_with_metadata_local(self, local_session, temp_workspace):
-        """Test session with description, tags, and folder in local mode."""
+        """Test session with readme and tags in local mode (ML-Dash API)."""
         with local_session(
-            name="meta-session",
-            workspace="meta-ws",
-            description="Test session with metadata",
+            prefix="meta-ws/meta-session",
+            readme="Test session with metadata",
             tags=["test", "metadata", "local"],
-            folder="/experiments/meta",
         ) as session:
             session.log("Session with metadata")
 
@@ -84,20 +82,16 @@ class TestSessionCreation:
             metadata = json.load(f)
             assert metadata["name"] == "meta-session"
             assert metadata["workspace"] == "meta-ws"
-            assert metadata["description"] == "Test session with metadata"
+            # Check for description field (mapped from readme)
+            assert metadata.get("description") == "Test session with metadata"
             assert "test" in metadata["tags"]
             assert "metadata" in metadata["tags"]
-            assert metadata["folder"] == "/experiments/meta"
 
     @pytest.mark.remote
     def test_session_with_metadata_remote(self, remote_session):
         """Test session with description, tags, and folder in remote mode."""
-        with remote_session(
-            name="meta-session-remote",
-            workspace="meta-ws-remote",
-            description="Remote test session with metadata",
+        with remote_session(prefix="meta-ws-remote/meta-session-remote",
             tags=["test", "metadata", "remote"],
-            folder="/experiments/remote",
         ) as session:
             session.log("Remote session with metadata")
             # In remote mode, metadata is sent to server
@@ -108,7 +102,7 @@ class TestSessionProperties:
 
     def test_session_properties_local(self, local_session):
         """Test accessing session properties in local mode."""
-        with local_session(name="props-test", workspace="props-ws") as session:
+        with local_session(prefix="props-ws/props-test") as session:
             assert session.name == "props-test"
             assert session.workspace == "props-ws"
             assert session._is_open
@@ -116,7 +110,7 @@ class TestSessionProperties:
     @pytest.mark.remote
     def test_session_properties_remote(self, remote_session):
         """Test accessing session properties in remote mode."""
-        with remote_session(name="props-test-remote", workspace="props-ws-remote") as session:
+        with remote_session(prefix="props-ws-remote/props-test-remote") as session:
             assert session.name == "props-test-remote"
             assert session.workspace == "props-ws-remote"
             assert session._is_open
@@ -127,17 +121,17 @@ class TestMultipleSessions:
 
     def test_multiple_sessions_same_workspace_local(self, local_session, temp_workspace):
         """Test creating multiple sessions in the same workspace."""
-        with local_session(name="session-1", workspace="shared-ws") as session:
+        with local_session(prefix="shared-ws/session-1") as session:
             session.log("Session 1")
-            session.parameters().set(session_id=1)
+            session.params.set(session_id=1)
 
-        with local_session(name="session-2", workspace="shared-ws") as session:
+        with local_session(prefix="shared-ws/session-2") as session:
             session.log("Session 2")
-            session.parameters().set(session_id=2)
+            session.params.set(session_id=2)
 
-        with local_session(name="session-3", workspace="shared-ws") as session:
+        with local_session(prefix="shared-ws/session-3") as session:
             session.log("Session 3")
-            session.parameters().set(session_id=3)
+            session.params.set(session_id=3)
 
         # Verify all sessions exist
         workspace_dir = temp_workspace / "shared-ws"
@@ -148,23 +142,23 @@ class TestMultipleSessions:
     @pytest.mark.remote
     def test_multiple_sessions_same_workspace_remote(self, remote_session):
         """Test creating multiple sessions in the same workspace in remote mode."""
-        with remote_session(name="remote-session-1", workspace="shared-ws-remote") as session:
+        with remote_session(prefix="shared-ws-remote/remote-session-1") as session:
             session.log("Remote Session 1")
-            session.parameters().set(session_id=1)
+            session.params.set(session_id=1)
 
-        with remote_session(name="remote-session-2", workspace="shared-ws-remote") as session:
+        with remote_session(prefix="shared-ws-remote/remote-session-2") as session:
             session.log("Remote Session 2")
-            session.parameters().set(session_id=2)
+            session.params.set(session_id=2)
 
     def test_multiple_sessions_different_workspaces_local(self, local_session, temp_workspace):
         """Test creating sessions in different workspaces."""
-        with local_session(name="session-a", workspace="workspace-1") as session:
+        with local_session(prefix="workspace-1/session-a") as session:
             session.log("Session A in workspace 1")
 
-        with local_session(name="session-b", workspace="workspace-2") as session:
+        with local_session(prefix="workspace-2/session-b") as session:
             session.log("Session B in workspace 2")
 
-        with local_session(name="session-c", workspace="workspace-3") as session:
+        with local_session(prefix="workspace-3/session-c") as session:
             session.log("Session C in workspace 3")
 
         # Verify all workspaces and sessions exist
@@ -173,12 +167,12 @@ class TestMultipleSessions:
         assert (temp_workspace / "workspace-3" / "session-c").exists()
 
     def test_sequential_sessions_local(self, local_session):
-        """Test opening sessions sequentially."""
+        """Test opening sessions sequentially (ML-Dash API)."""
         sessions = []
         for i in range(5):
-            with local_session(name=f"seq-session-{i}", workspace="sequential") as session:
+            with local_session(prefix=f"sequential/seq-session-{i}") as session:
                 session.log(f"Sequential session {i}")
-                session.parameters().set(index=i)
+                session.params.set(index=i)
                 sessions.append(session)
 
         # All sessions should be closed
@@ -192,9 +186,9 @@ class TestSessionErrorHandling:
     def test_session_error_still_saves_data_local(self, local_session, temp_workspace):
         """Test that session saves data even when errors occur."""
         try:
-            with local_session(name="error-test", workspace="error-ws") as session:
+            with local_session(prefix="error-ws/error-test") as session:
                 session.log("Starting work")
-                session.parameters().set(param="value")
+                session.params.set(param="value")
                 session.track("metric").append(value=0.5, step=0)
                 raise ValueError("Simulated error")
         except ValueError:
@@ -210,9 +204,9 @@ class TestSessionErrorHandling:
     def test_session_error_still_saves_data_remote(self, remote_session):
         """Test that remote session handles errors gracefully."""
         try:
-            with remote_session(name="error-test-remote", workspace="error-ws-remote") as session:
+            with remote_session(prefix="error-ws-remote/error-test-remote") as session:
                 session.log("Starting remote work")
-                session.parameters().set(param="remote_value")
+                session.params.set(param="remote_value")
                 raise ValueError("Simulated remote error")
         except ValueError:
             pass
@@ -220,7 +214,7 @@ class TestSessionErrorHandling:
 
     def test_multiple_errors_in_session_local(self, local_session, temp_workspace):
         """Test session handling multiple errors."""
-        with local_session(name="multi-error", workspace="error-ws") as session:
+        with local_session(prefix="error-ws/multi-error") as session:
             try:
                 session.log("Attempt 1")
                 raise ValueError("Error 1")
@@ -251,14 +245,14 @@ class TestSessionReuse:
     def test_reopen_existing_session_local(self, local_session, temp_workspace):
         """Test reopening an existing session (upsert behavior)."""
         # Create initial session
-        with local_session(name="reuse-session", workspace="reuse-ws") as session:
+        with local_session(prefix="reuse-ws/reuse-session") as session:
             session.log("Initial session")
-            session.parameters().set(version=1)
+            session.params.set(version=1)
 
         # Reopen same session
-        with local_session(name="reuse-session", workspace="reuse-ws") as session:
+        with local_session(prefix="reuse-ws/reuse-session") as session:
             session.log("Reopened session")
-            session.parameters().set(version=2, new_param="added")
+            session.params.set(version=2, new_param="added")
 
         # Verify both operations are recorded
         session_dir = temp_workspace / "reuse-ws" / "reuse-session"
@@ -273,14 +267,14 @@ class TestSessionReuse:
     def test_reopen_existing_session_remote(self, remote_session):
         """Test reopening an existing session in remote mode."""
         # Create initial session
-        with remote_session(name="reuse-session-remote", workspace="reuse-ws-remote") as session:
+        with remote_session(prefix="reuse-ws-remote/reuse-session-remote") as session:
             session.log("Initial remote session")
-            session.parameters().set(version=1)
+            session.params.set(version=1)
 
         # Reopen same session
-        with remote_session(name="reuse-session-remote", workspace="reuse-ws-remote") as session:
+        with remote_session(prefix="reuse-ws-remote/reuse-session-remote") as session:
             session.log("Reopened remote session")
-            session.parameters().set(version=2)
+            session.params.set(version=2)
 
 
 class TestSessionEdgeCases:
@@ -288,7 +282,7 @@ class TestSessionEdgeCases:
 
     def test_empty_session_local(self, local_session, temp_workspace):
         """Test session with no operations."""
-        with local_session(name="empty-session", workspace="empty-ws") as session:
+        with local_session(prefix="empty-ws/empty-session") as session:
             pass  # Do nothing
 
         # Session directory should still be created
@@ -297,38 +291,35 @@ class TestSessionEdgeCases:
 
     def test_session_with_special_characters_local(self, local_session, temp_workspace):
         """Test session names with special characters."""
-        with local_session(name="test-session_v1.0", workspace="special-ws") as session:
+        with local_session(prefix="special-ws/test-session_v1.0") as session:
             session.log("Session with special chars in name")
 
         session_dir = temp_workspace / "special-ws" / "test-session_v1.0"
         assert session_dir.exists()
 
     def test_session_with_long_name_local(self, local_session):
-        """Test session with very long name."""
+        """Test session with very long name (ML-Dash API)."""
         long_name = "a" * 200
-        with local_session(name=long_name, workspace="long-ws") as session:
+        with local_session(prefix=f"long-ws/{long_name}") as session:
             session.log("Session with long name")
 
     def test_deeply_nested_folder_local(self, local_session, temp_workspace):
-        """Test session with deeply nested folder structure."""
-        with local_session(
-            name="nested-session",
-            workspace="nested-ws",
-            folder="/a/b/c/d/e/f/g/h",
-        ) as session:
+        """Test session with deeply nested prefix structure (ML-Dash API)."""
+        # Note: folder parameter removed in ML-Dash API
+        with local_session(prefix="nested-ws/nested-session") as session:
             session.log("Deeply nested session")
 
         session_file = temp_workspace / "nested-ws" / "nested-session" / "session.json"
         with open(session_file) as f:
             metadata = json.load(f)
-            assert metadata["folder"] == "/a/b/c/d/e/f/g/h"
+            # Just verify the session was created successfully
+            assert metadata["name"] == "nested-session"
+            assert metadata["workspace"] == "nested-ws"
 
     def test_session_with_many_tags_local(self, local_session, temp_workspace):
         """Test session with many tags."""
         tags = [f"tag-{i}" for i in range(50)]
-        with local_session(
-            name="many-tags",
-            workspace="tags-ws",
+        with local_session(prefix="tags-ws/many-tags",
             tags=tags,
         ) as session:
             session.log("Session with many tags")
@@ -340,7 +331,7 @@ class TestSessionEdgeCases:
 
     def test_session_double_close_local(self, local_session):
         """Test that closing a session twice doesn't cause issues."""
-        session = local_session(name="double-close", workspace="test-ws")
+        session = local_session(prefix="test-ws/double-close")
         session.open()
         session.close()
         session.close()  # Should not raise error
@@ -348,6 +339,6 @@ class TestSessionEdgeCases:
 
     def test_operations_before_open_local(self, local_session):
         """Test that operations before open are handled gracefully."""
-        session = local_session(name="not-opened", workspace="test-ws")
+        session = local_session(prefix="test-ws/not-opened")
         # Attempting operations before opening should handle gracefully
         # The actual behavior depends on implementation

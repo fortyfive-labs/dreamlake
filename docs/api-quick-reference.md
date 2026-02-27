@@ -8,20 +8,16 @@ Quick reference for common DreamLake operations.
 from dreamlake import Session
 
 # Local mode
-with Session(
-    name="experiment-name",
-    workspace="workspace-name",
-    local_prefix="./data",
+with Session(prefix="workspace-name/experiment-name",
+    dash_root="./data",
         local_path=".dreamlake"
 ) as session:
     # Your code here
     pass
 
 # Remote mode (with username - auto-generates API key)
-with Session(
-    name="experiment-name",
-    workspace="workspace-name",
-    remote="https://cu3thurmv3.us-east-1.awsapprunner.com",
+with Session(prefix="workspace-name/experiment-name",
+    dash_url="https://cu3thurmv3.us-east-1.awsapprunner.com",
     user_name="your-username"
 ) as session:
     # Your code here
@@ -53,13 +49,13 @@ session.log(
 
 ```python
 # Set parameters (keyword arguments)
-session.parameters().set(
+session.params.set(
     learning_rate=0.001,
     batch_size=32
 )
 
 # Set parameters (dictionary - supports nested)
-session.parameters().set(**{
+session.params.set(**{
     "model": {
         "architecture": "resnet50",
         "layers": 50
@@ -68,7 +64,7 @@ session.parameters().set(**{
 # Stored as: {"model.architecture": "resnet50", "model.layers": 50}
 
 # Update parameters
-session.parameters().set(learning_rate=0.0001)
+session.params.set(learning_rate=0.0001)
 ```
 
 ## Tracks (Time-Series Metrics)
@@ -133,18 +129,18 @@ for track in tracks:
 
 ```python
 # Upload file
-session.files().upload("model.pth", path="models/",
+session.files.upload("model.pth", path="models/",
     description="Trained model",
     tags=["final", "best"]
 )
 
 # Upload with metadata
-session.files().upload("model.pth", path="models/checkpoints/",
+session.files.upload("model.pth", path="models/checkpoints/",
     metadata={"epoch": 50, "accuracy": 0.95}
 )
 
 # List files
-files = session.files().list()
+files = session.files.list()
 for file in files:
     print(f"{file['prefix']}{file['filename']}")
 ```
@@ -154,14 +150,12 @@ for file in files:
 ```python
 from dreamlake import Session
 
-with Session(
-    name="mnist-training",
-    workspace="computer-vision",
-    local_prefix="./experiments",
+with Session(prefix="computer-vision/mnist-training",
+    dash_root="./experiments",
         local_path=".dreamlake"
 ) as session:
     # Configuration
-    session.parameters().set(
+    session.params.set(
         learning_rate=0.001,
         batch_size=64,
         epochs=10
@@ -191,7 +185,7 @@ with Session(
 
     # Save model
     save_model("model.pth")
-    session.files().upload("model.pth", path="models/")
+    session.files.upload("model.pth", path="models/")
 
     session.log("Training complete!", level="info")
 ```
@@ -212,7 +206,7 @@ with Session(...) as session:
         if acc > best_acc:
             best_acc = acc
             save_checkpoint(f"checkpoint_{epoch}.pth")
-            session.files().upload(f"checkpoint_{epoch}.pth", path="checkpoints/",
+            session.files.upload(f"checkpoint_{epoch}.pth", path="checkpoints/",
                 tags=["best"]
             )
 ```
@@ -223,7 +217,7 @@ with Session(...) as session:
 for lr in [0.1, 0.01, 0.001]:
     for bs in [32, 64, 128]:
         with Session(name=f"search-lr{lr}-bs{bs}", ...) as session:
-            session.parameters().set(
+            session.params.set(
                 learning_rate=lr,
                 batch_size=bs
             )

@@ -9,8 +9,8 @@ class TestBasicParameters:
 
     def test_simple_parameters_local(self, local_session, temp_workspace, sample_data):
         """Test setting simple parameters in local mode."""
-        with local_session(name="params-test", workspace="test") as session:
-            session.parameters().set(**sample_data["simple_params"])
+        with local_session(prefix="test/params-test") as session:
+            session.params.set(**sample_data["simple_params"])
 
         params_file = temp_workspace / "test" / "params-test" / "parameters.json"
         assert params_file.exists()
@@ -26,13 +26,13 @@ class TestBasicParameters:
     @pytest.mark.remote
     def test_simple_parameters_remote(self, remote_session, sample_data):
         """Test setting simple parameters in remote mode."""
-        with remote_session(name="params-test-remote", workspace="test") as session:
-            session.parameters().set(**sample_data["simple_params"])
+        with remote_session(prefix="test/params-test-remote") as session:
+            session.params.set(**sample_data["simple_params"])
 
     def test_parameter_types_local(self, local_session, temp_workspace):
         """Test different parameter data types."""
-        with local_session(name="param-types", workspace="test") as session:
-            session.parameters().set(
+        with local_session(prefix="test/param-types") as session:
+            session.params.set(
                 int_param=42,
                 float_param=3.14159,
                 str_param="hello world",
@@ -58,8 +58,8 @@ class TestBasicParameters:
     @pytest.mark.remote
     def test_parameter_types_remote(self, remote_session):
         """Test different parameter types in remote mode."""
-        with remote_session(name="param-types-remote", workspace="test") as session:
-            session.parameters().set(
+        with remote_session(prefix="test/param-types-remote") as session:
+            session.params.set(
                 int_param=100,
                 float_param=2.71828,
                 str_param="remote test",
@@ -72,8 +72,8 @@ class TestNestedParameters:
 
     def test_nested_parameters_flattening_local(self, local_session, temp_workspace, sample_data):
         """Test that nested parameters are automatically flattened."""
-        with local_session(name="nested-params", workspace="test") as session:
-            session.parameters().set(**sample_data["nested_params"])
+        with local_session(prefix="test/nested-params") as session:
+            session.params.set(**sample_data["nested_params"])
 
         params_file = temp_workspace / "test" / "nested-params" / "parameters.json"
         with open(params_file) as f:
@@ -92,13 +92,13 @@ class TestNestedParameters:
     @pytest.mark.remote
     def test_nested_parameters_remote(self, remote_session, sample_data):
         """Test nested parameters in remote mode."""
-        with remote_session(name="nested-params-remote", workspace="test") as session:
-            session.parameters().set(**sample_data["nested_params"])
+        with remote_session(prefix="test/nested-params-remote") as session:
+            session.params.set(**sample_data["nested_params"])
 
     def test_deeply_nested_parameters_local(self, local_session, temp_workspace):
         """Test deeply nested parameter structures."""
-        with local_session(name="deep-nested", workspace="test") as session:
-            session.parameters().set(
+        with local_session(prefix="test/deep-nested") as session:
+            session.params.set(
                 **{
                     "config": {
                         "model": {
@@ -133,8 +133,8 @@ class TestNestedParameters:
 
     def test_mixed_flat_and_nested_local(self, local_session, temp_workspace):
         """Test mixing flat and nested parameters."""
-        with local_session(name="mixed-params", workspace="test") as session:
-            session.parameters().set(
+        with local_session(prefix="test/mixed-params") as session:
+            session.params.set(
                 learning_rate=0.001,
                 batch_size=32,
                 **{
@@ -158,15 +158,15 @@ class TestParameterUpdates:
 
     def test_parameter_update_local(self, local_session, temp_workspace):
         """Test updating existing parameters."""
-        with local_session(name="param-update", workspace="test") as session:
+        with local_session(prefix="test/param-update") as session:
             # Set initial parameters
-            session.parameters().set(learning_rate=0.01, batch_size=32)
+            session.params.set(learning_rate=0.01, batch_size=32)
 
             # Update learning rate
-            session.parameters().set(learning_rate=0.001)
+            session.params.set(learning_rate=0.001)
 
             # Add new parameter
-            session.parameters().set(epochs=100)
+            session.params.set(epochs=100)
 
         params_file = temp_workspace / "test" / "param-update" / "parameters.json"
         with open(params_file) as f:
@@ -179,17 +179,17 @@ class TestParameterUpdates:
     @pytest.mark.remote
     def test_parameter_update_remote(self, remote_session):
         """Test updating parameters in remote mode."""
-        with remote_session(name="param-update-remote", workspace="test") as session:
-            session.parameters().set(version=1)
-            session.parameters().set(version=2)
-            session.parameters().set(final=True)
+        with remote_session(prefix="test/param-update-remote") as session:
+            session.params.set(version=1)
+            session.params.set(version=2)
+            session.params.set(final=True)
 
     def test_multiple_parameter_updates_local(self, local_session, temp_workspace):
         """Test multiple parameter update operations."""
-        with local_session(name="multi-update", workspace="test") as session:
-            session.parameters().set(step=1, value=0.1)
-            session.parameters().set(step=2, value=0.2)
-            session.parameters().set(step=3, value=0.3)
+        with local_session(prefix="test/multi-update") as session:
+            session.params.set(step=1, value=0.1)
+            session.params.set(step=2, value=0.2)
+            session.params.set(step=3, value=0.3)
 
         params_file = temp_workspace / "test" / "multi-update" / "parameters.json"
         with open(params_file) as f:
@@ -200,9 +200,9 @@ class TestParameterUpdates:
 
     def test_overwrite_nested_parameter_local(self, local_session, temp_workspace):
         """Test overwriting nested parameters."""
-        with local_session(name="overwrite-nested", workspace="test") as session:
-            session.parameters().set(**{"model": {"name": "vgg", "layers": 16}})
-            session.parameters().set(**{"model": {"name": "resnet", "layers": 50}})
+        with local_session(prefix="test/overwrite-nested") as session:
+            session.params.set(**{"model": {"name": "vgg", "layers": 16}})
+            session.params.set(**{"model": {"name": "resnet", "layers": 50}})
 
         params_file = temp_workspace / "test" / "overwrite-nested" / "parameters.json"
         with open(params_file) as f:
@@ -217,7 +217,7 @@ class TestParameterEdgeCases:
 
     def test_empty_parameters_local(self, local_session, temp_workspace):
         """Test session with no parameters set."""
-        with local_session(name="no-params", workspace="test") as session:
+        with local_session(prefix="test/no-params") as session:
             session.log("No parameters")
 
         params_file = temp_workspace / "test" / "no-params" / "parameters.json"
@@ -228,8 +228,8 @@ class TestParameterEdgeCases:
 
     def test_parameters_with_special_keys_local(self, local_session, temp_workspace):
         """Test parameters with special characters in keys."""
-        with local_session(name="special-keys", workspace="test") as session:
-            session.parameters().set(**{
+        with local_session(prefix="test/special-keys") as session:
+            session.params.set(**{
                 "key_with_underscore": 1,
                 "key-with-dash": 2,
                 "key.with.dot": 3,
@@ -247,8 +247,8 @@ class TestParameterEdgeCases:
         """Test setting a large number of parameters."""
         large_params = {f"param_{i}": i * 0.001 for i in range(1000)}
 
-        with local_session(name="large-params", workspace="test") as session:
-            session.parameters().set(**large_params)
+        with local_session(prefix="test/large-params") as session:
+            session.params.set(**large_params)
 
         params_file = temp_workspace / "test" / "large-params" / "parameters.json"
         with open(params_file) as f:
@@ -262,8 +262,8 @@ class TestParameterEdgeCases:
         """Test parameter with very long string value."""
         long_value = "A" * 10000
 
-        with local_session(name="long-value", workspace="test") as session:
-            session.parameters().set(long_param=long_value)
+        with local_session(prefix="test/long-value") as session:
+            session.params.set(long_param=long_value)
 
         params_file = temp_workspace / "test" / "long-value" / "parameters.json"
         with open(params_file) as f:
@@ -273,8 +273,8 @@ class TestParameterEdgeCases:
 
     def test_unicode_parameter_values_local(self, local_session, temp_workspace):
         """Test parameters with unicode values."""
-        with local_session(name="unicode-params", workspace="test") as session:
-            session.parameters().set(
+        with local_session(prefix="test/unicode-params") as session:
+            session.params.set(
                 japanese="こんにちは",
                 chinese="你好",
                 emoji="🚀 🎉 💯",
@@ -290,8 +290,8 @@ class TestParameterEdgeCases:
 
     def test_numeric_edge_values_local(self, local_session, temp_workspace):
         """Test parameters with edge case numeric values."""
-        with local_session(name="numeric-edge", workspace="test") as session:
-            session.parameters().set(
+        with local_session(prefix="test/numeric-edge") as session:
+            session.params.set(
                 zero=0,
                 negative=-42,
                 large_int=999999999999,
@@ -313,8 +313,8 @@ class TestParameterEdgeCases:
         """Test setting many parameters in remote mode."""
         large_params = {f"param_{i}": i for i in range(100)}
 
-        with remote_session(name="large-params-remote", workspace="test") as session:
-            session.parameters().set(**large_params)
+        with remote_session(prefix="test/large-params-remote") as session:
+            session.params.set(**large_params)
 
 
 class TestParameterCombinations:
@@ -322,8 +322,8 @@ class TestParameterCombinations:
 
     def test_ml_training_parameters_local(self, local_session, temp_workspace):
         """Test typical ML training parameter structure."""
-        with local_session(name="ml-params", workspace="test") as session:
-            session.parameters().set(
+        with local_session(prefix="test/ml-params") as session:
+            session.params.set(
                 **{
                     "model": {
                         "architecture": "transformer",
@@ -358,8 +358,8 @@ class TestParameterCombinations:
 
     def test_config_file_like_parameters_local(self, local_session, temp_workspace):
         """Test parameters structured like a config file."""
-        with local_session(name="config-params", workspace="test") as session:
-            session.parameters().set(
+        with local_session(prefix="test/config-params") as session:
+            session.params.set(
                 **{
                     "experiment": {
                         "name": "baseline",

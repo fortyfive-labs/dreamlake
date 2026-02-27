@@ -21,15 +21,13 @@ from dreamlake import Session
 def train_simple_model():
     """Train a simple model and track everything with DreamLake."""
 
-    with Session(
-        name="simple-training",
-        workspace="tutorials",
-        description="Basic training loop example",
+    with Session(prefix="tutorials/simple-training",
+        readme="Basic training loop example",
         tags=["tutorial", "simple"],
         local_path=".dreamlake"
     ) as session:
         # Track hyperparameters
-        session.parameters().set(
+        session.params.set(
             learning_rate=0.001,
             batch_size=32,
             epochs=10,
@@ -67,7 +65,7 @@ def train_simple_model():
         with open("model.pth", "w") as f:
             f.write("model weights")
 
-        session.files().upload("model.pth", path="/models",
+        session.files.upload("model.pth", path="/models",
             description="Final trained model",
             tags=["final"]
         )
@@ -115,13 +113,13 @@ if __name__ == "__main__":
 
 **Use session context manager** - Automatic cleanup:
 ```python
-with Session(name="...", workspace="...") as session:
+with Session(prefix=".../...") as session:
     # Your code here
 ```
 
 **Track parameters once** - At the start:
 ```python
-session.parameters().set(learning_rate=0.001, batch_size=32)
+session.params.set(learning_rate=0.001, batch_size=32)
 ```
 
 **Track metrics in the loop** - Every epoch:

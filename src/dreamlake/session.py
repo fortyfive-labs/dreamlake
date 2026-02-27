@@ -29,91 +29,178 @@ class OperationMode(Enum):
     HYBRID = "hybrid"  # Future: sync local to remote
 
 
+class RunManager:
+    """
+    Lifecycle manager for sessions (ML-Dash compatible).
+
+    Supports context manager pattern for automatic session open/close:
+        with Session(...).run as sess:
+            sess.params.set(...)
+    """
+
+    def __init__(self, session: 'Session'):
+        self._session = session
+
+    def __enter__(self) -> 'Session':
+        """Context manager entry - opens the session."""
+        return self._session.open()
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Context manager exit - closes the session."""
+        self._session.close()
+        return False
+
+    def start(self) -> 'Session':
+        """Explicitly start the session (alternative to context manager)."""
+        return self._session.open()
+
+    def complete(self):
+        """Mark session as complete and close it."""
+        # TODO: Add status tracking (complete vs failed)
+        self._session.close()
+
+    def fail(self):
+        """Mark session as failed and close it."""
+        # TODO: Add status tracking (complete vs failed)
+        self._session.close()
+
+
+class MetricsManager:
+    """
+    Manager for metrics operations (ML-Dash compatible).
+
+    Metrics are time-series data indexed by sequential integers.
+    Usage:
+        session.metrics("train/loss").log(value=0.5, epoch=1)
+        session.metrics.flush()  # Flush all metrics
+    """
+
+    def __init__(self, session: 'Session'):
+        self._session = session
+
+    def __call__(self, name: str) -> 'TrackBuilder':
+        """Get a TrackBuilder for the named metric."""
+        from .track import TrackBuilder
+        return self._session.track(name)
+
+    def flush(self):
+        """Flush all buffered metrics."""
+        return self._session._flush_all_tracks()
+
+
+class TracksManager:
+    """
+    Manager for tracks operations (ML-Dash compatible).
+
+    Tracks are timestamped data indexed by float timestamps.
+    Usage:
+        session.tracks("robot/position").append(q=[0.1, 0.2], _ts=1.0)
+        session.tracks.flush()  # Flush all tracks
+    """
+
+    def __init__(self, session: 'Session'):
+        self._session = session
+
+    def __call__(self, topic: str) -> 'TrackBuilder':
+        """Get a TrackBuilder for the named track topic."""
+        from .track import TrackBuilder
+        return self._session.track(topic)
+
+    def flush(self):
+        """Flush all buffered tracks."""
+        return self._session._flush_all_tracks()
+
+
 class Session:
     """
-    Dreamlake session for tracking experiments.
+    DreamLake session for tracking ML experiments (ML-Dash compatible API).
 
     Usage examples:
 
-    # Remote mode
+    # Local mode (default)
+    session = Session(prefix="my-workspace/my-experiment")
+
+    # Custom local storage directory
     session = Session(
-        name="my-experiment",
-        workspace="my-workspace",
-        remote="http://localhost:3000",
-        api_key="your-jwt-token"
+        prefix="my-workspace/my-experiment",
+        dash_root=".dreamlake"
     )
 
-    # Local mode
+    # Remote mode (requires DREAMLAKE_API_KEY env var)
     session = Session(
-        name="my-experiment",
-        workspace="my-workspace",
-        local_path=".dreamlake"
+        prefix="my-workspace/my-experiment",
+        dash_url="http://localhost:3000"
     )
 
-    # Context manager
-    with Session(...) as sess:
-        sess.log(...)
-
-    # Decorator
-    @dreamlake_session(name="exp", workspace="ws", remote="...")
-    def train():
-        ...
+    # Context manager (recommended)
+    with Session(prefix="workspace/experiment") as sess:
+        sess.params.set(lr=0.001)
+        sess.logs.info("Training started")
+        sess.metrics("train/loss").log(value=0.5)
     """
 
     def __init__(
         self,
-        name: str,
-        workspace: str,
+        prefix: str,
         *,
-        description: Optional[str] = None,
+        readme: Optional[str] = None,
         tags: Optional[List[str]] = None,
-        folder: Optional[str] = None,
-        write_protected: bool = False,
         metadata: Optional[Dict[str, Any]] = None,
         # Mode configuration
-        remote: Optional[str] = None,
-        api_key: Optional[str] = None,
-        user_name: Optional[str] = None,
-        local_path: Optional[str] = None,
+        dash_url: Optional[str] = None,
+        dash_root: Optional[str] = ".dreamlake",
+        # Internal
+        _write_protected: bool = False,
     ):
         """
-        Initialize a dreamlake session.
+        Initialize a DreamLake session (ML-Dash compatible API).
 
         Args:
-            name: Session name (unique within workspace)
-            workspace: Workspace name
-            description: Optional session description
+            prefix: Experiment path like "workspace/name" or "owner/workspace/name"
+            readme: Optional experiment description/readme
             tags: Optional list of tags
-            folder: Optional folder path (e.g., "/experiments/baseline")
-            write_protected: If True, session becomes immutable after creation
             metadata: Optional metadata dict
-            remote: Remote API URL (e.g., "http://localhost:3000")
-            api_key: JWT token for authentication (if not provided, will be generated from user_name)
-            user_name: Username for authentication (generates API key if api_key not provided)
-            local_path: Local storage root path (for local mode)
+            dash_url: Remote API URL (e.g., "http://localhost:3000"). None = local-only mode
+            dash_root: Local storage root path (defaults to ".dreamlake")
+            _write_protected: Internal - if True, session becomes immutable after creation
+
+        Prefix Format:
+            - "workspace/name" → workspace="workspace", name="name"
+            - "owner/workspace/name" → workspace="workspace", name="name"
+
+        Mode Selection:
+            - dash_url=None: Local-only mode (writes to dash_root)
+            - dash_url + dash_root: Hybrid mode (local + remote)
+            - dash_url + dash_root=None: Remote-only mode
         """
-        self.name = name
-        self.workspace = workspace
-        self.description = description
+        # Parse prefix into components
+        if not prefix:
+            raise ValueError("prefix is required (format: 'workspace/name')")
+
+        parts = prefix.strip("/").split("/")
+        if len(parts) < 2:
+            raise ValueError(f"prefix must have at least 2 segments (workspace/name), got: {prefix}")
+
+        # Extract workspace (second-to-last or second segment) and name (last segment)
+        self.workspace = parts[-2] if len(parts) >= 2 else parts[0]
+        self.name = parts[-1]
+        self.prefix = prefix
+
+        self.readme = readme
         self.tags = tags
-        self.folder = folder
-        self.write_protected = write_protected
+        self.write_protected = _write_protected
         self.metadata = metadata
 
-        # Generate API key from username if not provided
-        if remote and not api_key and user_name:
-            api_key = self._generate_api_key_from_username(user_name)
-
         # Determine operation mode
-        if remote and local_path:
+        if dash_url and dash_root:
             self.mode = OperationMode.HYBRID
-        elif remote:
+        elif dash_url:
             self.mode = OperationMode.REMOTE
-        elif local_path:
+        elif dash_root:
             self.mode = OperationMode.LOCAL
         else:
             raise ValueError(
-                "Must specify either 'remote' (with api_key/user_name) or 'local_path'"
+                "Must specify either 'dash_url' (remote) or 'dash_root' (local)"
             )
 
         # Initialize backend
@@ -130,14 +217,19 @@ class Session:
         self._track_last_auto_timestamp: float = 0.0  # Ensure unique auto-generated timestamps
 
         if self.mode in (OperationMode.REMOTE, OperationMode.HYBRID):
+            # TODO: Auto-load API key from ~/.dreamlake/token (like ML-Dash does)
+            # For now, require environment variable or fail gracefully
+            import os
+            api_key = os.environ.get("DREAMLAKE_API_KEY")
             if not api_key:
-                raise ValueError("Either api_key or user_name is required for remote mode")
-            self._client = RemoteClient(base_url=remote, api_key=api_key)
+                raise ValueError(
+                    "DREAMLAKE_API_KEY environment variable required for remote mode. "
+                    "Set it or use dash_root for local-only mode."
+                )
+            self._client = RemoteClient(base_url=dash_url, api_key=api_key)
 
         if self.mode in (OperationMode.LOCAL, OperationMode.HYBRID):
-            if not local_path:
-                raise ValueError("local_path is required for local mode")
-            self._storage = LocalStorage(root_path=Path(local_path))
+            self._storage = LocalStorage(root_path=Path(dash_root))
 
     @staticmethod
     def _generate_api_key_from_username(user_name: str) -> str:
@@ -188,12 +280,13 @@ class Session:
 
         if self._client:
             # Remote mode: create/update session via API
+            # TODO: Update client API to use readme instead of description
             response = self._client.create_or_update_session(
                 workspace=self.workspace,
                 name=self.name,
-                description=self.description,
+                description=self.readme,  # Map readme → description for now
                 tags=self.tags,
-                folder=self.folder,
+                folder=None,  # Removed from ML-Dash API
                 write_protected=self.write_protected,
                 metadata=self.metadata,
             )
@@ -202,12 +295,13 @@ class Session:
 
         if self._storage:
             # Local mode: create session directory structure
+            # TODO: Update storage API to use readme instead of description
             self._storage.create_session(
                 workspace=self.workspace,
                 name=self.name,
-                description=self.description,
+                description=self.readme,  # Map readme → description for now
                 tags=self.tags,
-                folder=self.folder,
+                folder=None,  # Removed from ML-Dash API
                 metadata=self.metadata,
             )
 
@@ -236,6 +330,116 @@ class Session:
         """Context manager exit."""
         self.close()
         return False
+
+    # ===== ML-Dash Compatible Property Aliases =====
+
+    @property
+    def run(self) -> RunManager:
+        """
+        Get run manager for lifecycle management (ML-Dash compatible property).
+
+        Returns:
+            RunManager instance supporting context manager and explicit start/complete
+
+        Examples:
+            # Context manager (recommended)
+            with Session(prefix="workspace/experiment").run as sess:
+                sess.params.set(lr=0.001)
+                sess.logs.info("Training started")
+
+            # Explicit lifecycle
+            sess = Session(prefix="workspace/experiment")
+            sess.run.start()
+            # ... do work ...
+            sess.run.complete()
+        """
+        return RunManager(self)
+
+    @property
+    def params(self) -> ParametersBuilder:
+        """
+        Get parameters builder (ML-Dash compatible property).
+
+        Returns:
+            ParametersBuilder instance for parameter operations
+
+        Examples:
+            session.params.set(lr=0.001, batch_size=32)
+            params = session.params.get()
+        """
+        return self.parameters()
+
+    @property
+    def logs(self) -> LogBuilder:
+        """
+        Get log builder for fluent-style logging (ML-Dash compatible property).
+
+        Returns:
+            LogBuilder instance for fluent logging
+
+        Examples:
+            session.logs.info("Training started")
+            session.logs.error("Failed", error_code=500)
+        """
+        if not self._is_open:
+            raise RuntimeError("Session not open. Use session.open() or context manager.")
+        return LogBuilder(self, None)
+
+    @property
+    def files(self) -> FilesBuilder:
+        """
+        Get files builder for file operations (ML-Dash compatible property).
+
+        Returns:
+            FilesBuilder instance for file operations
+
+        Examples:
+            session.files.upload("./model.pt", path="/models")
+            files = session.files.list()
+        """
+        if not self._is_open:
+            raise RuntimeError("Session not open. Use session.open() or context manager.")
+        return FilesBuilder(self)
+
+    @property
+    def metrics(self) -> MetricsManager:
+        """
+        Get metrics manager for time-series data (ML-Dash compatible property).
+
+        Returns:
+            MetricsManager instance supporting both named and direct operations
+
+        Examples:
+            # Named metric
+            session.metrics("train/loss").log(value=0.5, epoch=1)
+
+            # Flush all metrics
+            session.metrics.flush()
+        """
+        if not self._is_open:
+            raise RuntimeError("Session not open. Use session.open() or context manager.")
+        return MetricsManager(self)
+
+    @property
+    def tracks(self) -> TracksManager:
+        """
+        Get tracks manager for timestamped data (ML-Dash compatible property).
+
+        Returns:
+            TracksManager instance supporting both named and direct operations
+
+        Examples:
+            # Named track
+            session.tracks("robot/position").append(q=[0.1, 0.2], _ts=1.0)
+
+            # Flush all tracks
+            session.tracks.flush()
+        """
+        if not self._is_open:
+            raise RuntimeError("Session not open. Use session.open() or context manager.")
+        return TracksManager(self)
+
+    # ===== End ML-Dash Property Aliases =====
 
     def log(
         self,
@@ -342,29 +546,6 @@ class Session:
                 metadata=log_entry.get("metadata"),
                 timestamp=log_entry["timestamp"]
             )
-
-    def files(self) -> FilesBuilder:
-        """
-        Get a FilesBuilder for fluent file operations (plural API).
-
-        Returns:
-            FilesBuilder instance for chaining
-
-        Raises:
-            RuntimeError: If session is not open
-
-        Examples:
-            # Upload file
-            session.files().upload("./model.pt", path="/models")
-
-            # List files
-            files = session.files().list()
-            files = session.files().list(path="/models")
-        """
-        if not self._is_open:
-            raise RuntimeError("Session not open. Use session.open() or context manager.")
-
-        return FilesBuilder(self)
 
     def file(self, **kwargs) -> FileBuilder:
         """

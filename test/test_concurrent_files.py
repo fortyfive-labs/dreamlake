@@ -31,9 +31,8 @@ def test_concurrent_file_uploads():
 
         # Create session
         session = Session(
-            name="concurrent-test",
-            workspace="test-workspace",
-            local_path=str(local_path)
+            prefix="test-workspace/concurrent-test",
+            dash_root=str(local_path)
         )
         session.open()
 
@@ -118,9 +117,8 @@ def test_concurrent_file_operations_mixed():
 
         # Create session
         session = Session(
-            name="mixed-ops-test",
-            workspace="test-workspace",
-            local_path=str(local_path)
+            prefix="test-workspace/mixed-ops-test",
+            dash_root=str(local_path)
         )
         session.open()
 
@@ -234,9 +232,8 @@ def test_concurrent_file_uploads_new_api():
 
         # Create session
         with Session(
-            name="newapi-test",
-            workspace="test-workspace",
-            local_path=str(local_path)
+            prefix="test-workspace/newapi-test",
+            dash_root=str(local_path)
         ) as session:
             results = [None] * num_files
             errors = [None] * num_files
@@ -244,7 +241,7 @@ def test_concurrent_file_uploads_new_api():
             def upload_file(index):
                 """Upload using new API."""
                 try:
-                    result = session.files().upload(
+                    result = session.files.upload(
                         str(test_files[index]),
                         path="/newapi",
                         tags=[f"tag_{index}"]
@@ -269,7 +266,7 @@ def test_concurrent_file_uploads_new_api():
             assert all(r is not None for r in results), "Some uploads failed"
 
             # Verify file count
-            listed_files = session.files().list()
+            listed_files = session.files.list()
             assert len(listed_files) == num_files, \
                 f"Expected {num_files} files, found {len(listed_files)}"
 

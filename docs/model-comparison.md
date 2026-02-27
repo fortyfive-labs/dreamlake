@@ -53,12 +53,12 @@ def compare_architectures():
         with Session(
             name=f"comparison-{arch}",
             workspace="architecture-comparison",
-            description=f"Training {arch} on CIFAR-10",
+            readme=f"Training {arch} on CIFAR-10",
             tags=["comparison", arch, "cifar10"],
         local_path=".dreamlake"
         ) as session:
             # Same configuration for fair comparison
-            session.parameters().set(
+            session.params.set(
                 architecture=arch,
                 dataset="cifar10",
                 batch_size=128,
@@ -124,7 +124,7 @@ name=f"comparison-{arch}"
 
 **Fair comparison** - Same hyperparameters for all:
 ```python
-session.parameters().set(
+session.params.set(
     batch_size=128,      # Same for all
     learning_rate=0.001, # Same for all
     epochs=20,           # Same for all
@@ -157,7 +157,7 @@ def create_model(architecture):
         return VisionTransformer()
 
 def train_and_evaluate(model, train_loader, val_loader, session):
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+    optimizer = torch.optim.Adam(model.params, lr=0.001)
     criterion = torch.nn.CrossEntropyLoss()
 
     for epoch in range(20):
@@ -195,16 +195,16 @@ def train_and_evaluate(model, train_loader, val_loader, session):
 for arch in ["cnn", "resnet", "vit"]:
     with Session(name=f"comparison-{arch}", workspace="arch-comp",
         local_path=".dreamlake") as session:
-        session.parameters().set(architecture=arch, dataset="cifar10")
+        session.params.set(architecture=arch, dataset="cifar10")
 
         model = create_model(arch)
         final_acc = train_and_evaluate(model, train_loader, val_loader, session)
 
         # Save best model
         torch.save(model.state_dict(), f"{arch}_model.pth")
-        session.files().upload(f"{arch}_model.pth", path="/models")
+        session.files.upload(f"{arch}_model.pth", path="/models")
 ```
 
 ---
 
-**Next:** See [Remote Collaboration](remote-collaboration.md) for team workflows.
+**Next:** See [Remote Collaboration](dash_url-collaboration.md) for team workflows.

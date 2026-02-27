@@ -31,16 +31,16 @@ def temp_workspace(tmp_path):
 @pytest.fixture
 def local_session(temp_workspace):
     """
-    Create a test session in local mode.
+    Create a test session in local mode (ML-Dash compatible API).
 
     Returns a function that creates sessions with default config but allows overrides.
     """
-    def _create_session(name="test-session", workspace="test-workspace", **kwargs):
+    def _create_session(prefix="test-workspace/test-session", **kwargs):
         defaults = {
-            "local_path": str(temp_workspace),
+            "dash_root": str(temp_workspace),
         }
         defaults.update(kwargs)
-        return Session(name=name, workspace=workspace, **defaults)
+        return Session(prefix=prefix, **defaults)
 
     return _create_session
 
@@ -48,19 +48,19 @@ def local_session(temp_workspace):
 @pytest.fixture
 def remote_session():
     """
-    Create a test session in remote mode.
+    Create a test session in remote mode (ML-Dash compatible API).
 
     Returns a function that creates remote sessions with localhost:3000.
     Use the @pytest.mark.remote marker for tests that require a running server.
-    The Session will automatically generate a JWT token from the username.
+    Requires DREAMLAKE_API_KEY environment variable to be set.
     """
-    def _create_session(name="test-session", workspace="test-workspace", **kwargs):
+    def _create_session(prefix="test-workspace/test-session", **kwargs):
         defaults = {
-            "remote": REMOTE_SERVER_URL,
-            "user_name": TEST_USERNAME,
+            "dash_url": REMOTE_SERVER_URL,
         }
         defaults.update(kwargs)
-        return Session(name=name, workspace=workspace, **defaults)
+        # Note: Requires DREAMLAKE_API_KEY environment variable
+        return Session(prefix=prefix, **defaults)
 
     return _create_session
 

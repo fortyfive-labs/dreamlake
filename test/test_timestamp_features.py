@@ -13,9 +13,8 @@ def test_auto_generated_timestamps():
         local_path = Path(tmpdir) / ".dreamlake"
 
         with Session(
-            name="auto-ts-test",
-            workspace="test",
-            local_path=str(local_path)
+            prefix="test/auto-ts-test",
+            dash_root=str(local_path)
         ) as session:
             # Append without _ts (should auto-generate)
             session.track("metric").append(value=0.5, step=1)
@@ -41,9 +40,8 @@ def test_explicit_timestamps():
         local_path = Path(tmpdir) / ".dreamlake"
 
         with Session(
-            name="explicit-ts-test",
-            workspace="test",
-            local_path=str(local_path)
+            prefix="test/explicit-ts-test",
+            dash_root=str(local_path)
         ) as session:
             # Append with explicit timestamps
             session.track("robot/position").append(q=[0.1, 0.2], _ts=1.0)
@@ -63,9 +61,8 @@ def test_timestamp_inheritance():
         local_path = Path(tmpdir) / ".dreamlake"
 
         with Session(
-            name="inherit-ts-test",
-            workspace="test",
-            local_path=str(local_path)
+            prefix="test/inherit-ts-test",
+            dash_root=str(local_path)
         ) as session:
             # First append with explicit timestamp
             session.track("robot/state").append(q=[0.1, 0.2], _ts=1.5)
@@ -90,9 +87,8 @@ def test_timestamp_inheritance_across_tracks():
         local_path = Path(tmpdir) / ".dreamlake"
 
         with Session(
-            name="cross-track-ts-test",
-            workspace="test",
-            local_path=str(local_path)
+            prefix="test/cross-track-ts-test",
+            dash_root=str(local_path)
         ) as session:
             # First append - auto-generates timestamp
             session.track("robot/pose").append(position=[1.0, 2.0, 3.0])
@@ -128,9 +124,8 @@ def test_timestamp_merging():
         local_path = Path(tmpdir) / ".dreamlake"
 
         with Session(
-            name="merge-ts-test",
-            workspace="test",
-            local_path=str(local_path)
+            prefix="test/merge-ts-test",
+            dash_root=str(local_path)
         ) as session:
             # Append multiple fields with same timestamp
             session.track("robot/state").append(q=[0.1, 0.2], _ts=1.0)
@@ -156,9 +151,8 @@ def test_timestamp_merging_with_inheritance():
         local_path = Path(tmpdir) / ".dreamlake"
 
         with Session(
-            name="merge-inherit-test",
-            workspace="test",
-            local_path=str(local_path)
+            prefix="test/merge-inherit-test",
+            dash_root=str(local_path)
         ) as session:
             # First point with explicit timestamp
             session.track("robot/state").append(q=[0.1, 0.2], _ts=2.0)
@@ -195,9 +189,8 @@ def test_flush_and_chaining():
         local_path = Path(tmpdir) / ".dreamlake"
 
         with Session(
-            name="flush-test",
-            workspace="test",
-            local_path=str(local_path)
+            prefix="test/flush-test",
+            dash_root=str(local_path)
         ) as session:
             # Method chaining
             session.track("loss").append(value=0.5, epoch=1, _ts=1.0).append(value=0.4, epoch=2, _ts=2.0)
@@ -219,9 +212,8 @@ def test_hierarchical_track_names():
         local_path = Path(tmpdir) / ".dreamlake"
 
         with Session(
-            name="hierarchical-test",
-            workspace="test",
-            local_path=str(local_path)
+            prefix="test/hierarchical-test",
+            dash_root=str(local_path)
         ) as session:
             # Use hierarchical names
             session.track("robot/position/left-camera").append(x=1.0, y=2.0, _ts=1.0)

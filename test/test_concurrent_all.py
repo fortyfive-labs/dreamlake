@@ -21,9 +21,8 @@ def test_concurrent_logging():
         local_path = Path(tmpdir) / ".dreamlake"
 
         with Session(
-            name="log-test",
-            workspace="test-workspace",
-            local_path=str(local_path)
+            prefix="test-workspace/log-test",
+            dash_root=str(local_path)
         ) as session:
             num_logs = 100
             errors = []
@@ -72,9 +71,8 @@ def test_concurrent_parameters():
         local_path = Path(tmpdir) / ".dreamlake"
 
         with Session(
-            name="param-test",
-            workspace="test-workspace",
-            local_path=str(local_path)
+            prefix="test-workspace/param-test",
+            dash_root=str(local_path)
         ) as session:
             num_threads = 20
             params_per_thread = 5
@@ -122,9 +120,8 @@ def test_concurrent_track_append():
         local_path = Path(tmpdir) / ".dreamlake"
 
         with Session(
-            name="track-test",
-            workspace="test-workspace",
-            local_path=str(local_path)
+            prefix="test-workspace/track-test",
+            dash_root=str(local_path)
         ) as session:
             num_appends = 100
             errors = []
@@ -175,9 +172,8 @@ def test_concurrent_batch_track_append():
         local_path = Path(tmpdir) / ".dreamlake"
 
         with Session(
-            name="batch-track-test",
-            workspace="test-workspace",
-            local_path=str(local_path)
+            prefix="test-workspace/batch-track-test",
+            dash_root=str(local_path)
         ) as session:
             num_batches = 20
             batch_size = 10
@@ -238,10 +234,9 @@ def test_concurrent_session_updates():
 
         # Create initial session
         session1 = Session(
-            name="session-update-test",
-            workspace="test-workspace",
-            local_path=str(local_path),
-            description="Initial description"
+            prefix="test-workspace/session-update-test",
+            dash_root=str(local_path),
+            readme="Initial description"
         )
         session1.open()
         session1.close()
@@ -254,9 +249,8 @@ def test_concurrent_session_updates():
             """Update session metadata."""
             try:
                 session = Session(
-                    name="session-update-test",
-                    workspace="test-workspace",
-                    local_path=str(local_path),
+            prefix="test-workspace/session-update-test",
+                    dash_root=str(local_path),
                     tags=[f"tag_{thread_id}"]
                 )
                 session.open()
@@ -296,9 +290,8 @@ def test_mixed_concurrent_operations():
         local_path = Path(tmpdir) / ".dreamlake"
 
         with Session(
-            name="mixed-test",
-            workspace="test-workspace",
-            local_path=str(local_path)
+            prefix="test-workspace/mixed-test",
+            dash_root=str(local_path)
         ) as session:
             errors = []
 

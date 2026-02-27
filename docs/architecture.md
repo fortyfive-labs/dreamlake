@@ -4,7 +4,7 @@ This document provides an in-depth look at DreamLake's architecture, design deci
 
 ## Overview
 
-DreamLake is built with a clean, modular architecture that supports both local filesystem and remote API server backends. The design emphasizes simplicity, flexibility, and ease of use while maintaining powerful functionality for ML experiment tracking.
+DreamLake is built with a clean, modular architecture that supports both local filesystem and dash_url API server backends. The design emphasizes simplicity, flexibility, and ease of use while maintaining powerful functionality for ML experiment tracking.
 
 ### High-Level Architecture
 
@@ -52,7 +52,7 @@ The `Session` class is the entry point for all DreamLake operations. It:
 ```text
 Session
 ├── Lifecycle management (open/close)
-├── Backend initialization (local or remote)
+├── Backend initialization (local or dash_url)
 ├── Builder factory methods
 ├── Session metadata management
 └── Error handling and recovery
@@ -72,7 +72,7 @@ session.log("Message", level="info", metadata={...})
 
 #### ParametersBuilder
 ```python
-session.parameters().set(lr=0.001, batch_size=32)
+session.params.set(lr=0.001, batch_size=32)
 ```
 - Stores hyperparameters and configuration
 - **Automatic flattening**: Nested dicts converted to dot notation
@@ -92,7 +92,7 @@ session.track("loss").append_batch([...])
 
 #### FileBuilder
 ```python
-session.files().upload("model.pth", path="/models")
+session.files.upload("model.pth", path="/models")
 ```
 - File upload and organization
 - Checksum validation (SHA256)
@@ -264,15 +264,13 @@ session.append_track("accuracy", {"value": 0.95, "epoch": 10})
 **Example**:
 ```python
 # This automatically creates:
-# - Namespace (if remote)
+# - Namespace (if dash_url)
 # - Workspace "my-workspace"
 # - Folder "/experiments/2024"
 # - Session "baseline"
-Session(
-    name="baseline",
-    workspace="my-workspace",
+Session(prefix="my-workspace/baseline",
     folder="/experiments/2024",
-    local_prefix=".dreamlake",
+    dash_root=".dreamlake",
         local_path=".dreamlake"
 )
 ```
@@ -280,8 +278,8 @@ Session(
 ### 4. Dual Backend Support
 
 **Why?**
-- **Flexibility**: Local for development, remote for production
-- **Gradual adoption**: Start local, migrate to remote when ready
+- **Flexibility**: Local for development, dash_url for production
+- **Gradual adoption**: Start local, migrate to dash_url when ready
 - **Offline capability**: Work without network access
 - **Testing**: Easy to test with local mode
 
@@ -370,7 +368,7 @@ session.track("metric").append_batch(batch_data)  # ✅ Fast
 
 ### File Upload Optimization
 
-- **Chunked upload**: For large files (remote mode)
+- **Chunked upload**: For large files (dash_url mode)
 - **Checksum validation**: Ensures data integrity
 - **Concurrent uploads**: Multiple files in parallel (planned)
 
@@ -398,20 +396,20 @@ session.track("metric").append_batch(batch_data)  # ✅ Fast
 **Development Mode**:
 ```python
 # Auto-generates JWT from username
-Session(remote="...", user_name="alice")
+Session(dash_url="...", user_name="alice")
 # Equivalent to providing a JWT token
 ```
 
 **Production Mode**:
 ```python
 # Use proper API key from authentication service
-Session(remote="...", api_key="actual-jwt-token")
+Session(dash_url="...", api_key="actual-jwt-token")
 ```
 
 ### Data Security
 
 **In Transit**:
-- Use HTTPS for remote connections
+- Use HTTPS for dash_url connections
 - TLS for MongoDB connections
 
 **At Rest**:
@@ -432,14 +430,14 @@ Session(remote="...", api_key="actual-jwt-token")
 
 **DreamLake's sweet spot**:
 - Quick local experiments with zero setup
-- Easy transition to collaborative remote mode
+- Easy transition to collaborative dash_url mode
 - Simple, intuitive API
 - Full control over your data
 
 ## Future Roadmap
 
 ### Short Term (v0.3)
-- [ ] Hybrid mode (local + remote sync)
+- [ ] Hybrid mode (local + dash_url sync)
 - [ ] Query API for searching experiments
 - [ ] Web UI for visualization
 - [ ] Batch file uploads
@@ -459,6 +457,6 @@ Session(remote="...", api_key="actual-jwt-token")
 ## See Also
 
 - [Getting Started](getting-started.md) - Quick start guide
-- [Local vs Remote](local-vs-remote.md) - Choosing the right mode
+- [Local vs Remote](local-vs-dash_url.md) - Choosing the right mode
 - [Deployment Guide](deployment.md) - Setting up your own server
 - [API Reference](api/modules.rst) - Detailed API documentation

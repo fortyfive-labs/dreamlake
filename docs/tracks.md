@@ -9,7 +9,7 @@ Track time-series metrics that change over time - loss, accuracy, learning rate,
 
 from dreamlake import Session
 
-with Session(name="my-experiment", workspace="project",
+with Session(prefix="project/my-experiment",
         local_path=".dreamlake") as session:
     # Append a single data point
     session.track("train_loss").append(value=0.5, epoch=1)
@@ -25,7 +25,7 @@ Define your own data structure for each track:
 ```{code-block} python
 :linenos:
 
-with Session(name="my-experiment", workspace="project",
+with Session(prefix="project/my-experiment",
         local_path=".dreamlake") as session:
     # Simple value
     session.track("loss").append(value=0.5)
@@ -54,7 +54,7 @@ Append multiple data points at once for better performance:
 ```{code-block} python
 :linenos:
 
-with Session(name="my-experiment", workspace="project",
+with Session(prefix="project/my-experiment",
         local_path=".dreamlake") as session:
     result = session.track("train_loss").append_batch([
         {"value": 0.5, "step": 1, "epoch": 1},
@@ -73,7 +73,7 @@ Read track data by index range:
 ```{code-block} python
 :linenos:
 
-with Session(name="my-experiment", workspace="project",
+with Session(prefix="project/my-experiment",
         local_path=".dreamlake") as session:
     # Append data
     for i in range(100):
@@ -91,9 +91,9 @@ with Session(name="my-experiment", workspace="project",
 ```{code-block} python
 :linenos:
 
-with Session(name="mnist-training", workspace="cv",
+with Session(prefix="cv/mnist-training",
         local_path=".dreamlake") as session:
-    session.parameters().set(learning_rate=0.001, batch_size=32)
+    session.params.set(learning_rate=0.001, batch_size=32)
     session.log("Starting training")
 
     for epoch in range(10):
@@ -120,7 +120,7 @@ Collect points in memory, then append in batches:
 ```{code-block} python
 :linenos:
 
-with Session(name="my-experiment", workspace="project",
+with Session(prefix="project/my-experiment",
         local_path=".dreamlake") as session:
     batch = []
 
@@ -146,7 +146,7 @@ Combine related metrics:
 ```{code-block} python
 :linenos:
 
-with Session(name="my-experiment", workspace="project",
+with Session(prefix="project/my-experiment",
         local_path=".dreamlake") as session:
     for epoch in range(10):
         session.track("all_metrics").append(
@@ -170,7 +170,7 @@ All track data includes a `_ts` (timestamp) field. If not provided, timestamps a
 import time
 from dreamlake import Session
 
-with Session(name="my-experiment", workspace="project",
+with Session(prefix="project/my-experiment",
         local_path=".dreamlake") as session:
     # Auto-generated timestamp
     session.track("loss").append(value=0.5, epoch=1)
@@ -187,7 +187,7 @@ Use explicit timestamps for precise control:
 ```{code-block} python
 :linenos:
 
-with Session(name="my-experiment", workspace="project",
+with Session(prefix="project/my-experiment",
         local_path=".dreamlake") as session:
     ts = time.time()
 
@@ -204,7 +204,7 @@ Use `_ts=-1` to inherit the previous timestamp across ALL tracks in the session.
 ```{code-block} python
 :linenos:
 
-with Session(name="robot-demo", workspace="robotics",
+with Session(prefix="robotics/robot-demo",
         local_path=".dreamlake") as session:
     for step in range(100):
         # First append - auto-generates timestamp
@@ -245,7 +245,7 @@ Data points with the same `_ts` are merged into a single entry:
 ```{code-block} python
 :linenos:
 
-with Session(name="merge-demo", workspace="project",
+with Session(prefix="project/merge-demo",
         local_path=".dreamlake") as session:
     ts = time.time()
 
@@ -273,7 +273,7 @@ Track appends are buffered in memory and merged by timestamp before writing:
 ```{code-block} python
 :linenos:
 
-with Session(name="my-experiment", workspace="project",
+with Session(prefix="project/my-experiment",
         local_path=".dreamlake") as session:
     # Append data (buffered)
     session.track("loss").append(value=0.5, epoch=1)
@@ -299,7 +299,7 @@ Use `/` to organize tracks hierarchically:
 ```{code-block} python
 :linenos:
 
-with Session(name="my-experiment", workspace="project",
+with Session(prefix="project/my-experiment",
         local_path=".dreamlake") as session:
     session.track("robot/position/left-camera").append(x=1.0, y=2.0, _ts=1.0)
     session.track("robot/position/right-camera").append(x=1.1, y=2.1, _ts=1.0)

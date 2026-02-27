@@ -28,13 +28,13 @@ Local mode stores everything on your filesystem - perfect for getting started:
 from dreamlake import Session
 
 # Create a session (stores data in .dreamlake/ directory)
-with Session(name="my-first-experiment", workspace="tutorial",
+with Session(prefix="tutorial/my-first-experiment",
         local_path=".dreamlake") as session:
     # Log messages
     session.log("Training started")
 
     # Track parameters
-    session.parameters().set(
+    session.params.set(
         learning_rate=0.001,
         batch_size=32,
         epochs=10
@@ -75,10 +75,10 @@ After running the code above, your data is organized like this:
 
 from dreamlake import Session
 
-with Session(name="train-model", workspace="project",
+with Session(prefix="project/train-model",
         local_path=".dreamlake") as session:
     # Set hyperparameters
-    session.parameters().set(
+    session.params.set(
         model="resnet50",
         optimizer="adam",
         learning_rate=0.001
@@ -106,42 +106,40 @@ with Session(name="train-model", workspace="project",
 
 from dreamlake import Session
 
-with Session(name="my-experiment", workspace="project",
+with Session(prefix="project/my-experiment",
         local_path=".dreamlake") as session:
     # Train your model...
     # model.save("model.pth")
 
     # Upload the model file
-    session.files().upload("model.pth", path="/models"
+    session.files.upload("model.pth", path="/models"
     )
 
     # Upload a config file with metadata
-    session.files().upload("config.yaml", path="/configs",
+    session.files.upload("config.yaml", path="/configs",
         metadata={"version": "1.0"}
     )
 ```
 
 ## Remote Mode
 
-To collaborate with your team, switch to remote mode by pointing to a DreamLake server:
+To collaborate with your team, switch to dash_url mode by pointing to a DreamLake server:
 
 ```{code-block} python
 :linenos:
 
 from dreamlake import Session
 
-with Session(
-    name="my-experiment",
-    workspace="team-project",
-    remote="http://your-server:3000",
+with Session(prefix="team-project/my-experiment",
+    dash_url="http://your-server:3000",
     user_name="your-name"
 ) as session:
     # Use exactly the same API as local mode!
-    session.log("Running on remote server")
-    session.parameters().set(learning_rate=0.001)
+    session.log("Running on dash_url server")
+    session.params.set(learning_rate=0.001)
 ```
 
-The API is identical - just add `remote` and `user_name` parameters.
+The API is identical - just add `dash_url` and `user_name` parameters.
 
 ## Next Steps
 

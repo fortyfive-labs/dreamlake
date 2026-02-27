@@ -9,9 +9,9 @@ Upload and manage experiment artifacts - models, plots, configs, and results. Fi
 
 from dreamlake import Session
 
-with Session(name="my-experiment", workspace="project",
+with Session(prefix="project/my-experiment",
         local_path=".dreamlake") as session:
-    result = session.files().upload("model.pth", path="/models")
+    result = session.files.upload("model.pth", path="/models")
 
     print(f"Uploaded: {result['filename']}")
     print(f"Size: {result['sizeBytes']} bytes")
@@ -25,21 +25,21 @@ Use paths to organize files logically:
 ```{code-block} python
 :linenos:
 
-with Session(name="my-experiment", workspace="project",
+with Session(prefix="project/my-experiment",
         local_path=".dreamlake") as session:
     # Models
-    session.files().upload("model.pth", path="/models")
-    session.files().upload("best_model.pth", path="/models/checkpoints")
+    session.files.upload("model.pth", path="/models")
+    session.files.upload("best_model.pth", path="/models/checkpoints")
 
     # Visualizations
-    session.files().upload("loss_curve.png", path="/visualizations")
-    session.files().upload("confusion_matrix.png", path="/visualizations")
+    session.files.upload("loss_curve.png", path="/visualizations")
+    session.files.upload("confusion_matrix.png", path="/visualizations")
 
     # Configuration
-    session.files().upload("config.json", path="/config")
+    session.files.upload("config.json", path="/config")
 
     # Results
-    session.files().upload("results.csv", path="/results")
+    session.files.upload("results.csv", path="/results")
 ```
 
 ## File Metadata
@@ -49,9 +49,9 @@ Add description, tags, and custom metadata:
 ```{code-block} python
 :linenos:
 
-with Session(name="my-experiment", workspace="project",
+with Session(prefix="project/my-experiment",
         local_path=".dreamlake") as session:
-    session.files().upload("best_model.pth", path="/models",
+    session.files.upload("best_model.pth", path="/models",
         description="Best model from epoch 50",
         tags=["checkpoint", "best"],
         metadata={
@@ -72,9 +72,9 @@ Save models during training:
 import torch
 from dreamlake import Session
 
-with Session(name="resnet-training", workspace="cv",
+with Session(prefix="cv/resnet-training",
         local_path=".dreamlake") as session:
-    session.parameters().set(model="resnet50", epochs=100)
+    session.params.set(model="resnet50", epochs=100)
     session.log("Starting training")
 
     best_accuracy = 0.0
@@ -104,7 +104,7 @@ with Session(name="resnet-training", workspace="cv",
             best_accuracy = val_accuracy
 
             torch.save(model.state_dict(), "best_model.pth")
-            session.files().upload("best_model.pth", path="/models",
+            session.files.upload("best_model.pth", path="/models",
                 description=f"Best model (accuracy: {best_accuracy:.4f})",
                 tags=["best"],
                 metadata={"epoch": epoch + 1, "accuracy": best_accuracy}
@@ -125,7 +125,7 @@ Upload matplotlib plots:
 import matplotlib.pyplot as plt
 from dreamlake import Session
 
-with Session(name="my-experiment", workspace="project",
+with Session(prefix="project/my-experiment",
         local_path=".dreamlake") as session:
     # Generate plot
     losses = [0.5, 0.4, 0.3, 0.25, 0.2]
@@ -136,7 +136,7 @@ with Session(name="my-experiment", workspace="project",
 
     # Save and upload
     plt.savefig("loss_curve.png")
-    session.files().upload("loss_curve.png", path="/visualizations",
+    session.files.upload("loss_curve.png", path="/visualizations",
         description="Training loss over epochs",
         tags=["plot"]
     )
@@ -159,16 +159,16 @@ config = {
     "training": {"epochs": 100, "batch_size": 32, "lr": 0.001}
 }
 
-with Session(name="my-experiment", workspace="project",
+with Session(prefix="project/my-experiment",
         local_path=".dreamlake") as session:
     # Track as parameters
-    session.parameters().set(**config)
+    session.params.set(**config)
 
     # Also save as file
     with open("config.json", "w") as f:
         json.dump(config, f, indent=2)
 
-    session.files().upload("config.json", path="/config",
+    session.files.upload("config.json", path="/config",
         description="Experiment configuration",
         tags=["config"]
     )

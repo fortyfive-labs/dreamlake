@@ -9,7 +9,7 @@ class TestBasicLogging:
 
     def test_simple_log_local(self, local_session, temp_workspace):
         """Test basic log message in local mode."""
-        with local_session(name="log-test", workspace="test") as session:
+        with local_session(prefix="test/log-test") as session:
             session.log("Test message")
 
         logs_file = temp_workspace / "test" / "log-test" / "logs" / "logs.jsonl"
@@ -24,13 +24,13 @@ class TestBasicLogging:
     @pytest.mark.remote
     def test_simple_log_remote(self, remote_session):
         """Test basic log message in remote mode."""
-        with remote_session(name="log-test-remote", workspace="test") as session:
+        with remote_session(prefix="test/log-test-remote") as session:
             session.log("Test message from remote")
             # Remote mode sends to server
 
     def test_multiple_logs_local(self, local_session, temp_workspace):
         """Test logging multiple messages."""
-        with local_session(name="multi-log", workspace="test") as session:
+        with local_session(prefix="test/multi-log") as session:
             session.log("Message 1")
             session.log("Message 2")
             session.log("Message 3")
@@ -48,7 +48,7 @@ class TestBasicLogging:
     @pytest.mark.remote
     def test_multiple_logs_remote(self, remote_session):
         """Test logging multiple messages in remote mode."""
-        with remote_session(name="multi-log-remote", workspace="test") as session:
+        with remote_session(prefix="test/multi-log-remote") as session:
             for i in range(10):
                 session.log(f"Remote message {i}")
 
@@ -58,7 +58,7 @@ class TestLogLevels:
 
     def test_all_log_levels_local(self, local_session, temp_workspace):
         """Test all available log levels."""
-        with local_session(name="log-levels", workspace="test") as session:
+        with local_session(prefix="test/log-levels") as session:
             session.log("Debug message", level="debug")
             session.log("Info message", level="info")
             session.log("Warning message", level="warn")
@@ -79,7 +79,7 @@ class TestLogLevels:
     @pytest.mark.remote
     def test_all_log_levels_remote(self, remote_session):
         """Test all log levels in remote mode."""
-        with remote_session(name="log-levels-remote", workspace="test") as session:
+        with remote_session(prefix="test/log-levels-remote") as session:
             session.log("Debug message", level="debug")
             session.log("Info message", level="info")
             session.log("Warning message", level="warn")
@@ -88,7 +88,7 @@ class TestLogLevels:
 
     def test_default_log_level_local(self, local_session, temp_workspace):
         """Test that default log level is 'info'."""
-        with local_session(name="default-level", workspace="test") as session:
+        with local_session(prefix="test/default-level") as session:
             session.log("Default level message")
 
         logs_file = temp_workspace / "test" / "default-level" / "logs" / "logs.jsonl"
@@ -98,7 +98,7 @@ class TestLogLevels:
 
     def test_debug_level_local(self, local_session, temp_workspace):
         """Test debug level logging."""
-        with local_session(name="debug-test", workspace="test") as session:
+        with local_session(prefix="test/debug-test") as session:
             session.log("Debug info: Variable x = 42", level="debug")
 
         logs_file = temp_workspace / "test" / "debug-test" / "logs" / "logs.jsonl"
@@ -109,7 +109,7 @@ class TestLogLevels:
 
     def test_error_level_local(self, local_session, temp_workspace):
         """Test error level logging."""
-        with local_session(name="error-test", workspace="test") as session:
+        with local_session(prefix="test/error-test") as session:
             session.log("An error occurred during processing", level="error")
 
         logs_file = temp_workspace / "test" / "error-test" / "logs" / "logs.jsonl"
@@ -123,7 +123,7 @@ class TestLogMetadata:
 
     def test_log_with_simple_metadata_local(self, local_session, temp_workspace):
         """Test logging with simple metadata."""
-        with local_session(name="meta-log", workspace="test") as session:
+        with local_session(prefix="test/meta-log") as session:
             session.log(
                 "Training epoch complete",
                 level="info",
@@ -142,7 +142,7 @@ class TestLogMetadata:
     @pytest.mark.remote
     def test_log_with_metadata_remote(self, remote_session):
         """Test logging with metadata in remote mode."""
-        with remote_session(name="meta-log-remote", workspace="test") as session:
+        with remote_session(prefix="test/meta-log-remote") as session:
             session.log(
                 "Remote training epoch complete",
                 level="info",
@@ -151,7 +151,7 @@ class TestLogMetadata:
 
     def test_log_with_nested_metadata_local(self, local_session, temp_workspace):
         """Test logging with nested metadata structures."""
-        with local_session(name="nested-meta", workspace="test") as session:
+        with local_session(prefix="test/nested-meta") as session:
             session.log(
                 "Complex operation complete",
                 level="info",
@@ -176,7 +176,7 @@ class TestLogMetadata:
 
     def test_log_with_various_types_local(self, local_session, temp_workspace):
         """Test logging metadata with various data types."""
-        with local_session(name="types-meta", workspace="test") as session:
+        with local_session(prefix="test/types-meta") as session:
             session.log(
                 "Various types test",
                 level="info",
@@ -210,7 +210,7 @@ class TestLogSequencing:
 
     def test_log_sequence_numbers_local(self, local_session, temp_workspace):
         """Test that logs have sequential sequence numbers."""
-        with local_session(name="sequence", workspace="test") as session:
+        with local_session(prefix="test/sequence") as session:
             for i in range(10):
                 session.log(f"Message {i}")
 
@@ -225,13 +225,13 @@ class TestLogSequencing:
     @pytest.mark.remote
     def test_log_sequence_numbers_remote(self, remote_session):
         """Test log sequencing in remote mode."""
-        with remote_session(name="sequence-remote", workspace="test") as session:
+        with remote_session(prefix="test/sequence-remote") as session:
             for i in range(20):
                 session.log(f"Remote message {i}")
 
     def test_log_timestamps_local(self, local_session, temp_workspace):
         """Test that all logs have timestamps."""
-        with local_session(name="timestamps", workspace="test") as session:
+        with local_session(prefix="test/timestamps") as session:
             for i in range(5):
                 session.log(f"Message {i}")
 
@@ -249,7 +249,7 @@ class TestProgressLogging:
 
     def test_training_progress_local(self, local_session, temp_workspace):
         """Test logging training progress."""
-        with local_session(name="progress", workspace="test") as session:
+        with local_session(prefix="test/progress") as session:
             total_epochs = 10
             for epoch in range(total_epochs):
                 session.log(
@@ -272,7 +272,7 @@ class TestProgressLogging:
     @pytest.mark.remote
     def test_training_progress_remote(self, remote_session):
         """Test logging training progress in remote mode."""
-        with remote_session(name="progress-remote", workspace="test") as session:
+        with remote_session(prefix="test/progress-remote") as session:
             for epoch in range(5):
                 session.log(
                     f"Remote epoch {epoch + 1}/5",
@@ -281,7 +281,7 @@ class TestProgressLogging:
 
     def test_batch_progress_local(self, local_session, temp_workspace):
         """Test logging batch-level progress."""
-        with local_session(name="batch-progress", workspace="test") as session:
+        with local_session(prefix="test/batch-progress") as session:
             total_batches = 100
             for batch in range(0, total_batches + 1, 20):
                 session.log(
@@ -301,7 +301,7 @@ class TestErrorLogging:
 
     def test_exception_logging_local(self, local_session, temp_workspace):
         """Test logging exceptions with details."""
-        with local_session(name="exception-log", workspace="test") as session:
+        with local_session(prefix="test/exception-log") as session:
             try:
                 raise ValueError("Simulated error for testing")
             except Exception as e:
@@ -325,7 +325,7 @@ class TestErrorLogging:
     @pytest.mark.remote
     def test_exception_logging_remote(self, remote_session):
         """Test logging exceptions in remote mode."""
-        with remote_session(name="exception-log-remote", workspace="test") as session:
+        with remote_session(prefix="test/exception-log-remote") as session:
             try:
                 raise RuntimeError("Remote error for testing")
             except Exception as e:
@@ -337,7 +337,7 @@ class TestErrorLogging:
 
     def test_multiple_errors_local(self, local_session, temp_workspace):
         """Test logging multiple errors."""
-        with local_session(name="multi-error", workspace="test") as session:
+        with local_session(prefix="test/multi-error") as session:
             errors = [
                 ValueError("Error 1"),
                 RuntimeError("Error 2"),
@@ -360,7 +360,7 @@ class TestErrorLogging:
 
     def test_warning_logging_local(self, local_session, temp_workspace):
         """Test warning level logging."""
-        with local_session(name="warning-log", workspace="test") as session:
+        with local_session(prefix="test/warning-log") as session:
             session.log("Learning rate might be too high", level="warn")
             session.log("Gradient clipping applied", level="warn")
             session.log("Memory usage above threshold", level="warn")
@@ -378,7 +378,7 @@ class TestLogEdgeCases:
 
     def test_empty_log_message_local(self, local_session, temp_workspace):
         """Test logging empty message."""
-        with local_session(name="empty-log", workspace="test") as session:
+        with local_session(prefix="test/empty-log") as session:
             session.log("")
 
         logs_file = temp_workspace / "test" / "empty-log" / "logs" / "logs.jsonl"
@@ -389,7 +389,7 @@ class TestLogEdgeCases:
     def test_very_long_log_message_local(self, local_session, temp_workspace):
         """Test logging very long message."""
         long_message = "A" * 10000
-        with local_session(name="long-log", workspace="test") as session:
+        with local_session(prefix="test/long-log") as session:
             session.log(long_message)
 
         logs_file = temp_workspace / "test" / "long-log" / "logs" / "logs.jsonl"
@@ -400,7 +400,7 @@ class TestLogEdgeCases:
     def test_log_with_special_characters_local(self, local_session, temp_workspace):
         """Test logging messages with special characters."""
         special_message = "Special chars: \n\t\r\\ \"quotes\" 'apostrophes' 日本語 emoji 🚀"
-        with local_session(name="special-log", workspace="test") as session:
+        with local_session(prefix="test/special-log") as session:
             session.log(special_message)
 
         logs_file = temp_workspace / "test" / "special-log" / "logs" / "logs.jsonl"
@@ -410,7 +410,7 @@ class TestLogEdgeCases:
 
     def test_log_with_empty_metadata_local(self, local_session, temp_workspace):
         """Test logging with empty metadata dict."""
-        with local_session(name="empty-meta", workspace="test") as session:
+        with local_session(prefix="test/empty-meta") as session:
             session.log("Message with empty metadata", metadata={})
 
         logs_file = temp_workspace / "test" / "empty-meta" / "logs" / "logs.jsonl"
@@ -425,7 +425,7 @@ class TestLogEdgeCases:
         """Test logging with large metadata object."""
         large_metadata = {f"key_{i}": f"value_{i}" for i in range(100)}
 
-        with local_session(name="large-meta", workspace="test") as session:
+        with local_session(prefix="test/large-meta") as session:
             session.log("Message with large metadata", metadata=large_metadata)
 
         logs_file = temp_workspace / "test" / "large-meta" / "logs" / "logs.jsonl"
@@ -435,7 +435,7 @@ class TestLogEdgeCases:
 
     def test_rapid_logging_local(self, local_session, temp_workspace):
         """Test rapid sequential logging."""
-        with local_session(name="rapid-log", workspace="test") as session:
+        with local_session(prefix="test/rapid-log") as session:
             for i in range(1000):
                 session.log(f"Rapid message {i}")
 
@@ -448,6 +448,6 @@ class TestLogEdgeCases:
     @pytest.mark.remote
     def test_rapid_logging_remote(self, remote_session):
         """Test rapid logging in remote mode."""
-        with remote_session(name="rapid-log-remote", workspace="test") as session:
+        with remote_session(prefix="test/rapid-log-remote") as session:
             for i in range(100):
                 session.log(f"Rapid remote message {i}")

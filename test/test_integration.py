@@ -11,14 +11,12 @@ class TestCompleteWorkflows:
     def test_complete_ml_workflow_local(self, local_session, temp_workspace, sample_files):
         """Test complete ML experiment workflow in local mode."""
         with local_session(
-            name="ml-experiment",
-            workspace="experiments",
-            description="Complete ML training experiment",
-            tags=["ml", "training", "test"],
-            folder="/experiments/2024"
+            prefix="experiments/ml-experiment",
+            readme="Complete ML training experiment",
+            tags=["ml", "training", "test"]
         ) as session:
             # 1. Set hyperparameters
-            session.parameters().set(
+            session.params.set(
                 learning_rate=0.001,
                 batch_size=32,
                 epochs=10,
@@ -49,12 +47,12 @@ class TestCompleteWorkflows:
                 )
 
             # 3. Upload artifacts
-            session.files().upload(sample_files["model"], path="/models/final",
+            session.files.upload(sample_files["model"], path="/models/final",
                 tags=["final", "best"],
                 description="Final trained model"
             )
 
-            session.files().upload(sample_files["config"], path="/configs",
+            session.files.upload(sample_files["config"], path="/configs",
                 tags=["config"],
                 description="Training configuration"
             )
@@ -74,12 +72,11 @@ class TestCompleteWorkflows:
     def test_complete_ml_workflow_remote(self, remote_session, sample_files):
         """Test complete ML workflow in remote mode."""
         with remote_session(
-            name="ml-experiment-remote",
-            workspace="experiments",
-            description="Remote ML training experiment",
+            prefix="experiments/ml-experiment-remote",
+            readme="Remote ML training experiment",
             tags=["ml", "remote"]
         ) as session:
-            session.parameters().set(
+            session.params.set(
                 learning_rate=0.001,
                 batch_size=64,
                 epochs=5,
@@ -93,7 +90,7 @@ class TestCompleteWorkflows:
                 session.track("loss").append(value=loss, epoch=epoch)
                 session.log(f"Epoch {epoch + 1}/5", metadata={"loss": loss})
 
-            session.files().upload(sample_files["model"], path="/models")
+            session.files.upload(sample_files["model"], path="/models")
             session.log("Remote experiment completed", level="info")
 
 
@@ -110,13 +107,12 @@ class TestHyperparameterSearch:
                 session_name = f"grid-lr{lr}-bs{bs}".replace(".", "_")
 
                 with local_session(
-                    name=session_name,
-                    workspace="hyperparam-search",
-                    description=f"Grid search: lr={lr}, bs={bs}",
+                    prefix=f"hyperparam-search/{session_name}",
+                    readme=f"Grid search: lr={lr}, bs={bs}",
                     tags=["grid-search", f"lr-{lr}", f"bs-{bs}"]
                 ) as session:
                     # Track hyperparameters
-                    session.parameters().set(
+                    session.params.set(
                         learning_rate=lr,
                         batch_size=bs,
                         epochs=10
@@ -144,11 +140,10 @@ class TestHyperparameterSearch:
             bs = random.choice([16, 32, 64])
 
             with remote_session(
-                name=f"random-search-run-{run}",
-                workspace="random-search",
+                prefix=f"random-search/random-search-run-{run}",
                 tags=["random-search"]
             ) as session:
-                session.parameters().set(learning_rate=lr, batch_size=bs)
+                session.params.set(learning_rate=lr, batch_size=bs)
                 acc = 0.6 + random.random() * 0.3
                 session.track("accuracy").append(value=acc, run=run)
                 session.log(f"Run {run} complete")
@@ -188,12 +183,11 @@ class TestIterativeExperimentation:
 
         for exp in experiments:
             with local_session(
-                name=f"exp-{exp['name']}",
-                workspace="iterative",
-                description=exp["description"],
+                prefix=f"iterative/exp-{exp['name']}",
+                readme=exp["description"],
                 tags=["iterative", exp["name"]]
             ) as session:
-                session.parameters().set(**exp["params"])
+                session.params.set(**exp["params"])
                 session.track("val_accuracy").append(value=exp["expected_acc"], step=0)
                 session.log(f"{exp['name']} experiment complete", level="info")
 
@@ -212,47 +206,41 @@ class TestMultiSessionPipeline:
         """Test complete ML pipeline with multiple stages."""
         # Stage 1: Data preprocessing
         with local_session(
-            name="01-preprocessing",
-            workspace="pipeline",
-            tags=["pipeline", "preprocessing"],
-            folder="/pipeline/stage-1"
+            prefix="pipeline/01-preprocessing",
+            tags=["pipeline", "preprocessing"]
         ) as session:
             session.log("Starting data preprocessing", level="info")
-            session.parameters().set(
+            session.params.set(
                 data_source="raw_data.csv",
                 preprocessing_steps=["normalize", "augment", "split"]
             )
             session.track("samples_processed").append(value=10000, step=0)
-            session.files().upload(sample_files["results"], path="/data")
+            session.files.upload(sample_files["results"], path="/data")
             session.log("Preprocessing complete", level="info")
 
         # Stage 2: Training
         with local_session(
-            name="02-training",
-            workspace="pipeline",
-            tags=["pipeline", "training"],
-            folder="/pipeline/stage-2"
+            prefix="pipeline/02-training",
+            tags=["pipeline", "training"]
         ) as session:
             session.log("Starting model training", level="info")
-            session.parameters().set(
+            session.params.set(
                 model="resnet50",
                 epochs=10,
                 batch_size=32
             )
             for i in range(10):
                 session.track("loss").append(value=1.0 / (i + 1), epoch=i)
-            session.files().upload(sample_files["model"], path="/models")
+            session.files.upload(sample_files["model"], path="/models")
             session.log("Training complete", level="info")
 
         # Stage 3: Evaluation
         with local_session(
-            name="03-evaluation",
-            workspace="pipeline",
-            tags=["pipeline", "evaluation"],
-            folder="/pipeline/stage-3"
+            prefix="pipeline/03-evaluation",
+            tags=["pipeline", "evaluation"]
         ) as session:
             session.log("Starting model evaluation", level="info")
-            session.parameters().set(test_set="test.csv")
+            session.params.set(test_set="test.csv")
             session.track("test_accuracy").append(value=0.95, step=0)
             session.track("test_loss").append(value=0.15, step=0)
             session.log("Evaluation complete", level="info")
@@ -270,12 +258,11 @@ class TestMultiSessionPipeline:
 
         for i, stage in enumerate(stages):
             with remote_session(
-                name=f"stage-{i+1}-{stage}",
-                workspace="pipeline-remote",
+                prefix=f"pipeline-remote/stage-{i+1}-{stage}",
                 tags=["pipeline", stage]
             ) as session:
                 session.log(f"Starting {stage}")
-                session.parameters().set(stage=stage, order=i+1)
+                session.params.set(stage=stage, order=i+1)
                 session.track("progress").append(value=(i+1)/len(stages)*100, step=i)
                 session.log(f"{stage} complete")
 
@@ -286,12 +273,11 @@ class TestDebuggingWorkflow:
     def test_debug_session_local(self, local_session, temp_workspace):
         """Test comprehensive debugging workflow."""
         with local_session(
-            name="debug-training",
-            workspace="debugging",
-            description="Training with debug logging",
+            prefix="debugging/debug-training",
+            readme="Training with debug logging",
             tags=["debug", "verbose"]
         ) as session:
-            session.parameters().set(
+            session.params.set(
                 learning_rate=0.001,
                 batch_size=32,
                 debug_mode=True
@@ -342,14 +328,12 @@ class TestAllFeaturesCombined:
     def test_kitchen_sink_local(self, local_session, temp_workspace, sample_files):
         """Test session using every available feature."""
         with local_session(
-            name="kitchen-sink",
-            workspace="full-test",
-            description="Test of all features combined",
-            tags=["test", "comprehensive", "all-features"],
-            folder="/tests/comprehensive"
+            prefix="full-test/kitchen-sink",
+            readme="Test of all features combined",
+            tags=["test", "comprehensive", "all-features"]
         ) as session:
             # Parameters (simple and nested)
-            session.parameters().set(
+            session.params.set(
                 learning_rate=0.001,
                 batch_size=32,
                 epochs=5,
@@ -381,9 +365,9 @@ class TestAllFeaturesCombined:
                 session.log(f"Epoch {i+1} metrics tracked", level="info")
 
             # Upload multiple files
-            session.files().upload(sample_files["model"], path="/models")
-            session.files().upload(sample_files["config"], path="/configs")
-            session.files().upload(sample_files["results"], path="/results")
+            session.files.upload(sample_files["model"], path="/models")
+            session.files.upload(sample_files["config"], path="/configs")
+            session.files.upload(sample_files["results"], path="/results")
 
             # Warnings and errors
             session.log("Simulated warning", level="warn")
@@ -412,13 +396,12 @@ class TestAllFeaturesCombined:
     def test_kitchen_sink_remote(self, remote_session, sample_files):
         """Test all features combined in remote mode."""
         with remote_session(
-            name="kitchen-sink-remote",
-            workspace="full-test-remote",
-            description="Remote test of all features",
+            prefix="full-test-remote/kitchen-sink-remote",
+            readme="Remote test of all features",
             tags=["test", "remote", "comprehensive"]
         ) as session:
             # Parameters
-            session.parameters().set(
+            session.params.set(
                 learning_rate=0.001,
                 batch_size=64,
                 **{"model": {"type": "transformer", "layers": 12}}
@@ -433,8 +416,8 @@ class TestAllFeaturesCombined:
                 session.track("accuracy").append(value=0.8 + i * 0.05, epoch=i)
 
             # Files
-            session.files().upload(sample_files["model"], path="/models")
-            session.files().upload(sample_files["config"], path="/configs")
+            session.files.upload(sample_files["model"], path="/models")
+            session.files.upload(sample_files["config"], path="/configs")
 
             session.log("Remote comprehensive test complete", level="info")
 
@@ -446,8 +429,8 @@ class TestRealWorldScenarios:
         """Test recovering from failed experiment."""
         # First attempt (fails)
         try:
-            with local_session(name="recovery-test", workspace="recovery") as session:
-                session.parameters().set(attempt=1)
+            with local_session(prefix="recovery/recovery-test") as session:
+                session.params.set(attempt=1)
                 session.log("Starting experiment attempt 1")
                 session.track("loss").append(value=0.5, epoch=0)
                 raise RuntimeError("Simulated failure")
@@ -455,8 +438,8 @@ class TestRealWorldScenarios:
             pass
 
         # Recovery attempt
-        with local_session(name="recovery-test", workspace="recovery") as session:
-            session.parameters().set(attempt=2, recovered=True)
+        with local_session(prefix="recovery/recovery-test") as session:
+            session.params.set(attempt=2, recovered=True)
             session.log("Recovered and restarting")
             session.track("loss").append(value=0.4, epoch=1)
             session.track("loss").append(value=0.3, epoch=2)
@@ -472,11 +455,10 @@ class TestRealWorldScenarios:
 
         for model_name in models:
             with local_session(
-                name=f"comparison-{model_name}",
-                workspace="comparisons",
+                prefix=f"comparisons/comparison-{model_name}",
                 tags=["comparison", model_name]
             ) as session:
-                session.parameters().set(model=model_name, epochs=10)
+                session.params.set(model=model_name, epochs=10)
 
                 # Simulate different performance
                 base_acc = {"resnet18": 0.75, "resnet50": 0.85, "vit-base": 0.90}
@@ -492,8 +474,8 @@ class TestRealWorldScenarios:
     @pytest.mark.slow
     def test_long_running_experiment_local(self, local_session):
         """Test long-running experiment with many data points."""
-        with local_session(name="long-run", workspace="longtest") as session:
-            session.parameters().set(total_steps=1000)
+        with local_session(prefix="longtest/long-run") as session:
+            session.params.set(total_steps=1000)
 
             # Track many data points
             for step in range(100):
