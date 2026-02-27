@@ -3,6 +3,8 @@ Welcome to DreamLake
 
 **DreamLake** is a lightweight Python SDK for ML experiment tracking and data storage.
 
+**Version:** |RELEASE|
+
 Track your machine learning experiments with zero setup. Start locally on your laptop, then seamlessly scale to a remote server when you need team collaboration. No configuration files, no complex setup - just clean, intuitive code.
 
 **Key highlights:**

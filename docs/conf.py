@@ -5,7 +5,35 @@
 
 import os
 import sys
+import subprocess
 sys.path.insert(0, os.path.abspath('../src'))
+
+# Get version from package
+try:
+    from dreamlake import __version__
+    version = __version__
+except ImportError:
+    # Fallback: read from pyproject.toml
+    try:
+        import tomllib  # Python 3.11+
+    except ImportError:
+        import tomli as tomllib  # Fallback for older Python
+
+    with open(os.path.join(os.path.dirname(__file__), '..', 'pyproject.toml'), 'rb') as f:
+        pyproject = tomllib.load(f)
+        version = pyproject['project']['version']
+
+# Get git hash
+try:
+    git_hash = subprocess.check_output(
+        ['git', 'rev-parse', '--short', 'HEAD'],
+        cwd=os.path.dirname(__file__),
+        stderr=subprocess.DEVNULL
+    ).decode('utf-8').strip()
+    release = f"{version} ({git_hash})"
+except (subprocess.CalledProcessError, FileNotFoundError):
+    release = version
+    git_hash = "unknown"
 
 # -- Project information -----------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
@@ -13,7 +41,6 @@ sys.path.insert(0, os.path.abspath('../src'))
 project = 'Dreamlake'
 copyright = '2025, Ge Yang, Tom Tao'
 author = 'Ge Yang, Tom Tao'
-release = '0.2.1'
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
@@ -49,11 +76,25 @@ myst_enable_extensions = [
     "tasklist",
 ]
 
+# MyST substitutions for {VERSION} and {GIT_HASH} in markdown files
+myst_substitutions = {
+    "VERSION": version,
+    "GIT_HASH": git_hash,
+    "RELEASE": release,
+}
+
 # Support both .rst and .md files
 source_suffix = {
     '.rst': 'restructuredtext',
     '.md': 'markdown',
 }
+
+# RST substitutions (for |VERSION|, |RELEASE|, etc. in .rst files)
+rst_prolog = f"""
+.. |VERSION| replace:: {version}
+.. |RELEASE| replace:: {release}
+.. |GIT_HASH| replace:: {git_hash}
+"""
 
 templates_path = ['_templates']
 exclude_patterns = ['_build', 'Thumbs.db', '.DS_Store']
