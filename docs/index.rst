@@ -54,6 +54,7 @@ Quick Example
    parameters
    tracks
    files
+   cli
 
 .. toctree::
    :maxdepth: 2
