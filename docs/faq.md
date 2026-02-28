@@ -623,9 +623,9 @@ ModuleNotFoundError: No module named 'dreamlake'
 
 **Solutions**:
 
-1. **Install package** (current version: {{VERSION}}):
+1. **Install package** (current version: {VERSION}):
    ```bash
-   pip install dreamlake
+   pip install dreamlake=={VERSION}
    # Or from source
    pip install -e .
    ```

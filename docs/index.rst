@@ -18,7 +18,7 @@ Installation
 
 .. code-block:: bash
 
-   pip install dreamlake
+   pip install dreamlake==|VERSION|
 
 Quick Example
 -------------

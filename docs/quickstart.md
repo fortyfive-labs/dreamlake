@@ -4,16 +4,10 @@ Get started with DreamLake in under 5 minutes.
 
 ## Installation
 
-Install the latest version (currently {{VERSION}}):
+Install the latest version (currently {VERSION}):
 
 ```bash
-pip install dreamlake
-```
-
-Or install a specific version:
-
-```bash
-pip install dreamlake==0.2.4
+pip install dreamlake=={VERSION}
 ```
 
 ## Your First Experiment

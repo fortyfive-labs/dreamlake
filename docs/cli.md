@@ -4,12 +4,12 @@ DreamLake provides a CLI for managing experiment data and videos from the termin
 
 ## Installation
 
-Current version: {{VERSION}}
+Current version: {VERSION}
 
 ```bash
-pip install dreamlake
+pip install dreamlake=={VERSION}
 # or
-uv pip install dreamlake
+uv pip install dreamlake=={VERSION}
 ```
 
 ## Commands Overview
