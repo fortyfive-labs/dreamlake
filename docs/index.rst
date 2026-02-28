@@ -1,48 +1,28 @@
-Welcome to DreamLake
-====================
+DreamLake
+=========
 
-**DreamLake** is a lightweight Python SDK for ML experiment tracking and data storage.
+Python SDK for ML experiment tracking and data storage.
 
 **Version:** |RELEASE|
-
-Track your machine learning experiments with zero setup. Start locally on your laptop, then seamlessly scale to a remote server when you need team collaboration. No configuration files, no complex setup - just clean, intuitive code.
-
-**Key highlights:**
-
-- **Zero setup** - Start tracking in 60 seconds with local filesystem storage
-- **Dual modes** - Work offline (local) or collaborate (remote server)
-- **Fluent API** - Intuitive builder pattern for logs, parameters, metrics, and files
 
 Installation
 ------------
 
-Install the latest version (|VERSION|):
-
 .. code-block:: bash
 
-   # Using pip
    pip install dreamlake==0.4.2
 
-   # Using uv
-   uv add dreamlake@0.4.2
-
-Quick Example
--------------
+Usage
+-----
 
 .. code-block:: python
-   :linenos:
 
    from dreamlake import Session
 
-   with Session(name="my-experiment", workspace="my-workspace", local_path=".dreamlake") as session:
-       # Log messages
-       session.log("Training started")
-
-       # Track parameters
-       session.parameters().set(learning_rate=0.001, batch_size=32)
-
-       # Track metrics
-       session.track("train").append(loss=0.5, epoch=1)
+   with Session(prefix="robotics/data-collection", root=".dreamlake") as session:
+       session.log("Recording started")
+       session.params.set(robot="UR5", frequency=100)
+       session.track("robot/joint_pos").append(q=[0.1, 0.2, 0.3], _ts=1.0)
 
 .. toctree::
    :maxdepth: 2
