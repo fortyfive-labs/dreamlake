@@ -49,13 +49,14 @@ with Session(prefix="project/my-experiment",
 
 ## Batch Append
 
-Append multiple data points at once for better performance:
+Append multiple data points at once for better performance. Batch appends automatically use **columnar storage format** internally for efficient storage and faster writes:
 
 ```{code-block} python
 :linenos:
 
 with Session(prefix="project/my-experiment",
         local_path=".dreamlake") as session:
+    # Batch append - uses columnar format internally
     result = session.track("train_loss").append_batch([
         {"value": 0.5, "step": 1, "epoch": 1},
         {"value": 0.45, "step": 2, "epoch": 1},
@@ -64,9 +65,29 @@ with Session(prefix="project/my-experiment",
     ])
 
     print(f"Appended {result['count']} points")
+    # 5-10x faster than individual appends!
 ```
 
+### Storage Formats
+
+DreamLake automatically chooses the optimal storage format:
+
+- **Row format**: Used for single `append()` calls
+  - Storage: `{"value": 10, "_ts": 1.0}`
+  - Best for: Streaming data, incremental logging
+
+- **Columnar format**: Automatically used for `append_batch()` calls
+  - Storage: `{"_ts": [1.0, 2.0], "value": [10, 20]}`
+  - Best for: Batch writes, large datasets
+  - Benefits: Better compression, faster writes, more storage efficient
+
+The format is **transparent to users** - reading works the same regardless of how data was written.
+
+See [08_batch_columnar_format.py](examples/08_batch_columnar_format.py) for detailed examples and performance comparisons.
+
 ## Reading Data
+
+### Reading by Index
 
 Read track data by index range:
 
@@ -85,6 +106,70 @@ with Session(prefix="project/my-experiment",
     for point in result['data']:
         print(f"Index {point['index']}: {point['data']}")
 ```
+
+### Reading by Time Range (MCAP-like API)
+
+Query track data by timestamp range using the `read_by_time()` method. This is especially useful for robotics and time-series data:
+
+```{code-block} python
+:linenos:
+
+import time
+from dreamlake import Session
+
+with Session(prefix="project/my-experiment",
+        local_path=".dreamlake") as session:
+    # Write data with timestamps
+    base_time = time.time()
+    for i in range(100):
+        session.track("robot/pose").append(
+            position=[i * 0.1, i * 0.2, i * 0.3],
+            _ts=base_time + i * 0.1
+        )
+
+    # Query last 10 seconds
+    result = session.track("robot/pose").read_by_time(
+        start_time=base_time + 90 * 0.1,  # Last 10 points
+        end_time=base_time + 100 * 0.1,
+        limit=1000
+    )
+
+    print(f"Found {result['total']} points in time range")
+```
+
+**Time Range Parameters:**
+- `start_time`: Starting timestamp (seconds since epoch, inclusive). `None` = from beginning
+- `end_time`: Ending timestamp (seconds since epoch, exclusive). `None` = to end
+- `limit`: Maximum number of points (default 1000, max 10000)
+- `reverse`: If `True`, return newest points first (default `False`)
+
+**Examples:**
+
+```{code-block} python
+:linenos:
+
+# Get most recent data (reverse order)
+result = session.track("robot/pose").read_by_time(
+    reverse=True,
+    limit=100
+)
+print(f"Latest position: {result['data'][0]['data']['position']}")
+
+# Query from specific time to end
+result = session.track("robot/pose").read_by_time(
+    start_time=1234567890.0,
+    limit=1000
+)
+
+# Query all data in a session
+result = session.track("robot/pose").read_by_time(limit=10000)
+```
+
+**Use Cases:**
+- Robotics: Query pose data for the last N seconds
+- Real-time monitoring: Get recent metrics in reverse order
+- Data export: Extract data for specific time ranges
+- Synchronized playback: Read multi-modal data by time
 
 ## Training Loop Example
 
@@ -292,6 +377,67 @@ with Session(prefix="project/my-experiment",
     # (session context manager calls flush on exit)
 ```
 
+### Complete Time-Based Example
+
+Here's a complete example combining timestamps, time-range queries, and reverse iteration:
+
+```{code-block} python
+:linenos:
+
+import time
+from dreamlake import Session
+
+with Session(prefix="robotics/robot-demo",
+        local_path=".dreamlake") as session:
+    # Record robot data over 10 seconds
+    base_time = time.time()
+
+    for i in range(100):
+        current_time = base_time + i * 0.1
+
+        # First track - generates timestamp
+        session.track("robot/pose").append(
+            position=[i * 0.1, i * 0.2, i * 0.3],
+            orientation=[0.0, 0.0, 0.0, 1.0],
+            _ts=current_time
+        )
+
+        # Synchronized tracks using same timestamp
+        session.track("robot/velocity").append(
+            linear=[0.1, 0.0, 0.0],
+            angular=[0.0, 0.0, 0.05],
+            _ts=current_time
+        )
+
+        session.track("robot/torque").append(
+            joints=[1.0, 2.0, 3.0, 4.0],
+            _ts=current_time
+        )
+
+    # Query last 3 seconds of data
+    recent_pose = session.track("robot/pose").read_by_time(
+        start_time=base_time + 7.0,
+        end_time=base_time + 10.0,
+        limit=1000
+    )
+    print(f"Last 3 seconds: {recent_pose['total']} pose samples")
+
+    # Get the 10 most recent velocity readings
+    recent_velocity = session.track("robot/velocity").read_by_time(
+        reverse=True,
+        limit=10
+    )
+    print(f"Latest velocity: {recent_velocity['data'][0]['data']['linear']}")
+
+    # Query specific time window
+    middle_data = session.track("robot/torque").read_by_time(
+        start_time=base_time + 4.0,
+        end_time=base_time + 6.0,
+        limit=1000
+    )
+    print(f"Middle 2 seconds: {middle_data['total']} torque samples")
+```
+
 ### Hierarchical Track Names
 
 Use `/` to organize tracks hierarchically:
@@ -312,16 +458,28 @@ with Session(prefix="project/my-experiment",
 
 ## Storage Format
 
-**Local mode** - JSONL files:
+**Local mode** - Msgpack-lines files:
 
-```bash
-cat ./experiments/project/my-experiment/tracks/train_loss/data.jsonl
+Track data is stored in msgpack-lines format (one msgpack object per line), which is efficient and handles binary data. The storage layer supports both row-based and columnar formats:
+
+**Row format** (single appends):
+```python
+# Each append creates one msgpack object
+{"value": 0.5, "epoch": 1}
+{"value": 0.45, "epoch": 2}
 ```
 
-```json
-{"index": 0, "data": {"value": 0.5, "epoch": 1}}
-{"index": 1, "data": {"value": 0.45, "epoch": 2}}
-{"index": 2, "data": {"value": 0.40, "epoch": 3}}
+**Columnar format** (batch appends):
+```python
+# Batch appends are stored in columnar format for efficiency
+{"value": [0.5, 0.45, 0.40], "epoch": [1, 2, 3]}
+```
+
+Both formats are transparently handled by the storage layer. Files are stored as `data.msgpack`:
+
+```bash
+# View track data (requires msgpack tools)
+python -c "import msgpack; [print(obj) for obj in msgpack.Unpacker(open('./experiments/project/my-experiment/tracks/train_loss/data.msgpack', 'rb'), raw=False)]"
 ```
 
 **Remote mode** - Two-tier storage:

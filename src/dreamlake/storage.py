@@ -9,6 +9,48 @@ from datetime import datetime
 import threading
 import time
 import os
+import msgpack
+
+
+def _is_columnar_format(obj):
+    """
+    Check if a dict is in columnar format.
+
+    Columnar format: all values are lists of the same length.
+    Example: {"_ts": [1.0, 2.0], "position": [[1,2,3], [4,5,6]]}
+
+    Single row: dict with scalar or list values (not uniform arrays).
+    Example: {"_ts": 1.0, "position": [1,2,3]}
+    """
+    if not isinstance(obj, dict) or not obj:
+        return False
+
+    values = list(obj.values())
+
+    # All values must be lists
+    if not all(isinstance(v, list) for v in values):
+        return False
+
+    # All lists must have same length (and length > 0)
+    lengths = [len(v) for v in values]
+    return len(set(lengths)) == 1 and lengths[0] > 0
+
+
+def _expand_columnar_to_rows(obj):
+    """
+    Expand columnar format dict to list of row dicts.
+
+    Input: {"_ts": [1.0, 2.0], "position": [[1,2,3], [4,5,6]]}
+    Output: [
+        {"_ts": 1.0, "position": [1,2,3]},
+        {"_ts": 2.0, "position": [4,5,6]}
+    ]
+    """
+    num_rows = len(next(iter(obj.values())))
+    return [
+        {key: values[i] for key, values in obj.items()}
+        for i in range(num_rows)
+    ]
 
 
 class FileLock:
@@ -767,7 +809,7 @@ class LocalStorage:
 
         Storage format:
         .dreamlake/{workspace}/{session}/tracks/{track_name}/
-            data.jsonl  # Data points (one JSON object per line)
+            data.msgpack  # Data points (one msgpack object per line)
             metadata.json  # Track metadata (name, description, tags, stats)
 
         Args:
@@ -789,7 +831,7 @@ class LocalStorage:
         track_dir = tracks_dir / track_name
         track_dir.mkdir(parents=True, exist_ok=True)
 
-        data_file = track_dir / "data.jsonl"
+        data_file = track_dir / "data.msgpack"
         metadata_file = track_dir / "metadata.json"
         lock_file = track_dir / ".track.lock"
 
@@ -814,15 +856,12 @@ class LocalStorage:
             # Get next index
             index = track_meta["nextIndex"]
 
-            # Append data point to JSONL file
-            data_entry = {
-                "index": index,
-                "data": data,
-                "createdAt": datetime.utcnow().isoformat() + "Z"
-            }
-
-            with open(data_file, "a") as f:
-                f.write(json.dumps(data_entry) + "\n")
+            # Append data point to msgpack-lines file (no envelope, just data)
+            with open(data_file, "ab") as f:
+                f.write(msgpack.packb(data))
+                f.write(b"\n")
+                f.flush()  # Ensure data is written to disk
+                os.fsync(f.fileno())  # Force OS to write to disk
 
             # Update metadata
             track_meta["nextIndex"] = index + 1
@@ -871,7 +910,7 @@ class LocalStorage:
         track_dir = tracks_dir / track_name
         track_dir.mkdir(parents=True, exist_ok=True)
 
-        data_file = track_dir / "data.jsonl"
+        data_file = track_dir / "data.msgpack"
         metadata_file = track_dir / "metadata.json"
         lock_file = track_dir / ".track.lock"
 
@@ -896,15 +935,34 @@ class LocalStorage:
             start_index = track_meta["nextIndex"]
             end_index = start_index + len(data_points) - 1
 
-            # Append data points to JSONL file
-            with open(data_file, "a") as f:
-                for i, data in enumerate(data_points):
-                    data_entry = {
-                        "index": start_index + i,
-                        "data": data,
-                        "createdAt": datetime.utcnow().isoformat() + "Z"
-                    }
-                    f.write(json.dumps(data_entry) + "\n")
+            # Append data points to msgpack-lines file (columnar format for batch)
+            # Convert list of dicts to dict of lists (columnar)
+            columnar = {}
+            if data_points:
+                # Collect all keys
+                all_keys = set()
+                for point in data_points:
+                    all_keys.update(point.keys())
+
+                # Build columnar structure
+                for key in all_keys:
+                    columnar[key] = [point.get(key) for point in data_points]
+
+            # Write columnar data atomically
+            packed_data = msgpack.packb(columnar)
+            with open(data_file, "ab") as f:
+                f.write(packed_data)
+                f.write(b"\n")
+                f.flush()  # Flush Python buffer
+                os.fsync(f.fileno())  # Force OS to write to disk
+
+            # Flush directory to ensure file metadata is updated
+            try:
+                dir_fd = os.open(str(track_dir), os.O_RDONLY)
+                os.fsync(dir_fd)
+                os.close(dir_fd)
+            except (OSError, AttributeError):
+                pass  # Not all systems support directory fsync
 
             # Update metadata
             track_meta["nextIndex"] = end_index + 1
@@ -946,7 +1004,7 @@ class LocalStorage:
         """
         session_dir = self._get_session_dir(workspace, session)
         track_dir = session_dir / "tracks" / track_name
-        data_file = track_dir / "data.jsonl"
+        data_file = track_dir / "data.msgpack"
 
         if not data_file.exists():
             return {
@@ -957,15 +1015,33 @@ class LocalStorage:
                 "hasMore": False
             }
 
-        # Read all data points from JSONL file
+        # Read all data points using msgpack.Unpacker (handles binary data with embedded newlines)
         data_points = []
-        with open(data_file, "r") as f:
-            for line in f:
-                if line.strip():
-                    entry = json.loads(line)
-                    # Filter by index range
-                    if start_index <= entry["index"] < start_index + limit:
-                        data_points.append(entry)
+        current_index = 0
+
+        with open(data_file, "rb") as f:
+            unpacker = msgpack.Unpacker(f, raw=False)
+            for obj in unpacker:
+                # Detect format and expand to rows
+                if isinstance(obj, dict):
+                    if _is_columnar_format(obj):
+                        # Columnar format: expand to rows
+                        rows = _expand_columnar_to_rows(obj)
+                        for data in rows:
+                            if start_index <= current_index < start_index + limit:
+                                data_points.append({
+                                    "index": str(current_index),
+                                    "data": data,
+                                })
+                            current_index += 1
+                    else:
+                        # Single row
+                        if start_index <= current_index < start_index + limit:
+                            data_points.append({
+                                "index": str(current_index),
+                                "data": obj,
+                            })
+                        current_index += 1
 
         # Get total count
         metadata_file = track_dir / "metadata.json"
@@ -981,6 +1057,109 @@ class LocalStorage:
             "endIndex": start_index + len(data_points) - 1 if data_points else start_index - 1,
             "total": len(data_points),
             "hasMore": start_index + len(data_points) < total_count
+        }
+
+    def read_track_data_by_time(
+        self,
+        workspace: str,
+        session: str,
+        track_name: str,
+        start_time: Optional[float] = None,
+        end_time: Optional[float] = None,
+        limit: int = 1000,
+        reverse: bool = False
+    ) -> Dict[str, Any]:
+        """
+        Read data points from a track by time range (MCAP-like API).
+
+        Args:
+            workspace: Workspace name
+            session: Session name
+            track_name: Track name
+            start_time: Starting timestamp (None = from beginning)
+            end_time: Ending timestamp (None = to end)
+            limit: Max points to read
+            reverse: If True, return newest first
+
+        Returns:
+            Dict with data, startTime, endTime, total, hasMore
+        """
+        session_dir = self._get_session_dir(workspace, session)
+        track_dir = session_dir / "tracks" / track_name
+        data_file = track_dir / "data.msgpack"
+
+        if not data_file.exists():
+            return {
+                "data": [],
+                "startTime": start_time,
+                "endTime": end_time,
+                "total": 0,
+                "hasMore": False
+            }
+
+        # Read all data points and filter by timestamp
+        all_data_points = []
+        current_index = 0
+
+        # Use msgpack.Unpacker to read multiple objects from binary stream
+        # This handles binary data that may contain newline characters
+        with open(data_file, "rb") as f:
+            unpacker = msgpack.Unpacker(f, raw=False)
+            for obj in unpacker:
+
+                # Detect format and expand to rows
+                if isinstance(obj, dict):
+                    if _is_columnar_format(obj):
+                        # Columnar format: expand to rows
+                        rows = _expand_columnar_to_rows(obj)
+                    else:
+                        # Single row
+                        rows = [obj]
+                else:
+                    # Unexpected format, skip
+                    continue
+
+                for data in rows:
+                    # Check if data has _ts field
+                    if "_ts" in data:
+                        ts = data["_ts"]
+                        # Filter by time range
+                        if start_time is not None and ts < start_time:
+                            current_index += 1
+                            continue
+                        if end_time is not None and ts >= end_time:
+                            current_index += 1
+                            continue
+                        all_data_points.append({
+                            "index": str(current_index),
+                            "data": data,
+                        })
+                    else:
+                        # No timestamp - include if no time filters specified
+                        if start_time is None and end_time is None:
+                            all_data_points.append({
+                                "index": str(current_index),
+                                "data": data,
+                            })
+                    current_index += 1
+
+        # Sort by timestamp
+        if all_data_points:
+            all_data_points.sort(
+                key=lambda x: x["data"].get("_ts", 0),
+                reverse=reverse
+            )
+
+        # Apply limit
+        limited_data_points = all_data_points[:limit]
+        has_more = len(all_data_points) > limit
+
+        return {
+            "data": limited_data_points,
+            "startTime": start_time,
+            "endTime": end_time,
+            "total": len(limited_data_points),
+            "hasMore": has_more
         }
 
     def get_track_stats(

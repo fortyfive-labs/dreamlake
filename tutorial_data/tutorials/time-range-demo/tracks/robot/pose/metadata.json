@@ -1,0 +1,11 @@
+{
+  "trackId": "local-track-robot/pose",
+  "name": "robot/pose",
+  "description": null,
+  "tags": [],
+  "metadata": null,
+  "totalDataPoints": 100,
+  "nextIndex": 100,
+  "createdAt": "2026-02-28T05:51:29.487892Z",
+  "updatedAt": "2026-02-28T05:51:29.488319Z"
+}

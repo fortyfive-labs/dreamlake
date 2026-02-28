@@ -1,0 +1,11 @@
+{
+  "trackId": "local-track-robot/velocity",
+  "name": "robot/velocity",
+  "description": null,
+  "tags": [],
+  "metadata": null,
+  "totalDataPoints": 50,
+  "nextIndex": 50,
+  "createdAt": "2026-02-28T05:51:29.491216Z",
+  "updatedAt": "2026-02-28T05:51:29.491554Z"
+}

@@ -36,6 +36,7 @@ def main():
         print("\n2. Batch appending data points...")
 
         # Batch append for better performance
+        # Note: Batch appends use columnar storage format internally for efficiency
         batch_data = [
             {"value": 0.45, "step": 100, "batch": 1},
             {"value": 0.42, "step": 200, "batch": 2},
@@ -43,7 +44,8 @@ def main():
             {"value": 0.38, "step": 400, "batch": 4},
         ]
         result = session.track("step_loss").append_batch(batch_data)
-        print(f"   Appended {result['count']} data points")
+        print(f"   Appended {result['count']} data points (columnar format)")
+        print(f"   Faster than {result['count']} individual appends!")
 
         print("\n3. Flexible schema - multiple metrics per point...")
 
@@ -84,9 +86,9 @@ def main():
 
     print("\n✓ All metrics tracked!")
     print("\n" + "=" * 60)
-    print("View track data:")
-    print("  cat tutorial_data/.dreamlake/tutorials/tracks-demo/tracks/train_loss/data.jsonl")
-    print("  cat tutorial_data/.dreamlake/tutorials/tracks-demo/tracks/train_loss/metadata.json")
+    print("View track data (msgpack-lines format):")
+    print("  python -c \"import msgpack; [print(obj) for obj in msgpack.Unpacker(open('tutorial_data/.dreamlake/tutorials/tracks-demo/tracks/train/data.msgpack', 'rb'), raw=False)]\"")
+    print("  cat tutorial_data/.dreamlake/tutorials/tracks-demo/tracks/train/metadata.json")
     print("=" * 60)
 
 if __name__ == "__main__":

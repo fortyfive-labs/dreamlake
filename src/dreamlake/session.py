@@ -1186,6 +1186,54 @@ class Session:
 
         return result
 
+    def _read_track_data_by_time(
+        self,
+        name: str,
+        start_time: Optional[float],
+        end_time: Optional[float],
+        limit: int,
+        reverse: bool
+    ) -> Dict[str, Any]:
+        """
+        Internal method to read data points from a track by time range.
+
+        Args:
+            name: Track name
+            start_time: Starting timestamp (None = from beginning)
+            end_time: Ending timestamp (None = to end)
+            limit: Max points to read
+            reverse: If True, return newest first
+
+        Returns:
+            Dict with data, startTime, endTime, total, hasMore
+        """
+        result = None
+
+        if self._client:
+            # Remote mode: read via API
+            result = self._client.read_track_data_by_time(
+                session_id=self._session_id,
+                track_name=name,
+                start_time=start_time,
+                end_time=end_time,
+                limit=limit,
+                reverse=reverse
+            )
+
+        if self._storage:
+            # Local mode: read from local storage
+            result = self._storage.read_track_data_by_time(
+                workspace=self.workspace,
+                session=self.name,
+                track_name=name,
+                start_time=start_time,
+                end_time=end_time,
+                limit=limit,
+                reverse=reverse
+            )
+
+        return result
+
     def _get_track_stats(self, name: str) -> Dict[str, Any]:
         """
         Internal method to get track statistics.

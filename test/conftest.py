@@ -10,6 +10,40 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from dreamlake import Session
+import msgpack
+
+
+def read_msgpack_track_file(file_path):
+    """
+    Helper function to read msgpack track files and expand columnar format.
+
+    Returns a list of data points in the format: [{"data": {...}, "index": 0}, ...]
+    """
+    data_points = []
+    with open(file_path, "rb") as f:
+        unpacker = msgpack.Unpacker(f, raw=False)
+        current_index = 0
+        for obj in unpacker:
+            if isinstance(obj, dict):
+                # Check if columnar format (all values are lists of same length)
+                if all(isinstance(v, list) for v in obj.values()) and obj:
+                    lengths = [len(v) for v in obj.values()]
+                    if len(set(lengths)) == 1 and lengths[0] > 0:
+                        # Columnar format - expand to rows
+                        num_rows = lengths[0]
+                        for i in range(num_rows):
+                            row = {key: values[i] for key, values in obj.items()}
+                            data_points.append({"data": row, "index": current_index})
+                            current_index += 1
+                    else:
+                        # Single row
+                        data_points.append({"data": obj, "index": current_index})
+                        current_index += 1
+                else:
+                    # Single row
+                    data_points.append({"data": obj, "index": current_index})
+                    current_index += 1
+    return data_points
 
 
 # Configuration

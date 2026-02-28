@@ -76,6 +76,11 @@ def main():
 
         # 3. Training loop
         print("[3/6] Running training loop...")
+
+        # Collect metrics for batch appending (more efficient)
+        train_metrics = []
+        val_metrics = []
+
         for epoch in range(config["training"]["epochs"]):
             # Simulate training
             train_loss, train_acc, val_loss, val_acc = simulate_training_epoch()
@@ -86,61 +91,65 @@ def main():
             val_loss = val_loss * (1 - epoch * 0.05)
             val_acc = min(0.92, val_acc + epoch * 0.01)
 
-            # Track metrics
-            session.track("train").append(loss=train_loss, epoch=epoch)
-            session.track("train").append(accuracy=train_acc, epoch=epoch)
-            session.track("val").append(loss=val_loss, epoch=epoch)
-            session.track("val").append(accuracy=val_acc, epoch=epoch)
-
             # Track learning rate (simulated schedule)
             lr = config["training"]["learning_rate"] * (0.95 ** epoch)
-            session.track("train").append(learning_rate=lr, epoch=epoch)
 
-            # Log epoch summary
-            session.log(
-                f"Epoch {epoch + 1}/{config['training']['epochs']} complete",
-                level="info",
-                metadata={
-                    "epoch": epoch + 1,
-                    "train_loss": train_loss,
-                    "train_acc": train_acc,
-                    "val_loss": val_loss,
-                    "val_acc": val_acc,
-                    "lr": lr
-                }
-            )
+            # Collect metrics for batch append
+            train_metrics.append({
+                "loss": train_loss,
+                "accuracy": train_acc,
+                "learning_rate": lr,
+                "epoch": epoch
+            })
+
+            val_metrics.append({
+                "loss": val_loss,
+                "accuracy": val_acc,
+                "epoch": epoch
+            })
 
             print(f"   Epoch {epoch + 1:2d}: train_loss={train_loss:.4f}, "
                   f"train_acc={train_acc:.4f}, val_loss={val_loss:.4f}, val_acc={val_acc:.4f}")
 
-            # Save best model
-            if val_acc > best_val_acc:
-                best_val_acc = val_acc
-                best_epoch = epoch + 1
+        # Batch append all metrics (uses efficient columnar storage format)
+        print("   Writing metrics in batch (columnar format)...")
+        session.track("train").append_batch(train_metrics)
+        session.track("val").append_batch(val_metrics)
+        print(f"   Wrote {len(train_metrics)} training epochs efficiently")
 
-                # Create and upload "model" file
-                import os
-                os.makedirs("temp_models", exist_ok=True)
-                model_path = "temp_models/best_model.txt"
-                with open(model_path, "w") as f:
-                    f.write(f"Best model at epoch {best_epoch}\n")
-                    f.write(f"Validation accuracy: {best_val_acc:.4f}\n")
+        # Find best model from collected metrics
+        best_val_acc = 0.0
+        best_epoch = 0
+        for metric in val_metrics:
+            if metric['accuracy'] > best_val_acc:
+                best_val_acc = metric['accuracy']
+                best_epoch = metric['epoch'] + 1
 
-                session.file(
-                    file_path=model_path,
-                    prefix="/models",
-                    description=f"Best model (val_acc={best_val_acc:.4f})",
-                    tags=["best", "checkpoint"],
-                    metadata={
-                        "epoch": best_epoch,
-                        "val_accuracy": best_val_acc
-                    }
-                ).save()
+        # Save best model (simulated)
+        if best_val_acc > 0:
+            # Create and upload "model" file
+            import os
+            os.makedirs("temp_models", exist_ok=True)
+            model_path = "temp_models/best_model.txt"
+            with open(model_path, "w") as f:
+                f.write(f"Best model at epoch {best_epoch}\n")
+                f.write(f"Validation accuracy: {best_val_acc:.4f}\n")
 
-                session.log(
-                    f"New best model saved (val_acc={best_val_acc:.4f})",
-                    level="info"
-                )
+            session.file(
+                file_path=model_path,
+                prefix="/models",
+                description=f"Best model (val_acc={best_val_acc:.4f})",
+                tags=["best", "checkpoint"],
+                metadata={
+                    "epoch": best_epoch,
+                    "val_accuracy": best_val_acc
+                }
+            ).save()
+
+            session.log(
+                f"Best model saved (val_acc={best_val_acc:.4f})",
+                level="info"
+            )
 
         # 4. Save final model
         print("[4/6] Saving final model...")

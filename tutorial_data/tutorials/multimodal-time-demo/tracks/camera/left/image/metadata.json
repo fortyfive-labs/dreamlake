@@ -1,0 +1,11 @@
+{
+  "trackId": "local-track-camera/left/image",
+  "name": "camera/left/image",
+  "description": null,
+  "tags": [],
+  "metadata": null,
+  "totalDataPoints": 50,
+  "nextIndex": 50,
+  "createdAt": "2026-02-28T05:51:29.491880Z",
+  "updatedAt": "2026-02-28T05:51:29.492030Z"
+}

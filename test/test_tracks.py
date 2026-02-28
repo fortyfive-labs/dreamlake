@@ -2,6 +2,7 @@
 import json
 import pytest
 from pathlib import Path
+from conftest import read_msgpack_track_file
 
 
 class TestBasicTracks:
@@ -13,11 +14,30 @@ class TestBasicTracks:
             for i in range(5):
                 session.track("loss").append(value=1.0 / (i + 1), epoch=i)
 
-        track_file = temp_workspace / "test" / "track-test" / "tracks" / "loss" / "data.jsonl"
+        track_file = temp_workspace / "test" / "track-test" / "tracks" / "loss" / "data.msgpack"
         assert track_file.exists()
 
-        with open(track_file) as f:
-            data_points = [json.loads(line) for line in f]
+        import msgpack
+        with open(track_file, "rb") as f:
+            unpacker = msgpack.Unpacker(f, raw=False)
+            data_points = []
+            for obj in unpacker:
+                if isinstance(obj, dict):
+                    # Check if columnar format (all values are lists of same length)
+                    if all(isinstance(v, list) for v in obj.values()) and obj:
+                        lengths = [len(v) for v in obj.values()]
+                        if len(set(lengths)) == 1 and lengths[0] > 0:
+                            # Columnar format - expand to rows
+                            num_rows = lengths[0]
+                            for i in range(num_rows):
+                                row = {key: values[i] for key, values in obj.items()}
+                                data_points.append({"data": row})
+                        else:
+                            # Single row
+                            data_points.append({"data": obj})
+                    else:
+                        # Single row
+                        data_points.append({"data": obj})
 
         assert len(data_points) == 5
         assert data_points[0]["data"]["value"] == 1.0
@@ -39,9 +59,9 @@ class TestBasicTracks:
                 session.track("accuracy").append(value=0.7 + epoch * 0.05, epoch=epoch)
 
         tracks_dir = temp_workspace / "test" / "multi-track" / "tracks"
-        assert (tracks_dir / "train_loss" / "data.jsonl").exists()
-        assert (tracks_dir / "val_loss" / "data.jsonl").exists()
-        assert (tracks_dir / "accuracy" / "data.jsonl").exists()
+        assert (tracks_dir / "train_loss" / "data.msgpack").exists()
+        assert (tracks_dir / "val_loss" / "data.msgpack").exists()
+        assert (tracks_dir / "accuracy" / "data.msgpack").exists()
 
     @pytest.mark.remote
     def test_multiple_tracks_remote(self, remote_session):
@@ -61,9 +81,18 @@ class TestBatchAppend:
             result = session.track("loss").append_batch(sample_data["track_data"])
             assert result["count"] == 5
 
-        track_file = temp_workspace / "test" / "batch-track" / "tracks" / "loss" / "data.jsonl"
-        with open(track_file) as f:
-            data_points = [json.loads(line) for line in f]
+        track_file = temp_workspace / "test" / "batch-track" / "tracks" / "loss" / "data.msgpack"
+        import msgpack
+        with open(track_file, "rb") as f:
+            unpacker = msgpack.Unpacker(f, raw=False)
+            columnar_batch = next(unpacker)  # Should be one columnar batch
+
+        # Expand columnar to rows
+        num_rows = len(columnar_batch["value"])
+        data_points = []
+        for i in range(num_rows):
+            row = {key: values[i] for key, values in columnar_batch.items()}
+            data_points.append({"data": row})
 
         assert len(data_points) == 5
         assert data_points[0]["data"]["value"] == 0.5
@@ -84,9 +113,8 @@ class TestBatchAppend:
             result = session.track("metric").append_batch(batch_data)
             assert result["count"] == 1000
 
-        track_file = temp_workspace / "test" / "large-batch" / "tracks" / "metric" / "data.jsonl"
-        with open(track_file) as f:
-            data_points = [json.loads(line) for line in f]
+        track_file = temp_workspace / "test" / "large-batch" / "tracks" / "metric" / "data.msgpack"
+        data_points = read_msgpack_track_file(track_file)
 
         assert len(data_points) == 1000
 
@@ -106,14 +134,13 @@ class TestFlexibleSchema:
                 learning_rate=0.001
             )
 
-        track_file = temp_workspace / "test" / "multi-field" / "tracks" / "all_metrics" / "data.jsonl"
-        with open(track_file) as f:
-            data_point = json.loads(f.readline())
+        track_file = temp_workspace / "test" / "multi-field" / "tracks" / "all_metrics" / "data.msgpack"
+        data_points = read_msgpack_track_file(track_file)
 
-        assert data_point["data"]["epoch"] == 5
-        assert data_point["data"]["train_loss"] == 0.3
-        assert data_point["data"]["val_loss"] == 0.35
-        assert data_point["data"]["train_acc"] == 0.85
+        assert data_points[0]["data"]["epoch"] == 5
+        assert data_points[0]["data"]["train_loss"] == 0.3
+        assert data_points[0]["data"]["val_loss"] == 0.35
+        assert data_points[0]["data"]["train_acc"] == 0.85
 
     @pytest.mark.remote
     def test_multi_field_tracking_remote(self, remote_session, sample_data):
@@ -129,9 +156,8 @@ class TestFlexibleSchema:
             session.track("flexible").append(field_a=3, field_c=4)
             session.track("flexible").append(field_a=5, field_b=6, field_c=7)
 
-        track_file = temp_workspace / "test" / "varying-schema" / "tracks" / "flexible" / "data.jsonl"
-        with open(track_file) as f:
-            data_points = [json.loads(line) for line in f]
+        track_file = temp_workspace / "test" / "varying-schema" / "tracks" / "flexible" / "data.msgpack"
+        data_points = read_msgpack_track_file(track_file)
 
         assert len(data_points) == 3
         assert "field_b" in data_points[0]["data"]
@@ -261,9 +287,8 @@ class TestTrackIndexing:
             for i in range(10):
                 session.track("metric").append(value=i * 10)
 
-        track_file = temp_workspace / "test" / "track-index" / "tracks" / "metric" / "data.jsonl"
-        with open(track_file) as f:
-            data_points = [json.loads(line) for line in f]
+        track_file = temp_workspace / "test" / "track-index" / "tracks" / "metric" / "data.msgpack"
+        data_points = read_msgpack_track_file(track_file)
 
         for i, point in enumerate(data_points):
             assert point["index"] == i
@@ -277,9 +302,8 @@ class TestTrackIndexing:
             session.track("metric").append_batch(batch1)
             session.track("metric").append_batch(batch2)
 
-        track_file = temp_workspace / "test" / "batch-index" / "tracks" / "metric" / "data.jsonl"
-        with open(track_file) as f:
-            data_points = [json.loads(line) for line in f]
+        track_file = temp_workspace / "test" / "batch-index" / "tracks" / "metric" / "data.msgpack"
+        data_points = read_msgpack_track_file(track_file)
 
         assert len(data_points) == 10
         for i, point in enumerate(data_points):
@@ -305,9 +329,8 @@ class TestTrackEdgeCases:
             session.track("metric").append(value=None, step=0, status="pending")
             session.track("metric").append(value=0.5, step=1, status="complete")
 
-        track_file = temp_workspace / "test" / "null-track" / "tracks" / "metric" / "data.jsonl"
-        with open(track_file) as f:
-            data_points = [json.loads(line) for line in f]
+        track_file = temp_workspace / "test" / "null-track" / "tracks" / "metric" / "data.msgpack"
+        data_points = read_msgpack_track_file(track_file)
 
         assert data_points[0]["data"]["value"] is None
         assert data_points[1]["data"]["value"] == 0.5
@@ -329,9 +352,8 @@ class TestTrackEdgeCases:
             for i in range(1000):
                 session.track("metric").append(value=i * 0.001, step=i)
 
-        track_file = temp_workspace / "test" / "frequent-track" / "tracks" / "metric" / "data.jsonl"
-        with open(track_file) as f:
-            data_points = [json.loads(line) for line in f]
+        track_file = temp_workspace / "test" / "frequent-track" / "tracks" / "metric" / "data.msgpack"
+        data_points = read_msgpack_track_file(track_file)
 
         assert len(data_points) == 1000
 
@@ -351,11 +373,10 @@ class TestTrackEdgeCases:
                 tiny_float=1.23e-100
             )
 
-        track_file = temp_workspace / "test" / "large-values" / "tracks" / "metric" / "data.jsonl"
-        with open(track_file) as f:
-            data_point = json.loads(f.readline())
+        track_file = temp_workspace / "test" / "large-values" / "tracks" / "metric" / "data.msgpack"
+        data_points = read_msgpack_track_file(track_file)
 
-        assert data_point["data"]["huge_int"] == 999999999999999
+        assert data_points[0]["data"]["huge_int"] == 999999999999999
 
     def test_track_with_nested_data_local(self, local_session, temp_workspace):
         """Test tracking with nested data structures."""
@@ -368,12 +389,11 @@ class TestTrackEdgeCases:
                 }
             )
 
-        track_file = temp_workspace / "test" / "nested-track" / "tracks" / "metric" / "data.jsonl"
-        with open(track_file) as f:
-            data_point = json.loads(f.readline())
+        track_file = temp_workspace / "test" / "nested-track" / "tracks" / "metric" / "data.msgpack"
+        data_points = read_msgpack_track_file(track_file)
 
-        assert data_point["data"]["epoch"] == 1
-        assert isinstance(data_point["data"]["metrics"], dict)
+        assert data_points[0]["data"]["epoch"] == 1
+        assert isinstance(data_points[0]["data"]["metrics"], dict)
 
     def test_track_name_collision_local(self, local_session, temp_workspace):
         """Test multiple appends to same track name."""
@@ -382,10 +402,166 @@ class TestTrackEdgeCases:
             session.track("loss").append(value=0.9, epoch=1)
             session.track("loss").append(value=0.8, epoch=2)
 
-        track_file = temp_workspace / "test" / "collision" / "tracks" / "loss" / "data.jsonl"
-        with open(track_file) as f:
-            data_points = [json.loads(line) for line in f]
+        track_file = temp_workspace / "test" / "collision" / "tracks" / "loss" / "data.msgpack"
+        data_points = read_msgpack_track_file(track_file)
 
         assert len(data_points) == 3
         assert data_points[0]["data"]["value"] == 1.0
         assert data_points[2]["data"]["value"] == 0.8
+
+
+class TestTrackTimeQueries:
+    """Tests for time-based track queries (MCAP-like API)."""
+
+    def test_read_by_time_range_local(self, local_session):
+        """Test reading track data by time range."""
+        import time
+
+        with local_session(prefix="test/track-time-range") as session:
+            # Write data with explicit timestamps
+            base_time = time.time()
+            for i in range(10):
+                session.track("robot/pose").append(
+                    position=[i * 0.1, i * 0.2, i * 0.3],
+                    _ts=base_time + i * 0.1
+                )
+
+            # Read data in time range
+            result = session.track("robot/pose").read_by_time(
+                start_time=base_time + 0.2,  # From 3rd point
+                end_time=base_time + 0.7,    # To 7th point (exclusive)
+                limit=100
+            )
+
+        assert result["total"] == 5  # Points at 0.2, 0.3, 0.4, 0.5, 0.6
+        assert result["startTime"] == base_time + 0.2
+        assert result["endTime"] == base_time + 0.7
+
+    def test_read_by_time_reverse_local(self, local_session):
+        """Test reading track data in reverse order."""
+        import time
+
+        with local_session(prefix="test/track-time-reverse") as session:
+            base_time = time.time()
+            for i in range(10):
+                session.track("metric").append(value=i, _ts=base_time + i)
+
+            # Read in reverse
+            result = session.track("metric").read_by_time(reverse=True, limit=3)
+
+        assert result["total"] == 3
+        # Check that newest comes first
+        assert result["data"][0]["data"]["value"] == 9
+        assert result["data"][1]["data"]["value"] == 8
+        assert result["data"][2]["data"]["value"] == 7
+
+    def test_read_by_time_no_range_local(self, local_session):
+        """Test reading all data without time range."""
+        import time
+
+        with local_session(prefix="test/track-time-all") as session:
+            base_time = time.time()
+            for i in range(5):
+                session.track("metric").append(value=i * 10, _ts=base_time + i)
+
+            # Read all data
+            result = session.track("metric").read_by_time(limit=100)
+
+        assert result["total"] == 5
+
+    def test_read_by_time_with_limit_local(self, local_session):
+        """Test reading with limit applied."""
+        import time
+
+        with local_session(prefix="test/track-time-limit") as session:
+            base_time = time.time()
+            for i in range(100):
+                session.track("metric").append(value=i, _ts=base_time + i * 0.01)
+
+            # Read with limit
+            result = session.track("metric").read_by_time(
+                start_time=base_time,
+                limit=10
+            )
+
+        assert result["total"] == 10
+        assert result["hasMore"] is True
+
+    def test_read_by_time_start_only_local(self, local_session):
+        """Test reading from start_time to end."""
+        import time
+
+        with local_session(prefix="test/track-time-start") as session:
+            base_time = time.time()
+            for i in range(10):
+                session.track("metric").append(value=i, _ts=base_time + i)
+
+            # Read from time 5 to end
+            result = session.track("metric").read_by_time(
+                start_time=base_time + 5,
+                limit=100
+            )
+
+        assert result["total"] == 5  # Points 5, 6, 7, 8, 9
+
+    def test_read_by_time_end_only_local(self, local_session):
+        """Test reading from beginning to end_time."""
+        import time
+
+        with local_session(prefix="test/track-time-end") as session:
+            base_time = time.time()
+            for i in range(10):
+                session.track("metric").append(value=i, _ts=base_time + i)
+
+            # Read from beginning to time 5 (exclusive)
+            result = session.track("metric").read_by_time(
+                end_time=base_time + 5,
+                limit=100
+            )
+
+        assert result["total"] == 5  # Points 0, 1, 2, 3, 4
+
+    @pytest.mark.remote
+    def test_read_by_time_remote(self, remote_session):
+        """Test time-based queries in remote mode."""
+        import time
+
+        with remote_session(prefix="test/track-time-remote") as session:
+            base_time = time.time()
+            for i in range(20):
+                session.track("robot/pose").append(
+                    position=[i, i * 2, i * 3],
+                    _ts=base_time + i * 0.1
+                )
+
+            # Query time range
+            result = session.track("robot/pose").read_by_time(
+                start_time=base_time + 0.5,
+                end_time=base_time + 1.5,
+                limit=100
+            )
+
+            # Should get points from 0.5 to 1.4 (10 points)
+            assert result["total"] >= 5
+
+    def test_timestamp_inheritance_across_tracks_local(self, local_session):
+        """Test _ts=-1 for timestamp inheritance across tracks."""
+        with local_session(prefix="test/timestamp-inherit") as session:
+            # First append - auto-generates timestamp
+            session.track("robot/pose").append(position=[1.0, 2.0, 3.0])
+
+            # Following appends - inherit same timestamp using _ts=-1
+            session.track("camera/left").append(width=640, height=480, _ts=-1)
+            session.track("robot/velocity").append(linear=[0.1, 0.2, 0.3], _ts=-1)
+
+            # Read back from all tracks
+            pose_data = session.track("robot/pose").read_by_time(limit=10)
+            image_data = session.track("camera/left").read_by_time(limit=10)
+            velocity_data = session.track("robot/velocity").read_by_time(limit=10)
+
+        # All three tracks should have same timestamp
+        pose_ts = pose_data["data"][0]["data"]["_ts"]
+        image_ts = image_data["data"][0]["data"]["_ts"]
+        velocity_ts = velocity_data["data"][0]["data"]["_ts"]
+
+        assert pose_ts == image_ts == velocity_ts

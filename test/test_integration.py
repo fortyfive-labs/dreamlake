@@ -64,9 +64,9 @@ class TestCompleteWorkflows:
         assert (session_dir / "session.json").exists()
         assert (session_dir / "parameters.json").exists()
         assert (session_dir / "logs" / "logs.jsonl").exists()
-        assert (session_dir / "tracks" / "train_loss" / "data.jsonl").exists()
-        assert (session_dir / "tracks" / "val_loss" / "data.jsonl").exists()
-        assert (session_dir / "tracks" / "accuracy" / "data.jsonl").exists()
+        assert (session_dir / "tracks" / "train_loss" / "data.msgpack").exists()
+        assert (session_dir / "tracks" / "val_loss" / "data.msgpack").exists()
+        assert (session_dir / "tracks" / "accuracy" / "data.msgpack").exists()
 
     @pytest.mark.remote
     def test_complete_ml_workflow_remote(self, remote_session, sample_files):
@@ -380,10 +380,10 @@ class TestAllFeaturesCombined:
         assert (session_dir / "session.json").exists()
         assert (session_dir / "parameters.json").exists()
         assert (session_dir / "logs" / "logs.jsonl").exists()
-        assert (session_dir / "tracks" / "train_loss" / "data.jsonl").exists()
-        assert (session_dir / "tracks" / "val_loss" / "data.jsonl").exists()
-        assert (session_dir / "tracks" / "accuracy" / "data.jsonl").exists()
-        assert (session_dir / "tracks" / "learning_rate" / "data.jsonl").exists()
+        assert (session_dir / "tracks" / "train_loss" / "data.msgpack").exists()
+        assert (session_dir / "tracks" / "val_loss" / "data.msgpack").exists()
+        assert (session_dir / "tracks" / "accuracy" / "data.msgpack").exists()
+        assert (session_dir / "tracks" / "learning_rate" / "data.msgpack").exists()
 
         # Verify parameters
         with open(session_dir / "parameters.json") as f:

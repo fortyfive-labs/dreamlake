@@ -9,6 +9,8 @@ A simple and flexible SDK for ML experiment tracking and data storage.
 - **Auto-creation**: Automatically creates namespace, workspace, and folder hierarchy
 - **Upsert Behavior**: Updates existing sessions or creates new ones
 - **Simple API**: Minimal configuration, maximum flexibility
+- **Time-Based Queries**: MCAP-like API for querying track data by timestamp ranges
+- **Multi-Modal Sync**: Timestamp inheritance for synchronizing pose, images, and sensor data
 
 ## Installation
 

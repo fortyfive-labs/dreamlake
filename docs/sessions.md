@@ -155,7 +155,7 @@ with Session(prefix="test/demo",
         ├── parameters.json
         ├── tracks/
         │   └── loss/
-        │       └── data.jsonl
+        │       └── data.msgpack
         └── files/
             ├── .files_metadata.json
             └── models/

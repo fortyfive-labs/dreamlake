@@ -1,0 +1,11 @@
+{
+  "trackId": "local-track-sensor/reading",
+  "name": "sensor/reading",
+  "description": null,
+  "tags": [],
+  "metadata": null,
+  "totalDataPoints": 9,
+  "nextIndex": 9,
+  "createdAt": "2026-02-28T05:51:29.490009Z",
+  "updatedAt": "2026-02-28T05:51:29.490079Z"
+}

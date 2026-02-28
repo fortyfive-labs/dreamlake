@@ -498,8 +498,47 @@ class RemoteClient:
             httpx.HTTPStatusError: If request fails
         """
         response = self._client.get(
-            f"/sessions/{session_id}/tracks/{track_name}/data",
-            params={"startIndex": start_index, "limit": limit}
+            f"/sessions/{session_id}/tracks/{track_name}",
+            params={"s": start_index, "limit": limit}
+        )
+        response.raise_for_status()
+        return response.json()
+
+    def read_track_data_by_time(
+        self,
+        session_id: str,
+        track_name: str,
+        start_time: Optional[float] = None,
+        end_time: Optional[float] = None,
+        limit: int = 1000,
+        reverse: bool = False
+    ) -> Dict[str, Any]:
+        """
+        Read data points from a track by time range (MCAP-like API).
+
+        Args:
+            session_id: Session ID (Snowflake ID)
+            track_name: Track name
+            start_time: Starting timestamp (seconds since epoch, None = from beginning)
+            end_time: Ending timestamp (seconds since epoch, None = to end)
+            limit: Max points to read (default 1000, max 10000)
+            reverse: If True, return newest points first (default False)
+
+        Returns:
+            Dict with data, startTime, endTime, total, hasMore
+
+        Raises:
+            httpx.HTTPStatusError: If request fails
+        """
+        params = {"limit": limit, "reverse": str(reverse).lower()}
+        if start_time is not None:
+            params["st"] = start_time
+        if end_time is not None:
+            params["et"] = end_time
+
+        response = self._client.get(
+            f"/sessions/{session_id}/tracks/{track_name}/by-time",
+            params=params
         )
         response.raise_for_status()
         return response.json()

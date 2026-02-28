@@ -39,7 +39,7 @@ with Session(prefix="my-workspace/my-experiment",
         ├── parameters.json         # Parameters (JSON)
         ├── tracks/                 # Time-series data
         │   └── loss/
-        │       ├── data.jsonl      # Track data points
+        │       ├── data.msgpack    # Track data points (msgpack-lines format)
         │       └── metadata.json   # Track metadata
         └── files/                  # Uploaded files
             ├── .files_metadata.json    # File metadata

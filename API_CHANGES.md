@@ -1,5 +1,30 @@
 # DreamLake Track API Changes
 
+## Storage Format Change (Implemented)
+
+**Status: ✅ Complete**
+
+Track data storage has been migrated from JSONL to msgpack-lines format:
+
+- **Old format**: `data.jsonl` (JSON Lines, text-based)
+- **New format**: `data.msgpack` (msgpack-lines, binary format)
+
+**Benefits:**
+- More efficient storage (smaller file sizes)
+- Faster serialization/deserialization
+- Binary-safe (handles embedded newlines and binary data)
+- Supports both row-based and columnar formats
+
+**Storage formats:**
+- **Row format**: Single appends stored as `{"value": 0.5, "epoch": 1}` (one msgpack object per line)
+- **Columnar format**: Batch appends stored as `{"value": [0.5, 0.45], "epoch": [1, 2]}` (efficient for batches)
+
+Both formats are transparently handled by `msgpack.Unpacker` for robust reading.
+
+**Migration:** The change is backward-incompatible at the file format level. Existing JSONL track files will need to be converted to msgpack format if you need to read old data.
+
+---
+
 ## Goal
 Align DreamLake's track API with ML-Dash for multi-modal timestamped data tracking.
 

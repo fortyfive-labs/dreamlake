@@ -1,0 +1,11 @@
+{
+  "trackId": "local-track-metric",
+  "name": "metric",
+  "description": null,
+  "tags": [],
+  "metadata": null,
+  "totalDataPoints": 3,
+  "nextIndex": 3,
+  "createdAt": "2026-02-28T12:18:46.642675Z",
+  "updatedAt": "2026-02-28T12:18:46.642764Z"
+}

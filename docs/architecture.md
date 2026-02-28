@@ -25,7 +25,7 @@ flowchart TB
     Backend --> Local[LocalStorage]
     Backend --> Remote[RemoteClient]
 
-    Local --> FS[Filesystem<br/>JSON/JSONL]
+    Local --> FS[Filesystem<br/>JSON/Msgpack]
     Remote --> API[REST API]
 
     API --> MongoDB[(MongoDB)]
@@ -117,7 +117,7 @@ The backend layer abstracts storage implementation, allowing DreamLake to work w
         ├── tracks/
         │   └── <track_name>/
         │       ├── metadata.json
-        │       └── data.jsonl   # Time-series data
+        │       └── data.msgpack   # Time-series data (msgpack-lines)
         └── files/
             ├── .files_metadata.json
             ├── <prefix>/               # e.g., models/
@@ -130,7 +130,8 @@ The backend layer abstracts storage implementation, allowing DreamLake to work w
 
 **Data Formats**:
 - **JSON**: Structured metadata (session.json, parameters.json)
-- **JSONL** (JSON Lines): Append-only logs and tracks
+- **JSONL** (JSON Lines): Append-only logs
+- **Msgpack-lines**: Track data (one msgpack object per line, supports both row and columnar formats)
 - **Raw Files**: Binary files stored with original names
 
 **Advantages**:
@@ -293,26 +294,39 @@ Session(prefix="my-workspace/baseline",
 | Querying | ❌ Manual file inspection | ✅ API queries |
 | Scalability | ⚠️ Limited by disk | ✅ Scales horizontally |
 
-### 5. JSON/JSONL Format
+### 5. Storage Formats
 
-**Why?**
+**JSON** for metadata:
 - **Human-readable**: Easy to inspect and debug
 - **Language-agnostic**: Any tool can read
-- **Append-friendly**: JSONL for logs/tracks
 - **Git-friendly**: Text-based diffs
+- Used for: session.json, parameters.json, track metadata
 
-**JSONL (JSON Lines)** for append operations:
+**JSONL (JSON Lines)** for logs:
 ```json
 {"timestamp": "2024-01-01T00:00:00Z", "message": "Log 1"}
 {"timestamp": "2024-01-01T00:00:01Z", "message": "Log 2"}
 {"timestamp": "2024-01-01T00:00:02Z", "message": "Log 3"}
 ```
 
+**Msgpack-lines** for track data:
+- **Efficient**: Binary format, smaller file sizes
+- **Fast**: Faster serialization/deserialization than JSON
+- **Binary-safe**: Handles embedded newlines and binary data
+- **Flexible**: Supports both row-based and columnar formats
+
+Track data supports two storage formats:
+- **Row format**: `{"value": 0.5, "epoch": 1}` (for single appends)
+- **Columnar format**: `{"value": [0.5, 0.45], "epoch": [1, 2]}` (for batch appends)
+
+Both formats are transparently handled using `msgpack.Unpacker` for robust reading.
+
 Benefits:
 - ✅ No need to load entire file
 - ✅ Append-only (no file rewrites)
 - ✅ Stream-friendly
 - ✅ Fault-tolerant (partial reads work)
+- ✅ Efficient storage for numerical data
 
 ## Extensibility
 

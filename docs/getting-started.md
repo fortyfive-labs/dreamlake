@@ -132,6 +132,8 @@ Data stored in: ./my_experiments
 3. **Parameter Saved**: The parameter was saved to `.dreamlake/tutorials/hello-dreamlake/parameters.json`
 4. **Auto-Closed**: The `with` statement automatically closed the session
 
+Note: Track data (metrics) is stored in msgpack-lines format in `.dreamlake/tutorials/hello-dreamlake/tracks/*/data.msgpack` files.
+
 ## Inspecting Your Data
 
 Let's check what was created:

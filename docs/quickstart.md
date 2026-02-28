@@ -63,7 +63,8 @@ After running the code above, your data is organized like this:
         ├── parameters/
         │   └── parameters.json  # your hyperparameters
         └── tracks/
-            └── loss.jsonl       # your metrics
+            └── train/
+                └── data.msgpack  # your metrics (msgpack-lines format)
 ```
 
 ## Common Patterns

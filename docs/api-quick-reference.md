@@ -110,10 +110,22 @@ session.track("loss").append_batch([
 session.track("loss").flush()      # Flush one track
 session.tracks.flush()             # Flush all tracks
 
-# Read data
+# Read data by index
 result = session.track("loss").read(start_index=0, limit=10)
 for point in result['data']:
     print(f"Index {point['index']}: {point['data']}")
+
+# Read data by time range (MCAP-like API)
+import time
+base_time = time.time()
+result = session.track("robot/pose").read_by_time(
+    start_time=base_time - 10.0,  # Last 10 seconds
+    end_time=base_time,
+    limit=1000
+)
+
+# Get most recent data (reverse order)
+result = session.track("robot/pose").read_by_time(reverse=True, limit=100)
 
 # Get statistics
 stats = session.track("loss").stats()
@@ -254,7 +266,7 @@ with Session(...) as session:
         ├── parameters.json         # Parameters
         ├── tracks/                 # Time-series data
         │   └── train_loss/
-        │       ├── data.jsonl
+        │       ├── data.msgpack    # Track data (msgpack-lines format)
         │       └── metadata.json
         └── files/                  # Uploaded files
             ├── .files_metadata.json
@@ -277,8 +289,8 @@ cat .dreamlake/workspace/session/logs.jsonl
 # View parameters
 cat .dreamlake/workspace/session/parameters.json
 
-# View track data
-cat .dreamlake/workspace/session/tracks/train_loss/data.jsonl
+# View track data (requires msgpack tools)
+python -c "import msgpack; [print(obj) for obj in msgpack.Unpacker(open('.dreamlake/workspace/session/tracks/train_loss/data.msgpack', 'rb'), raw=False)]"
 
 # List files
 ls .dreamlake/workspace/session/files/

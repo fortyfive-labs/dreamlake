@@ -15,6 +15,9 @@ PYTHONPATH=./src python docs/examples/03_parameters_example.py
 PYTHONPATH=./src python docs/examples/04_tracks_example.py
 PYTHONPATH=./src python docs/examples/05_files_example.py
 PYTHONPATH=./src python docs/examples/06_complete_training.py
+PYTHONPATH=./src python docs/examples/07_time_range_queries.py
+PYTHONPATH=./src python docs/examples/08_batch_columnar_format.py
+PYTHONPATH=./src python docs/examples/timestamp_sync_example.py
 ```
 
 ## Examples Overview
@@ -27,7 +30,10 @@ PYTHONPATH=./src python docs/examples/06_complete_training.py
 | `03_parameters_example.py` | Hyperparameters tracking | Simple params, nested params, updates |
 | `04_tracks_example.py` | Time-series metrics | Tracks, batch append, reading data, stats |
 | `05_files_example.py` | File uploads | Upload models, configs, results |
-| `06_complete_training.py` | End-to-end training | All features combined |
+| `06_complete_training.py` | End-to-end training | All features combined, batch metrics |
+| `07_time_range_queries.py` | **NEW!** Time-based queries | MCAP-like API, time ranges, reverse iteration |
+| `08_batch_columnar_format.py` | **NEW!** Batch & columnar format | Efficient batch writes, performance comparison |
+| `timestamp_sync_example.py` | Timestamp synchronization | Multi-modal sync with _ts=-1, merging |
 
 ## What Gets Created
 
@@ -47,7 +53,7 @@ tutorial_data/.dreamlake/tutorials/
 │   ├── parameters.json
 │   └── tracks/
 │       ├── train_loss/
-│       │   ├── data.jsonl
+│       │   ├── data.msgpack    # Track data (msgpack-lines format)
 │       │   └── metadata.json
 │       └── ...
 └── ...
@@ -64,8 +70,8 @@ cat tutorial_data/.dreamlake/tutorials/hello-dreamlake/logs.jsonl
 # View parameters
 cat tutorial_data/.dreamlake/tutorials/parameters-demo/parameters.json
 
-# View track data
-cat tutorial_data/.dreamlake/tutorials/tracks-demo/tracks/train_loss/data.jsonl
+# View track data (requires msgpack tools)
+python -c "import msgpack; [print(obj) for obj in msgpack.Unpacker(open('tutorial_data/.dreamlake/tutorials/tracks-demo/tracks/train_loss/data.msgpack', 'rb'), raw=False)]"
 
 # List all sessions
 ls tutorial_data/.dreamlake/tutorials/
@@ -139,6 +145,38 @@ End-to-end ML training simulation that combines all features:
 - Metric tracking (loss, accuracy, learning rate)
 - File uploads (checkpoints, final model, results)
 - Complete workflow demonstration
+
+### Time Range Queries Example (`07_time_range_queries.py`)
+
+**NEW!** Demonstrates the MCAP-like time-based query API:
+- Time range queries with `start_time` and `end_time`
+- Reverse iteration for getting recent data
+- Open-ended queries (start only or end only)
+- Synchronized multi-modal data queries
+- Comparison of index-based vs time-based queries
+- Use cases for robotics and real-time monitoring
+
+### Batch Appending & Columnar Format Example (`08_batch_columnar_format.py`)
+
+**NEW!** Comprehensive demonstration of efficient batch data storage:
+- Row vs columnar storage format comparison
+- Large batch efficiency (1000+ points)
+- Mixed single and batch appends
+- Complex/nested data structures in batches
+- Performance benchmarks showing 5-10x speedup
+- Transparent format handling when reading
+- Best practices for batch appending
+
+See [README_COLUMNAR_FORMAT.md](examples/README_COLUMNAR_FORMAT.md) for detailed documentation.
+
+### Timestamp Synchronization Example (`timestamp_sync_example.py`)
+
+Multi-modal data synchronization using timestamps:
+- Using `_ts=-1` for timestamp inheritance
+- Synchronizing pose, images, and sensor data
+- Explicit timestamp control
+- Multi-field merging with same timestamp
+- Cross-track timestamp inheritance
 
 ## Next Steps
 

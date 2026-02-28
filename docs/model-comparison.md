@@ -104,8 +104,10 @@ architecture-comparison/
 │   ├── parameters.json
 │   ├── logs/logs.jsonl
 │   └── tracks/
-│       ├── accuracy/
-│       └── loss/
+│       ├── metrics/
+│       │   └── data.msgpack
+│       └── train/
+│           └── data.msgpack
 ├── comparison-resnet/
 └── comparison-vit/
 ```

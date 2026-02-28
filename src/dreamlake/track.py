@@ -209,6 +209,58 @@ class TrackBuilder:
             limit=limit
         )
 
+    def read_by_time(
+        self,
+        start_time: Optional[float] = None,
+        end_time: Optional[float] = None,
+        limit: int = 1000,
+        reverse: bool = False
+    ) -> Dict[str, Any]:
+        """
+        Read data points from the track by time range (MCAP-like API).
+
+        Automatically flushes buffered data before reading.
+
+        Args:
+            start_time: Starting timestamp (seconds since epoch, inclusive). None = from beginning
+            end_time: Ending timestamp (seconds since epoch, exclusive). None = to end
+            limit: Maximum number of points to read (default 1000, max 10000)
+            reverse: If True, return newest points first (default False)
+
+        Returns:
+            Dict with keys:
+            - data: List of {index: str, data: dict, createdAt: str}
+            - startTime: Starting timestamp (if provided)
+            - endTime: Ending timestamp (if provided)
+            - total: Number of points returned
+            - hasMore: Whether more data exists beyond this range
+
+        Example:
+            # Query last 10 seconds
+            t_now = time.time()
+            result = session.track("robot/pose").read_by_time(
+                start_time=t_now - 10.0,
+                end_time=t_now,
+                limit=1000
+            )
+
+            # Query all data in reverse (newest first)
+            result = session.track("robot/pose").read_by_time(reverse=True, limit=100)
+
+            # Query from specific time to end
+            result = session.track("robot/pose").read_by_time(start_time=1234567890.0)
+        """
+        # Auto-flush before reading
+        self.flush()
+
+        return self._session._read_track_data_by_time(
+            name=self._name,
+            start_time=start_time,
+            end_time=end_time,
+            limit=limit,
+            reverse=reverse
+        )
+
     def stats(self) -> Dict[str, Any]:
         """
         Get track statistics and metadata.
