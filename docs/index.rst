@@ -16,9 +16,15 @@ Track your machine learning experiments with zero setup. Start locally on your l
 Installation
 ------------
 
+Install the latest version (|VERSION|):
+
 .. code-block:: bash
 
-   pip install dreamlake==|VERSION|
+   # Using pip
+   pip install dreamlake==0.4.2
+
+   # Using uv
+   uv add dreamlake@0.4.2
 
 Quick Example
 -------------

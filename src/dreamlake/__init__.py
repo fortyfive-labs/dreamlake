@@ -44,7 +44,7 @@ from .storage import LocalStorage
 from .log import LogLevel, LogBuilder
 from .params import ParametersBuilder
 
-__version__ = "0.2.4"
+__version__ = "0.4.2"
 
 __all__ = [
     "Session",
