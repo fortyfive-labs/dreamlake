@@ -34,6 +34,7 @@ dependencies = [
 dev = [
     "pytest>=8.0.0",
     "pytest-asyncio>=0.23.0",
+    "numpy>=1.24.0",
     "sphinx>=7.2.0",
     "furo>=2024.0.0",
     "sphinx-autodoc-typehints>=2.0.0",
