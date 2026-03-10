@@ -10,11 +10,10 @@ Usage:
 import os
 import sys
 import hashlib
+from dataclasses import dataclass, field
 from pathlib import Path
 from textwrap import dedent
 from typing import List
-
-from params_proto import proto
 
 # ANSI color codes
 RESET = "\033[0m"
@@ -65,37 +64,31 @@ def parse_args_to_dict(args: list) -> dict:
 # Configuration Classes (params-proto)
 # ============================================================
 
-@proto(prefix="upload")
+@dataclass
 class VideoUploadConfig:
-    """Configuration for video upload command."""
-
     file: str = None
     name: str = None
     user: str = None
     project: str = None
-    tags: List[str] = []
+    tags: List[str] = field(default_factory=list)
     description: str = None
     bss_url: str = None
     token: str = None
 
 
-@proto(prefix="download")
+@dataclass
 class VideoDownloadConfig:
-    """Configuration for video download command."""
-
     video_id: str = None
     output: str = None
     bss_url: str = None
     token: str = None
 
 
-@proto(prefix="list")
+@dataclass
 class VideoListConfig:
-    """Configuration for video list command."""
-
     user: str = None
     project: str = None
-    tags: List[str] = []
+    tags: List[str] = field(default_factory=list)
     limit: int = 50
     offset: int = 0
     json_output: bool = False
@@ -144,9 +137,9 @@ def cmd_upload(config) -> int:
         with httpx.Client(timeout=30.0, headers=headers) as client:
             print(f"Requesting presigned URL from {bss_url}...")
             presign_resp = client.post(
-                f"{bss_url}/video/upload/presigned",
+                f"{bss_url}/videos/upload/presigned",
                 json={
-                    "user": user,
+                    "owner": user,
                     "project": project,
                     "hash": raw_hash,
                     "contentType": "video/mp4",
@@ -170,10 +163,10 @@ def cmd_upload(config) -> int:
         print(f"Creating video entry...")
         with httpx.Client(timeout=30.0, headers=headers) as client:
             video_resp = client.post(
-                f"{bss_url}/video",
+                f"{bss_url}/videos",
                 json={
                     "name": video_name,
-                    "user": user,
+                    "owner": user,
                     "project": project,
                     "rawHash": raw_hash,
                     "duration": 0,
@@ -223,15 +216,15 @@ def cmd_download(config) -> int:
 
     try:
         with httpx.Client(timeout=30.0, headers=headers) as client:
-            meta_resp = client.get(f"{bss_url}/video/{video_id}")
+            meta_resp = client.get(f"{bss_url}/videos/{video_id}")
             if meta_resp.status_code == 404:
                 print(f"{RED}Error:{RESET} Video not found: {video_id}", file=sys.stderr)
                 return 1
             meta_resp.raise_for_status()
             meta = meta_resp.json()
 
-        video_name = meta.get("name", video_id)
-        user = meta.get("user", "unknown")
+        video_name = meta.get("name") or meta.get("videoId", video_id)
+        user = meta.get("owner", "unknown")
         project = meta.get("project", "unknown")
         raw_hash = meta.get("rawHash")
 
@@ -249,7 +242,7 @@ def cmd_download(config) -> int:
 
         print(f"\nDownloading...")
         with httpx.Client(timeout=300.0, headers=headers) as client:
-            raw_url = f"{bss_url}/video/{video_id}/raw"
+            raw_url = f"{bss_url}/videos/{video_id}/raw"
             download_resp = client.get(raw_url, follow_redirects=True)
 
             if download_resp.status_code != 200:
@@ -282,14 +275,14 @@ def cmd_list(config) -> int:
     try:
         params = {"limit": config.limit, "offset": config.offset}
         if config.user:
-            params["user"] = config.user
+            params["owner"] = config.user
         if config.project:
             params["project"] = config.project
         if config.tags:
             params["tags"] = ",".join(config.tags)
 
         with httpx.Client(timeout=30.0, headers=headers) as client:
-            resp = client.get(f"{bss_url}/video", params=params)
+            resp = client.get(f"{bss_url}/videos", params=params)
             resp.raise_for_status()
             data = resp.json()
 
@@ -304,11 +297,11 @@ def cmd_list(config) -> int:
             else:
                 print(f"Found {BOLD}{len(videos)}{RESET} video(s):\n")
                 for v in videos:
-                    vid = v.get("id", "N/A")[:8]
+                    vid = (v.get("videoId") or v.get("id", "N/A"))[:8]
                     name = v.get("name", "N/A")
-                    user = v.get("user", "N/A")
+                    owner = v.get("owner", "N/A")
                     project = v.get("project", "N/A")
-                    print(f"  {CYAN}{vid}...{RESET}  {DIM}{user}/{project}{RESET}  {name}")
+                    print(f"  {CYAN}{vid}...{RESET}  {DIM}{owner}/{project}{RESET}  {name}")
 
         return 0
 
@@ -403,7 +396,6 @@ def main(args: list) -> int:
         return 0
 
     if subcommand == "upload":
-        # Handle positional file argument
         sub_args = args[1:]
         positional = None
         if sub_args and not sub_args[0].startswith("--"):
@@ -412,11 +404,9 @@ def main(args: list) -> int:
         kwargs = parse_args_to_dict(sub_args)
         if positional:
             kwargs["file"] = positional
-        VideoUploadConfig._update(kwargs)
-        return cmd_upload(VideoUploadConfig)
+        return cmd_upload(VideoUploadConfig(**kwargs))
 
     elif subcommand == "download":
-        # Handle positional video_id argument
         sub_args = args[1:]
         positional = None
         if sub_args and not sub_args[0].startswith("--"):
@@ -425,13 +415,11 @@ def main(args: list) -> int:
         kwargs = parse_args_to_dict(sub_args)
         if positional:
             kwargs["video_id"] = positional
-        VideoDownloadConfig._update(kwargs)
-        return cmd_download(VideoDownloadConfig)
+        return cmd_download(VideoDownloadConfig(**kwargs))
 
     elif subcommand == "list":
         kwargs = parse_args_to_dict(args[1:])
-        VideoListConfig._update(kwargs)
-        return cmd_list(VideoListConfig)
+        return cmd_list(VideoListConfig(**kwargs))
 
     else:
         print(f"{RED}Unknown video subcommand:{RESET} {subcommand}", file=sys.stderr)

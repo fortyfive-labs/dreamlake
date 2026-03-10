@@ -17,6 +17,7 @@ wheels/
 
 # Local tests
 local_test/
+local-test/
 
 # IDE files
 .idea/

@@ -27,6 +27,9 @@ def print_help():
             dreamlake <command> [options]
 
         {BOLD}Commands:{RESET}
+            {CYAN}login{RESET}       Authenticate with DreamLake (device auth flow)
+            {CYAN}logout{RESET}      Remove stored credentials
+            {CYAN}profile{RESET}     Show current user (queries server if --url set)
             {CYAN}upload{RESET}      Upload a file to a session
             {CYAN}download{RESET}    Download a file from a session
             {CYAN}list{RESET}        List files in a session
@@ -69,8 +72,28 @@ def main():
         print_help()
         return 0
 
+    # Auth commands
+    if command == "login":
+        from dreamlake.cli_commands.login import cmd_login
+        import argparse as ap
+        p = ap.ArgumentParser(prog="dreamlake login")
+        p.add_argument("--url", type=str)
+        p.add_argument("--no-browser", action="store_true")
+        return cmd_login(p.parse_args(sys.argv[2:]))
+
+    elif command == "logout":
+        from dreamlake.cli_commands.logout import cmd_logout
+        return cmd_logout(None)
+
+    elif command == "profile":
+        from dreamlake.cli_commands.profile import cmd_profile
+        import argparse as ap
+        p = ap.ArgumentParser(prog="dreamlake profile")
+        p.add_argument("--url", type=str)
+        return cmd_profile(p.parse_args(sys.argv[2:]))
+
     # Video subcommands
-    if command == "video":
+    elif command == "video":
         from .commands import video
         return video.main(sys.argv[2:])
 

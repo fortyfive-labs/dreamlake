@@ -5,19 +5,32 @@ Remote API client for dreamlake server.
 from typing import Optional, Dict, Any, List
 import httpx
 
+_TOKEN_KEY = "dreamlake-token"
+
 
 class RemoteClient:
     """Client for communicating with dreamlake server."""
 
-    def __init__(self, base_url: str, api_key: str):
+    def __init__(self, base_url: str, api_key: Optional[str] = None):
         """
         Initialize remote client.
 
         Args:
             base_url: Base URL of dreamlake server (e.g., "http://localhost:3000")
-            api_key: JWT token for authentication
+            api_key: JWT token for authentication. If omitted, auto-loaded from
+                     secure token storage (set via `dreamlake login`).
         """
         self.base_url = base_url.rstrip("/")
+
+        if not api_key:
+            from dreamlake.auth.token_storage import get_token_storage
+            from dreamlake.auth.exceptions import NotAuthenticatedError
+            token = get_token_storage().load(_TOKEN_KEY)
+            if not token:
+                raise NotAuthenticatedError(
+                    "Not authenticated. Run 'dreamlake login' to log in."
+                )
+            api_key = token
         self.api_key = api_key
         self._client = httpx.Client(
             base_url=self.base_url,
