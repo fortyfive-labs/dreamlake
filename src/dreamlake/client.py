@@ -600,6 +600,64 @@ class RemoteClient:
         response.raise_for_status()
         return response.json()["tracks"]
 
+    # ── Vector Search ──────────────────────────────────────────────
+
+    def search_vectors(
+        self,
+        space_id: str,
+        query: list,
+        model_id: Optional[str] = None,
+        mod: Optional[str] = None,
+        sid: Optional[str] = None,
+        rid: Optional[str] = None,
+        st: Optional[float] = None,
+        et: Optional[float] = None,
+        limit: int = 10,
+        min_score: Optional[float] = None,
+    ) -> Dict[str, Any]:
+        """Search for similar vectors within a space."""
+        payload: Dict[str, Any] = {"query": query, "limit": limit}
+        if model_id:
+            payload["modelId"] = model_id
+        if mod:
+            payload["mod"] = mod
+        if sid:
+            payload["sid"] = sid
+        if rid:
+            payload["rid"] = rid
+        if st is not None:
+            payload["st"] = st
+        if et is not None:
+            payload["et"] = et
+        if min_score is not None:
+            payload["minScore"] = min_score
+
+        response = self._client.post(f"/spaces/{space_id}/search", json=payload)
+        response.raise_for_status()
+        return response.json()
+
+    def upsert_vectors(
+        self,
+        space_id: str,
+        points: list,
+        vector_size: int,
+        model_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Upsert pre-computed vectors into Qdrant."""
+        payload: Dict[str, Any] = {"points": points, "vectorSize": vector_size}
+        if model_id:
+            payload["modelId"] = model_id
+
+        response = self._client.post(f"/spaces/{space_id}/vectors", json=payload)
+        response.raise_for_status()
+        return response.json()
+
+    def list_vector_indexes(self, space_id: str) -> Dict[str, Any]:
+        """List vector indexes for a space."""
+        response = self._client.get(f"/spaces/{space_id}/vector-indexes")
+        response.raise_for_status()
+        return response.json()
+
     def close(self):
         """Close the HTTP client."""
         self._client.close()

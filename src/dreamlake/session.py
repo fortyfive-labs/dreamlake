@@ -1295,6 +1295,36 @@ class Session:
         """Get the full session data (only available after open in remote mode)."""
         return self._session_data
 
+    def search(
+        self,
+        query: list,
+        mod: Optional[str] = None,
+        limit: int = 10,
+        st: Optional[float] = None,
+        et: Optional[float] = None,
+        min_score: Optional[float] = None,
+        model_id: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        """Search for similar vectors within this session."""
+        if not self._client:
+            raise RuntimeError("Search requires remote mode (url must be set)")
+        if not self._session_data:
+            raise RuntimeError("Session must be opened before searching")
+
+        space_id = self._session_data["session"]["spaceId"]
+
+        result = self._client.search_vectors(
+            space_id=space_id,
+            query=query,
+            sid=self._session_id,
+            mod=mod,
+            limit=limit,
+            st=st,
+            et=et,
+            min_score=min_score,
+            model_id=model_id,
+        )
+        return result.get("results", [])
 
 
 def dreamlake_session(
