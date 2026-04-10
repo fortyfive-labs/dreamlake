@@ -1,18 +1,23 @@
 """
-Upload command - Upload files to a DreamLake session.
+Upload command.
 
 Usage:
-    dreamlake upload --file ./model.pt --workspace my-ws --session exp-001
+    dreamlake upload <file> --sess [namespace@]space[:session] --to <path>
+
+File type is auto-detected from extension. Use --type to override.
+
+Categories: audio, video, track, text-track, label-track
 """
 
 import sys
 from pathlib import Path
-from textwrap import dedent
-from typing import List
 
 from params_proto import proto
 
-# ANSI color codes
+from dreamlake.cli._args import args_to_dict
+from dreamlake.cli._config import ServerConfig
+from dreamlake.cli._target import parse_target, format_target
+
 RESET = "\033[0m"
 BOLD = "\033[1m"
 DIM = "\033[2m"
@@ -20,111 +25,359 @@ RED = "\033[31m"
 GREEN = "\033[32m"
 CYAN = "\033[36m"
 
+CHUNK_SIZE = 10 * 1024 * 1024  # 10 MB per part (S3 minimum is 5 MB except last)
+MAX_WORKERS = 4                  # parallel part uploads
 
-@proto(prefix="upload")
+EXTENSION_TO_CATEGORY = {
+    ".wav": "audio", ".mp3": "audio", ".aac": "audio", ".opus": "audio",
+    ".mp4": "video", ".mkv": "video",
+    ".npy": "track", ".msgpack": "track", ".csv": "track",
+    ".srt": "text-track", ".vtt": "text-track",
+    ".jsonl": "label-track",
+}
+
+CATEGORIES = {"audio", "video", "track", "text-track", "label-track"}
+
+
+@proto.prefix
 class UploadConfig:
-    """Configuration for the upload command."""
-
-    file: str = None
-    path: str = "/"
-    description: str = None
-    tags: List[str] = []
-    workspace: str = None
-    session: str = None
-    remote: str = None
-    api_key: str = None
-    local_path: str = ".dreamlake"
-
-
-def _get_session(config):
-    """Create a session from config."""
-    from dreamlake.session import Session
-
-    kwargs = {
-        "name": config.session,
-        "workspace": config.workspace,
-    }
-
-    if config.remote:
-        kwargs["remote"] = config.remote
-        kwargs["api_key"] = config.api_key
-    else:
-        kwargs["local_path"] = config.local_path
-
-    return Session(**kwargs)
-
-
-def cmd_upload(config: UploadConfig) -> int:
-    """Execute upload command."""
-    if not config.file:
-        print(f"{RED}Error:{RESET} --file is required", file=sys.stderr)
-        return 1
-
-    if not config.workspace or not config.session:
-        print(f"{RED}Error:{RESET} --workspace and --session are required", file=sys.stderr)
-        return 1
-
-    file_path = Path(config.file)
-    if not file_path.exists():
-        print(f"{RED}Error:{RESET} File not found: {config.file}", file=sys.stderr)
-        return 1
-
-    try:
-        with _get_session(config) as session:
-            result = session.files().upload(
-                str(file_path),
-                path=config.path,
-                description=config.description,
-                tags=config.tags if config.tags else None,
-            )
-            print(f"{GREEN}Uploaded:{RESET} {BOLD}{result.get('filename', file_path.name)}{RESET}")
-            print(f"  {DIM}ID:{RESET}       {result.get('id')}")
-            print(f"  {DIM}Path:{RESET}     {result.get('path', config.path)}")
-            print(f"  {DIM}Checksum:{RESET} {result.get('checksum', 'N/A')[:16]}...")
-            return 0
-    except Exception as e:
-        print(f"{RED}Error:{RESET} {e}", file=sys.stderr)
-        return 1
+    sess: str | None = None   # [namespace@]space[:session]
+    to: str | None = None     # destination path (within session)
+    type: str | None = None   # category override
 
 
 def print_help():
-    """Print upload command help."""
-    print(dedent(f"""
-        {BOLD}DreamLake Upload{RESET} - Upload files to a session
+    print(f"""
+{BOLD}dreamlake upload{RESET} - Upload a file to DreamLake
 
-        {BOLD}Usage:{RESET}
-            dreamlake upload --file <path> --workspace <name> --session <name> [options]
+{BOLD}Usage:{RESET}
+    dreamlake upload <file> --sess [namespace@]space[:session] --to <path>
 
-        {BOLD}Options:{RESET}
-            --file          Path to file to upload (required)
-            --workspace     Workspace name (required)
-            --session       Session/experiment name (required)
-            --path          Logical path prefix (default: /)
-            --description   Optional file description
-            --tags          Comma-separated tags
-            --remote        Remote API URL (uses local mode if not set)
-            --api-key       API key for remote mode
-            --local-path    Local storage path (default: .dreamlake)
+{BOLD}Options:{RESET}
+    --sess    Session scope: [namespace@]space[:session]
+    --to      Destination path within the session
+    --type    Override auto-detected file type
 
-        {BOLD}Examples:{RESET}
-            {DIM}# Local mode{RESET}
-            dreamlake upload --file ./model.pt --workspace my-ws --session exp-001
+{BOLD}Auto-detected types:{RESET}
+    .wav .mp3 .aac .opus  → audio
+    .mp4 .mkv             → video
+    .npy .msgpack .csv    → track
+    .srt .vtt             → text-track
+    .jsonl                → label-track (default; use --type text-track to override)
 
-            {DIM}# With path and tags{RESET}
-            dreamlake upload --file ./model.pt --workspace my-ws --session exp-001 \\
-                --path /models --tags checkpoint,final
+{BOLD}Examples:{RESET}
+    dreamlake upload ./mic.wav --sess alice@robotics:2026/q1/run-042 --to /microphone/front
+    dreamlake upload ./video.mp4 --sess robotics:experiments/run-042 --to /camera/front
+    dreamlake upload ./labels.jsonl --sess alice@robotics:run-042 --to /detections/yolo
+    dreamlake upload ./transcript.jsonl --sess alice@robotics:run-042 --to /subtitles/en --type text-track
+""".strip())
 
-            {DIM}# Remote mode{RESET}
-            dreamlake upload --file ./model.pt --workspace my-ws --session exp-001 \\
-                --remote http://localhost:3000 --api-key $TOKEN
-    """).strip())
+
+def detect_category(file_path: Path, type_override: str | None) -> str | None:
+    if type_override:
+        return type_override
+    return EXTENSION_TO_CATEGORY.get(file_path.suffix.lower())
+
+
+def cmd_upload(file: str) -> int:
+    if not UploadConfig.sess:
+        print(f"{RED}error:{RESET} --sess is required", file=sys.stderr)
+        return 1
+
+    if not UploadConfig.to:
+        print(f"{RED}error:{RESET} --to is required", file=sys.stderr)
+        return 1
+
+    file_path = Path(file)
+    if not file_path.exists():
+        print(f"{RED}error:{RESET} file not found: {file}", file=sys.stderr)
+        return 1
+
+    category = detect_category(file_path, UploadConfig.type)
+    if not category:
+        print(
+            f"{RED}error:{RESET} cannot detect file type for '{file_path.suffix}'. use --type to specify.",
+            file=sys.stderr,
+        )
+        return 1
+
+    if category not in CATEGORIES:
+        print(f"{RED}error:{RESET} unknown type '{category}'. valid: {', '.join(sorted(CATEGORIES))}", file=sys.stderr)
+        return 1
+
+    try:
+        t = parse_target(UploadConfig.sess)
+    except ValueError as e:
+        print(f"{RED}error:{RESET} {e}", file=sys.stderr)
+        return 1
+
+    path = UploadConfig.to.lstrip("/")
+
+    # Resolve namespace from current user if omitted
+    if not t.namespace:
+        t.namespace = ServerConfig.resolve_namespace()
+        if not t.namespace:
+            print(
+                f"{RED}error:{RESET} namespace not specified and no authenticated user found. run 'dreamlake login'",
+                file=sys.stderr,
+            )
+            return 1
+
+    token = ServerConfig.resolve_token()
+    if not token:
+        print(f"{RED}error:{RESET} not authenticated. run 'dreamlake login' first", file=sys.stderr)
+        return 1
+
+    print(f"Uploading {CYAN}{file_path.name}{RESET} ({category})")
+    print(f"  {DIM}session:{RESET} {format_target(t)}")
+    print(f"  {DIM}path:{RESET}    /{path}")
+
+    try:
+        if category == "video":
+            return _upload_video(file_path, t, path, token)
+        else:
+            return _upload_asset(file_path, t, path, category, token)
+    except Exception as e:
+        print(f"{RED}error:{RESET} {e}", file=sys.stderr)
+        return 1
+
+
+def _state_path(raw_hash: str) -> Path:
+    state_dir = Path.home() / ".dreamlake" / "uploads"
+    state_dir.mkdir(parents=True, exist_ok=True)
+    return state_dir / f"{raw_hash}.json"
+
+
+def _save_state(raw_hash: str, upload_id: str, key: str, total_parts: int,
+                completed_parts: list, lock) -> None:
+    import json
+    with lock:
+        _state_path(raw_hash).write_text(json.dumps({
+            "uploadId": upload_id,
+            "key": key,
+            "totalParts": total_parts,
+            "completedParts": completed_parts,
+        }))
+
+
+def _load_state(raw_hash: str) -> dict | None:
+    import json
+    p = _state_path(raw_hash)
+    if p.exists():
+        try:
+            return json.loads(p.read_text())
+        except Exception:
+            return None
+    return None
+
+
+def _clear_state(raw_hash: str) -> None:
+    p = _state_path(raw_hash)
+    if p.exists():
+        p.unlink()
+
+
+def _upload_video(file_path: Path, t, path: str, token: str) -> int:
+    """Upload video to BSS via S3 multipart upload, then register in dreamlake-server."""
+    import hashlib
+    import json
+    import math
+    import threading
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    import httpx
+
+    bss_url = ServerConfig.bss_url
+    remote = ServerConfig.remote
+    headers = {"Authorization": f"Bearer {token}"}
+
+    # Phase 1: hash + compute parts
+    content = file_path.read_bytes()
+    raw_hash = hashlib.sha256(content).hexdigest()[:16]
+    file_size = len(content)
+    total_parts = max(1, math.ceil(file_size / CHUNK_SIZE))
+
+    print(f"  {DIM}size:{RESET}   {file_size / 1024 / 1024:.1f} MB")
+    print(f"  {DIM}parts:{RESET}  {total_parts} × {CHUNK_SIZE // 1024 // 1024} MB")
+
+    state_lock = threading.Lock()
+
+    # Check for existing upload state (pause/resume)
+    upload_id: str | None = None
+    key: str | None = None
+    completed_parts: list[dict] = []
+    completed_map: dict[int, dict] = {}  # partNumber → {partNumber, etag}
+
+    state = _load_state(raw_hash)
+    if state:
+        # Verify the upload is still alive in S3
+        with httpx.Client(timeout=30, headers=headers) as client:
+            r = client.get(f"{bss_url}/videos/upload/multipart/parts-done", params={
+                "uploadId": state["uploadId"],
+                "key": state["key"],
+            })
+        if r.status_code == 200:
+            data = r.json()
+            if not data.get("expired"):
+                upload_id = state["uploadId"]
+                key = state["key"]
+                for part in data["parts"]:
+                    completed_map[part["partNumber"]] = part
+                completed_parts = list(completed_map.values())
+                remaining = total_parts - len(completed_parts)
+                print(f"  {DIM}resuming:{RESET} {len(completed_parts)}/{total_parts} parts already uploaded, uploading {remaining} remaining")
+
+    # Phase 2: init multipart upload (only if not resuming)
+    if not upload_id:
+        with httpx.Client(timeout=30, headers=headers) as client:
+            r = client.post(f"{bss_url}/videos/upload/multipart/init", json={
+                "owner": t.namespace,
+                "project": t.space,
+                "hash": raw_hash,
+                "contentType": "video/mp4",
+            })
+            r.raise_for_status()
+            init_data = r.json()
+            upload_id = init_data["uploadId"]
+            key = init_data["key"]
+        _save_state(raw_hash, upload_id, key, total_parts, [], state_lock)
+
+    # Phase 3: get presigned URLs for remaining parts
+    remaining_parts = [n for n in range(1, total_parts + 1) if n not in completed_map]
+    parts_data: dict[str, str] = {}
+    if remaining_parts:
+        with httpx.Client(timeout=30, headers=headers) as client:
+            r = client.post(f"{bss_url}/videos/upload/multipart/parts", json={
+                "uploadId": upload_id,
+                "key": key,
+                "partNumbers": remaining_parts,
+            })
+            r.raise_for_status()
+            parts_data = r.json()["parts"]  # {"1": url, "2": url, ...}
+
+    # Phase 4: parallel chunk upload
+    failed = False
+
+    def upload_part(part_number: int) -> dict:
+        start = (part_number - 1) * CHUNK_SIZE
+        chunk = content[start: start + CHUNK_SIZE]
+        url = parts_data[str(part_number)]
+        with httpx.Client(timeout=300) as s3_client:
+            resp = s3_client.put(url, content=chunk, headers={"Content-Type": "video/mp4"})
+            resp.raise_for_status()
+            etag = resp.headers.get("ETag", "").strip('"')
+            return {"partNumber": part_number, "etag": etag}
+
+    if remaining_parts:
+        with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+            futures = {executor.submit(upload_part, n): n for n in remaining_parts}
+            for future in as_completed(futures):
+                part_n = futures[future]
+                try:
+                    result = future.result()
+                    completed_parts.append(result)
+                    completed_map[result["partNumber"]] = result
+                    _save_state(raw_hash, upload_id, key, total_parts, completed_parts, state_lock)
+                    print(f"  {DIM}part {part_n}/{total_parts}{RESET} uploaded")
+                except Exception as e:
+                    print(f"{RED}error:{RESET} part {part_n} failed: {e}", file=sys.stderr)
+                    failed = True
+                    for f in futures:
+                        f.cancel()
+                    break
+
+    # Phase 5: complete or abort
+    if failed:
+        print(f"{RED}error:{RESET} upload paused — re-run to resume", file=sys.stderr)
+        return 1
+
+    with httpx.Client(timeout=60, headers=headers) as client:
+        r = client.post(f"{bss_url}/videos/upload/multipart/complete", json={
+            "uploadId": upload_id,
+            "key": key,
+            "parts": completed_parts,
+        })
+        r.raise_for_status()
+
+    _clear_state(raw_hash)
+
+    # Register in BSS (creates DB record + S3 meta)
+    with httpx.Client(timeout=30, headers=headers) as client:
+        r = client.post(f"{bss_url}/videos", json={
+            "name": path.split("/")[-1],
+            "owner": t.namespace,
+            "project": t.space,
+            "sessionId": t.session,
+            "rawHash": raw_hash,
+        })
+        r.raise_for_status()
+        bss_video = r.json()
+
+    # Register in dreamlake-server (links asset to namespace/space/session)
+    with httpx.Client(timeout=30, headers=headers) as client:
+        r = client.post(f"{remote}/assets/video", json={
+            "namespace": t.namespace,
+            "space": t.space,
+            "sessionName": t.session,
+            "name": f"/{path}",
+            "bssVideoId": bss_video.get("id"),
+            "fps": 30,
+            "lens": "pinhole",
+        })
+        r.raise_for_status()
+        dl_asset = r.json()
+
+    # Trigger HLS splitting (async — Lambda processes in background)
+    bss_video_id = bss_video.get("id")
+    with httpx.Client(timeout=30, headers=headers) as client:
+        r = client.post(f"{bss_url}/videos/{bss_video_id}/split")
+        if r.status_code == 202:
+            print(f"  {DIM}splitting:{RESET}    queued")
+        else:
+            print(f"  {DIM}splitting:{RESET}    skipped ({r.status_code})", file=sys.stderr)
+
+    print(f"{GREEN}✓ Uploaded:{RESET} /{path}")
+    print(f"  {DIM}bss id:{RESET}       {bss_video_id}")
+    print(f"  {DIM}dreamlake id:{RESET} {dl_asset.get('id')}")
+    return 0
+
+
+def _upload_asset(file_path: Path, t, path: str, category: str, token: str) -> int:
+    """Upload non-video assets through dreamlake-server."""
+    remote = ServerConfig.remote
+    print(f"  {DIM}namespace:{RESET} {t.namespace}")
+    print(f"  {DIM}space:{RESET}     {t.space}")
+    print(f"  {DIM}session:{RESET}   {t.session or '(space-level)'}")
+    print(f"  {DIM}remote:{RESET}    {remote}")
+    print(f"\n(server-side routes for '{category}' not yet implemented)")
+    return 0
 
 
 def main(args: list) -> int:
-    """Main entry point for upload command."""
     if not args or args[0] in ("-h", "--help", "help"):
         print_help()
         return 0 if args else 1
 
-    UploadConfig._update(args)
-    return cmd_upload(UploadConfig)
+    # Extract positional file arg (first non-flag arg)
+    file = None
+    remaining = []
+    i = 0
+    while i < len(args):
+        if args[i].startswith("-"):
+            remaining.append(args[i])
+            if i + 1 < len(args) and not args[i + 1].startswith("-"):
+                remaining.append(args[i + 1])
+                i += 2
+            else:
+                i += 1
+        else:
+            if file is None:
+                file = args[i]
+            i += 1
+
+    if not file:
+        print(f"{RED}error:{RESET} file path is required", file=sys.stderr)
+        print_help()
+        return 1
+
+    UploadConfig._update(args_to_dict(remaining))
+    return cmd_upload(file)
