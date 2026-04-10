@@ -37,8 +37,8 @@ class ServerConfig:
         if cls.token:
             return cls.token
         try:
-            from dreamlake.auth.token_storage import TokenStorage
-            return TokenStorage().get_token()
+            from dreamlake.auth.token_storage import get_token_storage
+            return get_token_storage().load("dreamlake-token")
         except Exception:
             return None
 
