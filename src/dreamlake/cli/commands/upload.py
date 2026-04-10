@@ -303,7 +303,7 @@ def _upload_video(file_path: Path, t, path: str, token: str) -> int:
     # Register in BSS (creates DB record + S3 meta)
     with httpx.Client(timeout=30, headers=headers) as client:
         r = client.post(f"{bss_url}/videos", json={
-            "name": f"/{path}",
+            "name": f"/{path}/{file_path.name}",
             "owner": t.namespace,
             "project": t.space,
             "sessionId": t.session,
@@ -318,7 +318,7 @@ def _upload_video(file_path: Path, t, path: str, token: str) -> int:
             "namespace": t.namespace,
             "space": t.space,
             "sessionName": t.session,
-            "name": f"/{path}",
+            "name": f"/{path}/{file_path.name}",
             "bssVideoId": bss_video.get("id"),
             "fps": 30,
             "lens": "pinhole",
@@ -482,7 +482,7 @@ def _upload_audio(file_path: Path, t, path: str, token: str) -> int:
     # Register in BSS
     with httpx.Client(timeout=30, headers=headers) as client:
         r = client.post(f"{bss_url}/audio", json={
-            "name": f"/{path}",
+            "name": f"/{path}/{file_path.name}",
             "owner": t.namespace,
             "project": t.space,
             "sessionId": t.session,
@@ -507,7 +507,7 @@ def _upload_audio(file_path: Path, t, path: str, token: str) -> int:
             "namespace": t.namespace,
             "space": t.space,
             "sessionName": t.session,
-            "name": f"/{path}",
+            "name": f"/{path}/{file_path.name}",
             "bssAudioId": bss_audio_id,
         })
         r.raise_for_status()
@@ -640,7 +640,7 @@ def _upload_label_track(file_path: Path, t, path: str, token: str) -> int:
     # Register in BSS (parses JSONL inline to extract stats)
     with httpx.Client(timeout=30, headers=headers) as client:
         r = client.post(f"{bss_url}/labels", json={
-            "name": f"/{path}",
+            "name": f"/{path}/{file_path.name}",
             "owner": t.namespace,
             "project": t.space,
             "sessionId": t.session,
@@ -659,7 +659,7 @@ def _upload_label_track(file_path: Path, t, path: str, token: str) -> int:
             "namespace": t.namespace,
             "space": t.space,
             "sessionName": t.session,
-            "name": f"/{path}",
+            "name": f"/{path}/{file_path.name}",
             "bssLabelId": bss_label_id,
         })
         r.raise_for_status()
@@ -805,7 +805,7 @@ def _upload_text_track(file_path: Path, t, path: str, token: str) -> int:
     # Register in BSS (parses content inline to extract stats)
     with httpx.Client(timeout=30, headers=headers) as client:
         r = client.post(f"{bss_url}/text-tracks", json={
-            "name": f"/{path}",
+            "name": f"/{path}/{file_path.name}",
             "owner": t.namespace,
             "project": t.space,
             "sessionId": t.session,
@@ -824,7 +824,7 @@ def _upload_text_track(file_path: Path, t, path: str, token: str) -> int:
             "namespace": t.namespace,
             "space": t.space,
             "sessionName": t.session,
-            "name": f"/{path}",
+            "name": f"/{path}/{file_path.name}",
             "bssTextTrackId": bss_track_id,
             "format": fmt,
         })
