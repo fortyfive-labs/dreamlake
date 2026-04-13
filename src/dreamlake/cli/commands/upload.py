@@ -307,7 +307,7 @@ def _upload_video(file_path: Path, t, path: str, token: str) -> int:
             "owner": t.namespace,
             "project": t.space,
             "sessionId": t.session,
-            "rawHash": raw_hash,
+            "stagingHash": raw_hash,
         })
         r.raise_for_status()
         bss_video = r.json()
@@ -329,7 +329,7 @@ def _upload_video(file_path: Path, t, path: str, token: str) -> int:
     # Trigger HLS splitting (async — Lambda processes in background)
     bss_video_id = bss_video.get("id")
     with httpx.Client(timeout=30, headers=headers) as client:
-        r = client.post(f"{bss_url}/videos/{bss_video_id}/split")
+        r = client.post(f"{bss_url}/lambdas/hls-split", json={"videoId": bss_video_id})
         if r.status_code == 202:
             print(f"  {DIM}splitting:{RESET}    queued")
         else:
@@ -486,7 +486,7 @@ def _upload_audio(file_path: Path, t, path: str, token: str) -> int:
             "owner": t.namespace,
             "project": t.space,
             "sessionId": t.session,
-            "rawHash": raw_hash,
+            "stagingHash": raw_hash,
         })
         r.raise_for_status()
         bss_audio = r.json()
@@ -495,7 +495,7 @@ def _upload_audio(file_path: Path, t, path: str, token: str) -> int:
 
     # Trigger Lambda processing (async)
     with httpx.Client(timeout=30, headers=headers) as client:
-        r = client.post(f"{bss_url}/audio/{bss_audio_id}/process")
+        r = client.post(f"{bss_url}/lambdas/audio-process", json={"audioId": bss_audio_id})
         if r.status_code == 202:
             print(f"  {DIM}processing:{RESET}   queued")
         else:
@@ -644,7 +644,7 @@ def _upload_label_track(file_path: Path, t, path: str, token: str) -> int:
             "owner": t.namespace,
             "project": t.space,
             "sessionId": t.session,
-            "rawHash": raw_hash,
+            "stagingHash": raw_hash,
         })
         r.raise_for_status()
         bss_label = r.json()
@@ -809,7 +809,7 @@ def _upload_text_track(file_path: Path, t, path: str, token: str) -> int:
             "owner": t.namespace,
             "project": t.space,
             "sessionId": t.session,
-            "rawHash": raw_hash,
+            "stagingHash": raw_hash,
             "format": fmt,
         })
         r.raise_for_status()
