@@ -31,22 +31,22 @@ def print_help():
             {CYAN}profile{RESET}     Show current user
             {CYAN}upload{RESET}      Upload a file (type auto-detected)
             {CYAN}download{RESET}    Download a file
-            {CYAN}list{RESET}        List assets in a session or space
+            {CYAN}list{RESET}        List assets in a episode or space
             {CYAN}video{RESET}       Video commands (upload/download/list via BSS)
 
-        {BOLD}Session syntax:{RESET}
-            [namespace@]space[:session]
+        {BOLD}Episode syntax:{RESET}
+            [namespace@]space[:episode]
 
         {BOLD}Examples:{RESET}
             {DIM}# Upload (type auto-detected from extension){RESET}
-            dreamlake upload ./mic.wav --sess alice@robotics:2026/q1/run-042 --to /microphone/front
+            dreamlake upload ./mic.wav --episode alice@robotics:2026/q1/run-042 --to /microphone/front
 
             {DIM}# Download{RESET}
-            dreamlake download --sess alice@robotics:2026/q1/run-042 --from /microphone/front -o ./mic.wav
+            dreamlake download --episode alice@robotics:2026/q1/run-042 --from /microphone/front -o ./mic.wav
 
             {DIM}# List assets{RESET}
-            dreamlake list --sess alice@robotics:2026/q1/run-042
-            dreamlake list --sess alice@robotics:2026/q1/run-042 --type audio
+            dreamlake list --episode alice@robotics:2026/q1/run-042
+            dreamlake list --episode alice@robotics:2026/q1/run-042 --type audio
 
             {DIM}# Video commands{RESET}
             dreamlake video upload ./video.mp4 --user alice --project robotics
