@@ -2,7 +2,7 @@
 Upload command.
 
 Usage:
-    dreamlake upload <file> --sess [namespace@]space[:session] --to <path>
+    dreamlake upload <file> --episode [namespace@]space[:episode] --to <path>
 
 File type is auto-detected from extension. Use --type to override.
 
@@ -41,8 +41,8 @@ CATEGORIES = {"audio", "video", "track", "text-track", "label-track"}
 
 @proto.prefix
 class UploadConfig:
-    sess: str | None = None   # [namespace@]space[:session]
-    to: str | None = None     # destination path (within session)
+    episode: str | None = None   # [namespace@]space[:episode]
+    to: str | None = None     # destination path (within episode)
     type: str | None = None   # category override
 
 
@@ -51,11 +51,11 @@ def print_help():
 {BOLD}dreamlake upload{RESET} - Upload a file to DreamLake
 
 {BOLD}Usage:{RESET}
-    dreamlake upload <file> --sess [namespace@]space[:session] --to <path>
+    dreamlake upload <file> --episode [namespace@]space[:episode] --to <path>
 
 {BOLD}Options:{RESET}
-    --sess    Session scope: [namespace@]space[:session]
-    --to      Destination path within the session
+    --episode    Episode scope: [namespace@]space[:episode]
+    --to      Destination path within the episode
     --type    Override auto-detected file type
 
 {BOLD}Auto-detected types:{RESET}
@@ -66,10 +66,10 @@ def print_help():
     .jsonl                → label-track (default; use --type text-track to override)
 
 {BOLD}Examples:{RESET}
-    dreamlake upload ./mic.wav --sess alice@robotics:2026/q1/run-042 --to /microphone/front
-    dreamlake upload ./video.mp4 --sess robotics:experiments/run-042 --to /camera/front
-    dreamlake upload ./labels.jsonl --sess alice@robotics:run-042 --to /detections/yolo
-    dreamlake upload ./transcript.jsonl --sess alice@robotics:run-042 --to /subtitles/en --type text-track
+    dreamlake upload ./mic.wav --episode alice@robotics:2026/q1/run-042 --to /microphone/front
+    dreamlake upload ./video.mp4 --episode robotics:experiments/run-042 --to /camera/front
+    dreamlake upload ./labels.jsonl --episode alice@robotics:run-042 --to /detections/yolo
+    dreamlake upload ./transcript.jsonl --episode alice@robotics:run-042 --to /subtitles/en --type text-track
 """.strip())
 
 
@@ -80,8 +80,8 @@ def detect_category(file_path: Path, type_override: str | None) -> str | None:
 
 
 def cmd_upload(file: str) -> int:
-    if not UploadConfig.sess:
-        print(f"{RED}error:{RESET} --sess is required", file=sys.stderr)
+    if not UploadConfig.episode:
+        print(f"{RED}error:{RESET} --episode is required", file=sys.stderr)
         return 1
 
     if not UploadConfig.to:
@@ -106,7 +106,7 @@ def cmd_upload(file: str) -> int:
         return 1
 
     try:
-        t = parse_target(UploadConfig.sess)
+        t = parse_target(UploadConfig.episode)
     except ValueError as e:
         print(f"{RED}error:{RESET} {e}", file=sys.stderr)
         return 1
@@ -129,7 +129,7 @@ def cmd_upload(file: str) -> int:
         return 1
 
     print(f"Uploading {CYAN}{file_path.name}{RESET} ({category})")
-    print(f"  {DIM}session:{RESET} {format_target(t)}")
+    print(f"  {DIM}episode:{RESET} {format_target(t)}")
     print(f"  {DIM}path:{RESET}    /{path}")
 
     try:
@@ -306,18 +306,18 @@ def _upload_video(file_path: Path, t, path: str, token: str) -> int:
             "name": f"/{path}/{file_path.name}",
             "owner": t.namespace,
             "project": t.space,
-            "sessionId": t.session,
+            "episodeId": t.episode,
             "stagingHash": raw_hash,
         })
         r.raise_for_status()
         bss_video = r.json()
 
-    # Register in dreamlake-server (links asset to namespace/space/session)
+    # Register in dreamlake-server (links asset to namespace/space/episode)
     with httpx.Client(timeout=30, headers=headers) as client:
         r = client.post(f"{remote}/assets/video", json={
             "namespace": t.namespace,
             "space": t.space,
-            "sessionName": t.session,
+            "episodeName": t.episode,
             "name": f"/{path}/{file_path.name}",
             "bssVideoId": bss_video.get("id"),
             "fps": 30,
@@ -485,7 +485,7 @@ def _upload_audio(file_path: Path, t, path: str, token: str) -> int:
             "name": f"/{path}/{file_path.name}",
             "owner": t.namespace,
             "project": t.space,
-            "sessionId": t.session,
+            "episodeId": t.episode,
             "stagingHash": raw_hash,
         })
         r.raise_for_status()
@@ -506,7 +506,7 @@ def _upload_audio(file_path: Path, t, path: str, token: str) -> int:
         r = client.post(f"{remote}/assets/audio", json={
             "namespace": t.namespace,
             "space": t.space,
-            "sessionName": t.session,
+            "episodeName": t.episode,
             "name": f"/{path}/{file_path.name}",
             "bssAudioId": bss_audio_id,
         })
@@ -643,7 +643,7 @@ def _upload_label_track(file_path: Path, t, path: str, token: str) -> int:
             "name": f"/{path}/{file_path.name}",
             "owner": t.namespace,
             "project": t.space,
-            "sessionId": t.session,
+            "episodeId": t.episode,
             "stagingHash": raw_hash,
         })
         r.raise_for_status()
@@ -658,7 +658,7 @@ def _upload_label_track(file_path: Path, t, path: str, token: str) -> int:
         r = client.post(f"{remote}/assets/label-track", json={
             "namespace": t.namespace,
             "space": t.space,
-            "sessionName": t.session,
+            "episodeName": t.episode,
             "name": f"/{path}/{file_path.name}",
             "bssLabelId": bss_label_id,
         })
@@ -808,7 +808,7 @@ def _upload_text_track(file_path: Path, t, path: str, token: str) -> int:
             "name": f"/{path}/{file_path.name}",
             "owner": t.namespace,
             "project": t.space,
-            "sessionId": t.session,
+            "episodeId": t.episode,
             "stagingHash": raw_hash,
             "format": fmt,
         })
@@ -823,7 +823,7 @@ def _upload_text_track(file_path: Path, t, path: str, token: str) -> int:
         r = client.post(f"{remote}/assets/text-track", json={
             "namespace": t.namespace,
             "space": t.space,
-            "sessionName": t.session,
+            "episodeName": t.episode,
             "name": f"/{path}/{file_path.name}",
             "bssTextTrackId": bss_track_id,
             "format": fmt,
