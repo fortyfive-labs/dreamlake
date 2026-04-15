@@ -10,6 +10,8 @@ Categories: audio, video, track, text-track, label-track
 """
 
 import sys
+import json
+import hashlib
 from pathlib import Path
 
 from params_proto import proto
@@ -44,6 +46,7 @@ class UploadConfig:
     episode: str | None = None   # [namespace@]space[:episode]
     to: str | None = None     # destination path (within episode)
     type: str | None = None   # category override
+    yes: bool = False         # skip confirmation prompt (for folder upload)
 
 
 def print_help():
@@ -79,6 +82,217 @@ def detect_category(file_path: Path, type_override: str | None) -> str | None:
     return EXTENSION_TO_CATEGORY.get(file_path.suffix.lower())
 
 
+def _upload_single_file(file_path: Path, t, path: str, token: str, category: str) -> int:
+    """Upload a single file. Returns 0 on success, 1 on failure."""
+    try:
+        if category == "video":
+            return _upload_video(file_path, t, path, token)
+        else:
+            return _upload_asset(file_path, t, path, category, token)
+    except Exception as e:
+        print(f"{RED}error:{RESET} {e}", file=sys.stderr)
+        return 1
+
+
+# ── Folder manifest helpers ───────────────────────────────────────────────────
+
+def _folder_manifest_hash(dir_path: Path, episode: str, to: str) -> str:
+    key = f"{dir_path.resolve()}:{episode}:{to}"
+    return hashlib.sha256(key.encode()).hexdigest()[:16]
+
+
+def _folder_manifest_path(dir_path: Path, episode: str, to: str) -> Path:
+    state_dir = Path.home() / ".dreamlake" / "uploads"
+    state_dir.mkdir(parents=True, exist_ok=True)
+    h = _folder_manifest_hash(dir_path, episode, to)
+    return state_dir / f"folder-{h}.json"
+
+
+def _load_folder_manifest(path: Path) -> dict | None:
+    if path.exists():
+        try:
+            return json.loads(path.read_text())
+        except Exception:
+            return None
+    return None
+
+
+def _save_folder_manifest(path: Path, manifest: dict) -> None:
+    path.write_text(json.dumps(manifest, indent=2))
+
+
+# ── Folder upload ─────────────────────────────────────────────────────────────
+
+def _upload_folder(dir_path: Path) -> int:
+    """Upload all files in a directory (flat, no recursion)."""
+    from rich.console import Console
+    from rich.table import Table
+    from rich.progress import Progress, BarColumn, TextColumn, MofNCompleteColumn
+    from rich.prompt import Confirm
+
+    console = Console()
+
+    if not UploadConfig.episode:
+        console.print("[red]error:[/red] --episode is required", style="bold")
+        return 1
+    if not UploadConfig.to:
+        console.print("[red]error:[/red] --to is required", style="bold")
+        return 1
+
+    try:
+        t = parse_target(UploadConfig.episode)
+    except ValueError as e:
+        console.print(f"[red]error:[/red] {e}")
+        return 1
+
+    to_path = UploadConfig.to.lstrip("/")
+
+    if not t.namespace:
+        t.namespace = ServerConfig.resolve_namespace()
+        if not t.namespace:
+            console.print("[red]error:[/red] namespace not specified. run 'dreamlake login'")
+            return 1
+
+    token = ServerConfig.resolve_token()
+    if not token:
+        console.print("[red]error:[/red] not authenticated. run 'dreamlake login' first")
+        return 1
+
+    # ── Step 1: Scan directory ────────────────────────────────────────────
+    console.print(f"\nScanning [cyan]{dir_path}[/cyan] ...")
+
+    all_files = sorted([f for f in dir_path.iterdir() if f.is_file()])
+    classified: dict[str, list[Path]] = {}
+    skipped: list[str] = []
+
+    for f in all_files:
+        cat = detect_category(f, None)
+        if cat and cat in CATEGORIES:
+            classified.setdefault(cat, []).append(f)
+        else:
+            skipped.append(f.name)
+
+    uploadable = {name: cat for cat, files in classified.items() for f in files for name, cat in [(f.name, cat)]}
+    total_uploadable = sum(len(files) for files in classified.values())
+
+    # ── Load / create manifest ────────────────────────────────────────────
+    manifest_path = _folder_manifest_path(dir_path, UploadConfig.episode, UploadConfig.to)
+    manifest = _load_folder_manifest(manifest_path) or {
+        "sourceDir": str(dir_path.resolve()),
+        "target": UploadConfig.episode,
+        "to": UploadConfig.to,
+        "files": {},
+        "skipped": [],
+    }
+
+    # Merge: add new files, keep existing status
+    for fname, cat in uploadable.items():
+        if fname not in manifest["files"]:
+            manifest["files"][fname] = {"status": "pending", "category": cat}
+    manifest["skipped"] = skipped
+
+    done_count = sum(1 for f in manifest["files"].values() if f["status"] == "done")
+    failed_count = sum(1 for f in manifest["files"].values() if f["status"] == "failed")
+    pending_count = sum(1 for f in manifest["files"].values() if f["status"] in ("pending", "failed"))
+
+    # ── Step 2: Display summary ───────────────────────────────────────────
+    console.print()
+    table = Table(show_header=False, box=None, padding=(0, 2))
+    table.add_column(style="dim", width=14)
+    table.add_column()
+    table.add_row("Total", f"{len(all_files)} files")
+    for cat in sorted(classified.keys()):
+        table.add_row(cat.replace("-", " ").title(), str(len(classified[cat])))
+    if skipped:
+        skip_display = ", ".join(skipped[:10])
+        if len(skipped) > 10:
+            skip_display += f" ...and {len(skipped) - 10} more"
+        table.add_row("Skipped", f"{len(skipped)} — unknown extension:")
+        console.print(table)
+        console.print(f"    [dim]{skip_display}[/dim]")
+    else:
+        console.print(table)
+
+    if done_count > 0:
+        console.print(f"\n  [green]Resuming[/green] ({done_count}/{total_uploadable} done, {failed_count} failed, {pending_count} pending)")
+
+    if total_uploadable == 0:
+        console.print("\n  No files to upload.")
+        return 0
+
+    console.print()
+    if not UploadConfig.yes:
+        if not Confirm.ask("  Continue?", default=True):
+            return 0
+
+    _save_folder_manifest(manifest_path, manifest)
+
+    # ── Step 3: Upload with progress ──────────────────────────────────────
+    to_upload = [
+        (fname, info["category"])
+        for fname, info in manifest["files"].items()
+        if info["status"] in ("pending", "failed")
+    ]
+
+    uploaded = 0
+    failed = 0
+
+    with Progress(
+        TextColumn("[bold blue]{task.description}"),
+        BarColumn(),
+        MofNCompleteColumn(),
+        TextColumn("[dim]{task.fields[current]}[/dim]"),
+        console=console,
+    ) as progress:
+        task = progress.add_task("Uploading", total=len(to_upload), current="")
+
+        for fname, cat in to_upload:
+            file_path = dir_path / fname
+            if not file_path.exists():
+                manifest["files"][fname]["status"] = "failed"
+                manifest["files"][fname]["error"] = "file not found"
+                failed += 1
+                progress.advance(task)
+                continue
+
+            size_mb = file_path.stat().st_size / (1024 * 1024)
+            progress.update(task, current=f"{fname} ({cat}, {size_mb:.1f} MB)")
+
+            result = _upload_single_file(file_path, t, to_path, token, cat)
+
+            if result == 0:
+                manifest["files"][fname]["status"] = "done"
+                uploaded += 1
+            else:
+                manifest["files"][fname]["status"] = "failed"
+                manifest["files"][fname]["error"] = "upload failed"
+                failed += 1
+
+            _save_folder_manifest(manifest_path, manifest)
+            progress.advance(task)
+
+    # ── Step 4: Final summary ─────────────────────────────────────────────
+    console.print()
+    total_done = sum(1 for f in manifest["files"].values() if f["status"] == "done")
+    total_failed = sum(1 for f in manifest["files"].values() if f["status"] == "failed")
+
+    if total_failed == 0:
+        console.print(f"[green]✓ {total_done}/{total_uploadable} uploaded[/green], {len(skipped)} skipped")
+    else:
+        console.print(f"[yellow]✓ {total_done}/{total_uploadable} uploaded[/yellow], {len(skipped)} skipped")
+        console.print(f"  [red]Failed: {total_failed}[/red]")
+        for fname, info in manifest["files"].items():
+            if info["status"] == "failed":
+                console.print(f"    {fname}: {info.get('error', 'unknown')}")
+        console.print("  Re-run to retry failed files.")
+
+    # Clean up manifest if all done
+    if total_failed == 0 and manifest_path.exists():
+        manifest_path.unlink()
+
+    return 0 if total_failed == 0 else 1
+
+
 def cmd_upload(file: str) -> int:
     if not UploadConfig.episode:
         print(f"{RED}error:{RESET} --episode is required", file=sys.stderr)
@@ -93,6 +307,11 @@ def cmd_upload(file: str) -> int:
         print(f"{RED}error:{RESET} file not found: {file}", file=sys.stderr)
         return 1
 
+    # Directory → folder upload mode
+    if file_path.is_dir():
+        return _upload_folder(file_path)
+
+    # Single file upload
     category = detect_category(file_path, UploadConfig.type)
     if not category:
         print(
@@ -132,14 +351,7 @@ def cmd_upload(file: str) -> int:
     print(f"  {DIM}episode:{RESET} {format_target(t)}")
     print(f"  {DIM}path:{RESET}    /{path}")
 
-    try:
-        if category == "video":
-            return _upload_video(file_path, t, path, token)
-        else:
-            return _upload_asset(file_path, t, path, category, token)
-    except Exception as e:
-        print(f"{RED}error:{RESET} {e}", file=sys.stderr)
-        return 1
+    return _upload_single_file(file_path, t, path, token, category)
 
 
 def _state_path(raw_hash: str) -> Path:
