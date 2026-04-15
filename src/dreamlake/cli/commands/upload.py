@@ -326,17 +326,18 @@ def _upload_video(file_path: Path, t, path: str, token: str) -> int:
         r.raise_for_status()
         dl_asset = r.json()
 
-    # Trigger HLS splitting (async — Lambda processes in background)
-    bss_video_id = bss_video.get("id")
-    with httpx.Client(timeout=30, headers=headers) as client:
-        r = client.post(f"{bss_url}/lambdas/hls-split", json={"videoId": bss_video_id})
-        if r.status_code == 202:
-            print(f"  {DIM}splitting:{RESET}    queued")
-        else:
-            print(f"  {DIM}splitting:{RESET}    skipped ({r.status_code})", file=sys.stderr)
+    # Trigger HLS splitting via presigned URL from dreamlake-server
+    lambda_url = dl_asset.get("lambdaUrl")
+    if lambda_url:
+        with httpx.Client(timeout=30) as client:
+            r = client.post(lambda_url)
+            if r.status_code == 202:
+                print(f"  {DIM}splitting:{RESET}    queued")
+            else:
+                print(f"  {DIM}splitting:{RESET}    skipped ({r.status_code})", file=sys.stderr)
 
     print(f"{GREEN}✓ Uploaded:{RESET} /{path}")
-    print(f"  {DIM}bss id:{RESET}       {bss_video_id}")
+    print(f"  {DIM}bss id:{RESET}       {bss_video.get('id')}")
     print(f"  {DIM}dreamlake id:{RESET} {dl_asset.get('id')}")
     return 0
 
@@ -493,15 +494,7 @@ def _upload_audio(file_path: Path, t, path: str, token: str) -> int:
 
     bss_audio_id = bss_audio.get("id")
 
-    # Trigger Lambda processing (async)
-    with httpx.Client(timeout=30, headers=headers) as client:
-        r = client.post(f"{bss_url}/lambdas/audio-process", json={"audioId": bss_audio_id})
-        if r.status_code == 202:
-            print(f"  {DIM}processing:{RESET}   queued")
-        else:
-            print(f"  {DIM}processing:{RESET}   skipped ({r.status_code})", file=sys.stderr)
-
-    # Register in dreamlake-server
+    # Register in dreamlake-server (gets presigned Lambda URL back)
     with httpx.Client(timeout=30, headers=headers) as client:
         r = client.post(f"{remote}/assets/audio", json={
             "namespace": t.namespace,
@@ -512,6 +505,16 @@ def _upload_audio(file_path: Path, t, path: str, token: str) -> int:
         })
         r.raise_for_status()
         dl_asset = r.json()
+
+    # Trigger Lambda processing via presigned URL
+    lambda_url = dl_asset.get("lambdaUrl")
+    if lambda_url:
+        with httpx.Client(timeout=30) as client:
+            r = client.post(lambda_url)
+            if r.status_code == 202:
+                print(f"  {DIM}processing:{RESET}   queued")
+            else:
+                print(f"  {DIM}processing:{RESET}   skipped ({r.status_code})", file=sys.stderr)
 
     print(f"{GREEN}✓ Uploaded:{RESET} /{path}")
     print(f"  {DIM}bss id:{RESET}       {bss_audio_id}")
@@ -664,6 +667,16 @@ def _upload_label_track(file_path: Path, t, path: str, token: str) -> int:
         })
         r.raise_for_status()
         dl_asset = r.json()
+
+    # Trigger Lambda processing via presigned URL
+    lambda_url = dl_asset.get("lambdaUrl")
+    if lambda_url:
+        with httpx.Client(timeout=30) as client:
+            r = client.post(lambda_url)
+            if r.status_code == 202:
+                print(f"  {DIM}processing:{RESET}   queued")
+            else:
+                print(f"  {DIM}processing:{RESET}   skipped ({r.status_code})", file=sys.stderr)
 
     print(f"{GREEN}✓ Uploaded:{RESET} /{path}")
     print(f"  {DIM}entries:{RESET}      {entry_count}")
@@ -830,6 +843,16 @@ def _upload_text_track(file_path: Path, t, path: str, token: str) -> int:
         })
         r.raise_for_status()
         dl_asset = r.json()
+
+    # Trigger Lambda processing via presigned URL
+    lambda_url = dl_asset.get("lambdaUrl")
+    if lambda_url:
+        with httpx.Client(timeout=30) as client:
+            r = client.post(lambda_url)
+            if r.status_code == 202:
+                print(f"  {DIM}processing:{RESET}   queued")
+            else:
+                print(f"  {DIM}processing:{RESET}   skipped ({r.status_code})", file=sys.stderr)
 
     print(f"{GREEN}✓ Uploaded:{RESET} /{path}")
     print(f"  {DIM}entries:{RESET}      {entry_count}")
