@@ -1,5 +1,5 @@
 """
-Three Usage Styles for Dreamlake Sessions
+Three Usage Styles for Dreamlake Episodes
 
 This example demonstrates all three ways to use Dreamlake:
 1. Decorator Style - Best for ML training functions
@@ -7,7 +7,7 @@ This example demonstrates all three ways to use Dreamlake:
 3. Direct Instantiation - Best when you need fine-grained control
 """
 
-from dreamlake import Session, dreamlake_session
+from dreamlake import Episode, dreamlake_episode
 import time
 
 
@@ -15,31 +15,31 @@ import time
 # Style 1: Decorator (Recommended for ML Training)
 # =============================================================================
 
-@dreamlake_session(
+@dreamlake_episode(
     name="decorator-example",
     workspace="usage-styles",
     local_path="./decorator_demo",
     description="Demonstrating decorator style",
     tags=["decorator", "demo"]
 )
-def train_with_decorator(session):
+def train_with_decorator(episode):
     """
-    Session is automatically injected as a function parameter.
-    The decorator handles opening and closing the session.
+    Episode is automatically injected as a function parameter.
+    The decorator handles opening and closing the episode.
 
     Perfect for:
     - ML training functions
     - Reproducible experiments
-    - Clean separation of session config and training logic
+    - Clean separation of episode config and training logic
     """
     print("🎨 Decorator Style Example")
     print("=" * 50)
 
-    # Session is already open and ready to use
-    session.log("Training started with decorator", level="info")
+    # Episode is already open and ready to use
+    episode.log("Training started with decorator", level="info")
 
     # Set hyperparameters
-    session.parameters().set(
+    episode.parameters().set(
         learning_rate=0.001,
         batch_size=32,
         optimizer="adam"
@@ -48,12 +48,12 @@ def train_with_decorator(session):
     # Simulate training
     for epoch in range(3):
         loss = 1.0 / (epoch + 1)  # Fake decreasing loss
-        session.track("train").append(loss=loss, epoch=epoch)
-        session.log(f"Epoch {epoch}: loss={loss:.4f}")
+        episode.track("train").append(loss=loss, epoch=epoch)
+        episode.log(f"Epoch {epoch}: loss={loss:.4f}")
 
-    session.log("Training completed", level="info")
+    episode.log("Training completed", level="info")
 
-    # Return results (session will auto-close after this)
+    # Return results (episode will auto-close after this)
     return {"final_loss": loss, "epochs": 3}
 
 
@@ -63,28 +63,28 @@ def train_with_decorator(session):
 
 def train_with_context_manager():
     """
-    Using the 'with' statement for automatic session management.
+    Using the 'with' statement for automatic episode management.
 
     Perfect for:
     - Scripts and notebooks
     - Quick experiments
-    - When you prefer explicit session scope
+    - When you prefer explicit episode scope
     """
     print("\n📦 Context Manager Style Example")
     print("=" * 50)
 
-    with Session(
+    with Episode(
         name="context-manager-example",
         workspace="usage-styles",
         local_path="./context_manager_demo",
         description="Demonstrating context manager style",
         tags=["context-manager", "demo"]
-    ) as session:
-        # Session is automatically opened by the 'with' statement
-        session.log("Training started with context manager", level="info")
+    ) as episode:
+        # Episode is automatically opened by the 'with' statement
+        episode.log("Training started with context manager", level="info")
 
         # Set hyperparameters
-        session.parameters().set(
+        episode.parameters().set(
             learning_rate=0.002,
             batch_size=64,
             optimizer="sgd"
@@ -93,14 +93,14 @@ def train_with_context_manager():
         # Simulate training
         for epoch in range(3):
             loss = 0.8 / (epoch + 1)  # Fake decreasing loss
-            session.track("train").append(loss=loss, epoch=epoch)
-            session.log(f"Epoch {epoch}: loss={loss:.4f}")
+            episode.track("train").append(loss=loss, epoch=epoch)
+            episode.log(f"Epoch {epoch}: loss={loss:.4f}")
 
-        session.log("Training completed", level="info")
+        episode.log("Training completed", level="info")
 
-        # Session automatically closes when exiting the 'with' block
+        # Episode automatically closes when exiting the 'with' block
 
-    print("✓ Session automatically closed")
+    print("✓ Episode automatically closed")
 
 
 # =============================================================================
@@ -109,18 +109,18 @@ def train_with_context_manager():
 
 def train_with_direct_instantiation():
     """
-    Manual session lifecycle management.
+    Manual episode lifecycle management.
 
     Perfect for:
-    - When session lifetime spans multiple scopes
+    - When episode lifetime spans multiple scopes
     - Complex workflows requiring fine-grained control
     - When you can't use context managers
     """
     print("\n⚙️  Direct Instantiation Style Example")
     print("=" * 50)
 
-    # Create session object
-    session = Session(
+    # Create episode object
+    episode = Episode(
         name="direct-example",
         workspace="usage-styles",
         local_path="./direct_demo",
@@ -128,15 +128,15 @@ def train_with_direct_instantiation():
         tags=["direct", "demo"]
     )
 
-    # Explicitly open the session
-    session.open()
+    # Explicitly open the episode
+    episode.open()
 
     try:
-        # Now we can use the session
-        session.log("Training started with direct instantiation", level="info")
+        # Now we can use the episode
+        episode.log("Training started with direct instantiation", level="info")
 
         # Set hyperparameters
-        session.parameters().set(
+        episode.parameters().set(
             learning_rate=0.003,
             batch_size=128,
             optimizer="adamw"
@@ -145,22 +145,22 @@ def train_with_direct_instantiation():
         # Simulate training
         for epoch in range(3):
             loss = 0.6 / (epoch + 1)  # Fake decreasing loss
-            session.track("train").append(loss=loss, epoch=epoch)
-            session.log(f"Epoch {epoch}: loss={loss:.4f}")
+            episode.track("train").append(loss=loss, epoch=epoch)
+            episode.log(f"Epoch {epoch}: loss={loss:.4f}")
 
-        session.log("Training completed", level="info")
+        episode.log("Training completed", level="info")
 
     finally:
         # Always close in finally block to ensure cleanup
-        session.close()
-        print("✓ Session manually closed")
+        episode.close()
+        print("✓ Episode manually closed")
 
 
 # =============================================================================
 # Remote Mode Examples
 # =============================================================================
 
-@dreamlake_session(
+@dreamlake_episode(
     name="remote-decorator-example",
     workspace="usage-styles",
     remote="https://cu3thurmv3.us-east-1.awsapprunner.com",
@@ -168,7 +168,7 @@ def train_with_direct_instantiation():
     description="Decorator with remote mode",
     tags=["remote", "decorator"]
 )
-def train_remote_decorator(session):
+def train_remote_decorator(episode):
     """
     All three styles work with remote mode!
     Just change the parameters from local_path to remote + user_name
@@ -176,11 +176,11 @@ def train_remote_decorator(session):
     print("\n☁️  Remote Mode with Decorator")
     print("=" * 50)
 
-    session.log("Training on remote server", level="info")
-    session.parameters().set(mode="remote", style="decorator")
+    episode.log("Training on remote server", level="info")
+    episode.parameters().set(mode="remote", style="decorator")
 
     for i in range(3):
-        session.track("metrics").append(metric=i * 0.1, step=i)
+        episode.track("metrics").append(metric=i * 0.1, step=i)
 
     print("✓ Data stored remotely (MongoDB + S3)")
 
@@ -190,19 +190,19 @@ def train_remote_context_manager():
     print("\n☁️  Remote Mode with Context Manager")
     print("=" * 50)
 
-    with Session(
+    with Episode(
         name="remote-context-example",
         workspace="usage-styles",
         remote="https://cu3thurmv3.us-east-1.awsapprunner.com",
         user_name="demo-user",
         description="Context manager with remote mode",
         tags=["remote", "context-manager"]
-    ) as session:
-        session.log("Training on remote server", level="info")
-        session.parameters().set(mode="remote", style="context_manager")
+    ) as episode:
+        episode.log("Training on remote server", level="info")
+        episode.parameters().set(mode="remote", style="context_manager")
 
         for i in range(3):
-            session.track("metrics").append(metric=i * 0.2, step=i)
+            episode.track("metrics").append(metric=i * 0.2, step=i)
 
         print("✓ Data stored remotely (MongoDB + S3)")
 

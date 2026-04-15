@@ -42,7 +42,7 @@ class RemoteClient:
             timeout=30.0,
         )
 
-    def create_or_update_session(
+    def create_or_update_episode(
         self,
         workspace: str,
         name: str,
@@ -53,19 +53,19 @@ class RemoteClient:
         metadata: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """
-        Create or update a session.
+        Create or update a episode.
 
         Args:
             workspace: Workspace name
-            name: Session name
+            name: Episode name
             description: Optional description
             tags: Optional list of tags
             folder: Optional folder path
-            write_protected: If True, session becomes immutable
+            write_protected: If True, episode becomes immutable
             metadata: Optional metadata dict
 
         Returns:
-            Response dict with session, workspace, folder, and namespace data
+            Response dict with episode, workspace, folder, and namespace data
 
         Raises:
             httpx.HTTPStatusError: If request fails
@@ -86,7 +86,7 @@ class RemoteClient:
             payload["metadata"] = metadata
 
         response = self._client.post(
-            f"/workspaces/{workspace}/sessions",
+            f"/workspaces/{workspace}/episodes",
             json=payload,
         )
         response.raise_for_status()
@@ -94,7 +94,7 @@ class RemoteClient:
 
     def create_log_entries(
         self,
-        session_id: str,
+        episode_id: str,
         logs: List[Dict[str, Any]]
     ) -> Dict[str, Any]:
         """
@@ -103,7 +103,7 @@ class RemoteClient:
         Supports both single log and multiple logs via array.
 
         Args:
-            session_id: Session ID (Snowflake ID)
+            episode_id: Episode ID (Snowflake ID)
             logs: List of log entries, each with fields:
                 - timestamp: ISO 8601 string
                 - level: "info"|"warn"|"error"|"debug"|"fatal"
@@ -116,14 +116,14 @@ class RemoteClient:
                 "created": 1,
                 "startSequence": 42,
                 "endSequence": 42,
-                "sessionId": "123456789"
+                "episodeId": "123456789"
             }
 
         Raises:
             httpx.HTTPStatusError: If request fails
         """
         response = self._client.post(
-            f"/sessions/{session_id}/logs",
+            f"/episodes/{episode_id}/logs",
             json={"logs": logs}
         )
         response.raise_for_status()
@@ -131,16 +131,16 @@ class RemoteClient:
 
     def set_parameters(
         self,
-        session_id: str,
+        episode_id: str,
         data: Dict[str, Any]
     ) -> Dict[str, Any]:
         """
-        Set/merge parameters for a session.
+        Set/merge parameters for a episode.
 
         Always merges with existing parameters (upsert behavior).
 
         Args:
-            session_id: Session ID (Snowflake ID)
+            episode_id: Episode ID (Snowflake ID)
             data: Flattened parameter dict with dot notation
                 Example: {"model.lr": 0.001, "model.batch_size": 32}
 
@@ -148,7 +148,7 @@ class RemoteClient:
             Response dict:
             {
                 "id": "snowflake_id",
-                "sessionId": "session_id",
+                "episodeId": "episode_id",
                 "data": {...},
                 "version": 2,
                 "createdAt": "...",
@@ -159,18 +159,18 @@ class RemoteClient:
             httpx.HTTPStatusError: If request fails
         """
         response = self._client.post(
-            f"/sessions/{session_id}/parameters",
+            f"/episodes/{episode_id}/parameters",
             json={"data": data}
         )
         response.raise_for_status()
         return response.json()
 
-    def get_parameters(self, session_id: str) -> Dict[str, Any]:
+    def get_parameters(self, episode_id: str) -> Dict[str, Any]:
         """
-        Get parameters for a session.
+        Get parameters for a episode.
 
         Args:
-            session_id: Session ID (Snowflake ID)
+            episode_id: Episode ID (Snowflake ID)
 
         Returns:
             Flattened parameter dict with dot notation
@@ -179,14 +179,14 @@ class RemoteClient:
         Raises:
             httpx.HTTPStatusError: If request fails or parameters don't exist
         """
-        response = self._client.get(f"/sessions/{session_id}/parameters")
+        response = self._client.get(f"/episodes/{episode_id}/parameters")
         response.raise_for_status()
         result = response.json()
         return result.get("data", {})
 
     def upload_file(
         self,
-        session_id: str,
+        episode_id: str,
         file_path: str,
         prefix: str,
         filename: str,
@@ -198,10 +198,10 @@ class RemoteClient:
         size_bytes: int
     ) -> Dict[str, Any]:
         """
-        Upload a file to a session.
+        Upload a file to a episode.
 
         Args:
-            session_id: Session ID (Snowflake ID)
+            episode_id: Episode ID (Snowflake ID)
             file_path: Local file path
             prefix: Logical path prefix
             filename: Original filename
@@ -239,7 +239,7 @@ class RemoteClient:
 
         # httpx will automatically set multipart/form-data content-type
         response = self._client.post(
-            f"/sessions/{session_id}/files",
+            f"/episodes/{episode_id}/files",
             files=files,
             data=data
         )
@@ -249,15 +249,15 @@ class RemoteClient:
 
     def list_files(
         self,
-        session_id: str,
+        episode_id: str,
         prefix: Optional[str] = None,
         tags: Optional[List[str]] = None
     ) -> List[Dict[str, Any]]:
         """
-        List files in a session.
+        List files in a episode.
 
         Args:
-            session_id: Session ID (Snowflake ID)
+            episode_id: Episode ID (Snowflake ID)
             prefix: Optional prefix filter
             tags: Optional tags filter
 
@@ -274,19 +274,19 @@ class RemoteClient:
             params["tags"] = ",".join(tags)
 
         response = self._client.get(
-            f"/sessions/{session_id}/files",
+            f"/episodes/{episode_id}/files",
             params=params
         )
         response.raise_for_status()
         result = response.json()
         return result.get("files", [])
 
-    def get_file(self, session_id: str, file_id: str) -> Dict[str, Any]:
+    def get_file(self, episode_id: str, file_id: str) -> Dict[str, Any]:
         """
         Get file metadata.
 
         Args:
-            session_id: Session ID (Snowflake ID)
+            episode_id: Episode ID (Snowflake ID)
             file_id: File ID (Snowflake ID)
 
         Returns:
@@ -295,21 +295,21 @@ class RemoteClient:
         Raises:
             httpx.HTTPStatusError: If request fails
         """
-        response = self._client.get(f"/sessions/{session_id}/files/{file_id}")
+        response = self._client.get(f"/episodes/{episode_id}/files/{file_id}")
         response.raise_for_status()
         return response.json()
 
     def download_file(
         self,
-        session_id: str,
+        episode_id: str,
         file_id: str,
         dest_path: Optional[str] = None
     ) -> str:
         """
-        Download a file from a session.
+        Download a file from a episode.
 
         Args:
-            session_id: Session ID (Snowflake ID)
+            episode_id: Episode ID (Snowflake ID)
             file_id: File ID (Snowflake ID)
             dest_path: Optional destination path (defaults to original filename)
 
@@ -321,7 +321,7 @@ class RemoteClient:
             ValueError: If checksum verification fails
         """
         # Get file metadata first to get filename and checksum
-        file_metadata = self.get_file(session_id, file_id)
+        file_metadata = self.get_file(episode_id, file_id)
         filename = file_metadata["filename"]
         expected_checksum = file_metadata["checksum"]
 
@@ -331,7 +331,7 @@ class RemoteClient:
 
         # Download file
         response = self._client.get(
-            f"/sessions/{session_id}/files/{file_id}/download"
+            f"/episodes/{episode_id}/files/{file_id}/download"
         )
         response.raise_for_status()
 
@@ -349,12 +349,12 @@ class RemoteClient:
 
         return dest_path
 
-    def delete_file(self, session_id: str, file_id: str) -> Dict[str, Any]:
+    def delete_file(self, episode_id: str, file_id: str) -> Dict[str, Any]:
         """
         Delete a file (soft delete).
 
         Args:
-            session_id: Session ID (Snowflake ID)
+            episode_id: Episode ID (Snowflake ID)
             file_id: File ID (Snowflake ID)
 
         Returns:
@@ -363,13 +363,13 @@ class RemoteClient:
         Raises:
             httpx.HTTPStatusError: If request fails
         """
-        response = self._client.delete(f"/sessions/{session_id}/files/{file_id}")
+        response = self._client.delete(f"/episodes/{episode_id}/files/{file_id}")
         response.raise_for_status()
         return response.json()
 
     def update_file(
         self,
-        session_id: str,
+        episode_id: str,
         file_id: str,
         description: Optional[str] = None,
         tags: Optional[List[str]] = None,
@@ -379,7 +379,7 @@ class RemoteClient:
         Update file metadata.
 
         Args:
-            session_id: Session ID (Snowflake ID)
+            episode_id: Episode ID (Snowflake ID)
             file_id: File ID (Snowflake ID)
             description: Optional description
             tags: Optional tags
@@ -400,7 +400,7 @@ class RemoteClient:
             payload["metadata"] = metadata
 
         response = self._client.patch(
-            f"/sessions/{session_id}/files/{file_id}",
+            f"/episodes/{episode_id}/files/{file_id}",
             json=payload
         )
         response.raise_for_status()
@@ -408,7 +408,7 @@ class RemoteClient:
 
     def append_to_track(
         self,
-        session_id: str,
+        episode_id: str,
         track_name: str,
         data: Dict[str, Any],
         description: Optional[str] = None,
@@ -419,8 +419,8 @@ class RemoteClient:
         Append a single data point to a track.
 
         Args:
-            session_id: Session ID (Snowflake ID)
-            track_name: Track name (unique within session)
+            episode_id: Episode ID (Snowflake ID)
+            track_name: Track name (unique within episode)
             data: Data point (flexible schema)
             description: Optional track description
             tags: Optional tags
@@ -441,7 +441,7 @@ class RemoteClient:
             payload["metadata"] = metadata
 
         response = self._client.post(
-            f"/sessions/{session_id}/tracks/{track_name}/append",
+            f"/episodes/{episode_id}/tracks/{track_name}/append",
             json=payload
         )
         response.raise_for_status()
@@ -449,7 +449,7 @@ class RemoteClient:
 
     def append_batch_to_track(
         self,
-        session_id: str,
+        episode_id: str,
         track_name: str,
         data_points: List[Dict[str, Any]],
         description: Optional[str] = None,
@@ -460,8 +460,8 @@ class RemoteClient:
         Append multiple data points to a track in batch.
 
         Args:
-            session_id: Session ID (Snowflake ID)
-            track_name: Track name (unique within session)
+            episode_id: Episode ID (Snowflake ID)
+            track_name: Track name (unique within episode)
             data_points: List of data points
             description: Optional track description
             tags: Optional tags
@@ -482,7 +482,7 @@ class RemoteClient:
             payload["metadata"] = metadata
 
         response = self._client.post(
-            f"/sessions/{session_id}/tracks/{track_name}/append-batch",
+            f"/episodes/{episode_id}/tracks/{track_name}/append-batch",
             json=payload
         )
         response.raise_for_status()
@@ -490,7 +490,7 @@ class RemoteClient:
 
     def read_track_data(
         self,
-        session_id: str,
+        episode_id: str,
         track_name: str,
         start_index: int = 0,
         limit: int = 1000
@@ -499,7 +499,7 @@ class RemoteClient:
         Read data points from a track.
 
         Args:
-            session_id: Session ID (Snowflake ID)
+            episode_id: Episode ID (Snowflake ID)
             track_name: Track name
             start_index: Starting index (default 0)
             limit: Max points to read (default 1000, max 10000)
@@ -511,7 +511,7 @@ class RemoteClient:
             httpx.HTTPStatusError: If request fails
         """
         response = self._client.get(
-            f"/sessions/{session_id}/tracks/{track_name}",
+            f"/episodes/{episode_id}/tracks/{track_name}",
             params={"s": start_index, "limit": limit}
         )
         response.raise_for_status()
@@ -519,7 +519,7 @@ class RemoteClient:
 
     def read_track_data_by_time(
         self,
-        session_id: str,
+        episode_id: str,
         track_name: str,
         start_time: Optional[float] = None,
         end_time: Optional[float] = None,
@@ -530,7 +530,7 @@ class RemoteClient:
         Read data points from a track by time range (MCAP-like API).
 
         Args:
-            session_id: Session ID (Snowflake ID)
+            episode_id: Episode ID (Snowflake ID)
             track_name: Track name
             start_time: Starting timestamp (seconds since epoch, None = from beginning)
             end_time: Ending timestamp (seconds since epoch, None = to end)
@@ -550,7 +550,7 @@ class RemoteClient:
             params["et"] = end_time
 
         response = self._client.get(
-            f"/sessions/{session_id}/tracks/{track_name}/by-time",
+            f"/episodes/{episode_id}/tracks/{track_name}/by-time",
             params=params
         )
         response.raise_for_status()
@@ -558,14 +558,14 @@ class RemoteClient:
 
     def get_track_stats(
         self,
-        session_id: str,
+        episode_id: str,
         track_name: str
     ) -> Dict[str, Any]:
         """
         Get track statistics and metadata.
 
         Args:
-            session_id: Session ID (Snowflake ID)
+            episode_id: Episode ID (Snowflake ID)
             track_name: Track name
 
         Returns:
@@ -575,20 +575,20 @@ class RemoteClient:
             httpx.HTTPStatusError: If request fails
         """
         response = self._client.get(
-            f"/sessions/{session_id}/tracks/{track_name}/stats"
+            f"/episodes/{episode_id}/tracks/{track_name}/stats"
         )
         response.raise_for_status()
         return response.json()
 
     def list_tracks(
         self,
-        session_id: str
+        episode_id: str
     ) -> List[Dict[str, Any]]:
         """
-        List all tracks in a session.
+        List all tracks in a episode.
 
         Args:
-            session_id: Session ID (Snowflake ID)
+            episode_id: Episode ID (Snowflake ID)
 
         Returns:
             List of track summaries
@@ -596,7 +596,7 @@ class RemoteClient:
         Raises:
             httpx.HTTPStatusError: If request fails
         """
-        response = self._client.get(f"/sessions/{session_id}/tracks")
+        response = self._client.get(f"/episodes/{episode_id}/tracks")
         response.raise_for_status()
         return response.json()["tracks"]
 

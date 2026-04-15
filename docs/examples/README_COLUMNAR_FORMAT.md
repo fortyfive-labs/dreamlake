@@ -51,10 +51,10 @@ DreamLake tracks support two storage formats:
 ### Single Appends (Row Format)
 ```python
 # Auto-generated timestamp
-session.track("loss").append(value=0.5, epoch=1)
+episode.track("loss").append(value=0.5, epoch=1)
 
 # Explicit timestamp
-session.track("metrics").append(value=0.5, _ts=time.time())
+episode.track("metrics").append(value=0.5, _ts=time.time())
 ```
 
 ### Batch Appends (Columnar Format)
@@ -67,17 +67,17 @@ batch_data = [
 ]
 
 # Batch append (automatically uses columnar format)
-result = session.track("loss").append_batch(batch_data)
+result = episode.track("loss").append_batch(batch_data)
 print(f"Appended {result['count']} points")
 ```
 
 ### Reading Data (Format Transparent)
 ```python
 # Reading works the same regardless of storage format
-data = session.track("loss").read(limit=100)
+data = episode.track("loss").read(limit=100)
 
 # Time-based queries also work
-data = session.track("loss").read_by_time(
+data = episode.track("loss").read_by_time(
     start_time=start,
     end_time=end,
     limit=1000

@@ -19,16 +19,16 @@ Local mode stores everything on your filesystem - perfect for getting started:
 ```{code-block} python
 :linenos:
 
-from dreamlake import Session
+from dreamlake import Episode
 
-# Create a session (stores data in .dreamlake/ directory)
-with Session(prefix="tutorial/my-first-experiment",
-        local_path=".dreamlake") as session:
+# Create a episode (stores data in .dreamlake/ directory)
+with Episode(prefix="tutorial/my-first-experiment",
+        local_path=".dreamlake") as episode:
     # Log messages
-    session.log("Training started")
+    episode.log("Training started")
 
     # Track parameters
-    session.params.set(
+    episode.params.set(
         learning_rate=0.001,
         batch_size=32,
         epochs=10
@@ -37,9 +37,9 @@ with Session(prefix="tutorial/my-first-experiment",
     # Track metrics over time
     for epoch in range(10):
         loss = 1.0 - epoch * 0.08  # Simulated decreasing loss
-        session.track("train").append(loss=loss, epoch=epoch)
+        episode.track("train").append(loss=loss, epoch=epoch)
 
-    session.log("Training completed")
+    episode.log("Training completed")
 ```
 
 That's it! Your experiment data is now saved in `.dreamlake/tutorial/my-first-experiment/`.
@@ -51,7 +51,7 @@ After running the code above, your data is organized like this:
 ```
 .dreamlake/
 └── tutorial/                    # workspace
-    └── my-first-experiment/     # session
+    └── my-first-experiment/     # episode
         ├── logs/
         │   └── logs.jsonl       # your log messages
         ├── parameters/
@@ -68,12 +68,12 @@ After running the code above, your data is organized like this:
 ```{code-block} python
 :linenos:
 
-from dreamlake import Session
+from dreamlake import Episode
 
-with Session(prefix="project/train-model",
-        local_path=".dreamlake") as session:
+with Episode(prefix="project/train-model",
+        local_path=".dreamlake") as episode:
     # Set hyperparameters
-    session.params.set(
+    episode.params.set(
         model="resnet50",
         optimizer="adam",
         learning_rate=0.001
@@ -86,12 +86,12 @@ with Session(prefix="project/train-model",
         val_acc = 0.9     # your actual accuracy
 
         # Track metrics
-        session.track("train").append(loss=train_loss, epoch=epoch)
-        session.track("val").append(accuracy=val_acc, epoch=epoch)
+        episode.track("train").append(loss=train_loss, epoch=epoch)
+        episode.track("val").append(accuracy=val_acc, epoch=epoch)
 
         # Log important events
         if epoch % 10 == 0:
-            session.log(f"Checkpoint at epoch {epoch}")
+            episode.log(f"Checkpoint at epoch {epoch}")
 ```
 
 ### Uploading Files
@@ -99,19 +99,19 @@ with Session(prefix="project/train-model",
 ```{code-block} python
 :linenos:
 
-from dreamlake import Session
+from dreamlake import Episode
 
-with Session(prefix="project/my-experiment",
-        local_path=".dreamlake") as session:
+with Episode(prefix="project/my-experiment",
+        local_path=".dreamlake") as episode:
     # Train your model...
     # model.save("model.pth")
 
     # Upload the model file
-    session.files.upload("model.pth", path="/models"
+    episode.files.upload("model.pth", path="/models"
     )
 
     # Upload a config file with metadata
-    session.files.upload("config.yaml", path="/configs",
+    episode.files.upload("config.yaml", path="/configs",
         metadata={"version": "1.0"}
     )
 ```
@@ -123,15 +123,15 @@ To collaborate with your team, switch to url mode by pointing to a DreamLake ser
 ```{code-block} python
 :linenos:
 
-from dreamlake import Session
+from dreamlake import Episode
 
-with Session(prefix="team-project/my-experiment",
+with Episode(prefix="team-project/my-experiment",
     url="http://your-server:3000",
     user_name="your-name"
-) as session:
+) as episode:
     # Use exactly the same API as local mode!
-    session.log("Running on url server")
-    session.params.set(learning_rate=0.001)
+    episode.log("Running on url server")
+    episode.params.set(learning_rate=0.001)
 ```
 
 The API is identical - just add `url` and `user_name` parameters.

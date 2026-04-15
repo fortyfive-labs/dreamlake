@@ -32,7 +32,7 @@ Align DreamLake's track API with ML-Dash for multi-modal timestamped data tracki
 
 ### Current DreamLake API
 ```python
-session.track("loss").append(value=0.5, epoch=1)
+episode.track("loss").append(value=0.5, epoch=1)
 ```
 
 ### Target API (ML-Dash style)
@@ -103,8 +103,8 @@ track("robot/state").flush()
 
 **Changes needed**:
 - [ ] Add `TrackBuilder.flush()` - flush specific track
-- [ ] Add `Session.tracks.flush()` - flush all tracks
-- [ ] Auto-flush on session close
+- [ ] Add `Episode.tracks.flush()` - flush all tracks
+- [ ] Auto-flush on episode close
 - [ ] Configurable buffer size/timeout
 
 **API**:
@@ -113,7 +113,7 @@ track("robot/state").flush()
 track("robot/position").flush()
 
 # Flush all tracks
-session.tracks.flush()
+episode.tracks.flush()
 ```
 
 ### 5. Time-Range Reading
@@ -209,27 +209,27 @@ mocap_data = track("robot/position").read(format="mocap")
 
 ### Before (Current API)
 ```python
-session.track("loss").append(value=0.5, epoch=1)
-session.track("metrics").append(loss=0.5, accuracy=0.85, step=100)
+episode.track("loss").append(value=0.5, epoch=1)
+episode.track("metrics").append(loss=0.5, accuracy=0.85, step=100)
 ```
 
 ### After (New API)
 ```python
 # Simple migration: add _ts
-session.tracks("loss").append(value=0.5, epoch=1, _ts=time.time())
+episode.tracks("loss").append(value=0.5, epoch=1, _ts=time.time())
 
 # Better: use hierarchical names
-session.tracks("train/loss").append(value=0.5, epoch=1, _ts=timestamp)
+episode.tracks("train/loss").append(value=0.5, epoch=1, _ts=timestamp)
 
 # Multi-modal data
-session.tracks("camera/left/pose").append(
+episode.tracks("camera/left/pose").append(
     position=[x, y, z],
     orientation=[qw, qx, qy, qz],
     _ts=timestamp
 )
 
 # Flush when done
-session.tracks.flush()
+episode.tracks.flush()
 ```
 
 ## Backward Compatibility

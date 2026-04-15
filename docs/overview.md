@@ -15,20 +15,20 @@ DreamLake is a lightweight Python SDK for tracking machine learning experiments 
 ```{code-block} python
 :linenos:
 
-session.log("Training started")
-session.params.set(learning_rate=0.001, batch_size=32)
-session.track("train").append(loss=0.5, epoch=1)
-session.files.upload("model.pth", path="/models")
+episode.log("Training started")
+episode.params.set(learning_rate=0.001, batch_size=32)
+episode.track("train").append(loss=0.5, epoch=1)
+episode.files.upload("model.pth", path="/models")
 ```
 
 
 ## Core Concepts
 
-**Session** - Represents a single experiment run containing logs, parameters, metrics, and files.
+**Episode** - Represents a single experiment run containing logs, parameters, metrics, and files.
 
-**Workspace** - A container for organizing related sessions, like a project folder.
+**Workspace** - A container for organizing related episodes, like a project folder.
 
-**Upsert Behavior** - Sessions can be reopened and updated, perfect for resuming training after crashes or iterative development.
+**Upsert Behavior** - Episodes can be reopened and updated, perfect for resuming training after crashes or iterative development.
 
 ---
 

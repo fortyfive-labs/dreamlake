@@ -8,7 +8,7 @@ Nested dicts are flattened to dot-notation: {"model": {"lr": 0.001}} → {"model
 from typing import Dict, Any, Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from .session import Session
+    from .episode import Episode
 
 
 class ParametersBuilder:
@@ -16,19 +16,19 @@ class ParametersBuilder:
     Fluent interface for parameter operations.
 
     Usage:
-        session.parameters().set(model={"lr": 0.001}, optimizer="adam")
-        params = session.parameters().get()
-        params_nested = session.parameters().get(flatten=False)
+        episode.parameters().set(model={"lr": 0.001}, optimizer="adam")
+        params = episode.parameters().get()
+        params_nested = episode.parameters().get(flatten=False)
     """
 
-    def __init__(self, session: 'Session'):
+    def __init__(self, episode: 'Episode'):
         """
         Initialize parameters builder.
 
         Args:
-            session: Parent session instance
+            episode: Parent episode instance
         """
-        self._session = session
+        self._episode = episode
 
     def set(self, **kwargs) -> 'ParametersBuilder':
         """
@@ -45,27 +45,27 @@ class ParametersBuilder:
             Self for potential chaining
 
         Raises:
-            RuntimeError: If session is not open
-            RuntimeError: If session is write-protected
+            RuntimeError: If episode is not open
+            RuntimeError: If episode is write-protected
 
         Examples:
             # Set nested parameters
-            session.parameters().set(
+            episode.parameters().set(
                 model={"lr": 0.001, "batch_size": 32},
                 optimizer="adam"
             )
 
             # Merge/update specific parameters
-            session.parameters().set(model={"lr": 0.0001})  # Only updates model.lr
+            episode.parameters().set(model={"lr": 0.0001})  # Only updates model.lr
 
             # Set flat parameters with dot notation
-            session.parameters().set(**{"model.lr": 0.001, "model.batch_size": 32})
+            episode.parameters().set(**{"model.lr": 0.001, "model.batch_size": 32})
         """
-        if not self._session._is_open:
-            raise RuntimeError("Session not open. Use session.open() or context manager.")
+        if not self._episode._is_open:
+            raise RuntimeError("Episode not open. Use episode.open() or context manager.")
 
-        if self._session.write_protected:
-            raise RuntimeError("Session is write-protected and cannot be modified.")
+        if self._episode.write_protected:
+            raise RuntimeError("Episode is write-protected and cannot be modified.")
 
         # Flatten the kwargs
         flattened = self.flatten_dict(kwargs)
@@ -74,14 +74,14 @@ class ParametersBuilder:
             # No parameters to set, just return
             return self
 
-        # Write parameters through session
-        self._session._write_params(flattened)
+        # Write parameters through episode
+        self._episode._write_params(flattened)
 
         return self
 
     def get(self, flatten: bool = True) -> Dict[str, Any]:
         """
-        Get parameters from the session.
+        Get parameters from the episode.
 
         Args:
             flatten: If True, returns flattened dict with dot notation.
@@ -91,22 +91,22 @@ class ParametersBuilder:
             Parameters dict (flattened or nested based on flatten arg)
 
         Raises:
-            RuntimeError: If session is not open
+            RuntimeError: If episode is not open
 
         Examples:
             # Get flattened parameters
-            params = session.parameters().get()
+            params = episode.parameters().get()
             # → {"model.lr": 0.001, "model.batch_size": 32, "optimizer": "adam"}
 
             # Get nested parameters
-            params = session.parameters().get(flatten=False)
+            params = episode.parameters().get(flatten=False)
             # → {"model": {"lr": 0.001, "batch_size": 32}, "optimizer": "adam"}
         """
-        if not self._session._is_open:
-            raise RuntimeError("Session not open. Use session.open() or context manager.")
+        if not self._episode._is_open:
+            raise RuntimeError("Episode not open. Use episode.open() or context manager.")
 
-        # Read parameters through session
-        params = self._session._read_params()
+        # Read parameters through episode
+        params = self._episode._read_params()
 
         if params is None:
             return {}

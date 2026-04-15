@@ -16,9 +16,9 @@ You want to find the best learning rate and batch size by:
 
 from itertools import product
 import random
-from dreamlake import Session
+from dreamlake import Episode
 
-def train_with_config(lr, batch_size, session):
+def train_with_config(lr, batch_size, episode):
     """Simulate training with given hyperparameters."""
     epochs = 10
     final_accuracy = 0
@@ -29,8 +29,8 @@ def train_with_config(lr, batch_size, session):
         # Simulate: larger batch_size = slightly worse performance
         accuracy = min(0.95, 0.5 + epoch * 0.05 * (32 / batch_size))
 
-        session.track("train").append(loss=loss, epoch=epoch)
-        session.track("metrics").append(accuracy=accuracy, epoch=epoch)
+        episode.track("train").append(loss=loss, epoch=epoch)
+        episode.track("metrics").append(accuracy=accuracy, epoch=epoch)
 
         final_accuracy = accuracy
 
@@ -46,29 +46,29 @@ def hyperparameter_search():
 
     # Test each combination
     for lr, bs in product(learning_rates, batch_sizes):
-        session_name = f"search-lr{lr}-bs{bs}"
+        episode_name = f"search-lr{lr}-bs{bs}"
 
-        with Session(
-            name=session_name,
+        with Episode(
+            name=episode_name,
             workspace="hyperparameter-search",
             readme=f"Grid search: lr={lr}, batch_size={bs}",
             tags=["grid-search", f"lr-{lr}", f"bs-{bs}"],
         local_path=".dreamlake"
-        ) as session:
+        ) as episode:
             # Track hyperparameters
-            session.params.set(
+            episode.params.set(
                 learning_rate=lr,
                 batch_size=bs,
                 optimizer="sgd",
                 epochs=10
             )
 
-            session.log(f"Starting training with lr={lr}, bs={bs}")
+            episode.log(f"Starting training with lr={lr}, bs={bs}")
 
             # Train
-            final_accuracy = train_with_config(lr, bs, session)
+            final_accuracy = train_with_config(lr, bs, episode)
 
-            session.log(f"Final accuracy: {final_accuracy:.4f}")
+            episode.log(f"Final accuracy: {final_accuracy:.4f}")
 
             results.append({
                 "lr": lr,
@@ -97,7 +97,7 @@ if __name__ == "__main__":
 
 ## What Gets Created
 
-**9 separate sessions** - One for each combination:
+**9 separate episodes** - One for each combination:
 ```
 hyperparameter-search/
 ├── search-lr0.1-bs16/
@@ -111,16 +111,16 @@ hyperparameter-search/
 └── search-lr0.001-bs64/
 ```
 
-**Each session contains:**
+**Each episode contains:**
 - Parameters: `{"learning_rate": 0.01, "batch_size": 32, ...}`
 - Logs: Start and completion messages
 - Tracks: Loss and accuracy over 10 epochs
 
 ## Key Patterns
 
-**Unique session names** - Each experiment gets its own session:
+**Unique episode names** - Each experiment gets its own episode:
 ```python
-session_name = f"search-lr{lr}-bs{bs}"
+episode_name = f"search-lr{lr}-bs{bs}"
 ```
 
 **Descriptive tags** - Easy filtering later:
@@ -144,9 +144,9 @@ for i in range(20):
     lr = 10 ** random.uniform(-4, -1)  # 0.0001 to 0.1
     bs = random.choice([16, 32, 64, 128])
 
-    with Session(name=f"random-{i}", workspace="random-search",
-        local_path=".dreamlake") as session:
-        session.params.set(learning_rate=lr, batch_size=bs)
+    with Episode(name=f"random-{i}", workspace="random-search",
+        local_path=".dreamlake") as episode:
+        episode.params.set(learning_rate=lr, batch_size=bs)
         # Train and track...
 ```
 
@@ -156,10 +156,10 @@ for trial in range(100):
     # Get next params from Bayesian optimizer
     params = optimizer.suggest()
 
-    with Session(name=f"trial-{trial}", workspace="bayes-opt",
-        local_path=".dreamlake") as session:
-        session.params.set(**params)
-        accuracy = train_and_evaluate(params, session)
+    with Episode(name=f"trial-{trial}", workspace="bayes-opt",
+        local_path=".dreamlake") as episode:
+        episode.params.set(**params)
+        accuracy = train_and_evaluate(params, episode)
 
         # Update Bayesian optimizer
         optimizer.register(params, accuracy)

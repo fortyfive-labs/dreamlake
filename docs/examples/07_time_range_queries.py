@@ -13,16 +13,16 @@ provides efficient time-based access to track data.
 """
 
 import time
-from dreamlake import Session
+from dreamlake import Episode
 
 
 def example_time_range_query():
     """Query data within a specific time range."""
 
-    with Session(
+    with Episode(
         prefix="tutorials/time-range-demo",
         root="./tutorial_data"
-    ) as session:
+    ) as episode:
         # Record robot data over 10 seconds
         base_time = time.time()
 
@@ -30,7 +30,7 @@ def example_time_range_query():
         for i in range(100):
             current_time = base_time + i * 0.1
 
-            session.track("robot/pose").append(
+            episode.track("robot/pose").append(
                 position=[i * 0.1, i * 0.2, i * 0.3],
                 orientation=[0.0, 0.0, 0.0, 1.0],
                 _ts=current_time
@@ -40,7 +40,7 @@ def example_time_range_query():
 
         # Query last 3 seconds
         print("Querying last 3 seconds of data...")
-        result = session.track("robot/pose").read_by_time(
+        result = episode.track("robot/pose").read_by_time(
             start_time=base_time + 7.0,
             end_time=base_time + 10.0,
             limit=1000
@@ -51,7 +51,7 @@ def example_time_range_query():
 
         # Query middle 2 seconds
         print("\nQuerying middle 2 seconds [4.0s, 6.0s)...")
-        result = session.track("robot/pose").read_by_time(
+        result = episode.track("robot/pose").read_by_time(
             start_time=base_time + 4.0,
             end_time=base_time + 6.0,
             limit=1000
@@ -63,16 +63,16 @@ def example_time_range_query():
 def example_reverse_iteration():
     """Query most recent data using reverse iteration."""
 
-    with Session(
+    with Episode(
         prefix="tutorials/reverse-demo",
         root="./tutorial_data"
-    ) as session:
+    ) as episode:
         # Record some metric data
         base_time = time.time()
 
         print("Recording 50 metric samples...")
         for i in range(50):
-            session.track("system/cpu").append(
+            episode.track("system/cpu").append(
                 usage_percent=50 + i % 20,
                 timestamp=i,
                 _ts=base_time + i * 0.1
@@ -82,7 +82,7 @@ def example_reverse_iteration():
 
         # Get 10 most recent samples (reverse order)
         print("Fetching 10 most recent samples (reverse order)...")
-        result = session.track("system/cpu").read_by_time(
+        result = episode.track("system/cpu").read_by_time(
             reverse=True,
             limit=10
         )
@@ -99,10 +99,10 @@ def example_reverse_iteration():
 def example_open_ended_queries():
     """Query from start_time to end, or from beginning to end_time."""
 
-    with Session(
+    with Episode(
         prefix="tutorials/open-queries-demo",
         root="./tutorial_data"
-    ) as session:
+    ) as episode:
         # Record data with gaps
         base_time = time.time()
 
@@ -110,7 +110,7 @@ def example_open_ended_queries():
         timestamps = [0, 1, 2, 5, 6, 7, 10, 11, 12]  # Gaps at 3-4 and 8-9
 
         for t in timestamps:
-            session.track("sensor/reading").append(
+            episode.track("sensor/reading").append(
                 value=t * 10,
                 _ts=base_time + t
             )
@@ -119,7 +119,7 @@ def example_open_ended_queries():
 
         # Query from time 5 to end
         print("Query from 5 seconds to end...")
-        result = session.track("sensor/reading").read_by_time(
+        result = episode.track("sensor/reading").read_by_time(
             start_time=base_time + 5,
             limit=100
         )
@@ -127,7 +127,7 @@ def example_open_ended_queries():
 
         # Query from beginning to time 7
         print("\nQuery from beginning to 7 seconds...")
-        result = session.track("sensor/reading").read_by_time(
+        result = episode.track("sensor/reading").read_by_time(
             end_time=base_time + 7,
             limit=100
         )
@@ -137,10 +137,10 @@ def example_open_ended_queries():
 def example_synchronized_multimodal():
     """Query synchronized multi-modal data by time."""
 
-    with Session(
+    with Episode(
         prefix="tutorials/multimodal-time-demo",
         root="./tutorial_data"
-    ) as session:
+    ) as episode:
         # Record synchronized multi-modal data
         base_time = time.time()
 
@@ -174,9 +174,9 @@ def example_synchronized_multimodal():
             })
 
         # Batch append for efficiency (uses columnar format)
-        session.track("robot/pose").append_batch(pose_batch)
-        session.track("robot/velocity").append_batch(velocity_batch)
-        session.track("camera/left/image").append_batch(image_batch)
+        episode.track("robot/pose").append_batch(pose_batch)
+        episode.track("robot/velocity").append_batch(velocity_batch)
+        episode.track("camera/left/image").append_batch(image_batch)
 
         print(f"✓ Recorded 50 synchronized timesteps (batch columnar format)\n")
 
@@ -186,19 +186,19 @@ def example_synchronized_multimodal():
 
         print(f"Querying time range [{2.0}s, {4.0}s) across all tracks...")
 
-        pose_result = session.track("robot/pose").read_by_time(
+        pose_result = episode.track("robot/pose").read_by_time(
             start_time=query_start,
             end_time=query_end,
             limit=100
         )
 
-        velocity_result = session.track("robot/velocity").read_by_time(
+        velocity_result = episode.track("robot/velocity").read_by_time(
             start_time=query_start,
             end_time=query_end,
             limit=100
         )
 
-        image_result = session.track("camera/left/image").read_by_time(
+        image_result = episode.track("camera/left/image").read_by_time(
             start_time=query_start,
             end_time=query_end,
             limit=100
@@ -223,16 +223,16 @@ def example_synchronized_multimodal():
 def example_comparison_index_vs_time():
     """Compare index-based vs time-based queries."""
 
-    with Session(
+    with Episode(
         prefix="tutorials/index-vs-time-demo",
         root="./tutorial_data"
-    ) as session:
+    ) as episode:
         # Record data
         base_time = time.time()
 
         print("Recording 30 samples...")
         for i in range(30):
-            session.track("metric").append(
+            episode.track("metric").append(
                 value=i * 10,
                 step=i,
                 _ts=base_time + i * 0.5
@@ -242,7 +242,7 @@ def example_comparison_index_vs_time():
 
         # Index-based query
         print("Index-based query (indices 10-20):")
-        result_index = session.track("metric").read(
+        result_index = episode.track("metric").read(
             start_index=10,
             limit=10
         )
@@ -251,7 +251,7 @@ def example_comparison_index_vs_time():
 
         # Time-based query
         print("\nTime-based query (5s to 10s):")
-        result_time = session.track("metric").read_by_time(
+        result_time = episode.track("metric").read_by_time(
             start_time=base_time + 5.0,
             end_time=base_time + 10.0,
             limit=100

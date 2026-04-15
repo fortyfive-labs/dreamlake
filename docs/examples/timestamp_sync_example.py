@@ -6,8 +6,8 @@ useful for robotics applications where you want to log pose, images, and sensor
 data with the same timestamp.
 
 The _ts=-1 inheritance works:
-- Across ALL tracks within a session (not per-track)
-- Across different Python files/modules that share the same session object
+- Across ALL tracks within a episode (not per-track)
+- Across different Python files/modules that share the same episode object
 - For both track data and file uploads (files can be logged alongside tracks)
 
 Usage pattern:
@@ -16,47 +16,47 @@ Usage pattern:
 """
 
 import time
-from dreamlake import Session
+from dreamlake import Episode
 
 
 def log_robot_data_synchronized():
     """Example: Log robot pose, camera image, and sensor data with synchronized timestamps."""
 
-    with Session(
+    with Episode(
         name="robot-sync-demo",
         workspace="robotics",
         local_path=".dreamlake"
-    ) as session:
+    ) as episode:
         # Simulate 10 timesteps of robot operation
         for step in range(10):
             # First log: robot pose (auto-generates timestamp)
-            session.track("robot/pose").append(
+            episode.track("robot/pose").append(
                 position=[1.0 + step * 0.1, 2.0, 3.0],
                 orientation=[0.0, 0.0, 0.0, 1.0]
             )
 
             # Following logs: inherit the same timestamp using _ts=-1
-            session.track("camera/left/image").append(
+            episode.track("camera/left/image").append(
                 width=640,
                 height=480,
                 frame_id=step,
                 _ts=-1  # Inherits timestamp from robot/pose
             )
 
-            session.track("camera/right/image").append(
+            episode.track("camera/right/image").append(
                 width=640,
                 height=480,
                 frame_id=step,
                 _ts=-1  # Same timestamp
             )
 
-            session.track("robot/velocity").append(
+            episode.track("robot/velocity").append(
                 linear=[0.1, 0.0, 0.0],
                 angular=[0.0, 0.0, 0.05],
                 _ts=-1  # Same timestamp
             )
 
-            session.track("sensors/lidar").append(
+            episode.track("sensors/lidar").append(
                 ranges=[1.5, 2.0, 2.5],  # Simplified lidar data
                 _ts=-1  # Same timestamp
             )
@@ -65,9 +65,9 @@ def log_robot_data_synchronized():
             time.sleep(0.01)
 
         # Verify all tracks have matching timestamps
-        pose_data = session.track("robot/pose").read()
-        left_cam_data = session.track("camera/left/image").read()
-        velocity_data = session.track("robot/velocity").read()
+        pose_data = episode.track("robot/pose").read()
+        left_cam_data = episode.track("camera/left/image").read()
+        velocity_data = episode.track("robot/velocity").read()
 
         print(f"✓ Logged {len(pose_data['data'])} synchronized timesteps")
 
@@ -82,21 +82,21 @@ def log_robot_data_synchronized():
 def log_with_explicit_timestamps():
     """Example: Use explicit timestamps for precise control."""
 
-    with Session(
+    with Episode(
         name="explicit-ts-demo",
         workspace="robotics",
         local_path=".dreamlake"
-    ) as session:
+    ) as episode:
         # Use explicit timestamp
         ts = 1234567890.123
 
-        session.track("robot/pose").append(
+        episode.track("robot/pose").append(
             position=[1.0, 2.0, 3.0],
             _ts=ts
         )
 
         # Inherit explicit timestamp
-        session.track("camera/image").append(
+        episode.track("camera/image").append(
             width=640,
             _ts=-1  # Uses ts=1234567890.123
         )
@@ -107,20 +107,20 @@ def log_with_explicit_timestamps():
 def log_multi_field_merging():
     """Example: Merge multiple fields into single timestamped entry."""
 
-    with Session(
+    with Episode(
         name="merge-demo",
         workspace="robotics",
         local_path=".dreamlake"
-    ) as session:
+    ) as episode:
         # Log different fields separately but merge into single entry
         ts = time.time()
 
-        session.track("robot/state").append(position=[1.0, 2.0, 3.0], _ts=ts)
-        session.track("robot/state").append(velocity=[0.1, 0.0, 0.0], _ts=ts)
-        session.track("robot/state").append(acceleration=[0.01, 0.0, 0.0], _ts=ts)
+        episode.track("robot/state").append(position=[1.0, 2.0, 3.0], _ts=ts)
+        episode.track("robot/state").append(velocity=[0.1, 0.0, 0.0], _ts=ts)
+        episode.track("robot/state").append(acceleration=[0.01, 0.0, 0.0], _ts=ts)
 
         # Read back - should be single merged entry
-        data = session.track("robot/state").read()
+        data = episode.track("robot/state").read()
 
         assert len(data['data']) == 1, "Should merge into single entry"
 

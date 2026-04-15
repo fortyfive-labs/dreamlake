@@ -5,14 +5,14 @@ Tests concurrent operations for:
 - Logging (sequence numbers)
 - Parameters (merging)
 - Tracks (index allocation)
-- Session metadata
+- Episode metadata
 """
 
 import threading
 import tempfile
 from pathlib import Path
 
-from dreamlake import Session
+from dreamlake import Episode
 
 
 def test_concurrent_logging():
@@ -20,17 +20,17 @@ def test_concurrent_logging():
     with tempfile.TemporaryDirectory() as tmpdir:
         local_path = Path(tmpdir) / ".dreamlake"
 
-        with Session(
+        with Episode(
             prefix="test-workspace/log-test",
             root=str(local_path)
-        ) as session:
+        ) as episode:
             num_logs = 100
             errors = []
 
             def log_message(index):
                 """Log a message."""
                 try:
-                    session.log(f"Log message {index}")
+                    episode.log(f"Log message {index}")
                 except Exception as e:
                     errors.append(f"Log {index} failed: {e}")
 
@@ -70,10 +70,10 @@ def test_concurrent_parameters():
     with tempfile.TemporaryDirectory() as tmpdir:
         local_path = Path(tmpdir) / ".dreamlake"
 
-        with Session(
+        with Episode(
             prefix="test-workspace/param-test",
             root=str(local_path)
-        ) as session:
+        ) as episode:
             num_threads = 20
             params_per_thread = 5
             errors = []
@@ -82,7 +82,7 @@ def test_concurrent_parameters():
                 """Set parameters unique to this thread."""
                 try:
                     for i in range(params_per_thread):
-                        session.parameters().set(**{
+                        episode.parameters().set(**{
                             f"thread_{thread_id}_param_{i}": thread_id * 100 + i
                         })
                 except Exception as e:
@@ -99,7 +99,7 @@ def test_concurrent_parameters():
             assert len(errors) == 0, f"Parameter errors: {errors}"
 
             # Verify all parameters were saved
-            params = session.parameters().get()
+            params = episode.parameters().get()
             expected_count = num_threads * params_per_thread
             assert len(params) == expected_count, \
                 f"Expected {expected_count} parameters, found {len(params)}"
@@ -119,10 +119,10 @@ def test_concurrent_track_append():
     with tempfile.TemporaryDirectory() as tmpdir:
         local_path = Path(tmpdir) / ".dreamlake"
 
-        with Session(
+        with Episode(
             prefix="test-workspace/track-test",
             root=str(local_path)
-        ) as session:
+        ) as episode:
             num_appends = 100
             errors = []
             results = [None] * num_appends
@@ -130,7 +130,7 @@ def test_concurrent_track_append():
             def append_data(index):
                 """Append data to track."""
                 try:
-                    result = session.track("metrics").append(
+                    result = episode.track("metrics").append(
                         value=index,
                         step=index
                     )
@@ -152,8 +152,8 @@ def test_concurrent_track_append():
             assert all(r is not None for r in results), "Some appends failed"
 
             # Flush and read back to verify indices
-            session.track("metrics").flush()
-            data = session.track("metrics").read(start_index=0, limit=num_appends)
+            episode.track("metrics").flush()
+            data = episode.track("metrics").read(start_index=0, limit=num_appends)
 
             # Verify all indices are unique
             indices = [int(point["index"]) for point in data["data"]]
@@ -161,7 +161,7 @@ def test_concurrent_track_append():
             assert sorted(indices) == list(range(num_appends)), "Indices are not consecutive"
 
             # Verify track stats
-            stats = session.track("metrics").stats()
+            stats = episode.track("metrics").stats()
             assert int(stats["totalDataPoints"]) == num_appends, \
                 f"Expected {num_appends} data points, found {stats['totalDataPoints']}"
 
@@ -171,10 +171,10 @@ def test_concurrent_batch_track_append():
     with tempfile.TemporaryDirectory() as tmpdir:
         local_path = Path(tmpdir) / ".dreamlake"
 
-        with Session(
+        with Episode(
             prefix="test-workspace/batch-track-test",
             root=str(local_path)
-        ) as session:
+        ) as episode:
             num_batches = 20
             batch_size = 10
             errors = []
@@ -187,7 +187,7 @@ def test_concurrent_batch_track_append():
                         {"value": batch_id * batch_size + i, "step": batch_id * batch_size + i}
                         for i in range(batch_size)
                     ]
-                    result = session.track("batch_metrics").append_batch(data_points)
+                    result = episode.track("batch_metrics").append_batch(data_points)
                     results[batch_id] = result
                 except Exception as e:
                     errors.append(f"Batch {batch_id} failed: {e}")
@@ -222,66 +222,66 @@ def test_concurrent_batch_track_append():
             assert all_indices == set(range(expected_total)), "Index ranges are not consecutive"
 
             # Verify track stats
-            stats = session.track("batch_metrics").stats()
+            stats = episode.track("batch_metrics").stats()
             assert int(stats["totalDataPoints"]) == expected_total, \
                 f"Expected {expected_total} data points, found {stats['totalDataPoints']}"
 
 
-def test_concurrent_session_updates():
-    """Test that concurrent session metadata updates don't lose data."""
+def test_concurrent_episode_updates():
+    """Test that concurrent episode metadata updates don't lose data."""
     with tempfile.TemporaryDirectory() as tmpdir:
         local_path = Path(tmpdir) / ".dreamlake"
 
-        # Create initial session
-        session1 = Session(
-            prefix="test-workspace/session-update-test",
+        # Create initial episode
+        episode1 = Episode(
+            prefix="test-workspace/episode-update-test",
             root=str(local_path),
             readme="Initial description"
         )
-        session1.open()
-        session1.close()
+        episode1.open()
+        episode1.close()
 
         # Now try concurrent updates
         num_threads = 10
         errors = []
 
-        def update_session(thread_id):
-            """Update session metadata."""
+        def update_episode(thread_id):
+            """Update episode metadata."""
             try:
-                session = Session(
-            prefix="test-workspace/session-update-test",
+                episode = Episode(
+            prefix="test-workspace/episode-update-test",
                     root=str(local_path),
                     tags=[f"tag_{thread_id}"]
                 )
-                session.open()
-                session.close()
+                episode.open()
+                episode.close()
             except Exception as e:
                 errors.append(f"Thread {thread_id} failed: {e}")
 
         # Create and run threads
-        threads = [threading.Thread(target=update_session, args=(i,)) for i in range(num_threads)]
+        threads = [threading.Thread(target=update_episode, args=(i,)) for i in range(num_threads)]
         for thread in threads:
             thread.start()
         for thread in threads:
             thread.join()
 
         # Check for errors
-        assert len(errors) == 0, f"Session update errors: {errors}"
+        assert len(errors) == 0, f"Episode update errors: {errors}"
 
-        # Verify session file is not corrupted
+        # Verify episode file is not corrupted
         import json
-        session_file = local_path / "test-workspace" / "session-update-test" / "session.json"
-        assert session_file.exists(), "Session file not found"
+        episode_file = local_path / "test-workspace" / "episode-update-test" / "episode.json"
+        assert episode_file.exists(), "Episode file not found"
 
-        with open(session_file, "r") as f:
-            session_data = json.load(f)
+        with open(episode_file, "r") as f:
+            episode_data = json.load(f)
 
         # Should have valid JSON structure
-        assert "name" in session_data
-        assert "workspace" in session_data
-        assert "tags" in session_data
+        assert "name" in episode_data
+        assert "workspace" in episode_data
+        assert "tags" in episode_data
         # Tags should be from one of the threads
-        assert len(session_data["tags"]) > 0
+        assert len(episode_data["tags"]) > 0
 
 
 def test_mixed_concurrent_operations():
@@ -289,30 +289,30 @@ def test_mixed_concurrent_operations():
     with tempfile.TemporaryDirectory() as tmpdir:
         local_path = Path(tmpdir) / ".dreamlake"
 
-        with Session(
+        with Episode(
             prefix="test-workspace/mixed-test",
             root=str(local_path)
-        ) as session:
+        ) as episode:
             errors = []
 
             def do_logging(count):
                 for i in range(count):
                     try:
-                        session.log(f"Log {i}")
+                        episode.log(f"Log {i}")
                     except Exception as e:
                         errors.append(f"Log failed: {e}")
 
             def do_parameters(count):
                 for i in range(count):
                     try:
-                        session.parameters().set(**{f"param_{i}": i})
+                        episode.parameters().set(**{f"param_{i}": i})
                     except Exception as e:
                         errors.append(f"Param failed: {e}")
 
             def do_tracking(count):
                 for i in range(count):
                     try:
-                        session.track("mixed_metrics").append(value=i, step=i)
+                        episode.track("mixed_metrics").append(value=i, step=i)
                     except Exception as e:
                         errors.append(f"Track failed: {e}")
 
@@ -343,12 +343,12 @@ def test_mixed_concurrent_operations():
             assert log_count == ops_per_type, f"Expected {ops_per_type} logs, found {log_count}"
 
             # Check parameters
-            params = session.parameters().get()
+            params = episode.parameters().get()
             assert len(params) == ops_per_type, \
                 f"Expected {ops_per_type} params, found {len(params)}"
 
             # Check track
-            stats = session.track("mixed_metrics").stats()
+            stats = episode.track("mixed_metrics").stats()
             assert int(stats["totalDataPoints"]) == ops_per_type, \
                 f"Expected {ops_per_type} track points, found {stats['totalDataPoints']}"
 
@@ -358,6 +358,6 @@ if __name__ == "__main__":
     test_concurrent_parameters()
     test_concurrent_track_append()
     test_concurrent_batch_track_append()
-    test_concurrent_session_updates()
+    test_concurrent_episode_updates()
     test_mixed_concurrent_operations()
     print("All comprehensive concurrency tests passed!")

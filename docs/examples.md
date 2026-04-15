@@ -9,7 +9,7 @@ All examples work with local mode (no server needed):
 ```bash
 # Run from the project root with proper PYTHONPATH
 PYTHONPATH=./src python docs/examples/three_usage_styles.py
-PYTHONPATH=./src python docs/examples/01_basic_session.py
+PYTHONPATH=./src python docs/examples/01_basic_episode.py
 PYTHONPATH=./src python docs/examples/02_logging_example.py
 PYTHONPATH=./src python docs/examples/03_parameters_example.py
 PYTHONPATH=./src python docs/examples/04_tracks_example.py
@@ -24,8 +24,8 @@ PYTHONPATH=./src python docs/examples/timestamp_sync_example.py
 
 | Example | Description | Features |
 |---------|-------------|----------|
-| `three_usage_styles.py` | **NEW!** Three ways to use sessions | Decorator, context manager, direct instantiation |
-| `01_basic_session.py` | Your first DreamLake session | Session creation, logging, parameters |
+| `three_usage_styles.py` | **NEW!** Three ways to use episodes | Decorator, context manager, direct instantiation |
+| `01_basic_episode.py` | Your first DreamLake episode | Episode creation, logging, parameters |
 | `02_logging_example.py` | Structured logging | Log levels, metadata, progress logging |
 | `03_parameters_example.py` | Hyperparameters tracking | Simple params, nested params, updates |
 | `04_tracks_example.py` | Time-series metrics | Tracks, batch append, reading data, stats |
@@ -73,7 +73,7 @@ cat tutorial_data/.dreamlake/tutorials/parameters-demo/parameters.json
 # View track data (requires msgpack tools)
 python -c "import msgpack; [print(obj) for obj in msgpack.Unpacker(open('tutorial_data/.dreamlake/tutorials/tracks-demo/tracks/train_loss/data.msgpack', 'rb'), raw=False)]"
 
-# List all sessions
+# List all episodes
 ls tutorial_data/.dreamlake/tutorials/
 ```
 
@@ -89,15 +89,15 @@ rm -rf tutorial_data/
 
 ### Three Usage Styles (`three_usage_styles.py`)
 
-Demonstrates all three ways to use DreamLake sessions:
+Demonstrates all three ways to use DreamLake episodes:
 - **Decorator style**: Best for ML training functions
 - **Context manager style**: Best for scripts
 - **Direct instantiation**: Advanced usage with manual lifecycle management
 
-### Basic Session (`01_basic_session.py`)
+### Basic Episode (`01_basic_episode.py`)
 
-Your first DreamLake session showing:
-- Creating a local session
+Your first DreamLake episode showing:
+- Creating a local episode
 - Basic logging
 - Setting parameters
 
@@ -139,7 +139,7 @@ File upload and management:
 ### Complete Training Example (`06_complete_training.py`)
 
 End-to-end ML training simulation that combines all features:
-- Session creation
+- Episode creation
 - Parameter configuration
 - Progress logging
 - Metric tracking (loss, accuracy, learning rate)
@@ -184,7 +184,7 @@ Multi-modal data synchronization using timestamps:
 - Explore the [API Quick Reference](api-quick-reference.md)
 - Learn about specific features:
   - [Getting Started](getting-started.md)
-  - [Sessions](sessions.md)
+  - [Episodes](episodes.md)
   - [Logging](logging.md)
   - [Parameters](parameters.md)
   - [Tracks](tracks.md)

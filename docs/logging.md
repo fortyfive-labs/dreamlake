@@ -7,14 +7,14 @@ Track events, progress, and debugging information throughout your experiments. L
 ```{code-block} python
 :linenos:
 
-from dreamlake import Session
+from dreamlake import Episode
 
-with Session(prefix="project/my-experiment",
-        local_path=".dreamlake") as session:
-    session.log("Training started")
-    session.log("Model architecture: ResNet-50", level="info")
-    session.log("GPU memory low", level="warn")
-    session.log("Failed to load checkpoint", level="error")
+with Episode(prefix="project/my-experiment",
+        local_path=".dreamlake") as episode:
+    episode.log("Training started")
+    episode.log("Model architecture: ResNet-50", level="info")
+    episode.log("GPU memory low", level="warn")
+    episode.log("Failed to load checkpoint", level="error")
 ```
 
 ## Log Levels
@@ -24,13 +24,13 @@ with Session(prefix="project/my-experiment",
 ```{code-block} python
 :linenos:
 
-with Session(prefix="project/my-experiment",
-        local_path=".dreamlake") as session:
-    session.log("Detailed debugging info", level="debug")
-    session.log("Training epoch 1", level="info")
-    session.log("Learning rate decreased", level="warn")
-    session.log("Gradient exploded", level="error")
-    session.log("Out of memory - aborting", level="fatal")
+with Episode(prefix="project/my-experiment",
+        local_path=".dreamlake") as episode:
+    episode.log("Detailed debugging info", level="debug")
+    episode.log("Training epoch 1", level="info")
+    episode.log("Learning rate decreased", level="warn")
+    episode.log("Gradient exploded", level="error")
+    episode.log("Out of memory - aborting", level="fatal")
 ```
 
 ## Structured Metadata
@@ -40,10 +40,10 @@ Add context and metrics to your logs:
 ```{code-block} python
 :linenos:
 
-with Session(prefix="project/my-experiment",
-        local_path=".dreamlake") as session:
+with Episode(prefix="project/my-experiment",
+        local_path=".dreamlake") as episode:
     # Log with metrics
-    session.log(
+    episode.log(
         "Epoch completed",
         level="info",
         metadata={
@@ -55,7 +55,7 @@ with Session(prefix="project/my-experiment",
     )
 
     # Log with system info
-    session.log(
+    episode.log(
         "System status",
         level="info",
         metadata={
@@ -72,15 +72,15 @@ with Session(prefix="project/my-experiment",
 ```{code-block} python
 :linenos:
 
-with Session(prefix="ml/mnist-training",
-        local_path=".dreamlake") as session:
-    session.log("Starting training", level="info")
+with Episode(prefix="ml/mnist-training",
+        local_path=".dreamlake") as episode:
+    episode.log("Starting training", level="info")
 
     for epoch in range(10):
         train_loss = train_one_epoch(model, train_loader)
         val_loss = validate(model, val_loader)
 
-        session.log(
+        episode.log(
             f"Epoch {epoch + 1} complete",
             level="info",
             metadata={
@@ -90,7 +90,7 @@ with Session(prefix="ml/mnist-training",
             }
         )
 
-    session.log("Training complete", level="info")
+    episode.log("Training complete", level="info")
 ```
 
 **Error tracking:**
@@ -98,13 +98,13 @@ with Session(prefix="ml/mnist-training",
 ```{code-block} python
 :linenos:
 
-with Session(prefix="project/my-experiment",
-        local_path=".dreamlake") as session:
+with Episode(prefix="project/my-experiment",
+        local_path=".dreamlake") as episode:
     try:
         result = risky_operation()
-        session.log("Operation succeeded", level="info")
+        episode.log("Operation succeeded", level="info")
     except Exception as e:
-        session.log(
+        episode.log(
             f"Operation failed: {str(e)}",
             level="error",
             metadata={
@@ -120,23 +120,23 @@ with Session(prefix="project/my-experiment",
 ```{code-block} python
 :linenos:
 
-with Session(prefix="etl/data-processing",
-        local_path=".dreamlake") as session:
+with Episode(prefix="etl/data-processing",
+        local_path=".dreamlake") as episode:
     total = 10000
-    session.log(f"Processing {total} items", level="info")
+    episode.log(f"Processing {total} items", level="info")
 
     for i in range(total):
         process_item(i)
 
         if (i + 1) % (total // 10) == 0:
             percent = ((i + 1) / total) * 100
-            session.log(
+            episode.log(
                 f"Progress: {percent:.0f}%",
                 level="info",
                 metadata={"processed": i + 1, "total": total}
             )
 
-    session.log("Processing complete", level="info")
+    episode.log("Processing complete", level="info")
 ```
 
 ## Storage Format

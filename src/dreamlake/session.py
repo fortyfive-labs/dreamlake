@@ -1,10 +1,10 @@
 """
-Session class for dreamlake SDK.
+Episode class for dreamlake SDK.
 
 Supports three usage styles:
-1. Decorator: @dreamlake_session(...)
-2. Context manager: with Session(...) as sess:
-3. Direct instantiation: sess = Session(...)
+1. Decorator: @dreamlake_episode(...)
+2. Context manager: with Episode(...) as sess:
+3. Direct instantiation: sess = Episode(...)
 """
 
 from typing import Optional, Dict, Any, List, Callable
@@ -23,7 +23,7 @@ from .files import FileBuilder, FilesBuilder
 
 
 class OperationMode(Enum):
-    """Operation mode for the session."""
+    """Operation mode for the episode."""
     LOCAL = "local"
     REMOTE = "remote"
     HYBRID = "hybrid"  # Future: sync local to remote
@@ -31,38 +31,38 @@ class OperationMode(Enum):
 
 class RunManager:
     """
-    Lifecycle manager for sessions (ML-Dash compatible).
+    Lifecycle manager for episodes (ML-Dash compatible).
 
-    Supports context manager pattern for automatic session open/close:
-        with Session(...).run as sess:
+    Supports context manager pattern for automatic episode open/close:
+        with Episode(...).run as sess:
             sess.params.set(...)
     """
 
-    def __init__(self, session: 'Session'):
-        self._session = session
+    def __init__(self, episode: 'Episode'):
+        self._episode = episode
 
-    def __enter__(self) -> 'Session':
-        """Context manager entry - opens the session."""
-        return self._session.open()
+    def __enter__(self) -> 'Episode':
+        """Context manager entry - opens the episode."""
+        return self._episode.open()
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        """Context manager exit - closes the session."""
-        self._session.close()
+        """Context manager exit - closes the episode."""
+        self._episode.close()
         return False
 
-    def start(self) -> 'Session':
-        """Explicitly start the session (alternative to context manager)."""
-        return self._session.open()
+    def start(self) -> 'Episode':
+        """Explicitly start the episode (alternative to context manager)."""
+        return self._episode.open()
 
     def complete(self):
-        """Mark session as complete and close it."""
+        """Mark episode as complete and close it."""
         # TODO: Add status tracking (complete vs failed)
-        self._session.close()
+        self._episode.close()
 
     def fail(self):
-        """Mark session as failed and close it."""
+        """Mark episode as failed and close it."""
         # TODO: Add status tracking (complete vs failed)
-        self._session.close()
+        self._episode.close()
 
 
 class MetricsManager:
@@ -71,21 +71,21 @@ class MetricsManager:
 
     Metrics are time-series data indexed by sequential integers.
     Usage:
-        session.metrics("train/loss").log(value=0.5, epoch=1)
-        session.metrics.flush()  # Flush all metrics
+        episode.metrics("train/loss").log(value=0.5, epoch=1)
+        episode.metrics.flush()  # Flush all metrics
     """
 
-    def __init__(self, session: 'Session'):
-        self._session = session
+    def __init__(self, episode: 'Episode'):
+        self._episode = episode
 
     def __call__(self, name: str) -> 'TrackBuilder':
         """Get a TrackBuilder for the named metric."""
         from .track import TrackBuilder
-        return self._session.track(name)
+        return self._episode.track(name)
 
     def flush(self):
         """Flush all buffered metrics."""
-        return self._session._flush_all_tracks()
+        return self._episode._flush_all_tracks()
 
 
 class TracksManager:
@@ -95,39 +95,39 @@ class TracksManager:
     Tracks are timestamped data indexed by float timestamps.
     Usage:
         # Named track
-        session.tracks("robot/position").append(q=[0.1, 0.2], _ts=1.0)
+        episode.tracks("robot/position").append(q=[0.1, 0.2], _ts=1.0)
 
         # Default track (uses track name "default")
-        session.tracks.append(loss=0.5, epoch=1)
+        episode.tracks.append(loss=0.5, epoch=1)
 
         # Flush all tracks
-        session.tracks.flush()
+        episode.tracks.flush()
     """
 
-    def __init__(self, session: 'Session'):
-        self._session = session
+    def __init__(self, episode: 'Episode'):
+        self._episode = episode
         self._default_track_name = "default"
 
     def __call__(self, topic: str) -> 'TrackBuilder':
         """Get a TrackBuilder for the named track topic."""
         from .track import TrackBuilder
-        return self._session._track(topic)
+        return self._episode._track(topic)
 
     def append(self, _ts=None, **kwargs) -> 'TrackBuilder':
         """Append to default track."""
-        return self._session._track(self._default_track_name).append(_ts=_ts, **kwargs)
+        return self._episode._track(self._default_track_name).append(_ts=_ts, **kwargs)
 
     def log(self, **kwargs) -> 'TrackBuilder':
         """Log to default track (alias for append)."""
-        return self._session._track(self._default_track_name).log(**kwargs)
+        return self._episode._track(self._default_track_name).log(**kwargs)
 
     def flush(self):
         """Flush all buffered tracks."""
-        return self._session._flush_all_tracks()
+        return self._episode._flush_all_tracks()
 
     def list(self) -> List['Dict[str, Any]']:
         """
-        List all tracks in the session.
+        List all tracks in the episode.
 
         Automatically flushes all buffered tracks before listing.
 
@@ -135,38 +135,38 @@ class TracksManager:
             List of track summaries
 
         Example:
-            tracks = session.tracks.list()
+            tracks = episode.tracks.list()
             for track in tracks:
                 print(f"{track['name']}: {track['totalDataPoints']} points")
         """
         # Auto-flush all tracks before listing
-        self._session._flush_all_tracks()
-        return self._session._list_tracks()
+        self._episode._flush_all_tracks()
+        return self._episode._list_tracks()
 
 
-class Session:
+class Episode:
     """
-    DreamLake session for tracking ML experiments (ML-Dash compatible API).
+    DreamLake episode for tracking ML experiments (ML-Dash compatible API).
 
     Usage examples:
 
     # Local mode (default)
-    session = Session(prefix="my-workspace/my-experiment")
+    episode = Episode(prefix="my-workspace/my-experiment")
 
     # Custom local storage directory
-    session = Session(
+    episode = Episode(
         prefix="my-workspace/my-experiment",
         root=".dreamlake"
     )
 
     # Remote mode (requires DREAMLAKE_API_KEY env var)
-    session = Session(
+    episode = Episode(
         prefix="my-workspace/my-experiment",
         url="http://localhost:3000"
     )
 
     # Context manager (recommended)
-    with Session(prefix="workspace/experiment") as sess:
+    with Episode(prefix="workspace/experiment") as sess:
         sess.params.set(lr=0.001)
         sess.logs.info("Training started")
         sess.metrics("train/loss").log(value=0.5)
@@ -186,7 +186,7 @@ class Session:
         _write_protected: bool = False,
     ):
         """
-        Initialize a DreamLake session (ML-Dash compatible API).
+        Initialize a DreamLake episode (ML-Dash compatible API).
 
         Args:
             prefix: Experiment path like "workspace/name" or "owner/workspace/name"
@@ -195,7 +195,7 @@ class Session:
             metadata: Optional metadata dict
             url: Remote API URL (e.g., "http://localhost:3000"). None = local-only mode
             root: Local storage root path (defaults to ".dreamlake")
-            _write_protected: Internal - if True, session becomes immutable after creation
+            _write_protected: Internal - if True, episode becomes immutable after creation
 
         Prefix Format:
             - "workspace/name" → workspace="workspace", name="name"
@@ -239,8 +239,8 @@ class Session:
         # Initialize backend
         self._client: Optional[RemoteClient] = None
         self._storage: Optional[LocalStorage] = None
-        self._session_id: Optional[str] = None
-        self._session_data: Optional[Dict[str, Any]] = None
+        self._episode_id: Optional[str] = None
+        self._episode_data: Optional[Dict[str, Any]] = None
         self._is_open = False
 
         # Track buffering for timestamp-based merging
@@ -301,9 +301,9 @@ class Session:
 
         return token
 
-    def open(self) -> "Session":
+    def open(self) -> "Episode":
         """
-        Open the session (create or update on server/filesystem).
+        Open the episode (create or update on server/filesystem).
 
         Returns:
             self for chaining
@@ -312,9 +312,9 @@ class Session:
             return self
 
         if self._client:
-            # Remote mode: create/update session via API
+            # Remote mode: create/update episode via API
             # TODO: Update client API to use readme instead of description
-            response = self._client.create_or_update_session(
+            response = self._client.create_or_update_episode(
                 workspace=self.workspace,
                 name=self.name,
                 description=self.readme,  # Map readme → description for now
@@ -323,13 +323,13 @@ class Session:
                 write_protected=self.write_protected,
                 metadata=self.metadata,
             )
-            self._session_data = response
-            self._session_id = response["session"]["id"]
+            self._episode_data = response
+            self._episode_id = response["episode"]["id"]
 
         if self._storage:
-            # Local mode: create session directory structure
+            # Local mode: create episode directory structure
             # TODO: Update storage API to use readme instead of description
-            self._storage.create_session(
+            self._storage.create_episode(
                 workspace=self.workspace,
                 name=self.name,
                 description=self.readme,  # Map readme → description for now
@@ -342,7 +342,7 @@ class Session:
         return self
 
     def close(self):
-        """Close the session and flush all buffered tracks."""
+        """Close the episode and flush all buffered tracks."""
         if not self._is_open:
             return
 
@@ -355,7 +355,7 @@ class Session:
 
         self._is_open = False
 
-    def __enter__(self) -> "Session":
+    def __enter__(self) -> "Episode":
         """Context manager entry."""
         return self.open()
 
@@ -376,12 +376,12 @@ class Session:
 
         Examples:
             # Context manager (recommended)
-            with Session(prefix="workspace/experiment").run as sess:
+            with Episode(prefix="workspace/experiment").run as sess:
                 sess.params.set(lr=0.001)
                 sess.logs.info("Training started")
 
             # Explicit lifecycle
-            sess = Session(prefix="workspace/experiment")
+            sess = Episode(prefix="workspace/experiment")
             sess.run.start()
             # ... do work ...
             sess.run.complete()
@@ -397,8 +397,8 @@ class Session:
             ParametersBuilder instance for parameter operations
 
         Examples:
-            session.params.set(lr=0.001, batch_size=32)
-            params = session.params.get()
+            episode.params.set(lr=0.001, batch_size=32)
+            params = episode.params.get()
         """
         return self.parameters()
 
@@ -411,11 +411,11 @@ class Session:
             LogBuilder instance for fluent logging
 
         Examples:
-            session.logs.info("Training started")
-            session.logs.error("Failed", error_code=500)
+            episode.logs.info("Training started")
+            episode.logs.error("Failed", error_code=500)
         """
         if not self._is_open:
-            raise RuntimeError("Session not open. Use session.open() or context manager.")
+            raise RuntimeError("Episode not open. Use episode.open() or context manager.")
         return LogBuilder(self, None)
 
     @property
@@ -427,11 +427,11 @@ class Session:
             FilesBuilder instance for file operations
 
         Examples:
-            session.files.upload("./model.pt", path="/models")
-            files = session.files.list()
+            episode.files.upload("./model.pt", path="/models")
+            files = episode.files.list()
         """
         if not self._is_open:
-            raise RuntimeError("Session not open. Use session.open() or context manager.")
+            raise RuntimeError("Episode not open. Use episode.open() or context manager.")
         return FilesBuilder(self)
 
     @property
@@ -444,13 +444,13 @@ class Session:
 
         Examples:
             # Named metric
-            session.metrics("train/loss").log(value=0.5, epoch=1)
+            episode.metrics("train/loss").log(value=0.5, epoch=1)
 
             # Flush all metrics
-            session.metrics.flush()
+            episode.metrics.flush()
         """
         if not self._is_open:
-            raise RuntimeError("Session not open. Use session.open() or context manager.")
+            raise RuntimeError("Episode not open. Use episode.open() or context manager.")
         return MetricsManager(self)
 
     @property
@@ -463,13 +463,13 @@ class Session:
 
         Examples:
             # Named track
-            session.tracks("robot/position").append(q=[0.1, 0.2], _ts=1.0)
+            episode.tracks("robot/position").append(q=[0.1, 0.2], _ts=1.0)
 
             # Flush all tracks
-            session.tracks.flush()
+            episode.tracks.flush()
         """
         if not self._is_open:
-            raise RuntimeError("Session not open. Use session.open() or context manager.")
+            raise RuntimeError("Episode not open. Use episode.open() or context manager.")
         return TracksManager(self)
 
     @property
@@ -482,10 +482,10 @@ class Session:
 
         Examples:
             # Named track
-            session.track("robot/position").append(x=1.0, y=2.0)
+            episode.track("robot/position").append(x=1.0, y=2.0)
 
             # Default track
-            session.track.append(loss=0.5, epoch=1)
+            episode.track.append(loss=0.5, epoch=1)
         """
         return self.tracks
 
@@ -507,15 +507,15 @@ class Session:
            Returns a LogBuilder that allows chaining with level methods.
 
            Examples:
-               session.log(metadata={"epoch": 1}).info("Training started")
-               session.log().error("Failed", error_code=500)
+               episode.log(metadata={"epoch": 1}).info("Training started")
+               episode.log().error("Failed", error_code=500)
 
         2. Traditional style (message provided):
            Writes the log immediately and returns None.
 
            Examples:
-               session.log("Training started", level="info", epoch=1)
-               session.log("Training started")  # Defaults to "info"
+               episode.log("Training started", level="info", epoch=1)
+               episode.log("Training started")  # Defaults to "info"
 
         Args:
             message: Optional log message (for traditional style)
@@ -528,11 +528,11 @@ class Session:
             None if log was written directly (traditional mode)
 
         Raises:
-            RuntimeError: If session is not open
+            RuntimeError: If episode is not open
             ValueError: If log level is invalid
         """
         if not self._is_open:
-            raise RuntimeError("Session not open. Use session.open() or context manager.")
+            raise RuntimeError("Episode not open. Use episode.open() or context manager.")
 
         # Fluent mode: return LogBuilder
         if message is None:
@@ -582,7 +582,7 @@ class Session:
         if self._client:
             # Remote mode: send to API (wrapped in array for batch API)
             self._client.create_log_entries(
-                session_id=self._session_id,
+                episode_id=self._episode_id,
                 logs=[log_entry]  # Single log in array
             )
 
@@ -590,7 +590,7 @@ class Session:
             # Local mode: write to file immediately
             self._storage.write_log(
                 workspace=self.workspace,
-                session=self.name,
+                episode=self.name,
                 message=log_entry["message"],
                 level=log_entry["level"],
                 metadata=log_entry.get("metadata"),
@@ -605,24 +605,24 @@ class Session:
             FileBuilder instance for chaining
 
         Raises:
-            RuntimeError: If session is not open
+            RuntimeError: If episode is not open
 
         Examples:
             # Upload file
-            session.file(file_path="./model.pt", prefix="/models").save()
+            episode.file(file_path="./model.pt", prefix="/models").save()
 
             # List files
-            files = session.file().list()
-            files = session.file(prefix="/models").list()
+            files = episode.file().list()
+            files = episode.file(prefix="/models").list()
 
             # Download file
-            session.file(file_id="123").download()
+            episode.file(file_id="123").download()
 
             # Delete file
-            session.file(file_id="123").delete()
+            episode.file(file_id="123").delete()
         """
         if not self._is_open:
-            raise RuntimeError("Session not open. Use session.open() or context manager.")
+            raise RuntimeError("Episode not open. Use episode.open() or context manager.")
 
         return FileBuilder(self, **kwargs)
 
@@ -660,7 +660,7 @@ class Session:
         if self._client:
             # Remote mode: upload to API
             result = self._client.upload_file(
-                session_id=self._session_id,
+                episode_id=self._episode_id,
                 file_path=file_path,
                 prefix=prefix,
                 filename=filename,
@@ -676,7 +676,7 @@ class Session:
             # Local mode: copy to local storage
             result = self._storage.write_file(
                 workspace=self.workspace,
-                session=self.name,
+                episode=self.name,
                 file_path=file_path,
                 prefix=prefix,
                 filename=filename,
@@ -710,7 +710,7 @@ class Session:
         if self._client:
             # Remote mode: fetch from API
             files = self._client.list_files(
-                session_id=self._session_id,
+                episode_id=self._episode_id,
                 prefix=prefix,
                 tags=tags
             )
@@ -719,7 +719,7 @@ class Session:
             # Local mode: read from metadata file
             files = self._storage.list_files(
                 workspace=self.workspace,
-                session=self.name,
+                episode=self.name,
                 prefix=prefix,
                 tags=tags
             )
@@ -744,7 +744,7 @@ class Session:
         if self._client:
             # Remote mode: download from API
             return self._client.download_file(
-                session_id=self._session_id,
+                episode_id=self._episode_id,
                 file_id=file_id,
                 dest_path=dest_path
             )
@@ -753,7 +753,7 @@ class Session:
             # Local mode: copy from local storage
             return self._storage.read_file(
                 workspace=self.workspace,
-                session=self.name,
+                episode=self.name,
                 file_id=file_id,
                 dest_path=dest_path
             )
@@ -775,7 +775,7 @@ class Session:
         if self._client:
             # Remote mode: delete via API
             result = self._client.delete_file(
-                session_id=self._session_id,
+                episode_id=self._episode_id,
                 file_id=file_id
             )
 
@@ -783,7 +783,7 @@ class Session:
             # Local mode: soft delete in metadata
             result = self._storage.delete_file(
                 workspace=self.workspace,
-                session=self.name,
+                episode=self.name,
                 file_id=file_id
             )
 
@@ -813,7 +813,7 @@ class Session:
         if self._client:
             # Remote mode: update via API
             result = self._client.update_file(
-                session_id=self._session_id,
+                episode_id=self._episode_id,
                 file_id=file_id,
                 description=description,
                 tags=tags,
@@ -824,7 +824,7 @@ class Session:
             # Local mode: update in metadata file
             result = self._storage.update_file_metadata(
                 workspace=self.workspace,
-                session=self.name,
+                episode=self.name,
                 file_id=file_id,
                 description=description,
                 tags=tags,
@@ -841,21 +841,21 @@ class Session:
             ParametersBuilder instance for chaining
 
         Raises:
-            RuntimeError: If session is not open
+            RuntimeError: If episode is not open
 
         Examples:
             # Set parameters
-            session.parameters().set(
+            episode.parameters().set(
                 model={"lr": 0.001, "batch_size": 32},
                 optimizer="adam"
             )
 
             # Get parameters
-            params = session.parameters().get()  # Flattened
-            params = session.parameters().get(flatten=False)  # Nested
+            params = episode.parameters().get()  # Flattened
+            params = episode.parameters().get(flatten=False)  # Nested
         """
         if not self._is_open:
-            raise RuntimeError("Session not open. Use session.open() or context manager.")
+            raise RuntimeError("Episode not open. Use episode.open() or context manager.")
 
         return ParametersBuilder(self)
 
@@ -869,7 +869,7 @@ class Session:
         if self._client:
             # Remote mode: send to API
             self._client.set_parameters(
-                session_id=self._session_id,
+                episode_id=self._episode_id,
                 data=flattened_params
             )
 
@@ -877,7 +877,7 @@ class Session:
             # Local mode: write to file
             self._storage.write_parameters(
                 workspace=self.workspace,
-                session=self.name,
+                episode=self.name,
                 data=flattened_params
             )
 
@@ -893,7 +893,7 @@ class Session:
         if self._client:
             # Remote mode: fetch from API
             try:
-                params = self._client.get_parameters(session_id=self._session_id)
+                params = self._client.get_parameters(episode_id=self._episode_id)
             except Exception:
                 # Parameters don't exist yet
                 params = None
@@ -902,7 +902,7 @@ class Session:
             # Local mode: read from file
             params = self._storage.read_parameters(
                 workspace=self.workspace,
-                session=self.name
+                episode=self.name
             )
 
         return params
@@ -912,10 +912,10 @@ class Session:
         """
         Internal method to get a TrackBuilder for fluent track operations.
 
-        Use session.track("name") or session.tracks("name") instead.
+        Use episode.track("name") or episode.tracks("name") instead.
 
         Args:
-            name: Track name (unique within session)
+            name: Track name (unique within episode)
             description: Optional track description
             tags: Optional tags for categorization
             metadata: Optional structured metadata
@@ -924,30 +924,30 @@ class Session:
             TrackBuilder instance for chaining
 
         Raises:
-            RuntimeError: If session is not open
+            RuntimeError: If episode is not open
 
         Examples:
             # Append single data point
-            session.track("train_loss").append(loss=0.5, step=100)
+            episode.track("train_loss").append(loss=0.5, step=100)
 
             # Append batch
-            session.track("metrics").append_batch([
+            episode.track("metrics").append_batch([
                 {"loss": 0.5, "acc": 0.8, "step": 1},
                 {"loss": 0.4, "acc": 0.85, "step": 2}
             ])
 
             # Read data
-            data = session.track("train_loss").read(start_index=0, limit=100)
+            data = episode.track("train_loss").read(start_index=0, limit=100)
 
             # Get statistics
-            stats = session.track(name="train_loss").stats()
+            stats = episode.track(name="train_loss").stats()
         """
         from .track import TrackBuilder
 
         if not self._is_open:
             raise RuntimeError(
-                "Cannot use track on closed session. "
-                "Use 'with Session(...) as session:' or call session.open() first."
+                "Cannot use track on closed episode. "
+                "Use 'with Episode(...) as episode:' or call episode.open() first."
             )
 
         return TrackBuilder(self, name, description, tags, metadata)
@@ -1008,7 +1008,7 @@ class Session:
         result = None
         if self._client:
             result = self._client.append_batch_to_track(
-                session_id=self._session_id,
+                episode_id=self._episode_id,
                 track_name=name,
                 data_points=merged,
                 description=description,
@@ -1019,7 +1019,7 @@ class Session:
         if self._storage:
             result = self._storage.append_batch_to_track(
                 workspace=self.workspace,
-                session=self.name,
+                episode=self.name,
                 track_name=name,
                 data_points=merged,
                 description=description,
@@ -1124,7 +1124,7 @@ class Session:
         if self._client:
             # Remote mode: append batch via API
             result = self._client.append_batch_to_track(
-                session_id=self._session_id,
+                episode_id=self._episode_id,
                 track_name=name,
                 data_points=data_points,
                 description=description,
@@ -1136,7 +1136,7 @@ class Session:
             # Local mode: append batch to local storage
             result = self._storage.append_batch_to_track(
                 workspace=self.workspace,
-                session=self.name,
+                episode=self.name,
                 track_name=name,
                 data_points=data_points,
                 description=description,
@@ -1168,7 +1168,7 @@ class Session:
         if self._client:
             # Remote mode: read via API
             result = self._client.read_track_data(
-                session_id=self._session_id,
+                episode_id=self._episode_id,
                 track_name=name,
                 start_index=start_index,
                 limit=limit
@@ -1178,7 +1178,7 @@ class Session:
             # Local mode: read from local storage
             result = self._storage.read_track_data(
                 workspace=self.workspace,
-                session=self.name,
+                episode=self.name,
                 track_name=name,
                 start_index=start_index,
                 limit=limit
@@ -1212,7 +1212,7 @@ class Session:
         if self._client:
             # Remote mode: read via API
             result = self._client.read_track_data_by_time(
-                session_id=self._session_id,
+                episode_id=self._episode_id,
                 track_name=name,
                 start_time=start_time,
                 end_time=end_time,
@@ -1224,7 +1224,7 @@ class Session:
             # Local mode: read from local storage
             result = self._storage.read_track_data_by_time(
                 workspace=self.workspace,
-                session=self.name,
+                episode=self.name,
                 track_name=name,
                 start_time=start_time,
                 end_time=end_time,
@@ -1249,7 +1249,7 @@ class Session:
         if self._client:
             # Remote mode: get stats via API
             result = self._client.get_track_stats(
-                session_id=self._session_id,
+                episode_id=self._episode_id,
                 track_name=name
             )
 
@@ -1257,7 +1257,7 @@ class Session:
             # Local mode: get stats from local storage
             result = self._storage.get_track_stats(
                 workspace=self.workspace,
-                session=self.name,
+                episode=self.name,
                 track_name=name
             )
 
@@ -1265,7 +1265,7 @@ class Session:
 
     def _list_tracks(self) -> List[Dict[str, Any]]:
         """
-        Internal method to list all tracks in session.
+        Internal method to list all tracks in episode.
 
         Returns:
             List of track summaries
@@ -1274,26 +1274,26 @@ class Session:
 
         if self._client:
             # Remote mode: list via API
-            result = self._client.list_tracks(session_id=self._session_id)
+            result = self._client.list_tracks(episode_id=self._episode_id)
 
         if self._storage:
             # Local mode: list from local storage
             result = self._storage.list_tracks(
                 workspace=self.workspace,
-                session=self.name
+                episode=self.name
             )
 
         return result or []
 
     @property
     def id(self) -> Optional[str]:
-        """Get the session ID (only available after open in remote mode)."""
-        return self._session_id
+        """Get the episode ID (only available after open in remote mode)."""
+        return self._episode_id
 
     @property
     def data(self) -> Optional[Dict[str, Any]]:
-        """Get the full session data (only available after open in remote mode)."""
-        return self._session_data
+        """Get the full episode data (only available after open in remote mode)."""
+        return self._episode_data
 
     def search(
         self,
@@ -1305,18 +1305,18 @@ class Session:
         min_score: Optional[float] = None,
         model_id: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
-        """Search for similar vectors within this session."""
+        """Search for similar vectors within this episode."""
         if not self._client:
             raise RuntimeError("Search requires remote mode (url must be set)")
-        if not self._session_data:
-            raise RuntimeError("Session must be opened before searching")
+        if not self._episode_data:
+            raise RuntimeError("Episode must be opened before searching")
 
-        space_id = self._session_data["session"]["spaceId"]
+        space_id = self._episode_data["episode"]["spaceId"]
 
         result = self._client.search_vectors(
             space_id=space_id,
             query=query,
-            sid=self._session_id,
+            sid=self._episode_id,
             mod=mod,
             limit=limit,
             st=st,
@@ -1327,16 +1327,16 @@ class Session:
         return result.get("results", [])
 
 
-def dreamlake_session(
+def dreamlake_episode(
     name: str,
     workspace: str,
     **kwargs
 ) -> Callable:
     """
-    Decorator for wrapping functions with a dreamlake session.
+    Decorator for wrapping functions with a dreamlake episode.
 
     Usage:
-        @dreamlake_session(
+        @dreamlake_episode(
             name="my-experiment",
             workspace="my-workspace",
             remote="http://localhost:3000",
@@ -1346,15 +1346,15 @@ def dreamlake_session(
             # Function code here
             pass
 
-    The decorated function will receive a 'session' keyword argument
-    with the active Session instance.
+    The decorated function will receive a 'episode' keyword argument
+    with the active Episode instance.
     """
     def decorator(func: Callable) -> Callable:
         @functools.wraps(func)
         def wrapper(*args, **func_kwargs):
-            with Session(name=name, workspace=workspace, **kwargs) as session:
-                # Inject session into function kwargs
-                func_kwargs['session'] = session
+            with Episode(name=name, workspace=workspace, **kwargs) as episode:
+                # Inject episode into function kwargs
+                func_kwargs['episode'] = episode
                 return func(*args, **func_kwargs)
         return wrapper
     return decorator

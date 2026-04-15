@@ -8,7 +8,7 @@ validation losses, system measurements, etc.
 from typing import Dict, Any, List, Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from .session import Session
+    from .episode import Episode
 
 
 class TrackBuilder:
@@ -19,34 +19,34 @@ class TrackBuilder:
 
     Usage:
         # Append single data point
-        session.track(name="train_loss").append(value=0.5, step=100)
+        episode.track(name="train_loss").append(value=0.5, step=100)
 
         # Append batch
-        session.track(name="train_loss").append_batch([
+        episode.track(name="train_loss").append_batch([
             {"value": 0.5, "step": 100},
             {"value": 0.45, "step": 101}
         ])
 
         # Read data
-        data = session.track(name="train_loss").read(start_index=0, limit=100)
+        data = episode.track(name="train_loss").read(start_index=0, limit=100)
 
         # Get statistics
-        stats = session.track(name="train_loss").stats()
+        stats = episode.track(name="train_loss").stats()
     """
 
-    def __init__(self, session: 'Session', name: str, description: Optional[str] = None,
+    def __init__(self, episode: 'Episode', name: str, description: Optional[str] = None,
                  tags: Optional[List[str]] = None, metadata: Optional[Dict[str, Any]] = None):
         """
         Initialize TrackBuilder.
 
         Args:
-            session: Parent Session instance
-            name: Track name (unique within session)
+            episode: Parent Episode instance
+            name: Track name (unique within episode)
             description: Optional track description
             tags: Optional tags for categorization
             metadata: Optional structured metadata (units, type, etc.)
         """
-        self._session = session
+        self._episode = episode
         self._name = name
         self._description = description
         self._tags = tags
@@ -60,7 +60,7 @@ class TrackBuilder:
 
         Timestamp handling:
         - _ts=<number>: Use that timestamp (seconds since epoch)
-        - _ts=-1: Inherit timestamp from previous append (across ALL tracks in session)
+        - _ts=-1: Inherit timestamp from previous append (across ALL tracks in episode)
         - _ts not provided: Auto-generate using time.time()
 
         Args:
@@ -72,19 +72,19 @@ class TrackBuilder:
 
         Examples:
             # Auto-generated timestamp
-            session.track("loss").append(value=0.5, epoch=1)
+            episode.track("loss").append(value=0.5, epoch=1)
 
             # Explicit timestamp
-            session.track("robot/position").append(q=[0.1, 0.2], _ts=1.234)
+            episode.track("robot/position").append(q=[0.1, 0.2], _ts=1.234)
 
             # Inherit timestamp within same track (merge fields)
-            session.track("robot/state").append(q=[0.1, 0.2], _ts=1.0)
-            session.track("robot/state").append(v=[0.01, 0.02], _ts=-1)  # Uses _ts=1.0
+            episode.track("robot/state").append(q=[0.1, 0.2], _ts=1.0)
+            episode.track("robot/state").append(v=[0.01, 0.02], _ts=-1)  # Uses _ts=1.0
             # After flush: {_ts: 1.0, q: [0.1, 0.2], v: [0.01, 0.02]}
 
             # Inherit timestamp across different tracks (sync pose + image)
-            session.track("robot/pose").append(position=[1.0, 2.0])  # _ts auto-generated
-            session.track("camera/left/image").append(image=img_data, _ts=-1)  # Same _ts!
+            episode.track("robot/pose").append(position=[1.0, 2.0])  # _ts auto-generated
+            episode.track("camera/left/image").append(image=img_data, _ts=-1)  # Same _ts!
         """
         # Prepare data dict
         data = kwargs.copy()
@@ -92,7 +92,7 @@ class TrackBuilder:
             data['_ts'] = _ts
 
         # Append to buffer (returns TrackBuilder)
-        self._session._append_to_track(
+        self._episode._append_to_track(
             name=self._name,
             data=data,
             description=self._description,
@@ -116,8 +116,8 @@ class TrackBuilder:
 
         Examples:
             # ML-Dash style metrics
-            session.metrics("train/loss").log(value=0.5, epoch=1)
-            session.metrics("train/accuracy").log(value=0.85, epoch=1)
+            episode.metrics("train/loss").log(value=0.5, epoch=1)
+            episode.metrics("train/accuracy").log(value=0.85, epoch=1)
         """
         return self.append(**kwargs)
 
@@ -132,7 +132,7 @@ class TrackBuilder:
             Dict with trackId, startIndex, endIndex, count, bufferedDataPoints, chunkSize
 
         Example:
-            result = session.track(name="metrics").append_batch([
+            result = episode.track(name="metrics").append_batch([
                 {"loss": 0.5, "acc": 0.8, "step": 1},
                 {"loss": 0.4, "acc": 0.85, "step": 2},
                 {"loss": 0.3, "acc": 0.9, "step": 3}
@@ -142,7 +142,7 @@ class TrackBuilder:
         if not data_points:
             raise ValueError("data_points cannot be empty")
 
-        result = self._session._append_batch_to_track(
+        result = self._episode._append_batch_to_track(
             name=self._name,
             data_points=data_points,
             description=self._description,
@@ -162,15 +162,15 @@ class TrackBuilder:
 
         Example:
             # Append and flush
-            session.track("robot/state").append(q=[0.1, 0.2], _ts=1.0)
-            session.track("robot/state").append(v=[0.01, 0.02], _ts=1.0)
-            result = session.track("robot/state").flush()
+            episode.track("robot/state").append(q=[0.1, 0.2], _ts=1.0)
+            episode.track("robot/state").append(v=[0.01, 0.02], _ts=1.0)
+            result = episode.track("robot/state").flush()
             # Writes merged: {_ts: 1.0, q: [0.1, 0.2], v: [0.01, 0.02]}
 
             # Can also chain
-            session.track("loss").append(value=0.5, epoch=1).flush()
+            episode.track("loss").append(value=0.5, epoch=1).flush()
         """
-        return self._session._flush_track(
+        return self._episode._flush_track(
             name=self._name,
             description=self._description,
             tags=self._tags,
@@ -196,14 +196,14 @@ class TrackBuilder:
             - hasMore: Whether more data exists beyond this range
 
         Example:
-            result = session.track(name="train_loss").read(start_index=0, limit=100)
+            result = episode.track(name="train_loss").read(start_index=0, limit=100)
             for point in result['data']:
                 print(f"Index {point['index']}: {point['data']}")
         """
         # Auto-flush before reading
         self.flush()
 
-        return self._session._read_track_data(
+        return self._episode._read_track_data(
             name=self._name,
             start_index=start_index,
             limit=limit
@@ -238,22 +238,22 @@ class TrackBuilder:
         Example:
             # Query last 10 seconds
             t_now = time.time()
-            result = session.track("robot/pose").read_by_time(
+            result = episode.track("robot/pose").read_by_time(
                 start_time=t_now - 10.0,
                 end_time=t_now,
                 limit=1000
             )
 
             # Query all data in reverse (newest first)
-            result = session.track("robot/pose").read_by_time(reverse=True, limit=100)
+            result = episode.track("robot/pose").read_by_time(reverse=True, limit=100)
 
             # Query from specific time to end
-            result = session.track("robot/pose").read_by_time(start_time=1234567890.0)
+            result = episode.track("robot/pose").read_by_time(start_time=1234567890.0)
         """
         # Auto-flush before reading
         self.flush()
 
-        return self._session._read_track_data_by_time(
+        return self._episode._read_track_data_by_time(
             name=self._name,
             start_time=start_time,
             end_time=end_time,
@@ -285,18 +285,18 @@ class TrackBuilder:
             - updatedAt: Last update time
 
         Example:
-            stats = session.track(name="train_loss").stats()
+            stats = episode.track(name="train_loss").stats()
             print(f"Total points: {stats['totalDataPoints']}")
             print(f"Buffered: {stats['bufferedDataPoints']}, Chunked: {stats['chunkedDataPoints']}")
         """
         # Auto-flush before getting stats
         self.flush()
 
-        return self._session._get_track_stats(name=self._name)
+        return self._episode._get_track_stats(name=self._name)
 
     def list_all(self) -> List[Dict[str, Any]]:
         """
-        List all tracks in the session.
+        List all tracks in the episode.
 
         Automatically flushes all buffered tracks before listing.
 
@@ -310,11 +310,11 @@ class TrackBuilder:
             - createdAt: Creation timestamp
 
         Example:
-            tracks = session.track().list_all()
+            tracks = episode.track().list_all()
             for track in tracks:
                 print(f"{track['name']}: {track['totalDataPoints']} points")
         """
         # Auto-flush all tracks before listing
-        self._session._flush_all_tracks()
+        self._episode._flush_all_tracks()
 
-        return self._session._list_tracks()
+        return self._episode._list_tracks()

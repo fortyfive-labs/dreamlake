@@ -20,7 +20,7 @@ experiment.tracks("sensors/lidar").append(ranges=[1.5, 2.0, 2.5], _ts=ts)
 
 ## Proposed Solution
 
-Add support for `_ts=-1` as a sentinel value to **inherit the last timestamp globally across all tracks in a session**.
+Add support for `_ts=-1` as a sentinel value to **inherit the last timestamp globally across all tracks in a episode**.
 
 ### API Design
 
@@ -41,14 +41,14 @@ All four tracks now share the exact same timestamp!
 **Timestamp handling in `tracks().append(_ts=..., **kwargs)`:**
 
 1. **`_ts=<number>`**: Use that explicit timestamp (seconds since epoch)
-2. **`_ts=-1`**: Inherit timestamp from previous append (across ALL tracks in session)
+2. **`_ts=-1`**: Inherit timestamp from previous append (across ALL tracks in episode)
 3. **`_ts` not provided**: Auto-generate using `time.time()`
 
 **Important properties:**
 
 - The inheritance is **global across all tracks** (not per-track)
 - Works across different Python files/modules that share the same `Experiment` instance
-- Session stores last timestamp as instance variable: `self._last_timestamp`
+- Episode stores last timestamp as instance variable: `self._last_timestamp`
 - Thread-safe with proper locking for concurrent appends
 
 ### Example: Multi-Modal Robot Logging
@@ -82,10 +82,10 @@ with Experiment(name="robot-demo") as exp:
 
 This feature has been implemented in **DreamLake** (a fork of ML-Dash) with the following approach:
 
-### Session-Level State
+### Episode-Level State
 
 ```python
-class Session:
+class Episode:
     def __init__(self, ...):
         self._last_timestamp: Optional[float] = None  # Global last timestamp
         self._track_buffers: Dict[str, List[Dict]] = {}
@@ -128,20 +128,20 @@ Full test in `test_timestamp_features.py`:
 ```python
 def test_timestamp_inheritance_across_tracks():
     """Test timestamp inheritance with _ts=-1 across different tracks."""
-    with Session(...) as session:
+    with Episode(...) as episode:
         # First append - auto-generates timestamp
-        session.track("robot/pose").append(position=[1.0, 2.0, 3.0])
+        episode.track("robot/pose").append(position=[1.0, 2.0, 3.0])
 
         # Second append on different track - inherits same timestamp
-        session.track("camera/left/image").append(width=640, height=480, _ts=-1)
+        episode.track("camera/left/image").append(width=640, height=480, _ts=-1)
 
         # Third append on another track - also inherits same timestamp
-        session.track("robot/velocity").append(linear=[0.1, 0.2, 0.3], _ts=-1)
+        episode.track("robot/velocity").append(linear=[0.1, 0.2, 0.3], _ts=-1)
 
         # Read back from all tracks
-        pose_data = session.track("robot/pose").read(start_index=0, limit=10)
-        image_data = session.track("camera/left/image").read(start_index=0, limit=10)
-        velocity_data = session.track("robot/velocity").read(start_index=0, limit=10)
+        pose_data = episode.track("robot/pose").read(start_index=0, limit=10)
+        image_data = episode.track("camera/left/image").read(start_index=0, limit=10)
+        velocity_data = episode.track("robot/velocity").read(start_index=0, limit=10)
 
         # All three tracks should have same timestamp
         pose_ts = pose_data["data"][0]["data"]["_ts"]

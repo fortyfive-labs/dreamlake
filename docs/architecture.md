@@ -10,8 +10,8 @@ DreamLake is built with a clean, modular architecture that supports both local f
 
 ```{mermaid}
 flowchart TB
-    User[User Code] --> Session[Session Manager]
-    Session --> Builder[Builder APIs]
+    User[User Code] --> Episode[Episode Manager]
+    Episode --> Builder[Builder APIs]
     Builder --> Log[LogBuilder]
     Builder --> Params[ParametersBuilder]
     Builder --> Track[TrackBuilder]
@@ -31,7 +31,7 @@ flowchart TB
     API --> MongoDB[(MongoDB)]
     API --> S3[(S3/MinIO)]
 
-    style Session fill:#e1f5ff
+    style Episode fill:#e1f5ff
     style Backend fill:#fff4e1
     style Local fill:#e8f5e9
     style Remote fill:#f3e5f5
@@ -39,22 +39,22 @@ flowchart TB
 
 ## Core Components
 
-### 1. Session Manager
+### 1. Episode Manager
 
-The `Session` class is the entry point for all DreamLake operations. It:
+The `Episode` class is the entry point for all DreamLake operations. It:
 
-- **Manages lifecycle**: Creation, opening, closing of experiment sessions
+- **Manages lifecycle**: Creation, opening, closing of experiment episodes
 - **Handles backends**: Automatically selects LocalStorage or RemoteClient based on configuration
 - **Provides builder access**: Returns builder instances for logs, parameters, tracks, and files
 - **Supports multiple patterns**: Context manager, decorator, or direct instantiation
 
 **Key responsibilities**:
 ```text
-Session
+Episode
 ├── Lifecycle management (open/close)
 ├── Backend initialization (local or url)
 ├── Builder factory methods
-├── Session metadata management
+├── Episode metadata management
 └── Error handling and recovery
 ```
 
@@ -64,7 +64,7 @@ DreamLake uses the **Builder Pattern** to provide a fluent, chainable API for da
 
 #### LogBuilder
 ```python
-session.log("Message", level="info", metadata={...})
+episode.log("Message", level="info", metadata={...})
 ```
 - Structured logging with 5 levels (debug, info, warn, error, fatal)
 - Automatic timestamping and sequence numbering
@@ -72,7 +72,7 @@ session.log("Message", level="info", metadata={...})
 
 #### ParametersBuilder
 ```python
-session.params.set(lr=0.001, batch_size=32)
+episode.params.set(lr=0.001, batch_size=32)
 ```
 - Stores hyperparameters and configuration
 - **Automatic flattening**: Nested dicts converted to dot notation
@@ -82,8 +82,8 @@ session.params.set(lr=0.001, batch_size=32)
 
 #### TrackBuilder
 ```python
-session.track("train").append(loss=0.5, epoch=0)
-session.track("loss").append_batch([...])
+episode.track("train").append(loss=0.5, epoch=0)
+episode.track("loss").append_batch([...])
 ```
 - Time-series metrics tracking
 - Flexible schema (any fields)
@@ -92,7 +92,7 @@ session.track("loss").append_batch([...])
 
 #### FileBuilder
 ```python
-session.files.upload("model.pth", path="/models")
+episode.files.upload("model.pth", path="/models")
 ```
 - File upload and organization
 - Checksum validation (SHA256)
@@ -109,8 +109,8 @@ The backend layer abstracts storage implementation, allowing DreamLake to work w
 ```
 <root_path>/
 └── <workspace>/
-    └── <session>/
-        ├── session.json          # Session metadata
+    └── <episode>/
+        ├── episode.json          # Episode metadata
         ├── parameters.json       # Hyperparameters
         ├── logs/
         │   └── logs.jsonl       # Log entries (JSON Lines)
@@ -129,7 +129,7 @@ The backend layer abstracts storage implementation, allowing DreamLake to work w
 ```
 
 **Data Formats**:
-- **JSON**: Structured metadata (session.json, parameters.json)
+- **JSON**: Structured metadata (episode.json, parameters.json)
 - **JSONL** (JSON Lines): Append-only logs
 - **Msgpack-lines**: Track data (one msgpack object per line, supports both row and columnar formats)
 - **Raw Files**: Binary files stored with original names
@@ -145,15 +145,15 @@ The backend layer abstracts storage implementation, allowing DreamLake to work w
 
 **REST API Communication**:
 ```
-POST   /workspaces/{workspace}/sessions
-POST   /sessions/{id}/logs
-POST   /sessions/{id}/parameters
-POST   /sessions/{id}/tracks/{name}
-POST   /sessions/{id}/tracks/{name}/batch
-POST   /sessions/{id}/files
-GET    /sessions/{id}/tracks/{name}
-GET    /sessions/{id}/tracks
-GET    /sessions/{id}/files
+POST   /workspaces/{workspace}/episodes
+POST   /episodes/{id}/logs
+POST   /episodes/{id}/parameters
+POST   /episodes/{id}/tracks/{name}
+POST   /episodes/{id}/tracks/{name}/batch
+POST   /episodes/{id}/files
+GET    /episodes/{id}/tracks/{name}
+GET    /episodes/{id}/tracks
+GET    /episodes/{id}/files
 ```
 
 **Authentication**:
@@ -175,24 +175,24 @@ GET    /sessions/{id}/files
 ```{mermaid}
 sequenceDiagram
     participant User
-    participant Session
+    participant Episode
     participant LocalStorage
     participant FS as Filesystem
 
-    User->>Session: Create session
-    Session->>LocalStorage: Initialize storage
+    User->>Episode: Create episode
+    Episode->>LocalStorage: Initialize storage
     LocalStorage->>FS: Create directories
 
-    User->>Session: log("message")
-    Session->>LocalStorage: write_log(...)
+    User->>Episode: log("message")
+    Episode->>LocalStorage: write_log(...)
     LocalStorage->>FS: Append to logs.jsonl
 
-    User->>Session: parameters().set(...)
-    Session->>LocalStorage: write_parameters(...)
+    User->>Episode: parameters().set(...)
+    Episode->>LocalStorage: write_parameters(...)
     LocalStorage->>FS: Write parameters.json
 
-    User->>Session: close()
-    Session->>LocalStorage: finalize()
+    User->>Episode: close()
+    Episode->>LocalStorage: finalize()
 ```
 
 ### Remote Mode Flow
@@ -200,25 +200,25 @@ sequenceDiagram
 ```{mermaid}
 sequenceDiagram
     participant User
-    participant Session
+    participant Episode
     participant RemoteClient
     participant API as REST API
     participant DB as MongoDB
 
-    User->>Session: Create session
-    Session->>RemoteClient: create_session(...)
-    RemoteClient->>API: POST /workspaces/{ws}/sessions
-    API->>DB: Insert session doc
-    DB-->>API: Session ID
-    API-->>RemoteClient: Session data
+    User->>Episode: Create episode
+    Episode->>RemoteClient: create_episode(...)
+    RemoteClient->>API: POST /workspaces/{ws}/episodes
+    API->>DB: Insert episode doc
+    DB-->>API: Episode ID
+    API-->>RemoteClient: Episode data
 
-    User->>Session: log("message")
-    Session->>RemoteClient: create_log_entries([...])
-    RemoteClient->>API: POST /sessions/{id}/logs
+    User->>Episode: log("message")
+    Episode->>RemoteClient: create_log_entries([...])
+    RemoteClient->>API: POST /episodes/{id}/logs
     API->>DB: Insert log docs
 
-    User->>Session: close()
-    Session->>RemoteClient: (finalize if needed)
+    User->>Episode: close()
+    Episode->>RemoteClient: (finalize if needed)
 ```
 
 ## Design Decisions
@@ -234,24 +234,24 @@ sequenceDiagram
 **Example**:
 ```python
 # Clean, readable API
-session.track("metrics").append(accuracy=0.95, epoch=10)
+episode.track("metrics").append(accuracy=0.95, epoch=10)
 
 # vs procedural approach
-session.append_track("accuracy", {"value": 0.95, "epoch": 10})
+episode.append_track("accuracy", {"value": 0.95, "epoch": 10})
 ```
 
 ### 2. Upsert Behavior
 
-**What**: Sessions can be reopened and updated
+**What**: Episodes can be reopened and updated
 
 **Why?**
 - **Recovery**: Resume after crashes or interruptions
-- **Iterative development**: Add data to existing sessions
+- **Iterative development**: Add data to existing episodes
 - **Flexibility**: Update metadata, add new tracks/logs
 
 **Implementation**:
-- Local: Check if session directory exists, merge data
-- Remote: API checks session existence, merges on server
+- Local: Check if episode directory exists, merge data
+- Remote: API checks episode existence, merges on server
 
 ### 3. Auto-Creation
 
@@ -268,8 +268,8 @@ session.append_track("accuracy", {"value": 0.95, "epoch": 10})
 # - Namespace (if url)
 # - Workspace "my-workspace"
 # - Folder "/experiments/2024"
-# - Session "baseline"
-Session(prefix="my-workspace/baseline",
+# - Episode "baseline"
+Episode(prefix="my-workspace/baseline",
     folder="/experiments/2024",
     root=".dreamlake",
         local_path=".dreamlake"
@@ -300,7 +300,7 @@ Session(prefix="my-workspace/baseline",
 - **Human-readable**: Easy to inspect and debug
 - **Language-agnostic**: Any tool can read
 - **Git-friendly**: Text-based diffs
-- Used for: session.json, parameters.json, track metadata
+- Used for: episode.json, parameters.json, track metadata
 
 **JSONL (JSON Lines)** for logs:
 ```json
@@ -336,15 +336,15 @@ DreamLake's architecture allows for custom storage backends by implementing the 
 
 ```python
 class CustomStorage:
-    def create_session(self, name, workspace, **kwargs):
-        # Create session
+    def create_episode(self, name, workspace, **kwargs):
+        # Create episode
         pass
 
-    def write_log(self, session_id, log_entry):
+    def write_log(self, episode_id, log_entry):
         # Store log
         pass
 
-    def write_parameters(self, session_id, params):
+    def write_parameters(self, episode_id, params):
         # Store parameters
         pass
 
@@ -369,11 +369,11 @@ For high-throughput scenarios, use batch operations:
 ```python
 # Instead of multiple appends
 for data in dataset:
-    session.track("metric").append(**data)  # ❌ Slow
+    episode.track("metric").append(**data)  # ❌ Slow
 
 # Use batch append
 batch_data = [{"value": x, "step": i} for i, x in enumerate(values)]
-session.track("metric").append_batch(batch_data)  # ✅ Fast
+episode.track("metric").append_batch(batch_data)  # ✅ Fast
 ```
 
 **Performance gains**:
@@ -389,7 +389,7 @@ session.track("metric").append_batch(batch_data)  # ✅ Fast
 ### Caching Strategy
 
 **Current**:
-- Session metadata cached in memory
+- Episode metadata cached in memory
 - Parameters cached until update
 - No caching for logs/tracks (append-only)
 
@@ -410,14 +410,14 @@ session.track("metric").append_batch(batch_data)  # ✅ Fast
 **Development Mode**:
 ```python
 # Auto-generates JWT from username
-Session(url="...", user_name="alice")
+Episode(url="...", user_name="alice")
 # Equivalent to providing a JWT token
 ```
 
 **Production Mode**:
 ```python
 # Use proper API key from authentication service
-Session(url="...", api_key="actual-jwt-token")
+Episode(url="...", api_key="actual-jwt-token")
 ```
 
 ### Data Security

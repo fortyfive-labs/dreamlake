@@ -5,7 +5,7 @@ This directory contains the pytest test suite for the Dreamlake Python SDK.
 ## Test Files
 
 - **`conftest.py`** - Pytest configuration and fixtures
-- **`test_basic_session.py`** - Basic session operations (7 tests)
+- **`test_basic_episode.py`** - Basic episode operations (7 tests)
 - **`test_logging.py`** - Logging functionality (7 tests)
 - **`test_parameters.py`** - Parameter tracking (7 tests)
 - **`test_tracks.py`** - Time-series metrics tracking (10 tests)
@@ -23,7 +23,7 @@ uv run pytest test/
 
 ### Run specific test file
 ```bash
-uv run pytest test/test_basic_session.py
+uv run pytest test/test_basic_episode.py
 ```
 
 ### Run with verbose output
@@ -40,10 +40,10 @@ uv run pytest test/test_logging.py::test_basic_logging
 
 The test suite covers:
 
--  Session creation and lifecycle management
+-  Episode creation and lifecycle management
 -  Context manager usage
 -  Manual open/close operations
--  Session metadata (description, tags, folder)
+-  Episode metadata (description, tags, folder)
 -  Log levels (debug, info, warn, error, fatal)
 -  Structured logging with metadata
 -  Simple and nested parameter tracking
@@ -57,7 +57,7 @@ The test suite covers:
 -  File tagging and prefixes
 -  Complete ML workflow integration
 -  Hyperparameter search workflows
--  Multi-session pipelines
+-  Multi-episode pipelines
 -  Error handling
 
 ## Fixtures
@@ -65,14 +65,14 @@ The test suite covers:
 ### `temp_workspace`
 Provides a temporary directory for test data (uses pytest's `tmp_path`).
 
-### `local_session`
-Factory function to create local-mode sessions with default configuration.
+### `local_episode`
+Factory function to create local-mode episodes with default configuration.
 
 Usage:
 ```python
-def test_example(local_session, temp_workspace):
-    with local_session(name="my-session", workspace="test") as session:
-        session.log("Test message")
+def test_example(local_episode, temp_workspace):
+    with local_episode(name="my-episode", workspace="test") as episode:
+        episode.log("Test message")
 ```
 
 ### `sample_files`
@@ -81,8 +81,8 @@ Creates sample files for testing file uploads:
 - `config.json` - Configuration file
 - `results.txt` - CSV-like results
 
-### `remote_session` (Optional)
-Factory function to create remote-mode sessions. Requires `DREAMLAKE_SERVER_URL` env variable.
+### `remote_episode` (Optional)
+Factory function to create remote-mode episodes. Requires `DREAMLAKE_SERVER_URL` env variable.
 
 ## Environment Variables
 

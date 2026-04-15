@@ -1,6 +1,6 @@
-# Sessions
+# Episodes
 
-Sessions are the foundation of DreamLake. Each session represents a single experiment run, containing all your logs, parameters, metrics, and files.
+Episodes are the foundation of DreamLake. Each episode represents a single experiment run, containing all your logs, parameters, metrics, and files.
 
 ## Three Usage Styles
 
@@ -9,13 +9,13 @@ Sessions are the foundation of DreamLake. Each session represents a single exper
 ```{code-block} python
 :linenos:
 
-from dreamlake import Session
+from dreamlake import Episode
 
-with Session(prefix="project/my-experiment",
-        local_path=".dreamlake") as session:
-    session.log("Training started")
-    session.params.set(learning_rate=0.001)
-    # Session automatically closed on exit
+with Episode(prefix="project/my-experiment",
+        local_path=".dreamlake") as episode:
+    episode.log("Training started")
+    episode.params.set(learning_rate=0.001)
+    # Episode automatically closed on exit
 ```
 
 **Decorator** (clean for training functions):
@@ -23,16 +23,16 @@ with Session(prefix="project/my-experiment",
 ```{code-block} python
 :linenos:
 
-from dreamlake import dreamlake_session
+from dreamlake import dreamlake_episode
 
-@dreamlake_session(name="my-experiment", workspace="project")
-def train_model(session):
-    session.log("Training started")
-    session.params.set(learning_rate=0.001)
+@dreamlake_episode(name="my-experiment", workspace="project")
+def train_model(episode):
+    episode.log("Training started")
+    episode.params.set(learning_rate=0.001)
 
     for epoch in range(10):
         loss = train_epoch()
-        session.track("train").append(loss=loss, epoch=epoch)
+        episode.track("train").append(loss=loss, epoch=epoch)
 
     return "Training complete!"
 
@@ -44,17 +44,17 @@ result = train_model()
 ```{code-block} python
 :linenos:
 
-from dreamlake import Session
+from dreamlake import Episode
 
-session = Session(prefix="project/my-experiment",
+episode = Episode(prefix="project/my-experiment",
         local_path=".dreamlake")
-session.open()
+episode.open()
 
 try:
-    session.log("Training started")
-    session.params.set(learning_rate=0.001)
+    episode.log("Training started")
+    episode.params.set(learning_rate=0.001)
 finally:
-    session.close()
+    episode.close()
 ```
 
 ## Local vs Remote Mode
@@ -64,11 +64,11 @@ finally:
 ```{code-block} python
 :linenos:
 
-with Session(prefix="project/my-experiment",
+with Episode(prefix="project/my-experiment",
     root="./experiments",
         local_path=".dreamlake"
-) as session:
-    session.log("Using local storage")
+) as episode:
+    episode.log("Using local storage")
 ```
 
 **Remote mode** - Team collaboration with server:
@@ -76,70 +76,70 @@ with Session(prefix="project/my-experiment",
 ```{code-block} python
 :linenos:
 
-with Session(prefix="project/my-experiment",
+with Episode(prefix="project/my-experiment",
     url="https://your-server.com",
     user_name="alice"
-) as session:
-    session.log("Using url server")
+) as episode:
+    episode.log("Using url server")
 ```
 
-## Session Metadata
+## Episode Metadata
 
 Add description, tags, and folders for organization:
 
 ```{code-block} python
 :linenos:
 
-with Session(prefix="computer-vision/resnet50-imagenet",
+with Episode(prefix="computer-vision/resnet50-imagenet",
     root="./experiments",
     readme="ResNet-50 training with new augmentation",
     tags=["resnet", "imagenet", "baseline"],
     folder="/experiments/2025/resnet",
         local_path=".dreamlake"
-) as session:
-    session.log("Training started")
+) as episode:
+    episode.log("Training started")
 ```
 
-## Resuming Sessions
+## Resuming Episodes
 
-Sessions use **upsert behavior** - reopen by using the same name:
+Episodes use **upsert behavior** - reopen by using the same name:
 
 ```{code-block} python
 :linenos:
 
 # First run
-with Session(prefix="ml/long-training",
-        local_path=".dreamlake") as session:
-    session.log("Starting epoch 1")
-    session.track("train").append(loss=0.5, epoch=1)
+with Episode(prefix="ml/long-training",
+        local_path=".dreamlake") as episode:
+    episode.log("Starting epoch 1")
+    episode.track("train").append(loss=0.5, epoch=1)
 
-# Later - continues same session
-with Session(prefix="ml/long-training",
-        local_path=".dreamlake") as session:
-    session.log("Resuming from checkpoint")
-    session.track("train").append(loss=0.3, epoch=2)
+# Later - continues same episode
+with Episode(prefix="ml/long-training",
+        local_path=".dreamlake") as episode:
+    episode.log("Resuming from checkpoint")
+    episode.track("train").append(loss=0.3, epoch=2)
 ```
 
 ## Available Operations
 
-Once a session is open, you can use all DreamLake features:
+Once a episode is open, you can use all DreamLake features:
 
 ```{code-block} python
 :linenos:
 
-with Session(prefix="test/demo",
-        local_path=".dreamlake") as session:
+with Episode(prefix="test/demo",
+        local_path=".dreamlake") as episode:
     # Logging
-    session.log("Training started", level="info")
+    episode.log("Training started", level="info")
 
     # Parameters
-    session.params.set(lr=0.001, batch_size=32)
+    episode.params.set(lr=0.001, batch_size=32)
 
     # Metrics tracking
-    session.track("train").append(loss=0.5, epoch=1)
+    episode.track("train").append(loss=0.5, epoch=1)
 
     # File uploads
-    session.files.upload("model.pth", path="/models")
+    episode.files.upload("model.pth", path="/models")
 ```
 
 ## Storage Structure

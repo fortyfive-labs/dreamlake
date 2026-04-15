@@ -157,8 +157,8 @@ class LocalStorage:
     Directory structure:
     <root>/
       <workspace>/
-        <session_name>/
-          session.json        # Session metadata
+        <episode_name>/
+          episode.json        # Episode metadata
           logs/
             logs.jsonl        # Log entries
             .log_sequence     # Sequence counter
@@ -193,7 +193,7 @@ class LocalStorage:
                 self._locks[lock_key] = FileLock(lock_file_path)
             return self._locks[lock_key]
 
-    def create_session(
+    def create_episode(
         self,
         workspace: str,
         name: str,
@@ -203,37 +203,37 @@ class LocalStorage:
         metadata: Optional[Dict[str, Any]] = None,
     ) -> Path:
         """
-        Create a session directory structure.
+        Create a episode directory structure.
 
         Args:
             workspace: Workspace name
-            name: Session name
+            name: Episode name
             description: Optional description
             tags: Optional tags
             folder: Optional folder path (used for organization)
             metadata: Optional metadata
 
         Returns:
-            Path to session directory
+            Path to episode directory
         """
         # Create workspace directory
         workspace_dir = self.root_path / workspace
         workspace_dir.mkdir(parents=True, exist_ok=True)
 
-        # Create session directory
-        session_dir = workspace_dir / name
-        session_dir.mkdir(parents=True, exist_ok=True)
+        # Create episode directory
+        episode_dir = workspace_dir / name
+        episode_dir.mkdir(parents=True, exist_ok=True)
 
         # Create subdirectories
-        (session_dir / "logs").mkdir(exist_ok=True)
-        (session_dir / "tracks").mkdir(exist_ok=True)
-        (session_dir / "files").mkdir(exist_ok=True)
+        (episode_dir / "logs").mkdir(exist_ok=True)
+        (episode_dir / "tracks").mkdir(exist_ok=True)
+        (episode_dir / "files").mkdir(exist_ok=True)
 
-        # Write session metadata with locking to prevent race conditions
-        session_file = session_dir / "session.json"
-        lock_file = session_dir / ".session.lock"
+        # Write episode metadata with locking to prevent race conditions
+        episode_file = episode_dir / "episode.json"
+        lock_file = episode_dir / ".episode.lock"
 
-        session_metadata = {
+        episode_metadata = {
             "name": name,
             "workspace": workspace,
             "description": description,
@@ -245,13 +245,13 @@ class LocalStorage:
         }
 
         with self._get_lock(lock_file):
-            if not session_file.exists():
+            if not episode_file.exists():
                 # Only create if doesn't exist (don't overwrite)
-                with open(session_file, "w") as f:
-                    json.dump(session_metadata, f, indent=2)
+                with open(episode_file, "w") as f:
+                    json.dump(episode_metadata, f, indent=2)
             else:
-                # Update existing session
-                with open(session_file, "r") as f:
+                # Update existing episode
+                with open(episode_file, "r") as f:
                     existing = json.load(f)
                 # Merge updates
                 if description is not None:
@@ -263,10 +263,10 @@ class LocalStorage:
                 if metadata is not None:
                     existing["metadata"] = metadata
                 existing["updated_at"] = datetime.utcnow().isoformat() + "Z"
-                with open(session_file, "w") as f:
+                with open(episode_file, "w") as f:
                     json.dump(existing, f, indent=2)
 
-        return session_dir
+        return episode_dir
 
     def flush(self):
         """Flush any pending writes (no-op for now)."""
@@ -275,7 +275,7 @@ class LocalStorage:
     def write_log(
         self,
         workspace: str,
-        session: str,
+        episode: str,
         message: str,
         level: str,
         timestamp: str,
@@ -286,14 +286,14 @@ class LocalStorage:
 
         Args:
             workspace: Workspace name
-            session: Session name
+            episode: Episode name
             message: Log message
             level: Log level
             timestamp: ISO timestamp string
             metadata: Optional metadata
         """
-        session_dir = self.root_path / workspace / session
-        logs_dir = session_dir / "logs"
+        episode_dir = self.root_path / workspace / episode
+        logs_dir = episode_dir / "logs"
         logs_file = logs_dir / "logs.jsonl"
         seq_file = logs_dir / ".log_sequence"
         lock_file = logs_dir / ".log_sequence.lock"
@@ -328,7 +328,7 @@ class LocalStorage:
     def write_track_data(
         self,
         workspace: str,
-        session: str,
+        episode: str,
         track_name: str,
         data: Any,
     ):
@@ -337,12 +337,12 @@ class LocalStorage:
 
         Args:
             workspace: Workspace name
-            session: Session name
+            episode: Episode name
             track_name: Track name
             data: Data point
         """
-        session_dir = self.root_path / workspace / session
-        track_file = session_dir / "tracks" / f"{track_name}.jsonl"
+        episode_dir = self.root_path / workspace / episode
+        track_file = episode_dir / "tracks" / f"{track_name}.jsonl"
 
         data_point = {
             "timestamp": datetime.utcnow().isoformat() + "Z",
@@ -355,7 +355,7 @@ class LocalStorage:
     def write_parameters(
         self,
         workspace: str,
-        session: str,
+        episode: str,
         data: Dict[str, Any],
     ):
         """
@@ -370,12 +370,12 @@ class LocalStorage:
 
         Args:
             workspace: Workspace name
-            session: Session name
+            episode: Episode name
             data: Flattened parameter dict with dot notation (already flattened)
         """
-        session_dir = self.root_path / workspace / session
-        params_file = session_dir / "parameters.json"
-        lock_file = session_dir / ".parameters.lock"
+        episode_dir = self.root_path / workspace / episode
+        params_file = episode_dir / "parameters.json"
+        lock_file = episode_dir / ".parameters.lock"
 
         # Use locking to prevent race condition on parameter merge
         with self._get_lock(lock_file):
@@ -411,20 +411,20 @@ class LocalStorage:
     def read_parameters(
         self,
         workspace: str,
-        session: str,
+        episode: str,
     ) -> Optional[Dict[str, Any]]:
         """
         Read parameters from local file.
 
         Args:
             workspace: Workspace name
-            session: Session name
+            episode: Episode name
 
         Returns:
             Flattened parameter dict, or None if file doesn't exist
         """
-        session_dir = self.root_path / workspace / session
-        params_file = session_dir / "parameters.json"
+        episode_dir = self.root_path / workspace / episode
+        params_file = episode_dir / "parameters.json"
 
         if not params_file.exists():
             return None
@@ -439,7 +439,7 @@ class LocalStorage:
     def write_file(
         self,
         workspace: str,
-        session: str,
+        episode: str,
         file_path: str,
         prefix: str,
         filename: str,
@@ -458,7 +458,7 @@ class LocalStorage:
 
         Args:
             workspace: Workspace name
-            session: Session name
+            episode: Episode name
             file_path: Source file path
             prefix: Logical path prefix (e.g., "/models", "/config")
             filename: Original filename
@@ -475,8 +475,8 @@ class LocalStorage:
         import shutil
         from .files import generate_snowflake_id
 
-        session_dir = self.root_path / workspace / session
-        files_dir = session_dir / "files"
+        episode_dir = self.root_path / workspace / episode
+        files_dir = episode_dir / "files"
         metadata_file = files_dir / ".files_metadata.json"
         lock_file = files_dir / ".files_metadata.lock"
 
@@ -497,7 +497,7 @@ class LocalStorage:
         # Create file metadata
         file_metadata = {
             "id": file_id,
-            "sessionId": f"{workspace}/{session}",  # Local mode doesn't have real session ID
+            "episodeId": f"{workspace}/{episode}",  # Local mode doesn't have real episode ID
             "path": prefix,
             "filename": filename,
             "description": description,
@@ -552,7 +552,7 @@ class LocalStorage:
     def list_files(
         self,
         workspace: str,
-        session: str,
+        episode: str,
         prefix: Optional[str] = None,
         tags: Optional[List[str]] = None
     ) -> List[Dict[str, Any]]:
@@ -561,15 +561,15 @@ class LocalStorage:
 
         Args:
             workspace: Workspace name
-            session: Session name
+            episode: Episode name
             prefix: Optional prefix filter
             tags: Optional tags filter
 
         Returns:
             List of file metadata dicts (only non-deleted files)
         """
-        session_dir = self.root_path / workspace / session
-        metadata_file = session_dir / "files" / ".files_metadata.json"
+        episode_dir = self.root_path / workspace / episode
+        metadata_file = episode_dir / "files" / ".files_metadata.json"
 
         if not metadata_file.exists():
             return []
@@ -598,7 +598,7 @@ class LocalStorage:
     def read_file(
         self,
         workspace: str,
-        session: str,
+        episode: str,
         file_id: str,
         dest_path: Optional[str] = None
     ) -> str:
@@ -607,7 +607,7 @@ class LocalStorage:
 
         Args:
             workspace: Workspace name
-            session: Session name
+            episode: Episode name
             file_id: File ID
             dest_path: Optional destination path (defaults to original filename)
 
@@ -621,8 +621,8 @@ class LocalStorage:
         import shutil
         from .files import verify_checksum
 
-        session_dir = self.root_path / workspace / session
-        files_dir = session_dir / "files"
+        episode_dir = self.root_path / workspace / episode
+        files_dir = episode_dir / "files"
         metadata_file = files_dir / ".files_metadata.json"
 
         if not metadata_file.exists():
@@ -666,7 +666,7 @@ class LocalStorage:
     def delete_file(
         self,
         workspace: str,
-        session: str,
+        episode: str,
         file_id: str
     ) -> Dict[str, Any]:
         """
@@ -674,7 +674,7 @@ class LocalStorage:
 
         Args:
             workspace: Workspace name
-            session: Session name
+            episode: Episode name
             file_id: File ID
 
         Returns:
@@ -683,8 +683,8 @@ class LocalStorage:
         Raises:
             FileNotFoundError: If file not found
         """
-        session_dir = self.root_path / workspace / session
-        files_dir = session_dir / "files"
+        episode_dir = self.root_path / workspace / episode
+        files_dir = episode_dir / "files"
         metadata_file = files_dir / ".files_metadata.json"
         lock_file = files_dir / ".files_metadata.lock"
 
@@ -723,7 +723,7 @@ class LocalStorage:
     def update_file_metadata(
         self,
         workspace: str,
-        session: str,
+        episode: str,
         file_id: str,
         description: Optional[str] = None,
         tags: Optional[List[str]] = None,
@@ -734,7 +734,7 @@ class LocalStorage:
 
         Args:
             workspace: Workspace name
-            session: Session name
+            episode: Episode name
             file_id: File ID
             description: Optional description
             tags: Optional tags
@@ -746,8 +746,8 @@ class LocalStorage:
         Raises:
             FileNotFoundError: If file not found
         """
-        session_dir = self.root_path / workspace / session
-        files_dir = session_dir / "files"
+        episode_dir = self.root_path / workspace / episode
+        files_dir = episode_dir / "files"
         metadata_file = files_dir / ".files_metadata.json"
         lock_file = files_dir / ".files_metadata.lock"
 
@@ -790,14 +790,14 @@ class LocalStorage:
 
         return updated_file
 
-    def _get_session_dir(self, workspace: str, session: str) -> Path:
-        """Get session directory path."""
-        return self.root_path / workspace / session
+    def _get_episode_dir(self, workspace: str, episode: str) -> Path:
+        """Get episode directory path."""
+        return self.root_path / workspace / episode
 
     def append_to_track(
         self,
         workspace: str,
-        session: str,
+        episode: str,
         track_name: str,
         data: Dict[str, Any],
         description: Optional[str] = None,
@@ -808,13 +808,13 @@ class LocalStorage:
         Append a single data point to a track in local storage.
 
         Storage format:
-        .dreamlake/{workspace}/{session}/tracks/{track_name}/
+        .dreamlake/{workspace}/{episode}/tracks/{track_name}/
             data.msgpack  # Data points (one msgpack object per line)
             metadata.json  # Track metadata (name, description, tags, stats)
 
         Args:
             workspace: Workspace name
-            session: Session name
+            episode: Episode name
             track_name: Track name
             data: Data point (flexible schema)
             description: Optional track description
@@ -824,8 +824,8 @@ class LocalStorage:
         Returns:
             Dict with trackId, index, bufferedDataPoints, chunkSize
         """
-        session_dir = self._get_session_dir(workspace, session)
-        tracks_dir = session_dir / "tracks"
+        episode_dir = self._get_episode_dir(workspace, episode)
+        tracks_dir = episode_dir / "tracks"
         tracks_dir.mkdir(parents=True, exist_ok=True)
 
         track_dir = tracks_dir / track_name
@@ -881,7 +881,7 @@ class LocalStorage:
     def append_batch_to_track(
         self,
         workspace: str,
-        session: str,
+        episode: str,
         track_name: str,
         data_points: List[Dict[str, Any]],
         description: Optional[str] = None,
@@ -893,7 +893,7 @@ class LocalStorage:
 
         Args:
             workspace: Workspace name
-            session: Session name
+            episode: Episode name
             track_name: Track name
             data_points: List of data points
             description: Optional track description
@@ -903,8 +903,8 @@ class LocalStorage:
         Returns:
             Dict with trackId, startIndex, endIndex, count
         """
-        session_dir = self._get_session_dir(workspace, session)
-        tracks_dir = session_dir / "tracks"
+        episode_dir = self._get_episode_dir(workspace, episode)
+        tracks_dir = episode_dir / "tracks"
         tracks_dir.mkdir(parents=True, exist_ok=True)
 
         track_dir = tracks_dir / track_name
@@ -984,7 +984,7 @@ class LocalStorage:
     def read_track_data(
         self,
         workspace: str,
-        session: str,
+        episode: str,
         track_name: str,
         start_index: int = 0,
         limit: int = 1000
@@ -994,7 +994,7 @@ class LocalStorage:
 
         Args:
             workspace: Workspace name
-            session: Session name
+            episode: Episode name
             track_name: Track name
             start_index: Starting index
             limit: Max points to read
@@ -1002,8 +1002,8 @@ class LocalStorage:
         Returns:
             Dict with data, startIndex, endIndex, total, hasMore
         """
-        session_dir = self._get_session_dir(workspace, session)
-        track_dir = session_dir / "tracks" / track_name
+        episode_dir = self._get_episode_dir(workspace, episode)
+        track_dir = episode_dir / "tracks" / track_name
         data_file = track_dir / "data.msgpack"
 
         if not data_file.exists():
@@ -1062,7 +1062,7 @@ class LocalStorage:
     def read_track_data_by_time(
         self,
         workspace: str,
-        session: str,
+        episode: str,
         track_name: str,
         start_time: Optional[float] = None,
         end_time: Optional[float] = None,
@@ -1074,7 +1074,7 @@ class LocalStorage:
 
         Args:
             workspace: Workspace name
-            session: Session name
+            episode: Episode name
             track_name: Track name
             start_time: Starting timestamp (None = from beginning)
             end_time: Ending timestamp (None = to end)
@@ -1084,8 +1084,8 @@ class LocalStorage:
         Returns:
             Dict with data, startTime, endTime, total, hasMore
         """
-        session_dir = self._get_session_dir(workspace, session)
-        track_dir = session_dir / "tracks" / track_name
+        episode_dir = self._get_episode_dir(workspace, episode)
+        track_dir = episode_dir / "tracks" / track_name
         data_file = track_dir / "data.msgpack"
 
         if not data_file.exists():
@@ -1165,7 +1165,7 @@ class LocalStorage:
     def get_track_stats(
         self,
         workspace: str,
-        session: str,
+        episode: str,
         track_name: str
     ) -> Dict[str, Any]:
         """
@@ -1173,14 +1173,14 @@ class LocalStorage:
 
         Args:
             workspace: Workspace name
-            session: Session name
+            episode: Episode name
             track_name: Track name
 
         Returns:
             Dict with track stats
         """
-        session_dir = self._get_session_dir(workspace, session)
-        track_dir = session_dir / "tracks" / track_name
+        episode_dir = self._get_episode_dir(workspace, episode)
+        track_dir = episode_dir / "tracks" / track_name
         metadata_file = track_dir / "metadata.json"
 
         if not metadata_file.exists():
@@ -1209,22 +1209,22 @@ class LocalStorage:
     def list_tracks(
         self,
         workspace: str,
-        session: str
+        episode: str
     ) -> List[Dict[str, Any]]:
         """
-        List all tracks in a session from local storage.
+        List all tracks in a episode from local storage.
 
         Supports hierarchical track names (e.g., "robot/position/left-camera").
 
         Args:
             workspace: Workspace name
-            session: Session name
+            episode: Episode name
 
         Returns:
             List of track summaries
         """
-        session_dir = self._get_session_dir(workspace, session)
-        tracks_dir = session_dir / "tracks"
+        episode_dir = self._get_episode_dir(workspace, episode)
+        tracks_dir = episode_dir / "tracks"
 
         if not tracks_dir.exists():
             return []

@@ -162,8 +162,8 @@ S3_BUCKET=dreamlake-test
 ### By Test File
 
 ```bash
-# Run only session tests
-uv run pytest test/test_session.py -v
+# Run only episode tests
+uv run pytest test/test_episode.py -v
 
 # Run only file upload tests
 uv run pytest test/test_files.py -v
@@ -199,12 +199,12 @@ uv run pytest test/ -v -m "not url"
 
 The test suite covers all major DreamLake features:
 
-### Session Management
+### Episode Management
 - Context manager and manual open/close
-- Session metadata and properties
-- Multiple sessions in same workspace
+- Episode metadata and properties
+- Multiple episodes in same workspace
 - Error handling and data persistence
-- Session reopening
+- Episode reopening
 
 ### Logging
 - Basic logging with different levels
@@ -236,7 +236,7 @@ The test suite covers all major DreamLake features:
 ### Integration Workflows
 - Complete ML workflow (train → eval → save model)
 - Hyperparameter search workflows
-- Multi-session pipelines
+- Multi-episode pipelines
 - Kitchen sink (all features combined)
 
 ## MinIO Console Access
@@ -250,7 +250,7 @@ Password: minioadmin
 ```
 
 You can browse the `dreamlake-test` bucket to see:
-- Uploaded session files
+- Uploaded episode files
 - File metadata
 - Storage structure
 
@@ -282,7 +282,7 @@ docker exec -it dreamlake-test-mongodb mongosh dreamlake-test
 This usually means JWT secret mismatch. Verify that:
 
 1. `dreamlake-server/.env.test` has `JWT_SECRET=your-secret-key-change-this-in-production`
-2. Python SDK is using the same secret (hardcoded in `src/dreamlake/session.py:164`)
+2. Python SDK is using the same secret (hardcoded in `src/dreamlake/episode.py:164`)
 
 If you changed the secret, restart the server:
 

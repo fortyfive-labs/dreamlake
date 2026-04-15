@@ -7,7 +7,7 @@ A simple and flexible SDK for ML experiment tracking and data storage.
 - **Three Usage Styles**: Decorator, context manager, or direct instantiation
 - **Dual Operation Modes**: Remote (API server) or local (filesystem)
 - **Auto-creation**: Automatically creates namespace, workspace, and folder hierarchy
-- **Upsert Behavior**: Updates existing sessions or creates new ones
+- **Upsert Behavior**: Updates existing episodes or creates new ones
 - **Simple API**: Minimal configuration, maximum flexibility
 - **Time-Based Queries**: MCAP-like API for querying track data by timestamp ranges
 - **Multi-Modal Sync**: Timestamp inheritance for synchronizing pose, images, and sensor data
@@ -42,27 +42,27 @@ pip install dreamlake==0.4.2
 ### Remote Mode (with API Server)
 
 ```python
-from dreamlake import Session
+from dreamlake import Episode
 
-with Session(
+with Episode(
     name="my-experiment",
     workspace="my-workspace",
     remote="https://cu3thurmv3.us-east-1.awsapprunner.com",
     api_key="your-jwt-token"
-) as session:
-    print(f"Session ID: {session.id}")
+) as episode:
+    print(f"Episode ID: {episode.id}")
 ```
 
 ### Local Mode (Filesystem)
 
 ```python
-from dreamlake import Session
+from dreamlake import Episode
 
-with Session(
+with Episode(
     name="my-experiment",
     workspace="my-workspace",
     local_path=".dreamlake"
-) as session:
+) as episode:
     pass  # Your code here
 ```
 

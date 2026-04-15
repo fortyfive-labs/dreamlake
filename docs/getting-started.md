@@ -12,9 +12,9 @@ pip install -e .
 
 ## Core Concepts
 
-### Sessions
+### Episodes
 
-A **Session** represents a single experiment run or training session. Sessions contain:
+A **Episode** represents a single experiment run or training episode. Episodes contain:
 - Logs (structured logging)
 - Parameters (hyperparameters and configuration)
 - Tracks (time-series metrics like loss, accuracy)
@@ -22,7 +22,7 @@ A **Session** represents a single experiment run or training session. Sessions c
 
 ### Workspaces
 
-A **Workspace** is a container for organizing related sessions. Think of it as a project or team workspace.
+A **Workspace** is a container for organizing related episodes. Think of it as a project or team workspace.
 
 ### Local vs Remote Mode
 
@@ -31,7 +31,7 @@ DreamLake operates in two modes:
 - **Local Mode**: Data stored in filesystem (`.dreamlake/` directory)
 - **Remote Mode**: Data stored in MongoDB + S3 via API
 
-## Your First Session
+## Your First Episode
 
 DreamLake supports **three usage styles**. Choose the one that fits your workflow best:
 
@@ -40,25 +40,25 @@ DreamLake supports **three usage styles**. Choose the one that fits your workflo
 Perfect for wrapping training functions:
 
 ```python
-from dreamlake import dreamlake_session
+from dreamlake import dreamlake_episode
 
-@dreamlake_session(
+@dreamlake_episode(
     name="hello-dreamlake",
     workspace="tutorials",
     root="./my_experiments"
 )
-def my_first_experiment(session):
-    """Session is automatically injected as a parameter"""
+def my_first_experiment(episode):
+    """Episode is automatically injected as a parameter"""
     # Log a message
-    session.log("Hello from DreamLake!", level="info")
+    episode.log("Hello from DreamLake!", level="info")
 
     # Track a parameter
-    session.params.set(message="Hello World")
+    episode.params.set(message="Hello World")
 
-    print("Session created successfully!")
+    print("Episode created successfully!")
     return "Done!"
 
-# Run the experiment - session is managed automatically
+# Run the experiment - episode is managed automatically
 result = my_first_experiment()
 ```
 
@@ -67,21 +67,21 @@ result = my_first_experiment()
 The most common and Pythonic approach:
 
 ```python
-from dreamlake import Session
+from dreamlake import Episode
 
-# Create a session in local mode
-with Session(prefix="tutorials/hello-dreamlake",
+# Create a episode in local mode
+with Episode(prefix="tutorials/hello-dreamlake",
     root="./my_experiments",
         local_path=".dreamlake"
-) as session:
+) as episode:
     # Log a message
-    session.log("Hello from DreamLake!", level="info")
+    episode.log("Hello from DreamLake!", level="info")
 
     # Track a parameter
-    session.params.set(message="Hello World")
+    episode.params.set(message="Hello World")
 
-    print("Session created successfully!")
-    print(f"Data stored in: {session._storage.root_path}")
+    print("Episode created successfully!")
+    print(f"Data stored in: {episode._storage.root_path}")
 ```
 
 ### Style 3: Direct Instantiation (Advanced)
@@ -89,28 +89,28 @@ with Session(prefix="tutorials/hello-dreamlake",
 For fine-grained control:
 
 ```python
-from dreamlake import Session
+from dreamlake import Episode
 
-# Create a session
-session = Session(prefix="tutorials/hello-dreamlake",
+# Create a episode
+episode = Episode(prefix="tutorials/hello-dreamlake",
     root="./my_experiments",
         local_path=".dreamlake"
 )
 
 # Explicitly open
-session.open()
+episode.open()
 
 try:
     # Log a message
-    session.log("Hello from DreamLake!", level="info")
+    episode.log("Hello from DreamLake!", level="info")
 
     # Track a parameter
-    session.params.set(message="Hello World")
+    episode.params.set(message="Hello World")
 
-    print("Session created successfully!")
+    print("Episode created successfully!")
 finally:
     # Explicitly close
-    session.close()
+    episode.close()
 ```
 
 Save this as `hello_dreamlake.py` and run it:
@@ -121,16 +121,16 @@ python hello_dreamlake.py
 
 You should see:
 ```
-Session created successfully!
+Episode created successfully!
 Data stored in: ./my_experiments
 ```
 
 ## What Just Happened?
 
-1. **Session Created**: A new session named "hello-dreamlake" was created in the "tutorials" workspace
+1. **Episode Created**: A new episode named "hello-dreamlake" was created in the "tutorials" workspace
 2. **Log Written**: A log message was written to `.dreamlake/tutorials/hello-dreamlake/logs.jsonl`
 3. **Parameter Saved**: The parameter was saved to `.dreamlake/tutorials/hello-dreamlake/parameters.json`
-4. **Auto-Closed**: The `with` statement automatically closed the session
+4. **Auto-Closed**: The `with` statement automatically closed the episode
 
 Note: Track data (metrics) is stored in msgpack-lines format in `.dreamlake/tutorials/hello-dreamlake/tracks/*/data.msgpack` files.
 
@@ -149,67 +149,67 @@ cat ./my_experiments/.dreamlake/tutorials/hello-dreamlake/logs.jsonl
 cat ./my_experiments/.dreamlake/tutorials/hello-dreamlake/parameters.json
 ```
 
-## Session Context Manager
+## Episode Context Manager
 
 DreamLake uses Python's context manager pattern (`with` statement) to ensure proper cleanup:
 
 ```python
 # ✓ Good - Automatic cleanup
-with Session(prefix="test/my-session", root="./data",
-        local_path=".dreamlake") as session:
-    session.log("Training started")
+with Episode(prefix="test/my-episode", root="./data",
+        local_path=".dreamlake") as episode:
+    episode.log("Training started")
     # ... do work ...
-# Session automatically closed here
+# Episode automatically closed here
 
 # ✗ Manual cleanup (not recommended)
-session = Session(prefix="test/my-session", root="./data",
+episode = Episode(prefix="test/my-episode", root="./data",
         local_path=".dreamlake")
-session.open()
+episode.open()
 try:
-    session.log("Training started")
+    episode.log("Training started")
 finally:
-    session.close()
+    episode.close()
 ```
 
-## Session Metadata
+## Episode Metadata
 
-You can add metadata to your sessions:
+You can add metadata to your episodes:
 
 ```python
-with Session(prefix="computer-vision/mnist-baseline",
+with Episode(prefix="computer-vision/mnist-baseline",
     root="./experiments",
     readme="Baseline CNN for MNIST classification",
     tags=["mnist", "cnn", "baseline"],
     folder="/experiments/mnist",
         local_path=".dreamlake"
-) as session:
-    session.log("Session created with metadata")
+) as episode:
+    episode.log("Episode created with metadata")
 ```
 
 ## Error Handling
 
-Sessions handle errors gracefully:
+Episodes handle errors gracefully:
 
 ```python
-from dreamlake import Session
+from dreamlake import Episode
 
 try:
-    with Session(prefix="test/test-session",
+    with Episode(prefix="test/test-episode",
         root="./data",
         local_path=".dreamlake"
-    ) as session:
-        session.log("Starting work...")
+    ) as episode:
+        episode.log("Starting work...")
         # Your code here
         raise Exception("Something went wrong!")
 except Exception as e:
     print(f"Error occurred: {e}")
-    # Session is still properly closed
+    # Episode is still properly closed
 ```
 
 ## Next Steps
 
 Now that you understand the basics, explore:
-- [Sessions](sessions.md) - Advanced session management
+- [Episodes](episodes.md) - Advanced episode management
 - [Logging](logging.md) - Structured logging
 - [Parameters](parameters.md) - Parameter tracking
 - [Tracks](tracks.md) - Time-series metrics
@@ -220,71 +220,71 @@ Now that you understand the basics, explore:
 ### Three Usage Styles
 
 ```python
-from dreamlake import Session, dreamlake_session
+from dreamlake import Episode, dreamlake_episode
 
 # ========================================
 # Style 1: Decorator (ML Training)
 # ========================================
-@dreamlake_session(
-    name="session-name",
+@dreamlake_episode(
+    name="episode-name",
     workspace="workspace-name",
     root="./path/to/data"
 )
-def train(session):
-    session.log("Training...")
+def train(episode):
+    episode.log("Training...")
 
-train()  # Session managed automatically
+train()  # Episode managed automatically
 
 # ========================================
 # Style 2: Context Manager (Scripts)
 # ========================================
 # Local mode (filesystem)
-with Session(prefix="workspace-name/session-name",
+with Episode(prefix="workspace-name/episode-name",
     root="./path/to/data",
         local_path=".dreamlake"
-) as session:
+) as episode:
     pass
 
 # Remote mode (API + S3) - with username
-with Session(prefix="workspace-name/session-name",
+with Episode(prefix="workspace-name/episode-name",
     url="https://cu3thurmv3.us-east-1.awsapprunner.com",
     user_name="your-username"
-) as session:
+) as episode:
     pass
 
 # Remote mode (API + S3) - with API key (advanced)
-with Session(prefix="workspace-name/session-name",
+with Episode(prefix="workspace-name/episode-name",
     url="https://cu3thurmv3.us-east-1.awsapprunner.com",
     api_key="your-api-key"
-) as session:
+) as episode:
     pass
 
 # ========================================
 # Style 3: Direct Instantiation (Advanced)
 # ========================================
-session = Session(prefix="workspace-name/session-name",
+episode = Episode(prefix="workspace-name/episode-name",
     root="./path/to/data",
         local_path=".dreamlake"
 )
-session.open()
+episode.open()
 try:
     # Do work
     pass
 finally:
-    session.close()
+    episode.close()
 ```
 
 ### All Styles Work With Remote Mode
 
 ```python
 # Decorator + Remote
-@dreamlake_session(
-    name="session-name",
+@dreamlake_episode(
+    name="episode-name",
     workspace="workspace-name",
     url="https://cu3thurmv3.us-east-1.awsapprunner.com",
     user_name="your-username"
 )
-def train(session):
+def train(episode):
     pass
 ```
 
@@ -303,7 +303,7 @@ Now that you know the basics, explore these guides:
 - **[FAQ & Troubleshooting](faq.md)** - Common questions and solutions
 
 **Feature-specific guides:**
-- [Sessions](sessions.md) - Session lifecycle and management
+- [Episodes](episodes.md) - Episode lifecycle and management
 - [Logging](logging.md) - Structured logging with levels
 - [Parameters](parameters.md) - Hyperparameter tracking
 - [Tracks](tracks.md) - Time-series metrics

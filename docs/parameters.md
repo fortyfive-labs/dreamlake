@@ -7,11 +7,11 @@ Track hyperparameters, configuration values, and experiment settings. Parameters
 ```{code-block} python
 :linenos:
 
-from dreamlake import Session
+from dreamlake import Episode
 
-with Session(prefix="project/my-experiment",
-        local_path=".dreamlake") as session:
-    session.params.set(
+with Episode(prefix="project/my-experiment",
+        local_path=".dreamlake") as episode:
+    episode.params.set(
         learning_rate=0.001,
         batch_size=32,
         optimizer="adam",
@@ -26,9 +26,9 @@ Use nested dictionaries - they're automatically flattened with dot notation:
 ```{code-block} python
 :linenos:
 
-with Session(prefix="project/my-experiment",
-        local_path=".dreamlake") as session:
-    session.params.set(**{
+with Episode(prefix="project/my-experiment",
+        local_path=".dreamlake") as episode:
+    episode.params.set(**{
         "model": {
             "architecture": "resnet50",
             "pretrained": True,
@@ -55,16 +55,16 @@ Call `parameters().set()` multiple times - values merge and overwrite:
 ```{code-block} python
 :linenos:
 
-with Session(prefix="project/my-experiment",
-        local_path=".dreamlake") as session:
+with Episode(prefix="project/my-experiment",
+        local_path=".dreamlake") as episode:
     # Initial parameters
-    session.params.set(learning_rate=0.001, batch_size=32)
+    episode.params.set(learning_rate=0.001, batch_size=32)
 
     # Add more
-    session.params.set(optimizer="adam", momentum=0.9)
+    episode.params.set(optimizer="adam", momentum=0.9)
 
     # Update existing
-    session.params.set(learning_rate=0.0001)
+    episode.params.set(learning_rate=0.0001)
 
     # Final result:
     # learning_rate = 0.0001  (updated)
@@ -81,15 +81,15 @@ with Session(prefix="project/my-experiment",
 :linenos:
 
 import json
-from dreamlake import Session
+from dreamlake import Episode
 
 with open("config.json", "r") as f:
     config = json.load(f)
 
-with Session(prefix="project/my-experiment",
-        local_path=".dreamlake") as session:
-    session.params.set(**config)
-    session.log("Configuration loaded")
+with Episode(prefix="project/my-experiment",
+        local_path=".dreamlake") as episode:
+    episode.params.set(**config)
+    episode.log("Configuration loaded")
 ```
 
 **From command line arguments:**
@@ -98,16 +98,16 @@ with Session(prefix="project/my-experiment",
 :linenos:
 
 import argparse
-from dreamlake import Session
+from dreamlake import Episode
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--lr", type=float, default=0.001)
 parser.add_argument("--batch-size", type=int, default=32)
 args = parser.parse_args()
 
-with Session(prefix="project/my-experiment",
-        local_path=".dreamlake") as session:
-    session.params.set(**vars(args))
+with Episode(prefix="project/my-experiment",
+        local_path=".dreamlake") as episode:
+    episode.params.set(**vars(args))
 ```
 
 **From dataclass:**
@@ -116,7 +116,7 @@ with Session(prefix="project/my-experiment",
 :linenos:
 
 from dataclasses import dataclass, asdict
-from dreamlake import Session
+from dreamlake import Episode
 
 @dataclass
 class TrainingConfig:
@@ -126,9 +126,9 @@ class TrainingConfig:
 
 config = TrainingConfig()
 
-with Session(prefix="project/my-experiment",
-        local_path=".dreamlake") as session:
-    session.params.set(**asdict(config))
+with Episode(prefix="project/my-experiment",
+        local_path=".dreamlake") as episode:
+    episode.params.set(**asdict(config))
 ```
 
 ## Complete Training Configuration
@@ -136,9 +136,9 @@ with Session(prefix="project/my-experiment",
 ```{code-block} python
 :linenos:
 
-with Session(prefix="cv/resnet-imagenet",
-        local_path=".dreamlake") as session:
-    session.params.set(**{
+with Episode(prefix="cv/resnet-imagenet",
+        local_path=".dreamlake") as episode:
+    episode.params.set(**{
         "model": {
             "architecture": "resnet50",
             "pretrained": True,

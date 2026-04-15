@@ -9,26 +9,26 @@ A basic training loop with logging, parameters, and metrics tracking.
 ```python
 """Simple training loop example."""
 import random
-from dreamlake import Session
+from dreamlake import Episode
 
 def train_simple_model():
     """Train a simple model and track with DreamLake."""
 
-    with Session(prefix="tutorials/simple-training",
+    with Episode(prefix="tutorials/simple-training",
         root="./experiments",
         readme="Simple training example",
         tags=["tutorial", "simple"],
         local_path=".dreamlake"
-    ) as session:
+    ) as episode:
         # Track hyperparameters
-        session.params.set(
+        episode.params.set(
             learning_rate=0.001,
             batch_size=32,
             epochs=10,
             model="simple_nn"
         )
 
-        session.log("Starting training", level="info")
+        episode.log("Starting training", level="info")
 
         # Training loop
         for epoch in range(10):
@@ -38,12 +38,12 @@ def train_simple_model():
             accuracy = min(0.95, 0.5 + epoch * 0.05)
 
             # Track metrics
-            session.track("train").append(loss=train_loss, epoch=epoch)
-            session.track("val").append(loss=val_loss, epoch=epoch)
-            session.track("metrics").append(accuracy=accuracy, epoch=epoch)
+            episode.track("train").append(loss=train_loss, epoch=epoch)
+            episode.track("val").append(loss=val_loss, epoch=epoch)
+            episode.track("metrics").append(accuracy=accuracy, epoch=epoch)
 
             # Log progress
-            session.log(
+            episode.log(
                 f"Epoch {epoch + 1}/10 complete",
                 level="info",
                 metadata={
@@ -53,8 +53,8 @@ def train_simple_model():
                 }
             )
 
-        session.log("Training complete!", level="info")
-        print(f"✓ Experiment saved to: {session._storage.root_path}")
+        episode.log("Training complete!", level="info")
+        print(f"✓ Experiment saved to: {episode._storage.root_path}")
 
 if __name__ == "__main__":
     train_simple_model()
@@ -70,7 +70,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torchvision import datasets, transforms
-from dreamlake import Session
+from dreamlake import Episode
 
 class SimpleNet(nn.Module):
     def __init__(self):
@@ -112,15 +112,15 @@ def train_mnist():
     optimizer = optim.Adam(model.params, lr=learning_rate)
     criterion = nn.CrossEntropyLoss()
 
-    # DreamLake session
-    with Session(prefix="computer-vision/mnist-pytorch",
+    # DreamLake episode
+    with Episode(prefix="computer-vision/mnist-pytorch",
         root="./experiments",
         readme="MNIST classification with PyTorch",
         tags=["mnist", "pytorch", "classification"],
         local_path=".dreamlake"
-    ) as session:
+    ) as episode:
         # Track configuration
-        session.params.set({
+        episode.params.set({
             "model": {
                 "architecture": "SimpleMLP",
                 "layers": [784, 128, 64, 10]
@@ -135,7 +135,7 @@ def train_mnist():
             "dataset": "MNIST"
         })
 
-        session.log(f"Training on {device}", level="info")
+        episode.log(f"Training on {device}", level="info")
 
         best_accuracy = 0.0
 
@@ -185,13 +185,13 @@ def train_mnist():
             val_accuracy = correct / total
 
             # Track metrics
-            session.track("train").append(loss=avg_train_loss, epoch=epoch)
-            session.track("train").append(accuracy=train_accuracy, epoch=epoch)
-            session.track("val").append(loss=avg_val_loss, epoch=epoch)
-            session.track("val").append(accuracy=val_accuracy, epoch=epoch)
+            episode.track("train").append(loss=avg_train_loss, epoch=epoch)
+            episode.track("train").append(accuracy=train_accuracy, epoch=epoch)
+            episode.track("val").append(loss=avg_val_loss, epoch=epoch)
+            episode.track("val").append(accuracy=val_accuracy, epoch=epoch)
 
             # Log progress
-            session.log(
+            episode.log(
                 f"Epoch {epoch + 1}/{epochs}",
                 level="info",
                 metadata={
@@ -206,20 +206,20 @@ def train_mnist():
             if val_accuracy > best_accuracy:
                 best_accuracy = val_accuracy
                 torch.save(model.state_dict(), "best_model.pth")
-                session.files.upload("best_model.pth", path="/models",
+                episode.files.upload("best_model.pth", path="/models",
                     description=f"Best model (accuracy: {best_accuracy:.4f})",
                     tags=["best"],
                     metadata={"epoch": epoch, "accuracy": best_accuracy}
                 )
-                session.log(f"New best model saved: {best_accuracy:.4f}", level="info")
+                episode.log(f"New best model saved: {best_accuracy:.4f}", level="info")
 
         # Save final model
         torch.save(model.state_dict(), "final_model.pth")
-        session.files.upload("final_model.pth", path="/models",
+        episode.files.upload("final_model.pth", path="/models",
             description="Final model after all epochs",
             tags=["final"])
 
-        session.log("Training complete!", level="info")
+        episode.log("Training complete!", level="info")
         print(f"✓ Best accuracy: {best_accuracy:.4f}")
 
 if __name__ == "__main__":
@@ -234,9 +234,9 @@ Grid search over hyperparameters with full tracking.
 """Hyperparameter search example."""
 from itertools import product
 import random
-from dreamlake import Session
+from dreamlake import Episode
 
-def train_with_config(lr, batch_size, session):
+def train_with_config(lr, batch_size, episode):
     """Simulate training with given hyperparameters."""
     # Simulate training
     epochs = 10
@@ -246,8 +246,8 @@ def train_with_config(lr, batch_size, session):
         # Larger batch size = slightly worse performance
         accuracy = min(0.95, 0.5 + epoch * 0.05 * (32 / batch_size))
 
-        session.track("train").append(loss=loss, epoch=epoch)
-        session.track("metrics").append(accuracy=accuracy, epoch=epoch)
+        episode.track("train").append(loss=loss, epoch=epoch)
+        episode.track("metrics").append(accuracy=accuracy, epoch=epoch)
 
     return accuracy
 
@@ -260,30 +260,30 @@ def hyperparameter_search():
     results = []
 
     for lr, bs in product(learning_rates, batch_sizes):
-        session_name = f"search-lr{lr}-bs{bs}"
+        episode_name = f"search-lr{lr}-bs{bs}"
 
-        with Session(
-            name=session_name,
+        with Episode(
+            name=episode_name,
             workspace="hyperparameter-search",
             root="./experiments",
             readme=f"Grid search: lr={lr}, batch_size={bs}",
             tags=["grid-search", f"lr-{lr}", f"bs-{bs}"],
         local_path=".dreamlake"
-        ) as session:
+        ) as episode:
             # Track hyperparameters
-            session.params.set(
+            episode.params.set(
                 learning_rate=lr,
                 batch_size=bs,
                 optimizer="sgd",
                 epochs=10
             )
 
-            session.log(f"Starting training with lr={lr}, bs={bs}")
+            episode.log(f"Starting training with lr={lr}, bs={bs}")
 
             # Train
-            final_accuracy = train_with_config(lr, bs, session)
+            final_accuracy = train_with_config(lr, bs, episode)
 
-            session.log(f"Final accuracy: {final_accuracy:.4f}")
+            episode.log(f"Final accuracy: {final_accuracy:.4f}")
 
             results.append({
                 "lr": lr,
@@ -311,10 +311,10 @@ Track multiple experiments and compare results.
 
 ```python
 """Compare multiple experiments."""
-from dreamlake import Session
+from dreamlake import Episode
 import random
 
-def train_model(architecture, session):
+def train_model(architecture, episode):
     """Train model with given architecture."""
     epochs = 20
 
@@ -323,7 +323,7 @@ def train_model(architecture, session):
 
     for epoch in range(epochs):
         acc = min(base_lr, 0.5 + epoch * (base_lr - 0.5) / epochs + random.uniform(-0.02, 0.02))
-        session.track("metrics").append(accuracy=acc, epoch=epoch)
+        episode.track("metrics").append(accuracy=acc, epoch=epoch)
 
     return acc
 
@@ -334,28 +334,28 @@ def compare_architectures():
     results = {}
 
     for arch in architectures:
-        with Session(
+        with Episode(
             name=f"comparison-{arch}",
             workspace="architecture-comparison",
             root="./experiments",
             readme=f"Training {arch} on CIFAR-10",
             tags=["comparison", arch, "cifar10"],
         local_path=".dreamlake"
-        ) as session:
+        ) as episode:
             # Configuration
-            session.params.set(
+            episode.params.set(
                 architecture=arch,
                 dataset="cifar10",
                 batch_size=128,
                 epochs=20
             )
 
-            session.log(f"Training {arch} architecture")
+            episode.log(f"Training {arch} architecture")
 
             # Train
-            final_acc = train_model(arch, session)
+            final_acc = train_model(arch, episode)
 
-            session.log(f"Final accuracy: {final_acc:.4f}")
+            episode.log(f"Final accuracy: {final_acc:.4f}")
 
             results[arch] = final_acc
 
@@ -376,37 +376,37 @@ Comprehensive logging for debugging.
 
 ```python
 """Debugging example with comprehensive logging."""
-from dreamlake import Session
+from dreamlake import Episode
 import random
 
 def train_with_debug():
     """Training with extensive debugging logs."""
 
-    with Session(prefix="debugging/debug-training",
+    with Episode(prefix="debugging/debug-training",
         root="./experiments",
         readme="Training with debug logging",
         tags=["debug"],
         local_path=".dreamlake"
-    ) as session:
-        session.params.set(
+    ) as episode:
+        episode.params.set(
             learning_rate=0.001,
             batch_size=32,
             model="debug_net"
         )
 
-        session.log("Training session started", level="info")
-        session.log("Initializing model", level="debug")
+        episode.log("Training episode started", level="info")
+        episode.log("Initializing model", level="debug")
 
         # Simulate some issues
         for epoch in range(5):
-            session.log(f"Starting epoch {epoch + 1}", level="debug")
+            episode.log(f"Starting epoch {epoch + 1}", level="debug")
 
             # Simulate varying behavior
             loss = 1.0 / (epoch + 1)
 
             if epoch == 2:
                 # Simulate a warning
-                session.log(
+                episode.log(
                     "Learning rate may be too high",
                     level="warn",
                     metadata={"current_lr": 0.001, "suggested_lr": 0.0001}
@@ -414,21 +414,21 @@ def train_with_debug():
 
             if random.random() < 0.2:
                 # Simulate occasional error
-                session.log(
+                episode.log(
                     "Gradient clipping applied",
                     level="warn",
                     metadata={"gradient_norm": 15.5, "max_norm": 10.0}
                 )
 
-            session.track("train").append(loss=loss, epoch=epoch)
+            episode.track("train").append(loss=loss, epoch=epoch)
 
-            session.log(
+            episode.log(
                 f"Epoch {epoch + 1} complete",
                 level="info",
                 metadata={"loss": loss}
             )
 
-        session.log("Training complete", level="info")
+        episode.log("Training complete", level="info")
 
 if __name__ == "__main__":
     train_with_debug()

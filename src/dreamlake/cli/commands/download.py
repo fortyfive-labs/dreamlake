@@ -2,7 +2,7 @@
 Download command.
 
 Usage:
-    dreamlake download --sess [namespace@]space[:session] --from <path> [-o <output>]
+    dreamlake download --episode [namespace@]space[:episode] --from <path> [-o <output>]
 """
 
 import sys
@@ -24,8 +24,8 @@ CYAN = "\033[36m"
 
 @proto.prefix
 class DownloadConfig:
-    sess: str | None = None       # [namespace@]space[:session]
-    from_path: str | None = None  # source path within session (CLI flag: --from)
+    sess: str | None = None       # [namespace@]space[:episode]
+    from_path: str | None = None  # source path within episode (CLI flag: --from)
 
 
 def print_help():
@@ -33,22 +33,22 @@ def print_help():
 {BOLD}dreamlake download{RESET} - Download a file from DreamLake
 
 {BOLD}Usage:{RESET}
-    dreamlake download --sess [namespace@]space[:session] --from <path>
+    dreamlake download --episode [namespace@]space[:episode] --from <path>
 
 {BOLD}Options:{RESET}
-    --sess    Session scope: [namespace@]space[:session]
+    --episode    Episode scope: [namespace@]space[:episode]
     --from    Source path (including filename); output name derived from it
 
 {BOLD}Examples:{RESET}
-    dreamlake download --sess alice@robotics:2026/q1/run-042 --from /microphone/front/mic.wav
-    dreamlake download --sess robotics:experiments/run-042 --from /camera/front/recording.mp4
-    dreamlake download --sess alice@robotics --from /audio/ambient/ambient.wav
+    dreamlake download --episode alice@robotics:2026/q1/run-042 --from /microphone/front/mic.wav
+    dreamlake download --episode robotics:experiments/run-042 --from /camera/front/recording.mp4
+    dreamlake download --episode alice@robotics --from /audio/ambient/ambient.wav
 """.strip())
 
 
 def cmd_download() -> int:
     if not DownloadConfig.sess:
-        print(f"{RED}error:{RESET} --sess is required", file=sys.stderr)
+        print(f"{RED}error:{RESET} --episode is required", file=sys.stderr)
         return 1
 
     if not DownloadConfig.from_path:
@@ -80,7 +80,7 @@ def cmd_download() -> int:
     output = Path(path).name
 
     print(f"Downloading {CYAN}/{path}{RESET}")
-    print(f"  {DIM}session:{RESET} {format_target(t)}")
+    print(f"  {DIM}episode:{RESET} {format_target(t)}")
     print(f"  {DIM}output:{RESET}  {output}")
 
     try:
@@ -115,8 +115,8 @@ def _download_asset(t, path: str, output: str, token: str) -> int:
     headers = {"Authorization": f"Bearer {token}"}
 
     params: dict = {"namespace": t.namespace, "space": t.space, "path": f"/{path}"}
-    if t.session:
-        params["session"] = t.session
+    if t.episode:
+        params["episode"] = t.episode
 
     # Resolve presigned download URL
     with httpx.Client(timeout=30, headers=headers) as client:

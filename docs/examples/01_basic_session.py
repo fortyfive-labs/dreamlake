@@ -1,31 +1,31 @@
-"""Basic session example - Your first Dreamlake session."""
+"""Basic episode example - Your first Dreamlake episode."""
 import sys
 sys.path.insert(0, '../../src')
 
-from dreamlake import Session
+from dreamlake import Episode
 
 def main():
     print("=" * 60)
-    print("Basic Session Example")
+    print("Basic Episode Example")
     print("=" * 60)
 
-    # Create a session in local mode
-    with Session(
+    # Create a episode in local mode
+    with Episode(
         name="hello-dreamlake",
         workspace="tutorials",
         local_path="./tutorial_data",
-        description="My first Dreamlake session",
+        description="My first Dreamlake episode",
         tags=["tutorial", "basic"]
-    ) as session:
+    ) as episode:
         # Log a message
-        session.log("Hello from Dreamlake!", level="info")
+        episode.log("Hello from Dreamlake!", level="info")
 
         # Track parameters
-        session.parameters().set(message="Hello World", version="1.0")
+        episode.parameters().set(message="Hello World", version="1.0")
 
-        print("\n✓ Session created successfully!")
-        print(f"Data stored in: {session._storage.root_path}")
-        print(f"Session: {session.workspace}/{session.name}")
+        print("\n✓ Episode created successfully!")
+        print(f"Data stored in: {episode._storage.root_path}")
+        print(f"Episode: {episode.workspace}/{episode.name}")
 
     print("\n" + "=" * 60)
     print("Check your data:")

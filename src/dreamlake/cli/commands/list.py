@@ -2,7 +2,7 @@
 List command.
 
 Usage:
-    dreamlake list --sess [namespace@]space[:session] [--prefix <path>] [--type <category>]
+    dreamlake list --episode [namespace@]space[:episode] [--prefix <path>] [--type <category>]
 
 Omit --type to list all categories. --prefix filters by path prefix.
 """
@@ -27,7 +27,7 @@ CATEGORIES = {"audio", "video", "track", "text-track", "label-track"}
 
 @proto.prefix
 class ListConfig:
-    sess: str | None = None     # [namespace@]space[:session]
+    sess: str | None = None     # [namespace@]space[:episode]
     prefix: str | None = None   # path prefix filter
     type: str | None = None     # category filter (omit for all)
 
@@ -37,24 +37,24 @@ def print_help():
 {BOLD}dreamlake list{RESET} - List assets in DreamLake
 
 {BOLD}Usage:{RESET}
-    dreamlake list --sess [namespace@]space[:session] [--prefix <path>] [--type <category>]
+    dreamlake list --episode [namespace@]space[:episode] [--prefix <path>] [--type <category>]
 
 {BOLD}Options:{RESET}
-    --sess      Session scope: [namespace@]space[:session]
+    --episode      Episode scope: [namespace@]space[:episode]
     --prefix    Filter by path prefix (optional)
     --type      Filter by category: audio, video, track, text-track, label-track (optional)
 
 {BOLD}Examples:{RESET}
-    dreamlake list --sess alice@robotics:2026/q1/run-042
-    dreamlake list --sess alice@robotics:experiments/run-042 --type audio
-    dreamlake list --sess alice@robotics --type track
-    dreamlake list --sess robotics:experiments/run-042 --prefix /microphone
+    dreamlake list --episode alice@robotics:2026/q1/run-042
+    dreamlake list --episode alice@robotics:experiments/run-042 --type audio
+    dreamlake list --episode alice@robotics --type track
+    dreamlake list --episode robotics:experiments/run-042 --prefix /microphone
 """.strip())
 
 
 def cmd_list() -> int:
     if not ListConfig.sess:
-        print(f"{RED}error:{RESET} --sess is required", file=sys.stderr)
+        print(f"{RED}error:{RESET} --episode is required", file=sys.stderr)
         return 1
 
     if ListConfig.type and ListConfig.type not in CATEGORIES:
@@ -103,8 +103,8 @@ def _list_assets(t, token: str) -> int:
     headers = {"Authorization": f"Bearer {token}"}
 
     params = {"namespace": t.namespace, "space": t.space}
-    if t.session:
-        params["session"] = t.session
+    if t.episode:
+        params["episode"] = t.episode
     if ListConfig.prefix:
         params["prefix"] = ListConfig.prefix
 

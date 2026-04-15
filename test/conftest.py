@@ -9,7 +9,7 @@ import pytest
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from dreamlake import Session
+from dreamlake import Episode
 import msgpack
 
 
@@ -63,57 +63,57 @@ def temp_workspace(tmp_path):
 
 
 @pytest.fixture
-def local_session(temp_workspace):
+def local_episode(temp_workspace):
     """
-    Create a test session in local mode (ML-Dash compatible API).
+    Create a test episode in local mode (ML-Dash compatible API).
 
-    Returns a function that creates sessions with default config but allows overrides.
+    Returns a function that creates episodes with default config but allows overrides.
     """
-    def _create_session(prefix="test-workspace/test-session", **kwargs):
+    def _create_episode(prefix="test-workspace/test-episode", **kwargs):
         defaults = {
             "root": str(temp_workspace),
         }
         defaults.update(kwargs)
-        return Session(prefix=prefix, **defaults)
+        return Episode(prefix=prefix, **defaults)
 
-    return _create_session
+    return _create_episode
 
 
 @pytest.fixture
-def remote_session():
+def remote_episode():
     """
-    Create a test session in remote mode (ML-Dash compatible API).
+    Create a test episode in remote mode (ML-Dash compatible API).
 
-    Returns a function that creates remote sessions with localhost:3000.
+    Returns a function that creates remote episodes with localhost:3000.
     Use the @pytest.mark.remote marker for tests that require a running server.
     Requires DREAMLAKE_API_KEY environment variable to be set.
     """
-    def _create_session(prefix="test-workspace/test-session", **kwargs):
+    def _create_episode(prefix="test-workspace/test-episode", **kwargs):
         defaults = {
             "url": REMOTE_SERVER_URL,
         }
         defaults.update(kwargs)
         # Note: Requires DREAMLAKE_API_KEY environment variable
-        return Session(prefix=prefix, **defaults)
+        return Episode(prefix=prefix, **defaults)
 
-    return _create_session
+    return _create_episode
 
 
 @pytest.fixture(params=["local", "remote"])
-def any_session(request, local_session, remote_session):
+def any_episode(request, local_episode, remote_episode):
     """
-    Parametrized fixture that runs tests with both local and remote sessions.
+    Parametrized fixture that runs tests with both local and remote episodes.
 
     Tests using this fixture will run twice: once with local mode and once with remote mode.
     Remote tests will be skipped if the server is not available.
     """
     if request.param == "local":
-        return local_session
+        return local_episode
     else:
         # Check if remote server is available before running remote tests
         if request.node.get_closest_marker("skip_remote"):
             pytest.skip("Test explicitly skips remote mode")
-        return remote_session
+        return remote_episode
 
 
 @pytest.fixture

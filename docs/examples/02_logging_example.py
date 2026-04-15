@@ -2,7 +2,7 @@
 import sys
 sys.path.insert(0, '../../src')
 
-from dreamlake import Session
+from dreamlake import Episode
 import time
 
 def main():
@@ -10,21 +10,21 @@ def main():
     print("Logging Example")
     print("=" * 60)
 
-    with Session(
+    with Episode(
         name="logging-demo",
         workspace="tutorials",
         local_path="./tutorial_data"
-    ) as session:
+    ) as episode:
         # Different log levels //
-        session.log("Debug information", level="debug")
-        session.log("Training started", level="info")
-        session.log("GPU memory usage high", level="warn")
-        session.log("Failed to load checkpoint", level="error")
+        episode.log("Debug information", level="debug")
+        episode.log("Training started", level="info")
+        episode.log("GPU memory usage high", level="warn")
+        episode.log("Failed to load checkpoint", level="error")
 
         print("\n1. Testing different log levels...")
 
         # Log with metadata
-        session.log(
+        episode.log(
             "Epoch completed",
             level="info",
             metadata={
@@ -41,7 +41,7 @@ def main():
         total = 100
         for i in range(0, total + 1, 10):
             percent = i
-            session.log(
+            episode.log(
                 f"Progress: {percent}%",
                 level="info",
                 metadata={
@@ -58,7 +58,7 @@ def main():
         try:
             raise ValueError("Simulated error")
         except Exception as e:
-            session.log(
+            episode.log(
                 f"Error occurred: {str(e)}",
                 level="error",
                 metadata={
@@ -69,7 +69,7 @@ def main():
 
         print("4. Error logging complete...")
 
-        session.log("Logging demo complete!", level="info")
+        episode.log("Logging demo complete!", level="info")
 
     print("\n✓ All logs saved!")
     print("\n" + "=" * 60)

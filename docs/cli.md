@@ -16,33 +16,33 @@ uv pip install dreamlake=={VERSION}
 
 | Command | Description |
 |---------|-------------|
-| `upload` | Upload a file to a session |
-| `download` | Download a file from a session |
-| `list` | List files in a session |
+| `upload` | Upload a file to a episode |
+| `download` | Download a file from a episode |
+| `list` | List files in a episode |
 | `video upload` | Upload a video to BSS |
 | `video download` | Download a video from BSS |
 | `video list` | List videos in BSS |
 
-## Session File Commands
+## Episode File Commands
 
 ### Upload
 
-Upload files to a session:
+Upload files to a episode:
 
 ```bash
 # Local mode (default)
-dreamlake upload --file ./model.pt --workspace my-ws --session experiment-001
+dreamlake upload --file ./model.pt --workspace my-ws --episodeion experiment-001
 
 # With path prefix
-dreamlake upload --file ./model.pt --workspace my-ws --session exp-001 --path /models
+dreamlake upload --file ./model.pt --workspace my-ws --episodeion exp-001 --path /models
 
 # With description and tags
-dreamlake upload --file ./model.pt --workspace my-ws --session exp-001 \
+dreamlake upload --file ./model.pt --workspace my-ws --episodeion exp-001 \
     --description "Final trained model" \
     --tags checkpoint,final
 
 # Remote mode
-dreamlake upload --file ./model.pt --workspace my-ws --session exp-001 \
+dreamlake upload --file ./model.pt --workspace my-ws --episodeion exp-001 \
     --url http://localhost:3000 \
     --api-key $DREAMLAKE_API_KEY
 ```
@@ -53,7 +53,7 @@ dreamlake upload --file ./model.pt --workspace my-ws --session exp-001 \
 |--------|-------------|
 | `--file` | Path to file to upload (required) |
 | `--workspace` | Workspace name (required) |
-| `--session` | Session/experiment name (required) |
+| `--episodeion` | Episode/experiment name (required) |
 | `--path` | Logical path prefix (default: `/`) |
 | `--description` | Optional file description |
 | `--tags` | Comma-separated tags |
@@ -63,14 +63,14 @@ dreamlake upload --file ./model.pt --workspace my-ws --session exp-001 \
 
 ### Download
 
-Download files from a session:
+Download files from a episode:
 
 ```bash
 # Download file to current directory
-dreamlake download --file-id abc123 --workspace my-ws --session exp-001
+dreamlake download --file-id abc123 --workspace my-ws --episodeion exp-001
 
 # Download file to specific path
-dreamlake download --file-id abc123 --workspace my-ws --session exp-001 \
+dreamlake download --file-id abc123 --workspace my-ws --episodeion exp-001 \
     --output ./downloaded_model.pt
 ```
 
@@ -80,7 +80,7 @@ dreamlake download --file-id abc123 --workspace my-ws --session exp-001 \
 |--------|-------------|
 | `--file-id` | ID of the file to download (required) |
 | `--workspace` | Workspace name (required) |
-| `--session` | Session/experiment name (required) |
+| `--episodeion` | Episode/experiment name (required) |
 | `--output` | Output path (default: current directory) |
 | `--url` | Remote API URL |
 | `--api-key` | API key for url mode |
@@ -88,20 +88,20 @@ dreamlake download --file-id abc123 --workspace my-ws --session exp-001 \
 
 ### List
 
-List files in a session:
+List files in a episode:
 
 ```bash
 # List all files
-dreamlake list --workspace my-ws --session exp-001
+dreamlake list --workspace my-ws --episodeion exp-001
 
 # Filter by path
-dreamlake list --workspace my-ws --session exp-001 --path /models
+dreamlake list --workspace my-ws --episodeion exp-001 --path /models
 
 # Filter by tags
-dreamlake list --workspace my-ws --session exp-001 --tags checkpoint
+dreamlake list --workspace my-ws --episodeion exp-001 --tags checkpoint
 
 # JSON output
-dreamlake list --workspace my-ws --session exp-001 --json-output
+dreamlake list --workspace my-ws --episodeion exp-001 --json-output
 ```
 
 **Options:**
@@ -109,7 +109,7 @@ dreamlake list --workspace my-ws --session exp-001 --json-output
 | Option | Description |
 |--------|-------------|
 | `--workspace` | Workspace name (required) |
-| `--session` | Session/experiment name (required) |
+| `--episodeion` | Episode/experiment name (required) |
 | `--path` | Filter by path prefix |
 | `--tags` | Filter by tags (comma-separated) |
 | `--json-output` | Output as JSON |
@@ -214,7 +214,7 @@ dreamlake video list --limit 20 --offset 40
 Set defaults using environment variables:
 
 ```bash
-# Session file commands
+# Episode file commands
 export DREAMLAKE_REMOTE="http://localhost:3000"
 export DREAMLAKE_API_KEY="your-jwt-token"
 export DREAMLAKE_LOCAL_PATH=".dreamlake"

@@ -10,7 +10,7 @@ from typing import Dict, Any, List, Optional, TYPE_CHECKING
 from pathlib import Path
 
 if TYPE_CHECKING:
-    from .session import Session
+    from .episode import Episode
 
 
 class FilesBuilder:
@@ -19,20 +19,20 @@ class FilesBuilder:
 
     Usage:
         # Upload file
-        session.files().upload("./model.pt", path="/models")
+        episode.files().upload("./model.pt", path="/models")
 
         # List files
-        files = session.files().list()
+        files = episode.files().list()
     """
 
-    def __init__(self, session: 'Session'):
+    def __init__(self, episode: 'Episode'):
         """
         Initialize files builder.
 
         Args:
-            session: Parent session instance
+            episode: Parent episode instance
         """
-        self._session = session
+        self._episode = episode
 
     def upload(
         self,
@@ -57,14 +57,14 @@ class FilesBuilder:
             File metadata dict with id, path, filename, checksum, etc.
 
         Examples:
-            result = session.files().upload("./model.pt", path="/models")
-            result = session.files().upload("./config.json", path="/config", tags=["config"])
+            result = episode.files().upload("./model.pt", path="/models")
+            result = episode.files().upload("./config.json", path="/config", tags=["config"])
         """
-        if not self._session._is_open:
-            raise RuntimeError("Session not open. Use session.open() or context manager.")
+        if not self._episode._is_open:
+            raise RuntimeError("Episode not open. Use episode.open() or context manager.")
 
-        if self._session.write_protected:
-            raise RuntimeError("Session is write-protected and cannot be modified.")
+        if self._episode.write_protected:
+            raise RuntimeError("Episode is write-protected and cannot be modified.")
 
         file_path_obj = Path(file_path)
         if not file_path_obj.exists():
@@ -88,8 +88,8 @@ class FilesBuilder:
         # Get filename
         filename = file_path_obj.name
 
-        # Upload through session (use 'path' but internally it's still 'prefix')
-        return self._session._upload_file(
+        # Upload through episode (use 'path' but internally it's still 'prefix')
+        return self._episode._upload_file(
             file_path=file_path,
             prefix=path,  # Map path -> prefix internally
             filename=filename,
@@ -113,13 +113,13 @@ class FilesBuilder:
             List of file metadata dicts
 
         Examples:
-            files = session.files().list()  # All files
-            files = session.files().list(path="/models")  # Filter by path
+            files = episode.files().list()  # All files
+            files = episode.files().list(path="/models")  # Filter by path
         """
-        if not self._session._is_open:
-            raise RuntimeError("Session not open. Use session.open() or context manager.")
+        if not self._episode._is_open:
+            raise RuntimeError("Episode not open. Use episode.open() or context manager.")
 
-        return self._session._list_files(
+        return self._episode._list_files(
             prefix=path,  # Map path -> prefix internally
             tags=tags
         )
@@ -131,26 +131,26 @@ class FileBuilder:
 
     Usage:
         # Upload file
-        session.file(file_path="./model.pt", prefix="/models").save()
+        episode.file(file_path="./model.pt", prefix="/models").save()
 
         # List files
-        files = session.file().list()
-        files = session.file(prefix="/models").list()
+        files = episode.file().list()
+        files = episode.file(prefix="/models").list()
 
         # Download file
-        session.file(file_id="123").download()
-        session.file(file_id="123", dest_path="./model.pt").download()
+        episode.file(file_id="123").download()
+        episode.file(file_id="123", dest_path="./model.pt").download()
 
         # Delete file
-        session.file(file_id="123").delete()
+        episode.file(file_id="123").delete()
     """
 
-    def __init__(self, session: 'Session', **kwargs):
+    def __init__(self, episode: 'Episode', **kwargs):
         """
         Initialize file builder.
 
         Args:
-            session: Parent session instance
+            episode: Parent episode instance
             **kwargs: File operation parameters
                 - file_path: Path to file to upload
                 - prefix: Logical path prefix (default: "/")
@@ -160,7 +160,7 @@ class FileBuilder:
                 - file_id: File ID for download/delete/update operations
                 - dest_path: Destination path for download
         """
-        self._session = session
+        self._episode = episode
         self._file_path = kwargs.get('file_path')
         self._prefix = kwargs.get('prefix', '/')
         self._description = kwargs.get('description')
@@ -177,19 +177,19 @@ class FileBuilder:
             File metadata dict with id, path, filename, checksum, etc.
 
         Raises:
-            RuntimeError: If session is not open or write-protected
+            RuntimeError: If episode is not open or write-protected
             ValueError: If file_path not provided or file doesn't exist
             ValueError: If file size exceeds 5GB limit
 
         Examples:
-            result = session.file(file_path="./model.pt", prefix="/models").save()
+            result = episode.file(file_path="./model.pt", prefix="/models").save()
             # Returns: {"id": "123", "path": "/models", "filename": "model.pt", ...}
         """
-        if not self._session._is_open:
-            raise RuntimeError("Session not open. Use session.open() or context manager.")
+        if not self._episode._is_open:
+            raise RuntimeError("Episode not open. Use episode.open() or context manager.")
 
-        if self._session.write_protected:
-            raise RuntimeError("Session is write-protected and cannot be modified.")
+        if self._episode.write_protected:
+            raise RuntimeError("Episode is write-protected and cannot be modified.")
 
         if not self._file_path:
             raise ValueError("file_path is required for save() operation")
@@ -216,8 +216,8 @@ class FileBuilder:
         # Get filename
         filename = file_path.name
 
-        # Upload through session
-        return self._session._upload_file(
+        # Upload through episode
+        return self._episode._upload_file(
             file_path=str(file_path),
             prefix=self._prefix,
             filename=filename,
@@ -237,17 +237,17 @@ class FileBuilder:
             List of file metadata dicts
 
         Raises:
-            RuntimeError: If session is not open
+            RuntimeError: If episode is not open
 
         Examples:
-            files = session.file().list()  # All files
-            files = session.file(prefix="/models").list()  # Filter by prefix
-            files = session.file(tags=["checkpoint"]).list()  # Filter by tags
+            files = episode.file().list()  # All files
+            files = episode.file(prefix="/models").list()  # Filter by prefix
+            files = episode.file(tags=["checkpoint"]).list()  # Filter by tags
         """
-        if not self._session._is_open:
-            raise RuntimeError("Session not open. Use session.open() or context manager.")
+        if not self._episode._is_open:
+            raise RuntimeError("Episode not open. Use episode.open() or context manager.")
 
-        return self._session._list_files(
+        return self._episode._list_files(
             prefix=self._prefix if self._prefix != '/' else None,
             tags=self._tags if self._tags else None
         )
@@ -262,24 +262,24 @@ class FileBuilder:
             Path to downloaded file
 
         Raises:
-            RuntimeError: If session is not open
+            RuntimeError: If episode is not open
             ValueError: If file_id not provided
             ValueError: If checksum verification fails
 
         Examples:
             # Download to current directory with original filename
-            path = session.file(file_id="123").download()
+            path = episode.file(file_id="123").download()
 
             # Download to custom path
-            path = session.file(file_id="123", dest_path="./model.pt").download()
+            path = episode.file(file_id="123", dest_path="./model.pt").download()
         """
-        if not self._session._is_open:
-            raise RuntimeError("Session not open. Use session.open() or context manager.")
+        if not self._episode._is_open:
+            raise RuntimeError("Episode not open. Use episode.open() or context manager.")
 
         if not self._file_id:
             raise ValueError("file_id is required for download() operation")
 
-        return self._session._download_file(
+        return self._episode._download_file(
             file_id=self._file_id,
             dest_path=self._dest_path
         )
@@ -292,22 +292,22 @@ class FileBuilder:
             Dict with id and deletedAt timestamp
 
         Raises:
-            RuntimeError: If session is not open or write-protected
+            RuntimeError: If episode is not open or write-protected
             ValueError: If file_id not provided
 
         Examples:
-            result = session.file(file_id="123").delete()
+            result = episode.file(file_id="123").delete()
         """
-        if not self._session._is_open:
-            raise RuntimeError("Session not open. Use session.open() or context manager.")
+        if not self._episode._is_open:
+            raise RuntimeError("Episode not open. Use episode.open() or context manager.")
 
-        if self._session.write_protected:
-            raise RuntimeError("Session is write-protected and cannot be modified.")
+        if self._episode.write_protected:
+            raise RuntimeError("Episode is write-protected and cannot be modified.")
 
         if not self._file_id:
             raise ValueError("file_id is required for delete() operation")
 
-        return self._session._delete_file(file_id=self._file_id)
+        return self._episode._delete_file(file_id=self._file_id)
 
     def update(self) -> Dict[str, Any]:
         """
@@ -317,27 +317,27 @@ class FileBuilder:
             Updated file metadata dict
 
         Raises:
-            RuntimeError: If session is not open or write-protected
+            RuntimeError: If episode is not open or write-protected
             ValueError: If file_id not provided
 
         Examples:
-            result = session.file(
+            result = episode.file(
                 file_id="123",
                 description="Updated description",
                 tags=["new", "tags"],
                 metadata={"updated": True}
             ).update()
         """
-        if not self._session._is_open:
-            raise RuntimeError("Session not open. Use session.open() or context manager.")
+        if not self._episode._is_open:
+            raise RuntimeError("Episode not open. Use episode.open() or context manager.")
 
-        if self._session.write_protected:
-            raise RuntimeError("Session is write-protected and cannot be modified.")
+        if self._episode.write_protected:
+            raise RuntimeError("Episode is write-protected and cannot be modified.")
 
         if not self._file_id:
             raise ValueError("file_id is required for update() operation")
 
-        return self._session._update_file(
+        return self._episode._update_file(
             file_id=self._file_id,
             description=self._description,
             tags=self._tags,

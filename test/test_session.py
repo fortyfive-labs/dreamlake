@@ -1,235 +1,235 @@
-"""Comprehensive tests for Session operations in both local and remote modes."""
+"""Comprehensive tests for Episode operations in both local and remote modes."""
 import json
 import pytest
 from pathlib import Path
 
 
-class TestSessionCreation:
-    """Tests for basic session creation and lifecycle."""
+class TestEpisodeCreation:
+    """Tests for basic episode creation and lifecycle."""
 
-    def test_context_manager_local(self, local_session, temp_workspace):
-        """Test session creation using context manager in local mode."""
-        with local_session(prefix="test-ws/test-ctx") as session:
-            assert session._is_open
-            assert session.name == "test-ctx"
-            assert session.workspace == "test-ws"
-            session.log("Test message")
+    def test_context_manager_local(self, local_episode, temp_workspace):
+        """Test episode creation using context manager in local mode."""
+        with local_episode(prefix="test-ws/test-ctx") as episode:
+            assert episode._is_open
+            assert episode.name == "test-ctx"
+            assert episode.workspace == "test-ws"
+            episode.log("Test message")
 
-        assert not session._is_open
-        session_dir = temp_workspace / "test-ws" / "test-ctx"
-        assert session_dir.exists()
-        assert (session_dir / "session.json").exists()
+        assert not episode._is_open
+        episode_dir = temp_workspace / "test-ws" / "test-ctx"
+        assert episode_dir.exists()
+        assert (episode_dir / "episode.json").exists()
 
     @pytest.mark.remote
-    def test_context_manager_remote(self, remote_session):
-        """Test session creation using context manager in remote mode."""
-        with remote_session(prefix="test-ws-remote/test-ctx-remote") as session:
-            assert session._is_open
-            assert session.name == "test-ctx-remote"
-            assert session.workspace == "test-ws-remote"
-            session.log("Test message from remote")
+    def test_context_manager_remote(self, remote_episode):
+        """Test episode creation using context manager in remote mode."""
+        with remote_episode(prefix="test-ws-remote/test-ctx-remote") as episode:
+            assert episode._is_open
+            assert episode.name == "test-ctx-remote"
+            assert episode.workspace == "test-ws-remote"
+            episode.log("Test message from remote")
 
-        assert not session._is_open
+        assert not episode._is_open
 
-    def test_manual_open_close_local(self, local_session, temp_workspace):
-        """Test manual session lifecycle management in local mode."""
-        session = local_session(prefix="test-ws/manual-test")
-        assert not session._is_open
+    def test_manual_open_close_local(self, local_episode, temp_workspace):
+        """Test manual episode lifecycle management in local mode."""
+        episode = local_episode(prefix="test-ws/manual-test")
+        assert not episode._is_open
 
-        session.open()
-        assert session._is_open
+        episode.open()
+        assert episode._is_open
 
-        session.log("Working...")
-        session.params.set(test_param="test_value")
+        episode.log("Working...")
+        episode.params.set(test_param="test_value")
 
-        session.close()
-        assert not session._is_open
+        episode.close()
+        assert not episode._is_open
 
         # Verify data was saved
-        session_dir = temp_workspace / "test-ws" / "manual-test"
-        assert session_dir.exists()
-        assert (session_dir / "logs" / "logs.jsonl").exists()
+        episode_dir = temp_workspace / "test-ws" / "manual-test"
+        assert episode_dir.exists()
+        assert (episode_dir / "logs" / "logs.jsonl").exists()
 
     @pytest.mark.remote
-    def test_manual_open_close_remote(self, remote_session):
-        """Test manual session lifecycle management in remote mode."""
-        session = remote_session(prefix="test-ws/manual-test-remote")
-        assert not session._is_open
+    def test_manual_open_close_remote(self, remote_episode):
+        """Test manual episode lifecycle management in remote mode."""
+        episode = remote_episode(prefix="test-ws/manual-test-remote")
+        assert not episode._is_open
 
-        session.open()
-        assert session._is_open
+        episode.open()
+        assert episode._is_open
 
-        session.log("Working remotely...")
-        session.params.set(test_param="remote_value")
+        episode.log("Working remotely...")
+        episode.params.set(test_param="remote_value")
 
-        session.close()
-        assert not session._is_open
+        episode.close()
+        assert not episode._is_open
 
-    def test_session_with_metadata_local(self, local_session, temp_workspace):
-        """Test session with readme and tags in local mode (ML-Dash API)."""
-        with local_session(
-            prefix="meta-ws/meta-session",
-            readme="Test session with metadata",
+    def test_episode_with_metadata_local(self, local_episode, temp_workspace):
+        """Test episode with readme and tags in local mode (ML-Dash API)."""
+        with local_episode(
+            prefix="meta-ws/meta-episode",
+            readme="Test episode with metadata",
             tags=["test", "metadata", "local"],
-        ) as session:
-            session.log("Session with metadata")
+        ) as episode:
+            episode.log("Episode with metadata")
 
         # Verify metadata
-        session_file = temp_workspace / "meta-ws" / "meta-session" / "session.json"
-        assert session_file.exists()
+        episode_file = temp_workspace / "meta-ws" / "meta-episode" / "episode.json"
+        assert episode_file.exists()
 
-        with open(session_file) as f:
+        with open(episode_file) as f:
             metadata = json.load(f)
-            assert metadata["name"] == "meta-session"
+            assert metadata["name"] == "meta-episode"
             assert metadata["workspace"] == "meta-ws"
             # Check for description field (mapped from readme)
-            assert metadata.get("description") == "Test session with metadata"
+            assert metadata.get("description") == "Test episode with metadata"
             assert "test" in metadata["tags"]
             assert "metadata" in metadata["tags"]
 
     @pytest.mark.remote
-    def test_session_with_metadata_remote(self, remote_session):
-        """Test session with description, tags, and folder in remote mode."""
-        with remote_session(prefix="meta-ws-remote/meta-session-remote",
+    def test_episode_with_metadata_remote(self, remote_episode):
+        """Test episode with description, tags, and folder in remote mode."""
+        with remote_episode(prefix="meta-ws-remote/meta-episode-remote",
             tags=["test", "metadata", "remote"],
-        ) as session:
-            session.log("Remote session with metadata")
+        ) as episode:
+            episode.log("Remote episode with metadata")
             # In remote mode, metadata is sent to server
 
 
-class TestSessionProperties:
-    """Tests for session properties and attributes."""
+class TestEpisodeProperties:
+    """Tests for episode properties and attributes."""
 
-    def test_session_properties_local(self, local_session):
-        """Test accessing session properties in local mode."""
-        with local_session(prefix="props-ws/props-test") as session:
-            assert session.name == "props-test"
-            assert session.workspace == "props-ws"
-            assert session._is_open
+    def test_episode_properties_local(self, local_episode):
+        """Test accessing episode properties in local mode."""
+        with local_episode(prefix="props-ws/props-test") as episode:
+            assert episode.name == "props-test"
+            assert episode.workspace == "props-ws"
+            assert episode._is_open
 
     @pytest.mark.remote
-    def test_session_properties_remote(self, remote_session):
-        """Test accessing session properties in remote mode."""
-        with remote_session(prefix="props-ws-remote/props-test-remote") as session:
-            assert session.name == "props-test-remote"
-            assert session.workspace == "props-ws-remote"
-            assert session._is_open
+    def test_episode_properties_remote(self, remote_episode):
+        """Test accessing episode properties in remote mode."""
+        with remote_episode(prefix="props-ws-remote/props-test-remote") as episode:
+            assert episode.name == "props-test-remote"
+            assert episode.workspace == "props-ws-remote"
+            assert episode._is_open
 
 
-class TestMultipleSessions:
-    """Tests for working with multiple sessions."""
+class TestMultipleEpisodes:
+    """Tests for working with multiple episodes."""
 
-    def test_multiple_sessions_same_workspace_local(self, local_session, temp_workspace):
-        """Test creating multiple sessions in the same workspace."""
-        with local_session(prefix="shared-ws/session-1") as session:
-            session.log("Session 1")
-            session.params.set(session_id=1)
+    def test_multiple_episodes_same_workspace_local(self, local_episode, temp_workspace):
+        """Test creating multiple episodes in the same workspace."""
+        with local_episode(prefix="shared-ws/episode-1") as episode:
+            episode.log("Episode 1")
+            episode.params.set(episode_id=1)
 
-        with local_session(prefix="shared-ws/session-2") as session:
-            session.log("Session 2")
-            session.params.set(session_id=2)
+        with local_episode(prefix="shared-ws/episode-2") as episode:
+            episode.log("Episode 2")
+            episode.params.set(episode_id=2)
 
-        with local_session(prefix="shared-ws/session-3") as session:
-            session.log("Session 3")
-            session.params.set(session_id=3)
+        with local_episode(prefix="shared-ws/episode-3") as episode:
+            episode.log("Episode 3")
+            episode.params.set(episode_id=3)
 
-        # Verify all sessions exist
+        # Verify all episodes exist
         workspace_dir = temp_workspace / "shared-ws"
-        assert (workspace_dir / "session-1").exists()
-        assert (workspace_dir / "session-2").exists()
-        assert (workspace_dir / "session-3").exists()
+        assert (workspace_dir / "episode-1").exists()
+        assert (workspace_dir / "episode-2").exists()
+        assert (workspace_dir / "episode-3").exists()
 
     @pytest.mark.remote
-    def test_multiple_sessions_same_workspace_remote(self, remote_session):
-        """Test creating multiple sessions in the same workspace in remote mode."""
-        with remote_session(prefix="shared-ws-remote/remote-session-1") as session:
-            session.log("Remote Session 1")
-            session.params.set(session_id=1)
+    def test_multiple_episodes_same_workspace_remote(self, remote_episode):
+        """Test creating multiple episodes in the same workspace in remote mode."""
+        with remote_episode(prefix="shared-ws-remote/remote-episode-1") as episode:
+            episode.log("Remote Episode 1")
+            episode.params.set(episode_id=1)
 
-        with remote_session(prefix="shared-ws-remote/remote-session-2") as session:
-            session.log("Remote Session 2")
-            session.params.set(session_id=2)
+        with remote_episode(prefix="shared-ws-remote/remote-episode-2") as episode:
+            episode.log("Remote Episode 2")
+            episode.params.set(episode_id=2)
 
-    def test_multiple_sessions_different_workspaces_local(self, local_session, temp_workspace):
-        """Test creating sessions in different workspaces."""
-        with local_session(prefix="workspace-1/session-a") as session:
-            session.log("Session A in workspace 1")
+    def test_multiple_episodes_different_workspaces_local(self, local_episode, temp_workspace):
+        """Test creating episodes in different workspaces."""
+        with local_episode(prefix="workspace-1/episode-a") as episode:
+            episode.log("Episode A in workspace 1")
 
-        with local_session(prefix="workspace-2/session-b") as session:
-            session.log("Session B in workspace 2")
+        with local_episode(prefix="workspace-2/episode-b") as episode:
+            episode.log("Episode B in workspace 2")
 
-        with local_session(prefix="workspace-3/session-c") as session:
-            session.log("Session C in workspace 3")
+        with local_episode(prefix="workspace-3/episode-c") as episode:
+            episode.log("Episode C in workspace 3")
 
-        # Verify all workspaces and sessions exist
-        assert (temp_workspace / "workspace-1" / "session-a").exists()
-        assert (temp_workspace / "workspace-2" / "session-b").exists()
-        assert (temp_workspace / "workspace-3" / "session-c").exists()
+        # Verify all workspaces and episodes exist
+        assert (temp_workspace / "workspace-1" / "episode-a").exists()
+        assert (temp_workspace / "workspace-2" / "episode-b").exists()
+        assert (temp_workspace / "workspace-3" / "episode-c").exists()
 
-    def test_sequential_sessions_local(self, local_session):
-        """Test opening sessions sequentially (ML-Dash API)."""
-        sessions = []
+    def test_sequential_episodes_local(self, local_episode):
+        """Test opening episodes sequentially (ML-Dash API)."""
+        episodes = []
         for i in range(5):
-            with local_session(prefix=f"sequential/seq-session-{i}") as session:
-                session.log(f"Sequential session {i}")
-                session.params.set(index=i)
-                sessions.append(session)
+            with local_episode(prefix=f"sequential/seq-episode-{i}") as episode:
+                episode.log(f"Sequential episode {i}")
+                episode.params.set(index=i)
+                episodes.append(episode)
 
-        # All sessions should be closed
-        for session in sessions:
-            assert not session._is_open
+        # All episodes should be closed
+        for episode in episodes:
+            assert not episode._is_open
 
 
-class TestSessionErrorHandling:
-    """Tests for error handling in sessions."""
+class TestEpisodeErrorHandling:
+    """Tests for error handling in episodes."""
 
-    def test_session_error_still_saves_data_local(self, local_session, temp_workspace):
-        """Test that session saves data even when errors occur."""
+    def test_episode_error_still_saves_data_local(self, local_episode, temp_workspace):
+        """Test that episode saves data even when errors occur."""
         try:
-            with local_session(prefix="error-ws/error-test") as session:
-                session.log("Starting work")
-                session.params.set(param="value")
-                session.track("metric").append(value=0.5, step=0)
+            with local_episode(prefix="error-ws/error-test") as episode:
+                episode.log("Starting work")
+                episode.params.set(param="value")
+                episode.track("metric").append(value=0.5, step=0)
                 raise ValueError("Simulated error")
         except ValueError:
             pass
 
         # Data should still be saved
-        session_dir = temp_workspace / "error-ws" / "error-test"
-        assert session_dir.exists()
-        assert (session_dir / "logs" / "logs.jsonl").exists()
-        assert (session_dir / "parameters.json").exists()
+        episode_dir = temp_workspace / "error-ws" / "error-test"
+        assert episode_dir.exists()
+        assert (episode_dir / "logs" / "logs.jsonl").exists()
+        assert (episode_dir / "parameters.json").exists()
 
     @pytest.mark.remote
-    def test_session_error_still_saves_data_remote(self, remote_session):
-        """Test that remote session handles errors gracefully."""
+    def test_episode_error_still_saves_data_remote(self, remote_episode):
+        """Test that remote episode handles errors gracefully."""
         try:
-            with remote_session(prefix="error-ws-remote/error-test-remote") as session:
-                session.log("Starting remote work")
-                session.params.set(param="remote_value")
+            with remote_episode(prefix="error-ws-remote/error-test-remote") as episode:
+                episode.log("Starting remote work")
+                episode.params.set(param="remote_value")
                 raise ValueError("Simulated remote error")
         except ValueError:
             pass
-        # Session should be closed properly
+        # Episode should be closed properly
 
-    def test_multiple_errors_in_session_local(self, local_session, temp_workspace):
-        """Test session handling multiple errors."""
-        with local_session(prefix="error-ws/multi-error") as session:
+    def test_multiple_errors_in_episode_local(self, local_episode, temp_workspace):
+        """Test episode handling multiple errors."""
+        with local_episode(prefix="error-ws/multi-error") as episode:
             try:
-                session.log("Attempt 1")
+                episode.log("Attempt 1")
                 raise ValueError("Error 1")
             except ValueError:
-                session.log("Caught error 1", level="error")
+                episode.log("Caught error 1", level="error")
 
             try:
-                session.log("Attempt 2")
+                episode.log("Attempt 2")
                 raise RuntimeError("Error 2")
             except RuntimeError:
-                session.log("Caught error 2", level="error")
+                episode.log("Caught error 2", level="error")
 
-            session.log("Continuing after errors")
+            episode.log("Continuing after errors")
 
-        # Session should have all logs
+        # Episode should have all logs
         logs_file = temp_workspace / "error-ws" / "multi-error" / "logs" / "logs.jsonl"
         assert logs_file.exists()
 
@@ -239,24 +239,24 @@ class TestSessionErrorHandling:
         assert len(logs) >= 3
 
 
-class TestSessionReuse:
-    """Tests for reusing/updating existing sessions."""
+class TestEpisodeReuse:
+    """Tests for reusing/updating existing episodes."""
 
-    def test_reopen_existing_session_local(self, local_session, temp_workspace):
-        """Test reopening an existing session (upsert behavior)."""
-        # Create initial session
-        with local_session(prefix="reuse-ws/reuse-session") as session:
-            session.log("Initial session")
-            session.params.set(version=1)
+    def test_reopen_existing_episode_local(self, local_episode, temp_workspace):
+        """Test reopening an existing episode (upsert behavior)."""
+        # Create initial episode
+        with local_episode(prefix="reuse-ws/reuse-episode") as episode:
+            episode.log("Initial episode")
+            episode.params.set(version=1)
 
-        # Reopen same session
-        with local_session(prefix="reuse-ws/reuse-session") as session:
-            session.log("Reopened session")
-            session.params.set(version=2, new_param="added")
+        # Reopen same episode
+        with local_episode(prefix="reuse-ws/reuse-episode") as episode:
+            episode.log("Reopened episode")
+            episode.params.set(version=2, new_param="added")
 
         # Verify both operations are recorded
-        session_dir = temp_workspace / "reuse-ws" / "reuse-session"
-        logs_file = session_dir / "logs" / "logs.jsonl"
+        episode_dir = temp_workspace / "reuse-ws" / "reuse-episode"
+        logs_file = episode_dir / "logs" / "logs.jsonl"
 
         with open(logs_file) as f:
             logs = [json.loads(line) for line in f]
@@ -264,81 +264,81 @@ class TestSessionReuse:
         assert len(logs) >= 2
 
     @pytest.mark.remote
-    def test_reopen_existing_session_remote(self, remote_session):
-        """Test reopening an existing session in remote mode."""
-        # Create initial session
-        with remote_session(prefix="reuse-ws-remote/reuse-session-remote") as session:
-            session.log("Initial remote session")
-            session.params.set(version=1)
+    def test_reopen_existing_episode_remote(self, remote_episode):
+        """Test reopening an existing episode in remote mode."""
+        # Create initial episode
+        with remote_episode(prefix="reuse-ws-remote/reuse-episode-remote") as episode:
+            episode.log("Initial remote episode")
+            episode.params.set(version=1)
 
-        # Reopen same session
-        with remote_session(prefix="reuse-ws-remote/reuse-session-remote") as session:
-            session.log("Reopened remote session")
-            session.params.set(version=2)
+        # Reopen same episode
+        with remote_episode(prefix="reuse-ws-remote/reuse-episode-remote") as episode:
+            episode.log("Reopened remote episode")
+            episode.params.set(version=2)
 
 
-class TestSessionEdgeCases:
+class TestEpisodeEdgeCases:
     """Tests for edge cases and unusual scenarios."""
 
-    def test_empty_session_local(self, local_session, temp_workspace):
-        """Test session with no operations."""
-        with local_session(prefix="empty-ws/empty-session") as session:
+    def test_empty_episode_local(self, local_episode, temp_workspace):
+        """Test episode with no operations."""
+        with local_episode(prefix="empty-ws/empty-episode") as episode:
             pass  # Do nothing
 
-        # Session directory should still be created
-        session_dir = temp_workspace / "empty-ws" / "empty-session"
-        assert session_dir.exists()
+        # Episode directory should still be created
+        episode_dir = temp_workspace / "empty-ws" / "empty-episode"
+        assert episode_dir.exists()
 
-    def test_session_with_special_characters_local(self, local_session, temp_workspace):
-        """Test session names with special characters."""
-        with local_session(prefix="special-ws/test-session_v1.0") as session:
-            session.log("Session with special chars in name")
+    def test_episode_with_special_characters_local(self, local_episode, temp_workspace):
+        """Test episode names with special characters."""
+        with local_episode(prefix="special-ws/test-episode_v1.0") as episode:
+            episode.log("Episode with special chars in name")
 
-        session_dir = temp_workspace / "special-ws" / "test-session_v1.0"
-        assert session_dir.exists()
+        episode_dir = temp_workspace / "special-ws" / "test-episode_v1.0"
+        assert episode_dir.exists()
 
-    def test_session_with_long_name_local(self, local_session):
-        """Test session with very long name (ML-Dash API)."""
+    def test_episode_with_long_name_local(self, local_episode):
+        """Test episode with very long name (ML-Dash API)."""
         long_name = "a" * 200
-        with local_session(prefix=f"long-ws/{long_name}") as session:
-            session.log("Session with long name")
+        with local_episode(prefix=f"long-ws/{long_name}") as episode:
+            episode.log("Episode with long name")
 
-    def test_deeply_nested_folder_local(self, local_session, temp_workspace):
-        """Test session with deeply nested prefix structure (ML-Dash API)."""
+    def test_deeply_nested_folder_local(self, local_episode, temp_workspace):
+        """Test episode with deeply nested prefix structure (ML-Dash API)."""
         # Note: folder parameter removed in ML-Dash API
-        with local_session(prefix="nested-ws/nested-session") as session:
-            session.log("Deeply nested session")
+        with local_episode(prefix="nested-ws/nested-episode") as episode:
+            episode.log("Deeply nested episode")
 
-        session_file = temp_workspace / "nested-ws" / "nested-session" / "session.json"
-        with open(session_file) as f:
+        episode_file = temp_workspace / "nested-ws" / "nested-episode" / "episode.json"
+        with open(episode_file) as f:
             metadata = json.load(f)
-            # Just verify the session was created successfully
-            assert metadata["name"] == "nested-session"
+            # Just verify the episode was created successfully
+            assert metadata["name"] == "nested-episode"
             assert metadata["workspace"] == "nested-ws"
 
-    def test_session_with_many_tags_local(self, local_session, temp_workspace):
-        """Test session with many tags."""
+    def test_episode_with_many_tags_local(self, local_episode, temp_workspace):
+        """Test episode with many tags."""
         tags = [f"tag-{i}" for i in range(50)]
-        with local_session(prefix="tags-ws/many-tags",
+        with local_episode(prefix="tags-ws/many-tags",
             tags=tags,
-        ) as session:
-            session.log("Session with many tags")
+        ) as episode:
+            episode.log("Episode with many tags")
 
-        session_file = temp_workspace / "tags-ws" / "many-tags" / "session.json"
-        with open(session_file) as f:
+        episode_file = temp_workspace / "tags-ws" / "many-tags" / "episode.json"
+        with open(episode_file) as f:
             metadata = json.load(f)
             assert len(metadata["tags"]) == 50
 
-    def test_session_double_close_local(self, local_session):
-        """Test that closing a session twice doesn't cause issues."""
-        session = local_session(prefix="test-ws/double-close")
-        session.open()
-        session.close()
-        session.close()  # Should not raise error
-        assert not session._is_open
+    def test_episode_double_close_local(self, local_episode):
+        """Test that closing a episode twice doesn't cause issues."""
+        episode = local_episode(prefix="test-ws/double-close")
+        episode.open()
+        episode.close()
+        episode.close()  # Should not raise error
+        assert not episode._is_open
 
-    def test_operations_before_open_local(self, local_session):
+    def test_operations_before_open_local(self, local_episode):
         """Test that operations before open are handled gracefully."""
-        session = local_session(prefix="test-ws/not-opened")
+        episode = local_episode(prefix="test-ws/not-opened")
         # Attempting operations before opening should handle gracefully
         # The actual behavior depends on implementation

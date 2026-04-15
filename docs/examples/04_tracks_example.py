@@ -2,7 +2,7 @@
 import sys
 sys.path.insert(0, '../../src')
 
-from dreamlake import Session
+from dreamlake import Episode
 import random
 
 def main():
@@ -10,12 +10,12 @@ def main():
     print("Tracks Example - Time-Series Metrics")
     print("=" * 60)
 
-    with Session(
+    with Episode(
         name="tracks-demo",
         workspace="tutorials",
         local_path="./tutorial_data"
-    ) as session:
-        session.parameters().set(epochs=10, learning_rate=0.001)
+    ) as episode:
+        episode.parameters().set(epochs=10, learning_rate=0.001)
 
         print("\n1. Tracking training metrics...")
 
@@ -27,9 +27,9 @@ def main():
             accuracy = min(0.95, 0.5 + epoch * 0.05)
 
             # Append single data points
-            session.track("train").append(loss=train_loss, epoch=epoch)
-            session.track("val").append(loss=val_loss, epoch=epoch)
-            session.track("metrics").append(accuracy=accuracy, epoch=epoch)
+            episode.track("train").append(loss=train_loss, epoch=epoch)
+            episode.track("val").append(loss=val_loss, epoch=epoch)
+            episode.track("metrics").append(accuracy=accuracy, epoch=epoch)
 
             print(f"   Epoch {epoch + 1}: loss={train_loss:.4f}, acc={accuracy:.4f}")
 
@@ -43,14 +43,14 @@ def main():
             {"value": 0.40, "step": 300, "batch": 3},
             {"value": 0.38, "step": 400, "batch": 4},
         ]
-        result = session.track("step_loss").append_batch(batch_data)
+        result = episode.track("step_loss").append_batch(batch_data)
         print(f"   Appended {result['count']} data points (columnar format)")
         print(f"   Faster than {result['count']} individual appends!")
 
         print("\n3. Flexible schema - multiple metrics per point...")
 
         # Track multiple metrics in one track
-        session.track("all_metrics").append(
+        episode.track("all_metrics").append(
             epoch=5,
             train_loss=0.3,
             val_loss=0.35,
@@ -62,7 +62,7 @@ def main():
         print("\n4. Reading track data...")
 
         # Read track data
-        result = session.track("train_loss").read(start_index=0, limit=5)
+        result = episode.track("train_loss").read(start_index=0, limit=5)
         print(f"   Read {result['total']} data points:")
         for point in result['data'][:3]:
             print(f"     Index {point['index']}: {point['data']}")
@@ -70,19 +70,19 @@ def main():
         print("\n5. Getting track statistics...")
 
         # Get track stats
-        stats = session.track("train_loss").stats()
+        stats = episode.track("train_loss").stats()
         print(f"   Track: {stats['name']}")
         print(f"   Total points: {stats['totalDataPoints']}")
 
         print("\n6. Listing all tracks...")
 
         # List all tracks
-        tracks = session.track("train_loss").list_all()
+        tracks = episode.track("train_loss").list_all()
         print(f"   Found {len(tracks)} tracks:")
         for track in tracks:
             print(f"     - {track['name']}: {track['totalDataPoints']} points")
 
-        session.log("Tracks demo complete", level="info")
+        episode.log("Tracks demo complete", level="info")
 
     print("\n✓ All metrics tracked!")
     print("\n" + "=" * 60)

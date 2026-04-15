@@ -2,7 +2,7 @@
 import sys
 sys.path.insert(0, '../../src')
 
-from dreamlake import Session
+from dreamlake import Episode
 import random
 import time
 
@@ -47,22 +47,22 @@ def main():
         }
     }
 
-    # Create Dreamlake session
-    with Session(
+    # Create Dreamlake episode
+    with Episode(
         name="complete-training-demo",
         workspace="tutorials",
         local_path="./tutorial_data",
         description="Complete end-to-end training example",
         tags=["tutorial", "complete", "cifar10", "resnet"]
-    ) as session:
+    ) as episode:
         # 1. Track configuration
         print("\n[1/6] Tracking configuration...")
-        session.parameters().set(**config)
-        session.log("Configuration saved", level="info")
+        episode.parameters().set(**config)
+        episode.log("Configuration saved", level="info")
 
         # 2. Log training start
         print("[2/6] Starting training...")
-        session.log(
+        episode.log(
             "Training started",
             level="info",
             metadata={
@@ -113,8 +113,8 @@ def main():
 
         # Batch append all metrics (uses efficient columnar storage format)
         print("   Writing metrics in batch (columnar format)...")
-        session.track("train").append_batch(train_metrics)
-        session.track("val").append_batch(val_metrics)
+        episode.track("train").append_batch(train_metrics)
+        episode.track("val").append_batch(val_metrics)
         print(f"   Wrote {len(train_metrics)} training epochs efficiently")
 
         # Find best model from collected metrics
@@ -135,7 +135,7 @@ def main():
                 f.write(f"Best model at epoch {best_epoch}\n")
                 f.write(f"Validation accuracy: {best_val_acc:.4f}\n")
 
-            session.file(
+            episode.file(
                 file_path=model_path,
                 prefix="/models",
                 description=f"Best model (val_acc={best_val_acc:.4f})",
@@ -146,7 +146,7 @@ def main():
                 }
             ).save()
 
-            session.log(
+            episode.log(
                 f"Best model saved (val_acc={best_val_acc:.4f})",
                 level="info"
             )
@@ -158,7 +158,7 @@ def main():
             f.write(f"Final model after {config['training']['epochs']} epochs\n")
             f.write(f"Best validation accuracy: {best_val_acc:.4f} at epoch {best_epoch}\n")
 
-        session.file(
+        episode.file(
             file_path=final_model_path,
             prefix="/models",
             description="Final model after all epochs",
@@ -177,7 +177,7 @@ def main():
             f.write(f"Best validation accuracy: {best_val_acc:.4f}\n")
             f.write(f"Best epoch: {best_epoch}\n")
 
-        session.file(
+        episode.file(
             file_path=results_path,
             prefix="/results",
             description="Training results summary",
@@ -190,7 +190,7 @@ def main():
 
         # 6. Final log
         print("[6/6] Finalizing...")
-        session.log(
+        episode.log(
             "Training complete!",
             level="info",
             metadata={

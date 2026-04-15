@@ -9,7 +9,7 @@ from datetime import datetime
 from enum import Enum
 
 if TYPE_CHECKING:
-    from .session import Session
+    from .episode import Episode
 
 
 class LogLevel(Enum):
@@ -64,24 +64,24 @@ class LogBuilder:
     """
     Fluent builder for creating log entries.
 
-    This class is returned by Session.log() when no message is provided.
+    This class is returned by Episode.log() when no message is provided.
     It allows for a fluent API style where metadata is set first, then
     the log level method is called to write the log.
 
     Example:
-        session.log(metadata={"epoch": 1}).info("Training started")
-        session.log().error("Failed", error_code=500)
+        episode.log(metadata={"epoch": 1}).info("Training started")
+        episode.log().error("Failed", error_code=500)
     """
 
-    def __init__(self, session: 'Session', metadata: Optional[Dict[str, Any]] = None):
+    def __init__(self, episode: 'Episode', metadata: Optional[Dict[str, Any]] = None):
         """
         Initialize LogBuilder.
 
         Args:
-            session: Parent Session instance
+            episode: Parent Episode instance
             metadata: Optional metadata dict from log() call
         """
-        self._session = session
+        self._episode = episode
         self._metadata = metadata
 
     def info(self, message: str, **extra_metadata) -> None:
@@ -93,8 +93,8 @@ class LogBuilder:
             **extra_metadata: Additional metadata as keyword arguments
 
         Example:
-            session.log().info("Training started")
-            session.log().info("Epoch complete", epoch=1, loss=0.5)
+            episode.log().info("Training started")
+            episode.log().info("Epoch complete", epoch=1, loss=0.5)
         """
         self._write(LogLevel.INFO.value, message, extra_metadata)
 
@@ -107,7 +107,7 @@ class LogBuilder:
             **extra_metadata: Additional metadata as keyword arguments
 
         Example:
-            session.log().warn("High loss detected", loss=1.5)
+            episode.log().warn("High loss detected", loss=1.5)
         """
         self._write(LogLevel.WARN.value, message, extra_metadata)
 
@@ -120,7 +120,7 @@ class LogBuilder:
             **extra_metadata: Additional metadata as keyword arguments
 
         Example:
-            session.log().error("Failed to save", path="/models/checkpoint.pth")
+            episode.log().error("Failed to save", path="/models/checkpoint.pth")
         """
         self._write(LogLevel.ERROR.value, message, extra_metadata)
 
@@ -133,7 +133,7 @@ class LogBuilder:
             **extra_metadata: Additional metadata as keyword arguments
 
         Example:
-            session.log().debug("Memory usage", memory_mb=2500)
+            episode.log().debug("Memory usage", memory_mb=2500)
         """
         self._write(LogLevel.DEBUG.value, message, extra_metadata)
 
@@ -146,7 +146,7 @@ class LogBuilder:
             **extra_metadata: Additional metadata as keyword arguments
 
         Example:
-            session.log().fatal("Unrecoverable error", exit_code=1)
+            episode.log().fatal("Unrecoverable error", exit_code=1)
         """
         self._write(LogLevel.FATAL.value, message, extra_metadata)
 
@@ -173,7 +173,7 @@ class LogBuilder:
             final_metadata = None
 
         # Write immediately (no buffering)
-        self._session._write_log(
+        self._episode._write_log(
             message=message,
             level=level,
             metadata=final_metadata,

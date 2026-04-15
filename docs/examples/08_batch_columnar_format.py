@@ -16,22 +16,22 @@ import sys
 sys.path.insert(0, '../../src')
 
 import time
-from dreamlake import Session
+from dreamlake import Episode
 
 
 def example_single_vs_batch_appends():
     """Compare single appends (row format) vs batch appends (columnar format)."""
 
-    with Session(
+    with Episode(
         prefix="tutorials/columnar-demo",
         root="./tutorial_data"
-    ) as session:
+    ) as episode:
         print("1. Single appends (stored as rows)")
         print("-" * 60)
 
         # Single appends - each creates a new row entry
         for i in range(5):
-            session.track("single_metrics").append(
+            episode.track("single_metrics").append(
                 loss=0.5 - i * 0.05,
                 accuracy=0.7 + i * 0.03,
                 epoch=i,
@@ -53,7 +53,7 @@ def example_single_vs_batch_appends():
             {"loss": 0.25, "accuracy": 0.84, "epoch": 9, "_ts": time.time() + 9},
         ]
 
-        result = session.track("batch_metrics").append_batch(batch_data)
+        result = episode.track("batch_metrics").append_batch(batch_data)
 
         print(f"   Appended {result['count']} data points in batch")
         print("   Storage format: Columnar (one entry for all rows)")
@@ -63,8 +63,8 @@ def example_single_vs_batch_appends():
         print("-" * 60)
 
         # Reading works the same regardless of storage format
-        single_data = session.track("single_metrics").read(limit=10)
-        batch_data_read = session.track("batch_metrics").read(limit=10)
+        single_data = episode.track("single_metrics").read(limit=10)
+        batch_data_read = episode.track("batch_metrics").read(limit=10)
 
         print(f"   Single appends: {single_data['total']} points")
         print(f"   Batch appends:  {batch_data_read['total']} points")
@@ -74,10 +74,10 @@ def example_single_vs_batch_appends():
 def example_large_batch_efficiency():
     """Demonstrate efficiency of columnar format for large batches."""
 
-    with Session(
+    with Episode(
         prefix="tutorials/large-batch-demo",
         root="./tutorial_data"
-    ) as session:
+    ) as episode:
         print("Batch appending 1000 training steps efficiently")
         print("-" * 60)
 
@@ -98,7 +98,7 @@ def example_large_batch_efficiency():
 
         # Batch append - uses columnar format internally
         start = time.time()
-        result = session.track("training_metrics").append_batch(large_batch)
+        result = episode.track("training_metrics").append_batch(large_batch)
         elapsed = time.time() - start
 
         print(f"   Appended {result['count']} points in {elapsed:.3f}s")
@@ -107,7 +107,7 @@ def example_large_batch_efficiency():
 
         # Read back a sample
         print("\n   Reading sample of data...")
-        sample = session.track("training_metrics").read(start_index=0, limit=5)
+        sample = episode.track("training_metrics").read(start_index=0, limit=5)
 
         print(f"   First 3 points:")
         for i, point in enumerate(sample['data'][:3]):
@@ -120,16 +120,16 @@ def example_large_batch_efficiency():
 def example_mixed_append_styles():
     """Mix single and batch appends in the same track."""
 
-    with Session(
+    with Episode(
         prefix="tutorials/mixed-appends-demo",
         root="./tutorial_data"
-    ) as session:
+    ) as episode:
         print("Mixing single and batch appends")
         print("-" * 60)
 
         # Start with some single appends
         for epoch in range(3):
-            session.track("mixed").append(
+            episode.track("mixed").append(
                 epoch=epoch,
                 loss=1.0 / (epoch + 1),
                 _ts=time.time() + epoch
@@ -142,13 +142,13 @@ def example_mixed_append_styles():
             {"epoch": i, "loss": 1.0 / (i + 1), "_ts": time.time() + i}
             for i in range(3, 8)
         ]
-        session.track("mixed").append_batch(batch)
+        episode.track("mixed").append_batch(batch)
 
         print("   Added 5 points in batch (columnar format)")
 
         # Add more single appends
         for epoch in range(8, 10):
-            session.track("mixed").append(
+            episode.track("mixed").append(
                 epoch=epoch,
                 loss=1.0 / (epoch + 1),
                 _ts=time.time() + epoch
@@ -157,13 +157,13 @@ def example_mixed_append_styles():
         print("   Added 2 more points individually (row format)")
 
         # Read all - format mixing is transparent
-        all_data = session.track("mixed").read(limit=100)
+        all_data = episode.track("mixed").read(limit=100)
 
         print(f"\n   Total points: {all_data['total']}")
         print("   All data accessible uniformly, regardless of storage format!")
 
         # Show statistics
-        stats = session.track("mixed").stats()
+        stats = episode.track("mixed").stats()
         print(f"\n   Track statistics:")
         print(f"     Total data points: {stats['totalDataPoints']}")
         print(f"     Created at: {stats['createdAt']}")
@@ -172,10 +172,10 @@ def example_mixed_append_styles():
 def example_columnar_with_complex_data():
     """Batch append with nested/complex data structures."""
 
-    with Session(
+    with Episode(
         prefix="tutorials/complex-columnar-demo",
         root="./tutorial_data"
-    ) as session:
+    ) as episode:
         print("Batch appending complex nested data")
         print("-" * 60)
 
@@ -194,13 +194,13 @@ def example_columnar_with_complex_data():
             for i in range(10)
         ]
 
-        result = session.track("robot/state").append_batch(batch)
+        result = episode.track("robot/state").append_batch(batch)
 
         print(f"   Appended {result['count']} complex data points")
         print("   Each point contains: position, quaternion, nested metrics")
 
         # Read back
-        data = session.track("robot/state").read(limit=3)
+        data = episode.track("robot/state").read(limit=3)
 
         print(f"\n   First point:")
         first = data['data'][0]['data']
@@ -212,10 +212,10 @@ def example_columnar_with_complex_data():
 def example_performance_comparison():
     """Compare performance of single vs batch appends."""
 
-    with Session(
+    with Episode(
         prefix="tutorials/performance-demo",
         root="./tutorial_data"
-    ) as session:
+    ) as episode:
         print("Performance comparison: Single vs Batch appends")
         print("-" * 60)
 
@@ -225,11 +225,11 @@ def example_performance_comparison():
         print(f"\n   Single appends ({n} points)...")
         start = time.time()
         for i in range(n):
-            session.track("perf_single").append(
+            episode.track("perf_single").append(
                 value=i,
                 _ts=time.time() + i * 0.01
             )
-        session.track("perf_single").flush()
+        episode.track("perf_single").flush()
         single_time = time.time() - start
 
         print(f"     Time: {single_time:.3f}s")
@@ -242,7 +242,7 @@ def example_performance_comparison():
             for i in range(n)
         ]
         start = time.time()
-        session.track("perf_batch").append_batch(batch)
+        episode.track("perf_batch").append_batch(batch)
         batch_time = time.time() - start
 
         print(f"     Time: {batch_time:.3f}s")

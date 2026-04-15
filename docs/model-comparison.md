@@ -14,10 +14,10 @@ You're evaluating different architectures (CNN, ResNet, ViT) and want to:
 ```{code-block} python
 :linenos:
 
-from dreamlake import Session
+from dreamlake import Episode
 import random
 
-def train_model(architecture, session):
+def train_model(architecture, episode):
     """Train model with given architecture."""
     epochs = 20
 
@@ -37,8 +37,8 @@ def train_model(architecture, session):
 
         loss = (1 - progress) * 2.0 + random.uniform(-0.1, 0.1)
 
-        session.track("metrics").append(accuracy=accuracy, epoch=epoch)
-        session.track("train").append(loss=loss, epoch=epoch)
+        episode.track("metrics").append(accuracy=accuracy, epoch=epoch)
+        episode.track("train").append(loss=loss, epoch=epoch)
 
     return accuracy
 
@@ -50,15 +50,15 @@ def compare_architectures():
 
     # Train each architecture
     for arch in architectures:
-        with Session(
+        with Episode(
             name=f"comparison-{arch}",
             workspace="architecture-comparison",
             readme=f"Training {arch} on CIFAR-10",
             tags=["comparison", arch, "cifar10"],
         local_path=".dreamlake"
-        ) as session:
+        ) as episode:
             # Same configuration for fair comparison
-            session.params.set(
+            episode.params.set(
                 architecture=arch,
                 dataset="cifar10",
                 batch_size=128,
@@ -67,12 +67,12 @@ def compare_architectures():
                 optimizer="adam"
             )
 
-            session.log(f"Training {arch} architecture")
+            episode.log(f"Training {arch} architecture")
 
             # Train
-            final_accuracy = train_model(arch, session)
+            final_accuracy = train_model(arch, episode)
 
-            session.log(f"Final accuracy: {final_accuracy:.4f}")
+            episode.log(f"Final accuracy: {final_accuracy:.4f}")
 
             results[arch] = final_accuracy
 
@@ -97,7 +97,7 @@ if __name__ == "__main__":
 
 ## What Gets Created
 
-**3 separate sessions** - One per architecture:
+**3 separate episodes** - One per architecture:
 ```
 architecture-comparison/
 ├── comparison-cnn/
@@ -112,7 +112,7 @@ architecture-comparison/
 └── comparison-vit/
 ```
 
-**Each session has identical structure:**
+**Each episode has identical structure:**
 - Same parameters (except architecture)
 - Same number of epochs tracked
 - Same metrics (accuracy, loss)
@@ -126,7 +126,7 @@ name=f"comparison-{arch}"
 
 **Fair comparison** - Same hyperparameters for all:
 ```python
-session.params.set(
+episode.params.set(
     batch_size=128,      # Same for all
     learning_rate=0.001, # Same for all
     epochs=20,           # Same for all
@@ -148,7 +148,7 @@ sorted_archs = sorted(results.keys(), key=lambda x: results[x], reverse=True)
 :linenos:
 
 import torch
-from dreamlake import Session
+from dreamlake import Episode
 
 def create_model(architecture):
     if architecture == "cnn":
@@ -158,7 +158,7 @@ def create_model(architecture):
     elif architecture == "vit":
         return VisionTransformer()
 
-def train_and_evaluate(model, train_loader, val_loader, session):
+def train_and_evaluate(model, train_loader, val_loader, episode):
     optimizer = torch.optim.Adam(model.params, lr=0.001)
     criterion = torch.nn.CrossEntropyLoss()
 
@@ -188,23 +188,23 @@ def train_and_evaluate(model, train_loader, val_loader, session):
         accuracy = correct / total
 
         # Track metrics
-        session.track("train").append(loss=train_loss, epoch=epoch)
-        session.track("val").append(accuracy=accuracy, epoch=epoch)
+        episode.track("train").append(loss=train_loss, epoch=epoch)
+        episode.track("val").append(accuracy=accuracy, epoch=epoch)
 
     return accuracy
 
 # Compare architectures
 for arch in ["cnn", "resnet", "vit"]:
-    with Session(name=f"comparison-{arch}", workspace="arch-comp",
-        local_path=".dreamlake") as session:
-        session.params.set(architecture=arch, dataset="cifar10")
+    with Episode(name=f"comparison-{arch}", workspace="arch-comp",
+        local_path=".dreamlake") as episode:
+        episode.params.set(architecture=arch, dataset="cifar10")
 
         model = create_model(arch)
-        final_acc = train_and_evaluate(model, train_loader, val_loader, session)
+        final_acc = train_and_evaluate(model, train_loader, val_loader, episode)
 
         # Save best model
         torch.save(model.state_dict(), f"{arch}_model.pth")
-        session.files.upload(f"{arch}_model.pth", path="/models")
+        episode.files.upload(f"{arch}_model.pth", path="/models")
 ```
 
 ---

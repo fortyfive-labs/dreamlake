@@ -14,19 +14,19 @@ Local mode stores all data on your local filesystem in a `.dreamlake/` directory
 - **Quick experiments**: Simple experiments that don't need cloud storage
 - **Privacy**: Keep all data local
 
-### Creating a Local Session
+### Creating a Local Episode
 
 ```python
-from dreamlake import Session
+from dreamlake import Episode
 
-with Session(prefix="my-workspace/my-experiment",
+with Episode(prefix="my-workspace/my-experiment",
     root="./experiments"  # Required for local mode,
         local_path=".dreamlake"
-) as session:
-    session.log("Running in local mode")
-    session.params.set(batch_size=32)
-    session.track("train").append(loss=0.5)
-    session.files.upload("model.pth", path="/models")
+) as episode:
+    episode.log("Running in local mode")
+    episode.params.set(batch_size=32)
+    episode.track("train").append(loss=0.5)
+    episode.files.upload("model.pth", path="/models")
 ```
 
 ### Local Storage Structure
@@ -74,37 +74,37 @@ Remote mode stores data in MongoDB (metadata) and S3 (large files), accessed via
 - **Web UI**: Browse experiments in web interface
 - **Production**: Production ML workflows
 
-### Creating a Remote Session
+### Creating a Remote Episode
 
 ```python
-from dreamlake import Session
+from dreamlake import Episode
 
 # With username (simpler for development)
-with Session(prefix="my-workspace/my-experiment",
+with Episode(prefix="my-workspace/my-experiment",
     url="https://cu3thurmv3.us-east-1.awsapprunner.com",     # API endpoint
     user_name="your-username"            # Authentication
-) as session:
-    session.log("Running in url mode")
-    session.params.set(batch_size=32)
-    session.track("train").append(loss=0.5)
-    session.files.upload("model.pth", path="/models")
+) as episode:
+    episode.log("Running in url mode")
+    episode.params.set(batch_size=32)
+    episode.track("train").append(loss=0.5)
+    episode.files.upload("model.pth", path="/models")
 
 # Or with API key (advanced)
-with Session(prefix="my-workspace/my-experiment",
+with Episode(prefix="my-workspace/my-experiment",
     url="https://cu3thurmv3.us-east-1.awsapprunner.com",     # API endpoint
     api_key="your-api-key-here"          # Authentication
-) as session:
-    session.log("Running in url mode")
-    session.params.set(batch_size=32)
-    session.track("train").append(loss=0.5)
-    session.files.upload("model.pth", path="/models")
+) as episode:
+    episode.log("Running in url mode")
+    episode.params.set(batch_size=32)
+    episode.track("train").append(loss=0.5)
+    episode.files.upload("model.pth", path="/models")
 ```
 
 ### Remote Storage Architecture
 
 ```
 MongoDB:
-- Session metadata
+- Episode metadata
 - Logs (recent)
 - Parameters
 - Track metadata
@@ -159,13 +159,13 @@ You can't directly convert between modes, but you can export/import data.
 
 ```python
 # Development (local)
-with Session(prefix="dev/experiment", root="./data",
-        local_path=".dreamlake") as session:
+with Episode(prefix="dev/experiment", root="./data",
+        local_path=".dreamlake") as episode:
     # Develop your code...
     pass
 
 # Production (url)
-with Session(prefix="prod/experiment", url="https://api", api_key="key") as session:
+with Episode(prefix="prod/experiment", url="https://api", api_key="key") as episode:
     # Run at scale...
     pass
 ```
@@ -187,14 +187,14 @@ Then in code:
 
 ```python
 import os
-from dreamlake import Session
+from dreamlake import Episode
 
 # Will use environment variables
-with Session(prefix="my-workspace/experiment",
+with Episode(prefix="my-workspace/experiment",
     local_path=os.getenv("DREAMLAKE_LOCAL_PATH"),
     url=os.getenv("DREAMLAKE_API_URL"),
     api_key=os.getenv("DREAMLAKE_API_KEY")
-) as session:
+) as episode:
     pass
 ```
 
@@ -204,26 +204,26 @@ Run locally during development, url in production:
 
 ```python
 import os
-from dreamlake import Session
+from dreamlake import Episode
 
 # Check if running in production
 is_production = os.getenv("ENVIRONMENT") == "production"
 
 if is_production:
     # Remote mode for production
-    session_config = {
+    episode_config = {
         "url": "https://api.dreamlake.ai",
         "api_key": os.getenv("DREAMLAKE_API_KEY")
     }
 else:
     # Local mode for development
-    session_config = {
+    episode_config = {
         "local_path": "./experiments"
     }
 
-with Session(prefix="ml/experiment", **session_config,
-        local_path=".dreamlake") as session:
-    session.log("Starting training")
+with Episode(prefix="ml/experiment", **episode_config,
+        local_path=".dreamlake") as episode:
+    episode.log("Starting training")
     # Your training code...
 ```
 

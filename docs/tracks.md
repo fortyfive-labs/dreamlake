@@ -7,15 +7,15 @@ Track time-series metrics that change over time - loss, accuracy, learning rate,
 ```{code-block} python
 :linenos:
 
-from dreamlake import Session
+from dreamlake import Episode
 
-with Session(prefix="project/my-experiment",
-        local_path=".dreamlake") as session:
+with Episode(prefix="project/my-experiment",
+        local_path=".dreamlake") as episode:
     # Append a single data point
-    session.track("train").append(loss=0.5, epoch=1)
+    episode.track("train").append(loss=0.5, epoch=1)
 
     # With step and epoch
-    session.track("metrics").append(accuracy=0.85, step=100, epoch=1)
+    episode.track("metrics").append(accuracy=0.85, step=100, epoch=1)
 ```
 
 ## Flexible Schema
@@ -25,13 +25,13 @@ Define your own data structure for each track:
 ```{code-block} python
 :linenos:
 
-with Session(prefix="project/my-experiment",
-        local_path=".dreamlake") as session:
+with Episode(prefix="project/my-experiment",
+        local_path=".dreamlake") as episode:
     # Simple value
-    session.track("train").append(loss=0.5)
+    episode.track("train").append(loss=0.5)
 
     # Multiple fields per point
-    session.track("metrics").append(
+    episode.track("metrics").append(
         loss=0.5,
         accuracy=0.85,
         learning_rate=0.001,
@@ -40,7 +40,7 @@ with Session(prefix="project/my-experiment",
 
     # With timestamp
     import time
-    session.track("system").append(
+    episode.track("system").append(
         cpu_percent=45.2,
         memory_mb=1024,
         timestamp=time.time()
@@ -54,10 +54,10 @@ Append multiple data points at once for better performance. Batch appends automa
 ```{code-block} python
 :linenos:
 
-with Session(prefix="project/my-experiment",
-        local_path=".dreamlake") as session:
+with Episode(prefix="project/my-experiment",
+        local_path=".dreamlake") as episode:
     # Batch append - uses columnar format internally
-    result = session.track("train_loss").append_batch([
+    result = episode.track("train_loss").append_batch([
         {"value": 0.5, "step": 1, "epoch": 1},
         {"value": 0.45, "step": 2, "epoch": 1},
         {"value": 0.40, "step": 3, "epoch": 1},
@@ -94,14 +94,14 @@ Read track data by index range:
 ```{code-block} python
 :linenos:
 
-with Session(prefix="project/my-experiment",
-        local_path=".dreamlake") as session:
+with Episode(prefix="project/my-experiment",
+        local_path=".dreamlake") as episode:
     # Append data
     for i in range(100):
-        session.track("train").append(loss=1.0 / (i + 1), step=i)
+        episode.track("train").append(loss=1.0 / (i + 1), step=i)
 
     # Read first 10 points
-    result = session.track("loss").read(start_index=0, limit=10)
+    result = episode.track("loss").read(start_index=0, limit=10)
 
     for point in result['data']:
         print(f"Index {point['index']}: {point['data']}")
@@ -115,20 +115,20 @@ Query track data by timestamp range using the `read_by_time()` method. This is e
 :linenos:
 
 import time
-from dreamlake import Session
+from dreamlake import Episode
 
-with Session(prefix="project/my-experiment",
-        local_path=".dreamlake") as session:
+with Episode(prefix="project/my-experiment",
+        local_path=".dreamlake") as episode:
     # Write data with timestamps
     base_time = time.time()
     for i in range(100):
-        session.track("robot/pose").append(
+        episode.track("robot/pose").append(
             position=[i * 0.1, i * 0.2, i * 0.3],
             _ts=base_time + i * 0.1
         )
 
     # Query last 10 seconds
-    result = session.track("robot/pose").read_by_time(
+    result = episode.track("robot/pose").read_by_time(
         start_time=base_time + 90 * 0.1,  # Last 10 points
         end_time=base_time + 100 * 0.1,
         limit=1000
@@ -149,20 +149,20 @@ with Session(prefix="project/my-experiment",
 :linenos:
 
 # Get most recent data (reverse order)
-result = session.track("robot/pose").read_by_time(
+result = episode.track("robot/pose").read_by_time(
     reverse=True,
     limit=100
 )
 print(f"Latest position: {result['data'][0]['data']['position']}")
 
 # Query from specific time to end
-result = session.track("robot/pose").read_by_time(
+result = episode.track("robot/pose").read_by_time(
     start_time=1234567890.0,
     limit=1000
 )
 
-# Query all data in a session
-result = session.track("robot/pose").read_by_time(limit=10000)
+# Query all data in a episode
+result = episode.track("robot/pose").read_by_time(limit=10000)
 ```
 
 **Use Cases:**
@@ -176,26 +176,26 @@ result = session.track("robot/pose").read_by_time(limit=10000)
 ```{code-block} python
 :linenos:
 
-with Session(prefix="cv/mnist-training",
-        local_path=".dreamlake") as session:
-    session.params.set(learning_rate=0.001, batch_size=32)
-    session.log("Starting training")
+with Episode(prefix="cv/mnist-training",
+        local_path=".dreamlake") as episode:
+    episode.params.set(learning_rate=0.001, batch_size=32)
+    episode.log("Starting training")
 
     for epoch in range(10):
         train_loss = train_one_epoch(model, train_loader)
         val_loss, val_accuracy = validate(model, val_loader)
 
         # Track metrics
-        session.track("train").append(loss=train_loss, epoch=epoch + 1)
-        session.track("val").append(loss=val_loss, epoch=epoch + 1)
-        session.track("val").append(accuracy=val_accuracy, epoch=epoch + 1)
+        episode.track("train").append(loss=train_loss, epoch=epoch + 1)
+        episode.track("val").append(loss=val_loss, epoch=epoch + 1)
+        episode.track("val").append(accuracy=val_accuracy, epoch=epoch + 1)
 
-        session.log(
+        episode.log(
             f"Epoch {epoch + 1}/10 complete",
             metadata={"train_loss": train_loss, "val_loss": val_loss}
         )
 
-    session.log("Training complete")
+    episode.log("Training complete")
 ```
 
 ## Batch Collection Pattern
@@ -205,8 +205,8 @@ Collect points in memory, then append in batches:
 ```{code-block} python
 :linenos:
 
-with Session(prefix="project/my-experiment",
-        local_path=".dreamlake") as session:
+with Episode(prefix="project/my-experiment",
+        local_path=".dreamlake") as episode:
     batch = []
 
     for step in range(1000):
@@ -216,12 +216,12 @@ with Session(prefix="project/my-experiment",
 
         # Append every 100 steps
         if len(batch) >= 100:
-            session.track("train_loss").append_batch(batch)
+            episode.track("train_loss").append_batch(batch)
             batch = []
 
     # Append remaining
     if batch:
-        session.track("train_loss").append_batch(batch)
+        episode.track("train_loss").append_batch(batch)
 ```
 
 ## Multiple Metrics in One Track
@@ -231,10 +231,10 @@ Combine related metrics:
 ```{code-block} python
 :linenos:
 
-with Session(prefix="project/my-experiment",
-        local_path=".dreamlake") as session:
+with Episode(prefix="project/my-experiment",
+        local_path=".dreamlake") as episode:
     for epoch in range(10):
-        session.track("all_metrics").append(
+        episode.track("all_metrics").append(
             epoch=epoch,
             train_loss=0.5 / (epoch + 1),
             val_loss=0.6 / (epoch + 1),
@@ -253,15 +253,15 @@ All track data includes a `_ts` (timestamp) field. If not provided, timestamps a
 :linenos:
 
 import time
-from dreamlake import Session
+from dreamlake import Episode
 
-with Session(prefix="project/my-experiment",
-        local_path=".dreamlake") as session:
+with Episode(prefix="project/my-experiment",
+        local_path=".dreamlake") as episode:
     # Auto-generated timestamp
-    session.track("train").append(loss=0.5, epoch=1)
+    episode.track("train").append(loss=0.5, epoch=1)
 
     # Read back - _ts was added automatically
-    data = session.track("loss").read(start_index=0, limit=1)
+    data = episode.track("loss").read(start_index=0, limit=1)
     print(data['data'][0]['data']['_ts'])  # e.g., 1234567890.123
 ```
 
@@ -272,11 +272,11 @@ Use explicit timestamps for precise control:
 ```{code-block} python
 :linenos:
 
-with Session(prefix="project/my-experiment",
-        local_path=".dreamlake") as session:
+with Episode(prefix="project/my-experiment",
+        local_path=".dreamlake") as episode:
     ts = time.time()
 
-    session.track("robot/position").append(
+    episode.track("robot/position").append(
         q=[0.1, 0.2, 0.3],
         _ts=ts
     )
@@ -284,43 +284,43 @@ with Session(prefix="project/my-experiment",
 
 ### Timestamp Inheritance (`_ts=-1`)
 
-Use `_ts=-1` to inherit the previous timestamp across ALL tracks in the session. This is useful for synchronizing multi-modal data:
+Use `_ts=-1` to inherit the previous timestamp across ALL tracks in the episode. This is useful for synchronizing multi-modal data:
 
 ```{code-block} python
 :linenos:
 
-with Session(prefix="robotics/robot-demo",
-        local_path=".dreamlake") as session:
+with Episode(prefix="robotics/robot-demo",
+        local_path=".dreamlake") as episode:
     for step in range(100):
         # First append - auto-generates timestamp
-        session.track("robot/pose").append(
+        episode.track("robot/pose").append(
             position=[1.0, 2.0, 3.0],
             orientation=[0.0, 0.0, 0.0, 1.0]
         )
 
         # Following appends - inherit the same timestamp
-        session.track("camera/left/image").append(
+        episode.track("camera/left/image").append(
             width=640,
             height=480,
             frame_id=step,
             _ts=-1  # Same timestamp as robot/pose!
         )
 
-        session.track("robot/velocity").append(
+        episode.track("robot/velocity").append(
             linear=[0.1, 0.0, 0.0],
             angular=[0.0, 0.0, 0.05],
             _ts=-1  # Same timestamp!
         )
 
     # All tracks have synchronized timestamps
-    pose_data = session.track("robot/pose").read()
-    image_data = session.track("camera/left/image").read()
+    pose_data = episode.track("robot/pose").read()
+    image_data = episode.track("camera/left/image").read()
     assert pose_data['data'][0]['data']['_ts'] == image_data['data'][0]['data']['_ts']
 ```
 
 **Key properties:**
 - `_ts=-1` inherits globally across ALL tracks (not per-track)
-- Works across different Python files/modules that share the same session
+- Works across different Python files/modules that share the same episode
 - Enables clean multi-modal data synchronization (pose + images + sensors)
 
 ### Timestamp Merging
@@ -330,20 +330,20 @@ Data points with the same `_ts` are merged into a single entry:
 ```{code-block} python
 :linenos:
 
-with Session(prefix="project/merge-demo",
-        local_path=".dreamlake") as session:
+with Episode(prefix="project/merge-demo",
+        local_path=".dreamlake") as episode:
     ts = time.time()
 
     # Append different fields with same timestamp
-    session.track("robot/state").append(q=[0.1, 0.2], _ts=ts)
-    session.track("robot/state").append(v=[0.01, 0.02], _ts=ts)
-    session.track("robot/state").append(e=[0.5, 0.6, 0.7], _ts=ts)
+    episode.track("robot/state").append(q=[0.1, 0.2], _ts=ts)
+    episode.track("robot/state").append(v=[0.01, 0.02], _ts=ts)
+    episode.track("robot/state").append(e=[0.5, 0.6, 0.7], _ts=ts)
 
     # Flush to apply merging
-    session.track("robot/state").flush()
+    episode.track("robot/state").flush()
 
     # Read back - merged into single entry
-    data = session.track("robot/state").read()
+    data = episode.track("robot/state").read()
     assert len(data['data']) == 1
 
     merged = data['data'][0]['data']
@@ -358,23 +358,23 @@ Track appends are buffered in memory and merged by timestamp before writing:
 ```{code-block} python
 :linenos:
 
-with Session(prefix="project/my-experiment",
-        local_path=".dreamlake") as session:
+with Episode(prefix="project/my-experiment",
+        local_path=".dreamlake") as episode:
     # Append data (buffered)
-    session.track("train").append(loss=0.5, epoch=1)
-    session.track("train").append(loss=0.4, epoch=2)
+    episode.track("train").append(loss=0.5, epoch=1)
+    episode.track("train").append(loss=0.4, epoch=2)
 
     # Flush specific track
-    session.track("loss").flush()
+    episode.track("loss").flush()
 
     # Flush all tracks
-    session.tracks.flush()
+    episode.tracks.flush()
 
     # Auto-flush on read/stats/list
-    data = session.track("loss").read()  # Automatically flushes first
+    data = episode.track("loss").read()  # Automatically flushes first
 
-    # Auto-flush on session close
-    # (session context manager calls flush on exit)
+    # Auto-flush on episode close
+    # (episode context manager calls flush on exit)
 ```
 
 ### Complete Time-Based Example
@@ -385,10 +385,10 @@ Here's a complete example combining timestamps, time-range queries, and reverse 
 :linenos:
 
 import time
-from dreamlake import Session
+from dreamlake import Episode
 
-with Session(prefix="robotics/robot-demo",
-        local_path=".dreamlake") as session:
+with Episode(prefix="robotics/robot-demo",
+        local_path=".dreamlake") as episode:
     # Record robot data over 10 seconds
     base_time = time.time()
 
@@ -396,26 +396,26 @@ with Session(prefix="robotics/robot-demo",
         current_time = base_time + i * 0.1
 
         # First track - generates timestamp
-        session.track("robot/pose").append(
+        episode.track("robot/pose").append(
             position=[i * 0.1, i * 0.2, i * 0.3],
             orientation=[0.0, 0.0, 0.0, 1.0],
             _ts=current_time
         )
 
         # Synchronized tracks using same timestamp
-        session.track("robot/velocity").append(
+        episode.track("robot/velocity").append(
             linear=[0.1, 0.0, 0.0],
             angular=[0.0, 0.0, 0.05],
             _ts=current_time
         )
 
-        session.track("robot/torque").append(
+        episode.track("robot/torque").append(
             joints=[1.0, 2.0, 3.0, 4.0],
             _ts=current_time
         )
 
     # Query last 3 seconds of data
-    recent_pose = session.track("robot/pose").read_by_time(
+    recent_pose = episode.track("robot/pose").read_by_time(
         start_time=base_time + 7.0,
         end_time=base_time + 10.0,
         limit=1000
@@ -423,14 +423,14 @@ with Session(prefix="robotics/robot-demo",
     print(f"Last 3 seconds: {recent_pose['total']} pose samples")
 
     # Get the 10 most recent velocity readings
-    recent_velocity = session.track("robot/velocity").read_by_time(
+    recent_velocity = episode.track("robot/velocity").read_by_time(
         reverse=True,
         limit=10
     )
     print(f"Latest velocity: {recent_velocity['data'][0]['data']['linear']}")
 
     # Query specific time window
-    middle_data = session.track("robot/torque").read_by_time(
+    middle_data = episode.track("robot/torque").read_by_time(
         start_time=base_time + 4.0,
         end_time=base_time + 6.0,
         limit=1000
@@ -445,14 +445,14 @@ Use `/` to organize tracks hierarchically:
 ```{code-block} python
 :linenos:
 
-with Session(prefix="project/my-experiment",
-        local_path=".dreamlake") as session:
-    session.track("robot/position/left-camera").append(x=1.0, y=2.0, _ts=1.0)
-    session.track("robot/position/right-camera").append(x=1.1, y=2.1, _ts=1.0)
-    session.track("robot/velocity").append(vx=0.5, vy=0.6, _ts=1.0)
+with Episode(prefix="project/my-experiment",
+        local_path=".dreamlake") as episode:
+    episode.track("robot/position/left-camera").append(x=1.0, y=2.0, _ts=1.0)
+    episode.track("robot/position/right-camera").append(x=1.1, y=2.1, _ts=1.0)
+    episode.track("robot/velocity").append(vx=0.5, vy=0.6, _ts=1.0)
 
     # List all tracks
-    tracks = session.tracks.list()
+    tracks = episode.tracks.list()
     # Returns: ["robot/position/left-camera", "robot/position/right-camera", "robot/velocity"]
 ```
 

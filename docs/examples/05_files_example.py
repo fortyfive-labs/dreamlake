@@ -2,7 +2,7 @@
 import sys
 sys.path.insert(0, '../../src')
 
-from dreamlake import Session
+from dreamlake import Episode
 import os
 import json
 
@@ -33,15 +33,15 @@ def main():
         for i in range(10):
             f.write(f"{i+1},{1.0/(i+1):.4f},{0.5+i*0.05:.4f}\n")
 
-    with Session(
+    with Episode(
         name="files-demo",
         workspace="tutorials",
         local_path="./tutorial_data"
-    ) as session:
+    ) as episode:
         print("\n1. Uploading model file...")
 
         # Upload model
-        result = session.file(
+        result = episode.file(
             file_path="temp_files/model.txt",
             prefix="/models",
             description="Trained model weights",
@@ -53,7 +53,7 @@ def main():
         print("\n2. Uploading configuration...")
 
         # Upload config
-        result = session.file(
+        result = episode.file(
             file_path="temp_files/config.json",
             prefix="/config",
             description="Training configuration",
@@ -64,7 +64,7 @@ def main():
         print("\n3. Uploading results...")
 
         # Upload results
-        result = session.file(
+        result = episode.file(
             file_path="temp_files/results.txt",
             prefix="/results",
             description="Training results per epoch",
@@ -76,12 +76,12 @@ def main():
         print("\n4. Listing all files...")
 
         # List all files
-        files = session.file().list()
+        files = episode.file().list()
         print(f"   Found {len(files)} files:")
         for file in files:
             print(f"     - {file['path']}/{file['filename']} ({file['sizeBytes']} bytes)")
 
-        session.log("Files uploaded successfully", level="info")
+        episode.log("Files uploaded successfully", level="info")
 
     # Clean up temp files
     import shutil

@@ -31,7 +31,7 @@ Currently, you need to manually sync data. We recommend:
 **Option 1: Re-run experiments** (recommended)
 ```python
 # Change from local to url, re-run your code
-Session(prefix="my-workspace/my-experiment",
+Episode(prefix="my-workspace/my-experiment",
     url="http://localhost:3000",  # Changed from local_path
     user_name="your-name"
 )
@@ -57,7 +57,7 @@ Not yet! **Hybrid mode** is planned for v0.3:
 
 ```python
 # Coming soon
-Session(prefix="my-workspace/my-experiment",
+Episode(prefix="my-workspace/my-experiment",
     root=".dreamlake",  # Local backup
     url="http://localhost:3000",  # Syncs to url
     user_name="your-name"
@@ -94,46 +94,46 @@ This will automatically sync local data to url server.
 
 ---
 
-### What happens if my session crashes mid-training?
+### What happens if my episode crashes mid-training?
 
-DreamLake sessions are designed for **resilience**:
+DreamLake episodes are designed for **resilience**:
 
 1. **Data is written immediately**: Logs, parameters, and tracks are saved as soon as you call them (not buffered)
-2. **Re-open sessions**: Use the same session name to continue
+2. **Re-open episodes**: Use the same episode name to continue
 
 ```python
 # First run - crashes at epoch 5
 try:
-    with Session(prefix="test/training", root=".dreamlake",
-        local_path=".dreamlake") as session:
+    with Episode(prefix="test/training", root=".dreamlake",
+        local_path=".dreamlake") as episode:
         for epoch in range(10):
-            session.track("train").append(loss=loss, epoch=epoch)
+            episode.track("train").append(loss=loss, epoch=epoch)
             # Crashes here at epoch 5
 except Exception:
     pass
 
 # Second run - continue from crash
-with Session(prefix="test/training", root=".dreamlake",
-        local_path=".dreamlake") as session:
+with Episode(prefix="test/training", root=".dreamlake",
+        local_path=".dreamlake") as episode:
     # Continue from epoch 6
     for epoch in range(6, 10):
-        session.track("train").append(loss=loss, epoch=epoch)
+        episode.track("train").append(loss=loss, epoch=epoch)
 ```
 
-**Result**: You'll have all data from both runs in the same session!
+**Result**: You'll have all data from both runs in the same episode!
 
 ---
 
 ### Does DreamLake support distributed training?
 
-**Current**: Basic support - each worker can log to the same session
+**Current**: Basic support - each worker can log to the same episode
 
 ```python
 # Each worker
 rank = dist.get_rank()
-with Session(name=f"training-rank-{rank}", workspace="distributed", ...) as session:
+with Episode(name=f"training-rank-{rank}", workspace="distributed", ...) as episode:
     # Each worker tracks its own metrics
-    session.track("train").append(loss=local_loss, epoch=epoch)
+    episode.track("train").append(loss=local_loss, epoch=epoch)
 ```
 
 **Planned (v0.4)**: First-class distributed training support with:
@@ -176,7 +176,7 @@ results = query.search(
 **Development Mode** (automatic):
 ```python
 # SDK automatically generates JWT from username
-Session(
+Episode(
     url="http://localhost:3000",
     user_name="alice"  # No API key needed!
 )
@@ -193,7 +193,7 @@ The SDK generates a deterministic JWT token using the username and the server's 
 # Your auth service returns JWT
 api_key = your_auth_service.login("alice", "password")
 
-Session(
+Episode(
     url="https://dreamlake.company.com",
     api_key=api_key
 )
@@ -209,7 +209,7 @@ Session(
 
 1. **Using `user_name`** - Check JWT secret matches:
    ```python
-   # SDK generates JWT using secret from session.py:
+   # SDK generates JWT using secret from episode.py:
    # secret = "your-secret-key-change-this-in-production"
 
    # Server must use SAME secret in .env:
@@ -270,7 +270,7 @@ JWT_SECRET=my-custom-super-secret-key-123
 
 **2. SDK** (if using `user_name`):
 
-Edit `src/dreamlake/session.py`:
+Edit `src/dreamlake/episode.py`:
 ```python
 def _generate_api_key_from_username(user_name: str) -> str:
     # ...
@@ -298,21 +298,21 @@ def _generate_api_key_from_username(user_name: str) -> str:
        with gzip.open("model.pth.gz", "wb") as f_out:
            f_out.writelines(f_in)
 
-   session.files.upload("model.pth.gz", path="/models")
+   episode.files.upload("model.pth.gz", path="/models")
    ```
 
 2. **Split large files**:
    ```python
    # Split into chunks
    for i, chunk in enumerate(split_file("large_dataset.tar", chunk_size_mb=100)):
-       session.files.upload(chunk, path=f"/data/part-{i}")
+       episode.files.upload(chunk, path=f"/data/part-{i}")
    ```
 
 3. **Use external storage** (for very large files):
    ```python
    # Upload to S3 directly, just store reference
    s3_url = upload_to_s3("huge_model.bin")
-   session.params.set(model_url=s3_url)
+   episode.params.set(model_url=s3_url)
    ```
 
 **Performance Tips**:
@@ -329,13 +329,13 @@ def _generate_api_key_from_username(user_name: str) -> str:
 ❌ **Slow** (individual calls):
 ```python
 for i in range(10000):
-    session.track("metric").append(metric=i, step=i)
+    episode.track("metric").append(metric=i, step=i)
 ```
 
 ✅ **Fast** (batch operation):
 ```python
 batch_data = [{"value": i, "step": i} for i in range(10000)]
-session.track("metric").append_batch(batch_data)
+episode.track("metric").append_batch(batch_data)
 ```
 
 **Performance gains**:
@@ -371,12 +371,12 @@ for batch_idx, batch in enumerate(dataloader):
 
     # Batch append every 100 steps
     if len(batch_metrics) >= 100:
-        session.track("batch_loss").append_batch(batch_metrics)
+        episode.track("batch_loss").append_batch(batch_metrics)
         batch_metrics = []
 
 # Append remaining
 if batch_metrics:
-    session.track("batch_loss").append_batch(batch_metrics)
+    episode.track("batch_loss").append_batch(batch_metrics)
 ```
 
 ---
@@ -399,7 +399,7 @@ httpx.HTTPStatusError: Client error '401 Unauthorized'
 
 1. **Use `user_name` for development**:
    ```python
-   Session(url="http://localhost:3000", user_name="test-user")
+   Episode(url="http://localhost:3000", user_name="test-user")
    ```
 
 2. **Check JWT secret matches**:
@@ -408,7 +408,7 @@ httpx.HTTPStatusError: Client error '401 Unauthorized'
    cat .env | grep JWT_SECRET
 
    # SDK (if using user_name)
-   grep "secret =" src/dreamlake/session.py
+   grep "secret =" src/dreamlake/episode.py
    ```
 
 3. **Verify server is running**:
@@ -418,14 +418,14 @@ httpx.HTTPStatusError: Client error '401 Unauthorized'
 
 ---
 
-### Problem: Session data not appearing
+### Problem: Episode data not appearing
 
 **Symptoms**:
 - Logs/parameters written but not visible in filesystem/server
 - Empty files or missing data
 
 **Causes**:
-1. Session not properly closed
+1. Episode not properly closed
 2. Buffering in url mode
 3. File permissions (local mode)
 
@@ -434,22 +434,22 @@ httpx.HTTPStatusError: Client error '401 Unauthorized'
 1. **Always use context manager**:
    ```python
    # ✅ Good - auto-closes
-   with Session(...) as session:
-       session.log("message")
+   with Episode(...) as episode:
+       episode.log("message")
 
    # ❌ Bad - might not close
-   session = Session(...)
-   session.log("message")
-   # Forgot to call session.close()!
+   episode = Episode(...)
+   episode.log("message")
+   # Forgot to call episode.close()!
    ```
 
 2. **Manual close**:
    ```python
-   session = Session(...)
+   episode = Episode(...)
    try:
-       session.log("message")
+       episode.log("message")
    finally:
-       session.close()  # Ensures data is flushed
+       episode.close()  # Ensures data is flushed
    ```
 
 3. **Check permissions** (local mode):
@@ -534,7 +534,7 @@ Error uploading file: File not found / Permission denied
    elif not os.access(file_path, os.R_OK):
        print(f"Cannot read file: {file_path}")
    else:
-       session.files.upload(file_path, path="/models")
+       episode.files.upload(file_path, path="/models")
    ```
 
 2. **Check file size**:
@@ -572,14 +572,14 @@ Error uploading file: File not found / Permission denied
 
 ```python
 # ❌ Wrong - not flattened
-session.params.set(model={"layers": 50})
+episode.params.set(model={"layers": 50})
 
 # ✅ Correct - use ** unpacking
-session.params.set(**{"model": {"layers": 50}})
+episode.params.set(**{"model": {"layers": 50}})
 
 # ✅ Alternative - use dict variable
 params = {"model": {"layers": 50}}
-session.params.set(**params)
+episode.params.set(**params)
 ```
 
 ---
@@ -591,25 +591,25 @@ session.params.set(**params)
 - Duplicate indices
 - Indices start from wrong number
 
-**Cause**: Multiple sessions or concurrent writes
+**Cause**: Multiple episodes or concurrent writes
 
 **Solution**:
 
 Indices are auto-managed. If you see issues:
 
-1. **Don't reuse session names** for different runs
-2. **Use unique session names** or add timestamps:
+1. **Don't reuse episode names** for different runs
+2. **Use unique episode names** or add timestamps:
    ```python
    from datetime import datetime
 
-   session_name = f"training-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
-   Session(name=session_name, ...)
+   episode_name = f"training-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
+   Episode(name=episode_name, ...)
    ```
 
 3. **Check for concurrent access** (local mode):
    ```bash
-   # Multiple processes writing to same session?
-   lsof +D .dreamlake/workspace/session/
+   # Multiple processes writing to same episode?
+   lsof +D .dreamlake/workspace/episode/
    ```
 
 ---
@@ -648,7 +648,7 @@ ModuleNotFoundError: No module named 'dreamlake'
 ## Still Having Issues?
 
 1. **Check the logs**:
-   - Local: `ls -la .dreamlake/workspace/session/`
+   - Local: `ls -la .dreamlake/workspace/episode/`
    - Remote: `docker-compose logs dreamlake-server`
 
 2. **Enable debug logging**:

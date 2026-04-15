@@ -16,18 +16,18 @@ You're training a neural network and want to track:
 :linenos:
 
 import random
-from dreamlake import Session
+from dreamlake import Episode
 
 def train_simple_model():
     """Train a simple model and track everything with DreamLake."""
 
-    with Session(prefix="tutorials/simple-training",
+    with Episode(prefix="tutorials/simple-training",
         readme="Basic training loop example",
         tags=["tutorial", "simple"],
         local_path=".dreamlake"
-    ) as session:
+    ) as episode:
         # Track hyperparameters
-        session.params.set(
+        episode.params.set(
             learning_rate=0.001,
             batch_size=32,
             epochs=10,
@@ -35,7 +35,7 @@ def train_simple_model():
             model="simple_nn"
         )
 
-        session.log("Starting training", level="info")
+        episode.log("Starting training", level="info")
 
         # Training loop
         for epoch in range(10):
@@ -45,12 +45,12 @@ def train_simple_model():
             accuracy = min(0.95, 0.5 + epoch * 0.05)
 
             # Track metrics
-            session.track("train").append(loss=train_loss, epoch=epoch)
-            session.track("val").append(loss=val_loss, epoch=epoch)
-            session.track("metrics").append(accuracy=accuracy, epoch=epoch)
+            episode.track("train").append(loss=train_loss, epoch=epoch)
+            episode.track("val").append(loss=val_loss, epoch=epoch)
+            episode.track("metrics").append(accuracy=accuracy, epoch=epoch)
 
             # Log progress
-            session.log(
+            episode.log(
                 f"Epoch {epoch + 1}/10 complete",
                 level="info",
                 metadata={
@@ -65,12 +65,12 @@ def train_simple_model():
         with open("model.pth", "w") as f:
             f.write("model weights")
 
-        session.files.upload("model.pth", path="/models",
+        episode.files.upload("model.pth", path="/models",
             description="Final trained model",
             tags=["final"]
         )
 
-        session.log("Training complete!", level="info")
+        episode.log("Training complete!", level="info")
         print(f"✓ Experiment tracked successfully")
 
 if __name__ == "__main__":
@@ -111,25 +111,25 @@ if __name__ == "__main__":
 
 ## Key Patterns
 
-**Use session context manager** - Automatic cleanup:
+**Use episode context manager** - Automatic cleanup:
 ```python
-with Session(prefix=".../...") as session:
+with Episode(prefix=".../...") as episode:
     # Your code here
 ```
 
 **Track parameters once** - At the start:
 ```python
-session.params.set(learning_rate=0.001, batch_size=32)
+episode.params.set(learning_rate=0.001, batch_size=32)
 ```
 
 **Track metrics in the loop** - Every epoch:
 ```python
-session.track("train").append(loss=loss, epoch=epoch)
+episode.track("train").append(loss=loss, epoch=epoch)
 ```
 
 **Log important events** - Progress and completion:
 ```python
-session.log("Epoch 1/10 complete", metadata={"loss": 0.5})
+episode.log("Epoch 1/10 complete", metadata={"loss": 0.5})
 ```
 
 ---

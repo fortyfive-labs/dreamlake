@@ -2,20 +2,20 @@
 import sys
 sys.path.insert(0, '../../src')
 
-from dreamlake import Session
+from dreamlake import Episode
 
 def main():
     print("=" * 60)
     print("Parameters Example")
     print("=" * 60)
 
-    with Session(
+    with Episode(
         name="parameters-demo",
         workspace="tutorials",
         local_path="./tutorial_data"
-    ) as session:
+    ) as episode:
         # Simple parameters
-        session.parameters().set(
+        episode.parameters().set(
             learning_rate=0.001,
             batch_size=32,
             epochs=100
@@ -24,7 +24,7 @@ def main():
         print("\n1. Tracked simple parameters")
 
         # Nested parameters (automatically flattened)
-        session.parameters().set(**{
+        episode.parameters().set(**{
             "model": {
                 "architecture": "resnet50",
                 "pretrained": True,
@@ -46,19 +46,19 @@ def main():
         print("2. Tracked nested parameters (auto-flattened)")
 
         # Update existing parameter
-        session.parameters().set(learning_rate=0.0001)
+        episode.parameters().set(learning_rate=0.0001)
 
         print("3. Updated learning_rate")
 
         # Add more parameters
-        session.parameters().set(
+        episode.parameters().set(
             use_mixed_precision=True,
             gradient_clipping=1.0
         )
 
         print("4. Added additional parameters")
 
-        session.log("Parameters configured", level="info")
+        episode.log("Parameters configured", level="info")
 
     print("\n✓ All parameters saved!")
     print("\n" + "=" * 60)
