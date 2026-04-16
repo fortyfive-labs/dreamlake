@@ -204,7 +204,6 @@ def cmd_list_dreamlets() -> int:
     table.add_column("Tags")
     table.add_column("Description", style="dim")
     table.add_column("Created", style="dim")
-    table.add_column("ID", style="dim")
 
     for d in dreamlets:
         members = d.get("members", [])
@@ -212,8 +211,7 @@ def cmd_list_dreamlets() -> int:
         tags = ", ".join(d.get("tags", []))
         desc = (d.get("description") or "")[:40]
         created = (d.get("createdAt") or "")[:10]
-        did = (d.get("id") or "")[:12]
-        table.add_row(d.get("name", ""), member_count, tags, desc, created, did)
+        table.add_row(d.get("name", ""), member_count, tags, desc, created)
 
     console.print(table)
     console.print(f"\n  {len(dreamlets)} dreamlet(s)")
