@@ -1,14 +1,17 @@
 """
 Target syntax parser for DreamLake CLI.
 
-Syntax: [namespace@]space[:episode][//path]
+Syntax: space[@namespace][:episode]
 
 Examples:
-    alice@robotics:experiments/run-042//microphone/front
-    robotics:experiments/run-042//microphone/front   (namespace → current user)
-    alice@robotics//audio/ambient                    (no episode → space-level)
-    alice@robotics:experiments/run-042               (no path → list scope)
-    robotics                                         (minimal)
+    robotics@alice:run-042       (space=robotics, namespace=alice, episode=run-042)
+    robotics:run-042             (namespace → current user)
+    robotics@alice               (no episode → space-level)
+    robotics                     (minimal — namespace=current user, no episode)
+
+Space syntax (for --space flag): space[@namespace]
+    robotics@alice
+    robotics                     (namespace → current user)
 """
 
 from dataclasses import dataclass
@@ -23,7 +26,7 @@ class ParsedTarget:
 
 
 def parse_target(target: str) -> ParsedTarget:
-    """Parse a target string into its components."""
+    """Parse a target string: space[@namespace][:episode][//path]"""
     path = None
     episode = None
     namespace = None
@@ -33,16 +36,18 @@ def parse_target(target: str) -> ParsedTarget:
         target, path = target.split("//", 1)
         path = path.strip("/") or None
 
-    # Split off namespace (everything before @)
-    if "@" in target:
-        namespace, target = target.split("@", 1)
-
-    # Split off episode (everything after :)
+    # Split off episode (everything after last :)
     if ":" in target:
-        space, episode = target.split(":", 1)
+        base, episode = target.split(":", 1)
         episode = episode or None
     else:
-        space = target
+        base = target
+
+    # Split off namespace (everything after @)
+    if "@" in base:
+        space, namespace = base.split("@", 1)
+    else:
+        space = base
 
     if not space:
         raise ValueError("target must include a space name")
@@ -50,14 +55,40 @@ def parse_target(target: str) -> ParsedTarget:
     return ParsedTarget(namespace=namespace, space=space, episode=episode, path=path)
 
 
+@dataclass
+class ParsedSpace:
+    namespace: str | None   # None → resolved from current user's token
+    space: str
+
+
+def parse_space(target: str) -> ParsedSpace:
+    """Parse a space target: space[@namespace]"""
+    if "@" in target:
+        space, namespace = target.split("@", 1)
+    else:
+        space = target
+        namespace = None
+
+    if not space:
+        raise ValueError("target must include a space name")
+
+    return ParsedSpace(namespace=namespace, space=space)
+
+
 def format_target(t: ParsedTarget) -> str:
     """Reconstruct target string from parsed components (for display)."""
-    parts = ""
+    parts = t.space
     if t.namespace:
-        parts += f"{t.namespace}@"
-    parts += t.space
+        parts += f"@{t.namespace}"
     if t.episode:
         parts += f":{t.episode}"
     if t.path:
         parts += f"//{t.path}"
     return parts
+
+
+def format_space(s: ParsedSpace) -> str:
+    """Reconstruct space string for display."""
+    if s.namespace:
+        return f"{s.space}@{s.namespace}"
+    return s.space

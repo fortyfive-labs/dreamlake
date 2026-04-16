@@ -34,19 +34,23 @@ def print_help():
             {CYAN}list{RESET}        List assets in a episode or space
             {CYAN}video{RESET}       Video commands (upload/download/list via BSS)
 
-        {BOLD}Episode syntax:{RESET}
-            [namespace@]space[:episode]
+        {BOLD}Target syntax:{RESET}
+            --episode space[@namespace][:episode]
+            --space   space[@namespace]
 
         {BOLD}Examples:{RESET}
             {DIM}# Upload (type auto-detected from extension){RESET}
-            dreamlake upload ./mic.wav --episode alice@robotics:2026/q1/run-042 --to /microphone/front
+            dreamlake upload ./mic.wav --episode robotics@alice:2026/q1/run-042 --to /microphone/front
 
             {DIM}# Download{RESET}
-            dreamlake download --episode alice@robotics:2026/q1/run-042 --from /microphone/front -o ./mic.wav
+            dreamlake download --episode robotics@alice:2026/q1/run-042 --from /microphone/front -o ./mic.wav
 
             {DIM}# List assets{RESET}
-            dreamlake list --episode alice@robotics:2026/q1/run-042
-            dreamlake list --episode alice@robotics:2026/q1/run-042 --type audio
+            dreamlake list --episode robotics@alice:2026/q1/run-042
+            dreamlake list --episode robotics@alice:2026/q1/run-042 --type audio
+
+            {DIM}# List dreamlets{RESET}
+            dreamlake list dreamlet --space robotics@alice
 
             {DIM}# Video commands{RESET}
             dreamlake video upload ./video.mp4 --user alice --project robotics

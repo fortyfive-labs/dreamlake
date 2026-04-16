@@ -85,6 +85,8 @@ def detect_category(file_path: Path, type_override: str | None) -> str | None:
 
 def _add_to_dreamlets(dreamlet_names: list[str], node_ids: list[str], t, token: str) -> None:
     """Add node IDs to dreamlets (auto-created if they don't exist)."""
+    import httpx
+
     if not dreamlet_names or not node_ids:
         return
 
