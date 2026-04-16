@@ -31,7 +31,9 @@ def print_help():
             {CYAN}profile{RESET}     Show current user
             {CYAN}upload{RESET}      Upload a file (type auto-detected)
             {CYAN}download{RESET}    Download a file
-            {CYAN}list{RESET}        List assets in a episode or space
+            {CYAN}list{RESET}        List assets or dreamlets
+            {CYAN}create{RESET}      Create a dreamlet
+            {CYAN}delete{RESET}      Delete a dreamlet
             {CYAN}video{RESET}       Video commands (upload/download/list via BSS)
 
         {BOLD}Target syntax:{RESET}
@@ -123,6 +125,14 @@ def main():
     elif command == "list":
         from .commands import list as list_mod
         return list_mod.main(sys.argv[2:])
+
+    elif command == "create":
+        from .commands import create
+        return create.main(sys.argv[2:])
+
+    elif command == "delete":
+        from .commands import delete
+        return delete.main(sys.argv[2:])
 
     else:
         print(f"{RED}Unknown command:{RESET} {command}", file=sys.stderr)
