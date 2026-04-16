@@ -24,7 +24,11 @@ def print_help():
 {BOLD}dreamlake delete{RESET} - Delete resources
 
 {BOLD}Usage:{RESET}
-    dreamlake delete dreamlet <name> --space space[@namespace]
+    dreamlake delete dreamlet <name> --space space[@namespace] [--yes]
+
+{BOLD}Options:{RESET}
+    --space     Space target: space[@namespace]
+    --yes       Skip confirmation prompt
 
 {BOLD}Examples:{RESET}
     dreamlake delete dreamlet "front-camera" --space robotics@alice
@@ -54,6 +58,13 @@ def cmd_delete_dreamlet(name: str, args: dict) -> int:
     if not token:
         print(f"{RED}error:{RESET} not authenticated. run 'dreamlake login' first", file=sys.stderr)
         return 1
+
+    # Confirm unless --yes
+    if not args.get("yes"):
+        confirm = input(f"Delete dreamlet '{name}' from {format_space(s)}? [y/N] ").strip().lower()
+        if confirm not in ("y", "yes"):
+            print("Cancelled.")
+            return 0
 
     import httpx
     remote = ServerConfig.remote
