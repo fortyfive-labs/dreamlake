@@ -194,21 +194,29 @@ def cmd_list_dreamlets() -> int:
         print(f"\n  {DIM}(no dreamlets found){RESET}")
         return 0
 
-    print()
-    for d in dreamlets:
-        name = d.get("name", "(unnamed)")
-        members = d.get("members", [])
-        desc = d.get("description") or ""
-        tags = d.get("tags", [])
-        member_count = len(members) if isinstance(members, list) else 0
-        print(f"  {CYAN}{name}{RESET}  {DIM}{member_count} files{RESET}", end="")
-        if desc:
-            print(f"  {DIM}— {desc}{RESET}", end="")
-        if tags:
-            print(f"  {DIM}[{', '.join(tags)}]{RESET}", end="")
-        print()
+    from rich.console import Console
+    from rich.table import Table
 
-    print(f"\n  {len(dreamlets)} dreamlet(s)")
+    console = Console()
+    table = Table(show_edge=False, pad_edge=False)
+    table.add_column("Name", style="cyan")
+    table.add_column("Files", justify="right")
+    table.add_column("Tags")
+    table.add_column("Description", style="dim")
+    table.add_column("Created", style="dim")
+    table.add_column("ID", style="dim")
+
+    for d in dreamlets:
+        members = d.get("members", [])
+        member_count = str(len(members)) if isinstance(members, list) else "0"
+        tags = ", ".join(d.get("tags", []))
+        desc = (d.get("description") or "")[:40]
+        created = (d.get("createdAt") or "")[:10]
+        did = (d.get("id") or "")[:12]
+        table.add_row(d.get("name", ""), member_count, tags, desc, created, did)
+
+    console.print(table)
+    console.print(f"\n  {len(dreamlets)} dreamlet(s)")
     return 0
 
 
