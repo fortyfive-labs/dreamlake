@@ -47,6 +47,7 @@ class UploadConfig:
     to: str | None = None     # destination path (within episode)
     type: str | None = None   # category override
     yes: bool = False         # skip confirmation prompt (for folder upload)
+    dreamlet: str | None = None  # comma-separated dreamlet names (auto-created)
 
 
 def print_help():
@@ -82,8 +83,49 @@ def detect_category(file_path: Path, type_override: str | None) -> str | None:
     return EXTENSION_TO_CATEGORY.get(file_path.suffix.lower())
 
 
+def _add_to_dreamlets(dreamlet_names: list[str], node_ids: list[str], t, token: str) -> None:
+    """Add node IDs to dreamlets (auto-created if they don't exist)."""
+    if not dreamlet_names or not node_ids:
+        return
+
+    remote = ServerConfig.remote
+    headers = {"Authorization": f"Bearer {token}"}
+
+    for name in dreamlet_names:
+        name = name.strip()
+        if not name:
+            continue
+        try:
+            with httpx.Client(timeout=30, headers=headers) as client:
+                # Try to add members to existing dreamlet
+                r = client.post(
+                    f"{remote}/namespaces/{t.namespace}/spaces/{t.space}/dreamlets/{name}/members",
+                    json={"add": node_ids},
+                )
+                if r.status_code == 404:
+                    # Dreamlet doesn't exist — create it with members
+                    r = client.post(
+                        f"{remote}/namespaces/{t.namespace}/spaces/{t.space}/dreamlets",
+                        json={"name": name, "members": node_ids},
+                    )
+                    r.raise_for_status()
+                    print(f"  {DIM}dreamlet:{RESET}  created '{name}' ({len(node_ids)} files)")
+                elif r.status_code == 200:
+                    data = r.json()
+                    print(f"  {DIM}dreamlet:{RESET}  added to '{name}' (total: {data.get('total', '?')} files)")
+                else:
+                    print(f"  {DIM}dreamlet:{RESET}  '{name}' failed ({r.status_code})", file=sys.stderr)
+        except Exception as e:
+            print(f"  {DIM}dreamlet:{RESET}  '{name}' error: {e}", file=sys.stderr)
+
+
+# Shared state to capture nodeId from the last upload
+_last_node_id: str | None = None
+
 def _upload_single_file(file_path: Path, t, path: str, token: str, category: str) -> int:
-    """Upload a single file. Returns 0 on success, 1 on failure."""
+    """Upload a single file. Returns 0 on success, 1 on failure. Sets _last_node_id."""
+    global _last_node_id
+    _last_node_id = None
     try:
         if category == "video":
             return _upload_video(file_path, t, path, token)
@@ -262,6 +304,8 @@ def _upload_folder(dir_path: Path) -> int:
 
             if result == 0:
                 manifest["files"][fname]["status"] = "done"
+                if _last_node_id:
+                    manifest["files"][fname]["nodeId"] = _last_node_id
                 uploaded += 1
             else:
                 manifest["files"][fname]["status"] = "failed"
@@ -285,6 +329,13 @@ def _upload_folder(dir_path: Path) -> int:
             if info["status"] == "failed":
                 console.print(f"    {fname}: {info.get('error', 'unknown')}")
         console.print("  Re-run to retry failed files.")
+
+    # Add to dreamlets if specified
+    if UploadConfig.dreamlet:
+        dreamlet_names = [n.strip() for n in UploadConfig.dreamlet.split(',') if n.strip()]
+        node_ids = [info.get("nodeId") for info in manifest["files"].values() if info.get("nodeId")]
+        if node_ids and dreamlet_names:
+            _add_to_dreamlets(dreamlet_names, node_ids, t, token)
 
     # Clean up manifest if all done
     if total_failed == 0 and manifest_path.exists():
@@ -351,7 +402,14 @@ def cmd_upload(file: str) -> int:
     print(f"  {DIM}episode:{RESET} {format_target(t)}")
     print(f"  {DIM}path:{RESET}    /{path}")
 
-    return _upload_single_file(file_path, t, path, token, category)
+    result = _upload_single_file(file_path, t, path, token, category)
+
+    # Add to dreamlets if specified
+    if result == 0 and UploadConfig.dreamlet and _last_node_id:
+        dreamlet_names = [n.strip() for n in UploadConfig.dreamlet.split(',') if n.strip()]
+        _add_to_dreamlets(dreamlet_names, [_last_node_id], t, token)
+
+    return result
 
 
 def _state_path(raw_hash: str) -> Path:
@@ -537,6 +595,7 @@ def _upload_video(file_path: Path, t, path: str, token: str) -> int:
         })
         r.raise_for_status()
         dl_asset = r.json()
+        global _last_node_id; _last_node_id = dl_asset.get("nodeId")
 
     # Trigger HLS splitting via presigned URL from dreamlake-server
     lambda_url = dl_asset.get("lambdaUrl")
@@ -717,6 +776,7 @@ def _upload_audio(file_path: Path, t, path: str, token: str) -> int:
         })
         r.raise_for_status()
         dl_asset = r.json()
+        global _last_node_id; _last_node_id = dl_asset.get("nodeId")
 
     # Trigger Lambda processing via presigned URL
     lambda_url = dl_asset.get("lambdaUrl")
@@ -879,6 +939,7 @@ def _upload_label_track(file_path: Path, t, path: str, token: str) -> int:
         })
         r.raise_for_status()
         dl_asset = r.json()
+        global _last_node_id; _last_node_id = dl_asset.get("nodeId")
 
     # Trigger Lambda processing via presigned URL
     lambda_url = dl_asset.get("lambdaUrl")
@@ -1055,6 +1116,7 @@ def _upload_text_track(file_path: Path, t, path: str, token: str) -> int:
         })
         r.raise_for_status()
         dl_asset = r.json()
+        global _last_node_id; _last_node_id = dl_asset.get("nodeId")
 
     # Trigger Lambda processing via presigned URL
     lambda_url = dl_asset.get("lambdaUrl")
