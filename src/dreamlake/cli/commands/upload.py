@@ -36,9 +36,11 @@ EXTENSION_TO_CATEGORY = {
     ".npy": "track", ".msgpack": "track", ".csv": "track",
     ".srt": "text-track", ".vtt": "text-track",
     ".jsonl": "label-track",
+    ".jpg": "image", ".jpeg": "image", ".png": "image", ".gif": "image",
+    ".webp": "image", ".bmp": "image", ".tiff": "image", ".tif": "image",
 }
 
-CATEGORIES = {"audio", "video", "track", "text-track", "label-track"}
+CATEGORIES = {"audio", "video", "track", "text-track", "label-track", "image"}
 
 
 @proto.prefix
@@ -63,11 +65,12 @@ def print_help():
     --type    Override auto-detected file type
 
 {BOLD}Auto-detected types:{RESET}
-    .wav .mp3 .aac .opus  → audio
-    .mp4 .mkv             → video
-    .npy .msgpack .csv    → track
-    .srt .vtt             → text-track
-    .jsonl                → label-track (default; use --type text-track to override)
+    .wav .mp3 .aac .opus        → audio
+    .mp4 .mkv                   → video
+    .jpg .jpeg .png .gif .webp  → image
+    .npy .msgpack .csv          → track
+    .srt .vtt                   → text-track
+    .jsonl                      → label-track (default; use --type text-track to override)
 
 {BOLD}Examples:{RESET}
     dreamlake upload ./mic.wav --episode alice@robotics:2026/q1/run-042 --to /microphone/front
@@ -623,6 +626,8 @@ def _upload_asset(file_path: Path, t, path: str, category: str, token: str) -> i
         return _upload_label_track(file_path, t, path, token)
     if category == "text-track":
         return _upload_text_track(file_path, t, path, token)
+    if category == "image":
+        return _upload_image(file_path, t, path, token)
 
     print(f"(upload for '{category}' not yet implemented)", file=sys.stderr)
     return 1
@@ -1133,6 +1138,151 @@ def _upload_text_track(file_path: Path, t, path: str, token: str) -> int:
     print(f"{GREEN}✓ Uploaded:{RESET} /{path}")
     print(f"  {DIM}entries:{RESET}      {entry_count}")
     print(f"  {DIM}bss id:{RESET}       {bss_track_id}")
+    print(f"  {DIM}dreamlake id:{RESET} {dl_asset.get('id')}")
+    return 0
+
+
+def _upload_image(file_path: Path, t, path: str, token: str) -> int:
+    """Upload image to BSS via S3 multipart upload, then register in dreamlake-server. No Lambda."""
+    import hashlib
+    import math
+    import threading
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    import httpx
+
+    bss_url = ServerConfig.bss_url
+    remote = ServerConfig.remote
+    headers = {"Authorization": f"Bearer {token}"}
+
+    ext_to_mime = {
+        ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png",
+        ".gif": "image/gif", ".webp": "image/webp", ".bmp": "image/bmp",
+        ".tiff": "image/tiff", ".tif": "image/tiff",
+    }
+    content_type = ext_to_mime.get(file_path.suffix.lower(), "image/jpeg")
+
+    content = file_path.read_bytes()
+    raw_hash = hashlib.sha256(content).hexdigest()[:16]
+    file_size = len(content)
+    total_parts = max(1, math.ceil(file_size / CHUNK_SIZE))
+
+    print(f"  {DIM}size:{RESET}   {file_size / 1024 / 1024:.1f} MB")
+    print(f"  {DIM}parts:{RESET}  {total_parts} x {CHUNK_SIZE // 1024 // 1024} MB")
+
+    state_lock = threading.Lock()
+    upload_id: str | None = None
+    key: str | None = None
+    completed_parts: list[dict] = []
+    completed_map: dict[int, dict] = {}
+
+    state = _load_state(raw_hash)
+    if state:
+        with httpx.Client(timeout=30, headers=headers) as client:
+            r = client.get(f"{bss_url}/image/upload/multipart/parts-done", params={
+                "uploadId": state["uploadId"],
+                "key": state["key"],
+            })
+        if r.status_code == 200:
+            data = r.json()
+            if not data.get("expired"):
+                upload_id = state["uploadId"]
+                key = state["key"]
+                for p in data.get("parts", []):
+                    completed_map[p["partNumber"]] = p
+
+    if not upload_id:
+        with httpx.Client(timeout=30, headers=headers) as client:
+            r = client.post(f"{bss_url}/image/upload/multipart/init", json={
+                "owner": t.namespace, "project": t.space, "hash": raw_hash,
+                "contentType": content_type,
+            })
+            r.raise_for_status()
+            data = r.json()
+            upload_id = data["uploadId"]
+            key = data["key"]
+        _save_state(raw_hash, upload_id, key)
+
+    remaining_parts = [i + 1 for i in range(total_parts) if (i + 1) not in completed_map]
+
+    if remaining_parts:
+        with httpx.Client(timeout=30, headers=headers) as client:
+            r = client.post(f"{bss_url}/image/upload/multipart/parts", json={
+                "uploadId": upload_id, "key": key, "partNumbers": remaining_parts,
+            })
+            r.raise_for_status()
+            part_urls = r.json()["parts"]
+
+        def upload_part(part_number: int) -> dict:
+            url = part_urls[str(part_number)]
+            start = (part_number - 1) * CHUNK_SIZE
+            end = min(start + CHUNK_SIZE, file_size)
+            chunk = content[start:end]
+            resp = httpx.Client(timeout=120).put(url, content=chunk, headers={"Content-Type": content_type})
+            resp.raise_for_status()
+            return {"partNumber": part_number, "etag": resp.headers["etag"]}
+
+        failed = False
+        with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
+            futures = {pool.submit(upload_part, n): n for n in remaining_parts}
+
+            for f in as_completed(futures):
+                pn = futures[f]
+                try:
+                    part = f.result()
+                    with state_lock:
+                        completed_map[pn] = part
+                except Exception as e:
+                    print(f"  {RED}part {pn} failed:{RESET} {e}", file=sys.stderr)
+                    failed = True
+                    for pending in futures:
+                        if not pending.done():
+                            pending.cancel()
+                    break
+
+        if failed:
+            print(f"{RED}error:{RESET} upload paused — re-run to resume", file=sys.stderr)
+            return 1
+
+    completed_parts = sorted(completed_map.values(), key=lambda p: p["partNumber"])
+
+    with httpx.Client(timeout=60, headers=headers) as client:
+        r = client.post(f"{bss_url}/image/upload/multipart/complete", json={
+            "uploadId": upload_id, "key": key, "parts": completed_parts,
+        })
+        r.raise_for_status()
+
+    _clear_state(raw_hash)
+
+    # Register in BSS
+    with httpx.Client(timeout=30, headers=headers) as client:
+        r = client.post(f"{bss_url}/image", json={
+            "name": f"/{path}/{file_path.name}",
+            "owner": t.namespace,
+            "project": t.space,
+            "episodeId": t.episode,
+            "stagingHash": raw_hash,
+            "fileSize": file_size,
+        })
+        r.raise_for_status()
+        bss_image = r.json()
+
+    bss_image_id = bss_image.get("id")
+
+    # Register in dreamlake-server (no Lambda needed)
+    with httpx.Client(timeout=30, headers=headers) as client:
+        r = client.post(f"{remote}/assets/image", json={
+            "namespace": t.namespace,
+            "space": t.space,
+            "episodeName": t.episode,
+            "name": f"/{path}/{file_path.name}",
+            "bssImageId": bss_image_id,
+        })
+        r.raise_for_status()
+        dl_asset = r.json()
+        global _last_node_id; _last_node_id = dl_asset.get("nodeId")
+
+    print(f"{GREEN}✓ Uploaded:{RESET} /{path}/{file_path.name}")
+    print(f"  {DIM}bss id:{RESET}       {bss_image_id}")
     print(f"  {DIM}dreamlake id:{RESET} {dl_asset.get('id')}")
     return 0
 
