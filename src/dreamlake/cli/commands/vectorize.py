@@ -45,7 +45,6 @@ def print_help():
     --dreamlet   Dreamlet name (requires --space)
     --dataset    Dataset name (requires --space)
     --space      Space target: space[@namespace]
-    --no-caption Skip LLaVA captioning (CLIP embed only, faster)
     --zaku-url   Zaku task queue URL (enables distributed mode)
 
 {BOLD}Examples:{RESET}
@@ -151,7 +150,6 @@ def cmd_vectorize(args: dict) -> int:
     dreamlet_name = args.get("dreamlet")
     dataset_name = args.get("dataset")
     space_str = args.get("space")
-    no_caption = args.get("no_caption", False)
 
     # Parse scope
     namespace = None
@@ -264,14 +262,14 @@ def cmd_vectorize(args: dict) -> int:
     zaku_url = args.get("zaku_url")
 
     if zaku_url:
-        return _vectorize_zaku(zaku_url, all_chunks, no_caption, qdrant_url, len(videos))
+        return _vectorize_zaku(zaku_url, all_chunks, qdrant_url, len(videos))
     else:
-        return _vectorize_direct(vectorize_url, all_chunks, no_caption, qdrant_url, len(videos))
+        return _vectorize_direct(vectorize_url, all_chunks, qdrant_url, len(videos))
 
 
 # ── Zaku distributed mode ───────────────────────────────────────────────────
 
-def _vectorize_zaku(zaku_url: str, all_chunks: list, no_caption: bool, qdrant_url: str, video_count: int) -> int:
+def _vectorize_zaku(zaku_url: str, all_chunks: list, qdrant_url: str, video_count: int) -> int:
     """Dispatch chunks to Zaku queue. Workers process and write to Qdrant."""
     import time
     from rich.progress import Progress, BarColumn, MofNCompleteColumn, TimeElapsedColumn, TextColumn
@@ -299,7 +297,7 @@ def _vectorize_zaku(zaku_url: str, all_chunks: list, no_caption: bool, qdrant_ur
     for chunk in all_chunks:
         queue.add({
             "url": _get_chunk_s3_url(chunk["chunkHash"]),
-            "caption": not no_caption,
+            "caption": True,
             "videoId": chunk["videoId"],
             "episodeId": chunk["episodeId"],
             "episodeName": chunk["episodeName"],
@@ -349,7 +347,7 @@ def _vectorize_zaku(zaku_url: str, all_chunks: list, no_caption: bool, qdrant_ur
 
 # ── Direct HTTP mode (sequential fallback) ──────────────────────────────────
 
-def _vectorize_direct(vectorize_url: str, all_chunks: list, no_caption: bool, qdrant_url: str, video_count: int) -> int:
+def _vectorize_direct(vectorize_url: str, all_chunks: list, qdrant_url: str, video_count: int) -> int:
     """Process chunks sequentially via HTTP. Fallback when Zaku is unavailable."""
     import httpx
     from rich.progress import Progress, BarColumn, MofNCompleteColumn, TimeElapsedColumn, TextColumn
@@ -367,7 +365,7 @@ def _vectorize_direct(vectorize_url: str, all_chunks: list, no_caption: bool, qd
             print(f"  {RED}error:{RESET} vectorize service unreachable at {vectorize_url}: {e}", file=sys.stderr)
             return 1
 
-        print(f"\n  Processing with CLIP + {'LLaVA' if not no_caption else 'no caption'} (direct mode)...")
+        print(f"\n  Processing with CLIP + LLaVA (direct mode)...")
 
         with Progress(
             TextColumn("[bold blue]{task.description}"),
@@ -385,7 +383,7 @@ def _vectorize_direct(vectorize_url: str, all_chunks: list, no_caption: bool, qd
                 try:
                     r = vclient.post(f"{vectorize_url}/vectorize/chunk", json={
                         "url": chunk_url,
-                        "caption": not no_caption,
+                        "caption": True,
                     })
                     r.raise_for_status()
                     result = r.json()
