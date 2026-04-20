@@ -7,6 +7,7 @@ Usage:
     dreamlake vectorize --dataset <name> --space space[@namespace]
 """
 
+import os
 import sys
 import re
 import uuid
@@ -23,9 +24,11 @@ GREEN = "\033[32m"
 CYAN = "\033[36m"
 YELLOW = "\033[33m"
 
-VECTORIZE_URL_DEFAULT = "http://192.168.170.5:8001"
-QDRANT_URL_DEFAULT = "http://192.168.170.5:6333"
+VECTORIZE_URL_DEFAULT = "http://localhost:8001"
+QDRANT_URL_DEFAULT = "http://localhost:6333"
 QDRANT_COLLECTION = "dreamlake-search"
+ZAKU_URL_DEFAULT = "http://localhost:9000"
+ZAKU_QUEUE_NAME = "dreamlake-vectorize"
 
 
 def print_help():
@@ -43,6 +46,7 @@ def print_help():
     --dataset    Dataset name (requires --space)
     --space      Space target: space[@namespace]
     --no-caption Skip LLaVA captioning (CLIP embed only, faster)
+    --zaku-url   Zaku task queue URL (enables distributed mode)
 
 {BOLD}Examples:{RESET}
     dreamlake vectorize --episode robotics@alice:run-042
@@ -128,9 +132,18 @@ def _get_chunk_hashes(client, bss_url: str, video_id: str) -> list[str]:
 
 
 def _get_chunk_url(bss_url: str, chunk_hash: str) -> str:
-    """Build presigned URL for a chunk. Chunks are public via CDN."""
-    # chunks are at S3: chunks/{hash}.ts — served directly by BSS/CDN
+    """Build URL for a chunk. Uses BSS redirect endpoint which returns presigned S3 URL."""
+    # BSS serves chunks via redirect to S3 presigned URL
+    # The vectorize service follows redirects, so this works cross-network
     return f"{bss_url}/chunks/{chunk_hash}.ts"
+
+
+def _get_chunk_s3_url(chunk_hash: str) -> str:
+    """Build direct S3 URL for a chunk (public bucket)."""
+    import os
+    bucket = os.environ.get("S3_BUCKET", "amzn-s3-dreamlake-bucket-test")
+    region = os.environ.get("AWS_REGION", "us-east-1")
+    return f"https://{bucket}.s3.{region}.amazonaws.com/chunks/{chunk_hash}.ts"
 
 
 def cmd_vectorize(args: dict) -> int:
@@ -206,6 +219,22 @@ def cmd_vectorize(args: dict) -> int:
 
         print(f"  Found {BOLD}{len(videos)}{RESET} video(s)")
 
+        # Resolve spaceId and episodeId for Qdrant payload
+        resolved_space_id = f"{namespace}/{space}"  # use slug combo as stable ID
+        resolved_episode_id = ""
+        resolved_episode_name = episode or ""
+        try:
+            if episode:
+                r = client.get(f"{remote}/namespaces/{namespace}/spaces/{space}/episodes",
+                               params={"pageSize": "200"})
+                if r.status_code == 200:
+                    for ep in r.json().get("episodes", []):
+                        if ep.get("name") == episode:
+                            resolved_episode_id = ep.get("id", "")
+                            break
+        except Exception:
+            pass
+
         # 2. Collect chunks
         all_chunks = []
         for v in videos:
@@ -216,9 +245,9 @@ def cmd_vectorize(args: dict) -> int:
             for idx, h in enumerate(hashes):
                 all_chunks.append({
                     "videoId": bss_id,
-                    "episodeId": v.get("episodeId"),
-                    "episodeName": v.get("episodeName", ""),
-                    "spaceId": v.get("spaceId", ""),
+                    "episodeId": v.get("episodeId") or resolved_episode_id,
+                    "episodeName": resolved_episode_name,
+                    "spaceId": v.get("spaceId") or resolved_space_id,
                     "chunkHash": h,
                     "chunkIndex": idx,
                     "timeStart": idx * 2.0,
@@ -231,14 +260,104 @@ def cmd_vectorize(args: dict) -> int:
 
         print(f"  Found {BOLD}{len(all_chunks)}{RESET} chunk(s) across {len(videos)} video(s)")
 
-    # 3. Process chunks via vectorize service
+    # 3. Dispatch — Zaku (distributed) or direct HTTP (sequential)
+    zaku_url = args.get("zaku_url")
+
+    if zaku_url:
+        return _vectorize_zaku(zaku_url, all_chunks, no_caption, qdrant_url, len(videos))
+    else:
+        return _vectorize_direct(vectorize_url, all_chunks, no_caption, qdrant_url, len(videos))
+
+
+# ── Zaku distributed mode ───────────────────────────────────────────────────
+
+def _vectorize_zaku(zaku_url: str, all_chunks: list, no_caption: bool, qdrant_url: str, video_count: int) -> int:
+    """Dispatch chunks to Zaku queue. Workers process and write to Qdrant."""
+    import time
+    from rich.progress import Progress, BarColumn, MofNCompleteColumn, TimeElapsedColumn, TextColumn
+
+    try:
+        from zaku import TaskQ
+    except ImportError:
+        print(f"  {RED}error:{RESET} zaku not installed. run: pip install zaku", file=sys.stderr)
+        return 1
+
+    s3_bucket = os.environ.get("S3_BUCKET", "amzn-s3-dreamlake-bucket-test")
+    queue = TaskQ(uri=zaku_url, name=ZAKU_QUEUE_NAME, s3_bucket=s3_bucket)
+
+    # Health check
+    try:
+        count = queue.count()
+    except Exception as e:
+        print(f"  {RED}error:{RESET} Zaku unreachable at {zaku_url}: {e}", file=sys.stderr)
+        return 1
+
+    total = len(all_chunks)
+    print(f"\n  Dispatching {BOLD}{total}{RESET} jobs to Zaku ({zaku_url})...")
+
+    # Add all chunks as jobs
+    for chunk in all_chunks:
+        queue.add({
+            "url": _get_chunk_s3_url(chunk["chunkHash"]),
+            "caption": not no_caption,
+            "videoId": chunk["videoId"],
+            "episodeId": chunk["episodeId"],
+            "episodeName": chunk["episodeName"],
+            "spaceId": chunk["spaceId"],
+            "chunkHash": chunk["chunkHash"],
+            "chunkIndex": chunk["chunkIndex"],
+            "timeStart": chunk["timeStart"],
+            "timeEnd": chunk["timeEnd"],
+            "qdrant_url": qdrant_url,
+            "qdrant_collection": QDRANT_COLLECTION,
+        })
+
+    print(f"  {GREEN}Dispatched {total} jobs{RESET}. Workers will process and write to Qdrant.")
+    print(f"  Monitoring progress...\n")
+
+    # Monitor queue drain
+    with Progress(
+        TextColumn("[bold blue]{task.description}"),
+        BarColumn(),
+        MofNCompleteColumn(),
+        TimeElapsedColumn(),
+    ) as progress:
+        task = progress.add_task("Vectorizing", total=total)
+
+        while True:
+            try:
+                remaining = queue.count()
+            except Exception:
+                time.sleep(2)
+                continue
+
+            completed = total - remaining
+            progress.update(task, completed=completed)
+
+            if remaining == 0:
+                break
+            time.sleep(2)
+
+    print(f"\n{GREEN}Done.{RESET}")
+    print(f"  Videos:  {video_count}")
+    print(f"  Chunks:  {total}")
+    print(f"  Mode:    distributed (Zaku)")
+    print(f"  Collection: {QDRANT_COLLECTION}")
+    print()
+    return 0
+
+
+# ── Direct HTTP mode (sequential fallback) ──────────────────────────────────
+
+def _vectorize_direct(vectorize_url: str, all_chunks: list, no_caption: bool, qdrant_url: str, video_count: int) -> int:
+    """Process chunks sequentially via HTTP. Fallback when Zaku is unavailable."""
+    import httpx
     from rich.progress import Progress, BarColumn, MofNCompleteColumn, TimeElapsedColumn, TextColumn
 
     points = []
     errors = 0
 
     with httpx.Client(timeout=300) as vclient:
-        # Health check
         try:
             r = vclient.get(f"{vectorize_url}/health")
             health = r.json()
@@ -248,7 +367,7 @@ def cmd_vectorize(args: dict) -> int:
             print(f"  {RED}error:{RESET} vectorize service unreachable at {vectorize_url}: {e}", file=sys.stderr)
             return 1
 
-        print(f"\n  Processing with CLIP + {'LLaVA' if not no_caption else 'no caption'}...")
+        print(f"\n  Processing with CLIP + {'LLaVA' if not no_caption else 'no caption'} (direct mode)...")
 
         with Progress(
             TextColumn("[bold blue]{task.description}"),
@@ -260,7 +379,7 @@ def cmd_vectorize(args: dict) -> int:
             task = progress.add_task("Vectorizing", total=len(all_chunks), current="")
 
             for chunk in all_chunks:
-                chunk_url = _get_chunk_url(bss_url, chunk["chunkHash"])
+                chunk_url = _get_chunk_s3_url(chunk["chunkHash"])
                 progress.update(task, current=f"chunk {chunk['chunkIndex']}")
 
                 try:
@@ -272,12 +391,9 @@ def cmd_vectorize(args: dict) -> int:
                     result = r.json()
 
                     for frame in result.get("frames", []):
-                        point_id = str(uuid.uuid4())
                         point = {
-                            "id": point_id,
-                            "vector": {
-                                "image": frame["image_embedding"],
-                            },
+                            "id": str(uuid.uuid4()),
+                            "vector": {"image": frame["image_embedding"]},
                             "payload": {
                                 "videoId": chunk["videoId"],
                                 "episodeId": chunk["episodeId"],
@@ -306,22 +422,21 @@ def cmd_vectorize(args: dict) -> int:
         print(f"  {RED}No points generated{RESET}")
         return 1
 
-    # 4. Upsert to Qdrant
+    # Upsert to Qdrant
     print(f"\n  Upserting {BOLD}{len(points)}{RESET} points to Qdrant...")
 
     with httpx.Client(timeout=60) as qclient:
-        # Ensure collection exists
-        try:
-            qclient.get(f"{qdrant_url}/collections/{QDRANT_COLLECTION}")
-        except Exception:
-            qclient.put(f"{qdrant_url}/collections/{QDRANT_COLLECTION}", json={
+        r = qclient.get(f"{qdrant_url}/collections/{QDRANT_COLLECTION}")
+        if r.status_code == 404:
+            r = qclient.put(f"{qdrant_url}/collections/{QDRANT_COLLECTION}", json={
                 "vectors": {
                     "image": {"size": 768, "distance": "Cosine"},
                     "caption": {"size": 768, "distance": "Cosine"},
                 },
             })
+            r.raise_for_status()
+            print(f"  Created collection: {QDRANT_COLLECTION}")
 
-        # Batch upsert (50 points at a time)
         batch_size = 50
         for i in range(0, len(points), batch_size):
             batch = points[i:i + batch_size]
@@ -330,15 +445,14 @@ def cmd_vectorize(args: dict) -> int:
             })
             r.raise_for_status()
 
-    # 5. Summary
     print(f"\n{GREEN}Done.{RESET}")
-    print(f"  Videos:  {len(videos)}")
+    print(f"  Videos:  {video_count}")
     print(f"  Chunks:  {len(all_chunks)}")
     print(f"  Points:  {len(points)}")
     print(f"  Errors:  {errors}")
+    print(f"  Mode:    direct")
     print(f"  Collection: {QDRANT_COLLECTION}")
     print()
-
     return 0
 
 
