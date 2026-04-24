@@ -2,15 +2,15 @@
 Create command.
 
 Usage:
-    dreamlake create dreamlet <name> --space space[@namespace] [--episode <glob>] [--description <desc>] [--tags <tags>]
-    dreamlake create dataset <name> --space space[@namespace] [--description <desc>] [--tags <tags>]
+    dreamlake create collection <name> --project space[@namespace] [--episode <glob>] [--description <desc>] [--tags <tags>]
+    dreamlake create dataset <name> --project space[@namespace] [--description <desc>] [--tags <tags>]
 """
 
 import sys
 
 from dreamlake.cli._args import args_to_dict
 from dreamlake.cli._config import ServerConfig
-from dreamlake.cli._target import parse_space, format_space
+from dreamlake.cli._target import parse_project, format_project
 
 RESET = "\033[0m"
 BOLD = "\033[1m"
@@ -25,19 +25,19 @@ def print_help():
 {BOLD}dreamlake create{RESET} - Create resources
 
 {BOLD}Usage:{RESET}
-    dreamlake create dreamlet <name> --space space[@namespace] [--episode <glob>] [--description <desc>] [--tags <tags>]
-    dreamlake create dataset <name> --space space[@namespace] [--description <desc>] [--tags <tags>]
+    dreamlake create collection <name> --project space[@namespace] [--episode <glob>] [--description <desc>] [--tags <tags>]
+    dreamlake create dataset <name> --project space[@namespace] [--description <desc>] [--tags <tags>]
 
 {BOLD}Options:{RESET}
-    --space        Space target: space[@namespace]
-    --episode      Glob pattern to match episodes by node path (dreamlet only)
+    --project        Space target: space[@namespace]
+    --episode      Glob pattern to match episodes by node path (collection only)
     --description  Description text
     --tags         Comma-separated tags
 
 {BOLD}Examples:{RESET}
-    dreamlake create dreamlet "front-camera" --space robotics@alice --episode "camera/front/*"
-    dreamlake create dreamlet "april-runs" --space robotics@alice --episode "2026/04/*"
-    dreamlake create dataset "training-v1" --space robotics@alice --description "Q1 training" --tags robotics,training
+    dreamlake create collection "front-camera" --project robotics@alice --episode "camera/front/*"
+    dreamlake create collection "april-runs" --project robotics@alice --episode "2026/04/*"
+    dreamlake create dataset "training-v1" --project robotics@alice --description "Q1 training" --tags robotics,training
 """.strip())
 
 
@@ -47,7 +47,7 @@ def _fetch_all_episodes(client, remote: str, namespace: str, space: str) -> list
     page = 1
     while True:
         r = client.get(
-            f"{remote}/namespaces/{namespace}/spaces/{space}/episodes",
+            f"{remote}/namespaces/{namespace}/projects/{space}/episodes",
             params={"page": str(page), "pageSize": "200"},
         )
         r.raise_for_status()
@@ -76,14 +76,14 @@ def _match_episodes(episodes: list[dict], pattern: str) -> list[dict]:
     return matched
 
 
-def cmd_create_dreamlet(name: str, args: dict) -> int:
-    space_str = args.get("space")
-    if not space_str:
-        print(f"{RED}error:{RESET} --space is required", file=sys.stderr)
+def cmd_create_collection(name: str, args: dict) -> int:
+    project_str = args.get("project")
+    if not project_str:
+        print(f"{RED}error:{RESET} --project is required", file=sys.stderr)
         return 1
 
     try:
-        s = parse_space(space_str)
+        s = parse_project(project_str)
     except ValueError as e:
         print(f"{RED}error:{RESET} {e}", file=sys.stderr)
         return 1
@@ -114,7 +114,7 @@ def cmd_create_dreamlet(name: str, args: dict) -> int:
         with httpx.Client(timeout=30, headers=headers) as client:
             # Resolve episode glob → member IDs
             if episode_pattern:
-                all_episodes = _fetch_all_episodes(client, remote, s.namespace, s.space)
+                all_episodes = _fetch_all_episodes(client, remote, s.namespace, s.project)
                 matched = _match_episodes(all_episodes, episode_pattern)
 
                 if not matched:
@@ -126,7 +126,7 @@ def cmd_create_dreamlet(name: str, args: dict) -> int:
                     path = ep.get("nodePath", ep.get("name", ""))
                     print(f"  {CYAN}{path}{RESET}")
 
-                confirm = input(f"\nCreate dreamlet '{name}' with {len(matched)} episodes? [y/N] ").strip().lower()
+                confirm = input(f"\nCreate collection '{name}' with {len(matched)} episodes? [y/N] ").strip().lower()
                 if confirm not in ("y", "yes"):
                     print("Cancelled.")
                     return 0
@@ -140,14 +140,14 @@ def cmd_create_dreamlet(name: str, args: dict) -> int:
                 body["tags"] = tags
 
             r = client.post(
-                f"{remote}/namespaces/{s.namespace}/spaces/{s.space}/dreamlets",
+                f"{remote}/namespaces/{s.namespace}/projects/{s.project}/collections",
                 json=body,
             )
             if r.status_code == 409:
-                print(f"{RED}error:{RESET} dreamlet '{name}' already exists in {format_space(s)}", file=sys.stderr)
+                print(f"{RED}error:{RESET} collection '{name}' already exists in {format_project(s)}", file=sys.stderr)
                 return 1
             if r.status_code == 404:
-                print(f"{RED}error:{RESET} space '{format_space(s)}' not found", file=sys.stderr)
+                print(f"{RED}error:{RESET} space '{format_project(s)}' not found", file=sys.stderr)
                 return 1
             r.raise_for_status()
     except httpx.HTTPStatusError as e:
@@ -157,7 +157,7 @@ def cmd_create_dreamlet(name: str, args: dict) -> int:
         print(f"{RED}error:{RESET} {e}", file=sys.stderr)
         return 1
 
-    print(f"{GREEN}✓ Created dreamlet:{RESET} {CYAN}{name}{RESET} in {BOLD}{format_space(s)}{RESET}")
+    print(f"{GREEN}✓ Created collection:{RESET} {CYAN}{name}{RESET} in {BOLD}{format_project(s)}{RESET}")
     if members:
         print(f"  {DIM}episodes:{RESET}    {len(members)}")
     if description:
@@ -169,13 +169,13 @@ def cmd_create_dreamlet(name: str, args: dict) -> int:
 
 
 def cmd_create_dataset(name: str, args: dict) -> int:
-    space_str = args.get("space")
-    if not space_str:
-        print(f"{RED}error:{RESET} --space is required", file=sys.stderr)
+    project_str = args.get("project")
+    if not project_str:
+        print(f"{RED}error:{RESET} --project is required", file=sys.stderr)
         return 1
 
     try:
-        s = parse_space(space_str)
+        s = parse_project(project_str)
     except ValueError as e:
         print(f"{RED}error:{RESET} {e}", file=sys.stderr)
         return 1
@@ -208,14 +208,14 @@ def cmd_create_dataset(name: str, args: dict) -> int:
     try:
         with httpx.Client(timeout=30, headers=headers) as client:
             r = client.post(
-                f"{remote}/namespaces/{s.namespace}/spaces/{s.space}/datasets",
+                f"{remote}/namespaces/{s.namespace}/projects/{s.project}/datasets",
                 json=body,
             )
             if r.status_code == 409:
-                print(f"{RED}error:{RESET} dataset '{name}' already exists in {format_space(s)}", file=sys.stderr)
+                print(f"{RED}error:{RESET} dataset '{name}' already exists in {format_project(s)}", file=sys.stderr)
                 return 1
             if r.status_code == 404:
-                print(f"{RED}error:{RESET} space '{format_space(s)}' not found", file=sys.stderr)
+                print(f"{RED}error:{RESET} space '{format_project(s)}' not found", file=sys.stderr)
                 return 1
             r.raise_for_status()
     except httpx.HTTPStatusError as e:
@@ -225,7 +225,7 @@ def cmd_create_dataset(name: str, args: dict) -> int:
         print(f"{RED}error:{RESET} {e}", file=sys.stderr)
         return 1
 
-    print(f"{GREEN}✓ Created dataset:{RESET} {CYAN}{name}{RESET} in {BOLD}{format_space(s)}{RESET}")
+    print(f"{GREEN}✓ Created dataset:{RESET} {CYAN}{name}{RESET} in {BOLD}{format_project(s)}{RESET}")
     if description:
         print(f"  {DIM}description:{RESET} {description}")
     if tags:
@@ -253,7 +253,7 @@ def main(args: list) -> int:
 
     subcommand = args[0]
 
-    if subcommand in ("dreamlet", "dataset"):
+    if subcommand in ("collection", "dataset"):
         name, flags = _extract_name_and_flags(args[1:])
 
         if not name:
@@ -262,10 +262,10 @@ def main(args: list) -> int:
             return 1
 
         parsed = args_to_dict(flags)
-        if subcommand == "dreamlet":
-            return cmd_create_dreamlet(name, parsed)
+        if subcommand == "collection":
+            return cmd_create_collection(name, parsed)
         return cmd_create_dataset(name, parsed)
 
     else:
-        print(f"{RED}error:{RESET} unknown resource type '{subcommand}'. supported: dreamlet, dataset", file=sys.stderr)
+        print(f"{RED}error:{RESET} unknown resource type '{subcommand}'. supported: collection, dataset", file=sys.stderr)
         return 1

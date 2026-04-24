@@ -2,10 +2,10 @@
 Update command.
 
 Usage:
-    dreamlake update dreamlet <name> --space space[@namespace] --add <glob>
-    dreamlake update dreamlet <name> --space space[@namespace] --remove <glob>
-    dreamlake update dataset <name> --space space[@namespace] --add <glob>
-    dreamlake update dataset <name> --space space[@namespace] --remove <glob>
+    dreamlake update collection <name> --project space[@namespace] --add <glob>
+    dreamlake update collection <name> --project space[@namespace] --remove <glob>
+    dreamlake update dataset <name> --project space[@namespace] --add <glob>
+    dreamlake update dataset <name> --project space[@namespace] --remove <glob>
 """
 
 import sys
@@ -13,7 +13,7 @@ from fnmatch import fnmatch
 
 from dreamlake.cli._args import args_to_dict
 from dreamlake.cli._config import ServerConfig
-from dreamlake.cli._target import parse_space, format_space
+from dreamlake.cli._target import parse_project, format_project
 
 RESET = "\033[0m"
 BOLD = "\033[1m"
@@ -28,23 +28,23 @@ def print_help():
 {BOLD}dreamlake update{RESET} - Update resources
 
 {BOLD}Usage:{RESET}
-    dreamlake update dreamlet <name> --space space[@namespace] --add <glob>  [episodes by node path]
-    dreamlake update dreamlet <name> --space space[@namespace] --remove <glob>
-    dreamlake update dataset <name> --space space[@namespace] --add <glob>   [dreamlets by name]
-    dreamlake update dataset <name> --space space[@namespace] --remove <glob>
+    dreamlake update collection <name> --project space[@namespace] --add <glob>  [episodes by node path]
+    dreamlake update collection <name> --project space[@namespace] --remove <glob>
+    dreamlake update dataset <name> --project space[@namespace] --add <glob>   [collections by name]
+    dreamlake update dataset <name> --project space[@namespace] --remove <glob>
 
 {BOLD}Options:{RESET}
-    --space        Space target: space[@namespace]
+    --project        Space target: space[@namespace]
     --add          Glob pattern to add members
     --remove       Glob pattern to remove members
     --description  Update description
     --tags         Update tags (comma-separated)
 
 {BOLD}Examples:{RESET}
-    dreamlake update dreamlet "my-set" --space robotics@alice --add "2026/04/*"
-    dreamlake update dreamlet "my-set" --space robotics@alice --remove "run-001"
-    dreamlake update dataset "training-v1" --space robotics@alice --add "front-*"
-    dreamlake update dataset "training-v1" --space robotics@alice --remove "old-*"
+    dreamlake update collection "my-set" --project robotics@alice --add "2026/04/*"
+    dreamlake update collection "my-set" --project robotics@alice --remove "run-001"
+    dreamlake update dataset "training-v1" --project robotics@alice --add "front-*"
+    dreamlake update dataset "training-v1" --project robotics@alice --remove "old-*"
 """.strip())
 
 
@@ -54,7 +54,7 @@ def _fetch_all_episodes(client, remote: str, namespace: str, space: str) -> list
     page = 1
     while True:
         r = client.get(
-            f"{remote}/namespaces/{namespace}/spaces/{space}/episodes",
+            f"{remote}/namespaces/{namespace}/projects/{space}/episodes",
             params={"page": str(page), "pageSize": "200"},
         )
         r.raise_for_status()
@@ -78,14 +78,14 @@ def _match_episodes(episodes: list[dict], pattern: str) -> list[dict]:
     return matched
 
 
-def cmd_update_dreamlet(name: str, args: dict) -> int:
-    space_str = args.get("space")
-    if not space_str:
-        print(f"{RED}error:{RESET} --space is required", file=sys.stderr)
+def cmd_update_collection(name: str, args: dict) -> int:
+    project_str = args.get("project")
+    if not project_str:
+        print(f"{RED}error:{RESET} --project is required", file=sys.stderr)
         return 1
 
     try:
-        s = parse_space(space_str)
+        s = parse_project(project_str)
     except ValueError as e:
         print(f"{RED}error:{RESET} {e}", file=sys.stderr)
         return 1
@@ -113,14 +113,14 @@ def cmd_update_dreamlet(name: str, args: dict) -> int:
     import httpx
     remote = ServerConfig.remote
     headers = {"Authorization": f"Bearer {token}"}
-    base = f"{remote}/namespaces/{s.namespace}/spaces/{s.space}/dreamlets/{name}"
+    base = f"{remote}/namespaces/{s.namespace}/projects/{s.project}/collections/{name}"
 
     try:
         with httpx.Client(timeout=30, headers=headers) as client:
             # Resolve globs if needed
             all_episodes = None
             if add_pattern or remove_pattern:
-                all_episodes = _fetch_all_episodes(client, remote, s.namespace, s.space)
+                all_episodes = _fetch_all_episodes(client, remote, s.namespace, s.project)
 
             # ── Add episodes ─────────────────────────────────────────
             if add_pattern:
@@ -135,7 +135,7 @@ def cmd_update_dreamlet(name: str, args: dict) -> int:
 
                 r = client.post(f"{base}/members", json={"add": [ep["id"] for ep in to_add]})
                 if r.status_code == 404:
-                    print(f"{RED}error:{RESET} dreamlet '{name}' not found in {format_space(s)}", file=sys.stderr)
+                    print(f"{RED}error:{RESET} collection '{name}' not found in {format_project(s)}", file=sys.stderr)
                     return 1
                 r.raise_for_status()
                 result = r.json()
@@ -154,7 +154,7 @@ def cmd_update_dreamlet(name: str, args: dict) -> int:
 
                 r = client.request("DELETE", f"{base}/members", json={"remove": [ep["id"] for ep in to_remove]})
                 if r.status_code == 404:
-                    print(f"{RED}error:{RESET} dreamlet '{name}' not found in {format_space(s)}", file=sys.stderr)
+                    print(f"{RED}error:{RESET} collection '{name}' not found in {format_project(s)}", file=sys.stderr)
                     return 1
                 r.raise_for_status()
                 result = r.json()
@@ -170,10 +170,10 @@ def cmd_update_dreamlet(name: str, args: dict) -> int:
 
                 r = client.patch(base, json=body)
                 if r.status_code == 404:
-                    print(f"{RED}error:{RESET} dreamlet '{name}' not found in {format_space(s)}", file=sys.stderr)
+                    print(f"{RED}error:{RESET} collection '{name}' not found in {format_project(s)}", file=sys.stderr)
                     return 1
                 r.raise_for_status()
-                print(f"{GREEN}✓ Updated dreamlet:{RESET} {CYAN}{name}{RESET}")
+                print(f"{GREEN}✓ Updated collection:{RESET} {CYAN}{name}{RESET}")
 
     except Exception as e:
         print(f"{RED}error:{RESET} {e}", file=sys.stderr)
@@ -182,41 +182,41 @@ def cmd_update_dreamlet(name: str, args: dict) -> int:
     return 0
 
 
-def _fetch_all_dreamlets(client, remote: str, namespace: str, space: str) -> list[dict]:
-    """Fetch all dreamlets in a space (paginated)."""
-    dreamlets = []
+def _fetch_all_collections(client, remote: str, namespace: str, space: str) -> list[dict]:
+    """Fetch all collections in a space (paginated)."""
+    collections = []
     page = 1
     while True:
         r = client.get(
-            f"{remote}/namespaces/{namespace}/spaces/{space}/dreamlets",
+            f"{remote}/namespaces/{namespace}/projects/{space}/collections",
             params={"page": str(page), "pageSize": "200"},
         )
         r.raise_for_status()
         data = r.json()
-        dreamlets.extend(data.get("dreamlets", []))
+        collections.extend(data.get("collections", []))
         if page >= data.get("totalPages", 1):
             break
         page += 1
-    return dreamlets
+    return collections
 
 
-def _match_dreamlets(dreamlets: list[dict], pattern: str) -> list[dict]:
-    """Match dreamlets by glob pattern against their names."""
+def _match_collections(collections: list[dict], pattern: str) -> list[dict]:
+    """Match collections by glob pattern against their names."""
     matched = []
-    for d in dreamlets:
+    for d in collections:
         if fnmatch(d.get("name", ""), pattern):
             matched.append(d)
     return matched
 
 
 def cmd_update_dataset(name: str, args: dict) -> int:
-    space_str = args.get("space")
-    if not space_str:
-        print(f"{RED}error:{RESET} --space is required", file=sys.stderr)
+    project_str = args.get("project")
+    if not project_str:
+        print(f"{RED}error:{RESET} --project is required", file=sys.stderr)
         return 1
 
     try:
-        s = parse_space(space_str)
+        s = parse_project(project_str)
     except ValueError as e:
         print(f"{RED}error:{RESET} {e}", file=sys.stderr)
         return 1
@@ -244,51 +244,51 @@ def cmd_update_dataset(name: str, args: dict) -> int:
     import httpx
     remote = ServerConfig.remote
     headers = {"Authorization": f"Bearer {token}"}
-    base = f"{remote}/namespaces/{s.namespace}/spaces/{s.space}/datasets/{name}"
+    base = f"{remote}/namespaces/{s.namespace}/projects/{s.project}/datasets/{name}"
 
     try:
         with httpx.Client(timeout=30, headers=headers) as client:
-            all_dreamlets = None
+            all_collections = None
             if add_pattern or remove_pattern:
-                all_dreamlets = _fetch_all_dreamlets(client, remote, s.namespace, s.space)
+                all_collections = _fetch_all_collections(client, remote, s.namespace, s.project)
 
-            # ── Add dreamlets ────────────────────────────────────────
+            # ── Add collections ────────────────────────────────────────
             if add_pattern:
-                to_add = _match_dreamlets(all_dreamlets, add_pattern)
+                to_add = _match_collections(all_collections, add_pattern)
                 if not to_add:
-                    print(f"{RED}error:{RESET} no dreamlets match '{add_pattern}'", file=sys.stderr)
+                    print(f"{RED}error:{RESET} no collections match '{add_pattern}'", file=sys.stderr)
                     return 1
 
-                print(f"Adding {BOLD}{len(to_add)}{RESET} dreamlet(s) matching '{add_pattern}':")
+                print(f"Adding {BOLD}{len(to_add)}{RESET} collection(s) matching '{add_pattern}':")
                 for d in to_add:
                     print(f"  {CYAN}{d['name']}{RESET}")
 
-                r = client.post(f"{base}/dreamlets", json={"add": [d["name"] for d in to_add]})
+                r = client.post(f"{base}/collections", json={"add": [d["name"] for d in to_add]})
                 if r.status_code == 404:
-                    print(f"{RED}error:{RESET} dataset '{name}' not found in {format_space(s)}", file=sys.stderr)
+                    print(f"{RED}error:{RESET} dataset '{name}' not found in {format_project(s)}", file=sys.stderr)
                     return 1
                 r.raise_for_status()
                 result = r.json()
-                print(f"{GREEN}✓ Added {result.get('added', len(to_add))}{RESET} → {result.get('total', '?')} total dreamlets")
+                print(f"{GREEN}✓ Added {result.get('added', len(to_add))}{RESET} → {result.get('total', '?')} total collections")
 
-            # ── Remove dreamlets ─────────────────────────────────────
+            # ── Remove collections ─────────────────────────────────────
             if remove_pattern:
-                to_remove = _match_dreamlets(all_dreamlets, remove_pattern)
+                to_remove = _match_collections(all_collections, remove_pattern)
                 if not to_remove:
-                    print(f"{RED}error:{RESET} no dreamlets match '{remove_pattern}'", file=sys.stderr)
+                    print(f"{RED}error:{RESET} no collections match '{remove_pattern}'", file=sys.stderr)
                     return 1
 
-                print(f"Removing {BOLD}{len(to_remove)}{RESET} dreamlet(s) matching '{remove_pattern}':")
+                print(f"Removing {BOLD}{len(to_remove)}{RESET} collection(s) matching '{remove_pattern}':")
                 for d in to_remove:
                     print(f"  {CYAN}{d['name']}{RESET}")
 
-                r = client.request("DELETE", f"{base}/dreamlets", json={"remove": [d["name"] for d in to_remove]})
+                r = client.request("DELETE", f"{base}/collections", json={"remove": [d["name"] for d in to_remove]})
                 if r.status_code == 404:
-                    print(f"{RED}error:{RESET} dataset '{name}' not found in {format_space(s)}", file=sys.stderr)
+                    print(f"{RED}error:{RESET} dataset '{name}' not found in {format_project(s)}", file=sys.stderr)
                     return 1
                 r.raise_for_status()
                 result = r.json()
-                print(f"{GREEN}✓ Removed {result.get('removed', len(to_remove))}{RESET} → {result.get('total', '?')} total dreamlets")
+                print(f"{GREEN}✓ Removed {result.get('removed', len(to_remove))}{RESET} → {result.get('total', '?')} total collections")
 
             # ── Update metadata ──────────────────────────────────────
             if description is not None or tags_str is not None:
@@ -300,7 +300,7 @@ def cmd_update_dataset(name: str, args: dict) -> int:
 
                 r = client.patch(base, json=body)
                 if r.status_code == 404:
-                    print(f"{RED}error:{RESET} dataset '{name}' not found in {format_space(s)}", file=sys.stderr)
+                    print(f"{RED}error:{RESET} dataset '{name}' not found in {format_project(s)}", file=sys.stderr)
                     return 1
                 r.raise_for_status()
                 print(f"{GREEN}✓ Updated dataset:{RESET} {CYAN}{name}{RESET}")
@@ -319,7 +319,7 @@ def main(args: list) -> int:
 
     subcommand = args[0]
 
-    if subcommand in ("dreamlet", "dataset"):
+    if subcommand in ("collection", "dataset"):
         remaining = args[1:]
         name = None
         flags = []
@@ -335,10 +335,10 @@ def main(args: list) -> int:
             return 1
 
         parsed = args_to_dict(flags)
-        if subcommand == "dreamlet":
-            return cmd_update_dreamlet(name, parsed)
+        if subcommand == "collection":
+            return cmd_update_collection(name, parsed)
         return cmd_update_dataset(name, parsed)
 
     else:
-        print(f"{RED}error:{RESET} unknown resource type '{subcommand}'. supported: dreamlet, dataset", file=sys.stderr)
+        print(f"{RED}error:{RESET} unknown resource type '{subcommand}'. supported: collection, dataset", file=sys.stderr)
         return 1

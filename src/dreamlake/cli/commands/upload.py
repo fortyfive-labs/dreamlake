@@ -2,7 +2,7 @@
 Upload command.
 
 Usage:
-    dreamlake upload <file> --episode [namespace@]space[:episode] --to <path>
+    dreamlake upload <file> --episode [nameproject@]space[:episode] --to <path>
 
 File type is auto-detected from extension. Use --type to override.
 
@@ -45,11 +45,11 @@ CATEGORIES = {"audio", "video", "track", "text-track", "label-track", "image"}
 
 @proto.prefix
 class UploadConfig:
-    episode: str | None = None   # [namespace@]space[:episode]
+    episode: str | None = None   # [nameproject@]space[:episode]
     to: str | None = None     # destination path (within episode)
     type: str | None = None   # category override
     yes: bool = False         # skip confirmation prompt (for folder upload)
-    dreamlet: str | None = None  # comma-separated dreamlet names (auto-created)
+    collection: str | None = None  # comma-separated collection names (auto-created)
 
 
 def print_help():
@@ -57,10 +57,10 @@ def print_help():
 {BOLD}dreamlake upload{RESET} - Upload a file to DreamLake
 
 {BOLD}Usage:{RESET}
-    dreamlake upload <file> --episode [namespace@]space[:episode] --to <path>
+    dreamlake upload <file> --episode [nameproject@]space[:episode] --to <path>
 
 {BOLD}Options:{RESET}
-    --episode    Episode scope: [namespace@]space[:episode]
+    --episode    Episode scope: [nameproject@]space[:episode]
     --to      Destination path within the episode
     --type    Override auto-detected file type
 
@@ -86,42 +86,42 @@ def detect_category(file_path: Path, type_override: str | None) -> str | None:
     return EXTENSION_TO_CATEGORY.get(file_path.suffix.lower())
 
 
-def _add_to_dreamlets(dreamlet_names: list[str], node_ids: list[str], t, token: str) -> None:
-    """Add node IDs to dreamlets (auto-created if they don't exist)."""
+def _add_to_collections(collection_names: list[str], node_ids: list[str], t, token: str) -> None:
+    """Add node IDs to collections (auto-created if they don't exist)."""
     import httpx
 
-    if not dreamlet_names or not node_ids:
+    if not collection_names or not node_ids:
         return
 
     remote = ServerConfig.remote
     headers = {"Authorization": f"Bearer {token}"}
 
-    for name in dreamlet_names:
+    for name in collection_names:
         name = name.strip()
         if not name:
             continue
         try:
             with httpx.Client(timeout=30, headers=headers) as client:
-                # Try to add members to existing dreamlet
+                # Try to add members to existing collection
                 r = client.post(
-                    f"{remote}/namespaces/{t.namespace}/spaces/{t.space}/dreamlets/{name}/members",
+                    f"{remote}/namespaces/{t.namespace}/projects/{t.project}/collections/{name}/members",
                     json={"add": node_ids},
                 )
                 if r.status_code == 404:
-                    # Dreamlet doesn't exist — create it with members
+                    # Collection doesn't exist — create it with members
                     r = client.post(
-                        f"{remote}/namespaces/{t.namespace}/spaces/{t.space}/dreamlets",
+                        f"{remote}/namespaces/{t.namespace}/projects/{t.project}/collections",
                         json={"name": name, "members": node_ids},
                     )
                     r.raise_for_status()
-                    print(f"  {DIM}dreamlet:{RESET}  created '{name}' ({len(node_ids)} files)")
+                    print(f"  {DIM}collection:{RESET}  created '{name}' ({len(node_ids)} files)")
                 elif r.status_code == 200:
                     data = r.json()
-                    print(f"  {DIM}dreamlet:{RESET}  added to '{name}' (total: {data.get('total', '?')} files)")
+                    print(f"  {DIM}collection:{RESET}  added to '{name}' (total: {data.get('total', '?')} files)")
                 else:
-                    print(f"  {DIM}dreamlet:{RESET}  '{name}' failed ({r.status_code})", file=sys.stderr)
+                    print(f"  {DIM}collection:{RESET}  '{name}' failed ({r.status_code})", file=sys.stderr)
         except Exception as e:
-            print(f"  {DIM}dreamlet:{RESET}  '{name}' error: {e}", file=sys.stderr)
+            print(f"  {DIM}collection:{RESET}  '{name}' error: {e}", file=sys.stderr)
 
 
 # Shared state to capture nodeId from the last upload
@@ -335,12 +335,12 @@ def _upload_folder(dir_path: Path) -> int:
                 console.print(f"    {fname}: {info.get('error', 'unknown')}")
         console.print("  Re-run to retry failed files.")
 
-    # Add to dreamlets if specified
-    if UploadConfig.dreamlet:
-        dreamlet_names = [n.strip() for n in UploadConfig.dreamlet.split(',') if n.strip()]
+    # Add to collections if specified
+    if UploadConfig.collection:
+        collection_names = [n.strip() for n in UploadConfig.collection.split(',') if n.strip()]
         node_ids = [info.get("nodeId") for info in manifest["files"].values() if info.get("nodeId")]
-        if node_ids and dreamlet_names:
-            _add_to_dreamlets(dreamlet_names, node_ids, t, token)
+        if node_ids and collection_names:
+            _add_to_collections(collection_names, node_ids, t, token)
 
     # Clean up manifest if all done
     if total_failed == 0 and manifest_path.exists():
@@ -409,10 +409,10 @@ def cmd_upload(file: str) -> int:
 
     result = _upload_single_file(file_path, t, path, token, category)
 
-    # Add to dreamlets if specified
-    if result == 0 and UploadConfig.dreamlet and _last_node_id:
-        dreamlet_names = [n.strip() for n in UploadConfig.dreamlet.split(',') if n.strip()]
-        _add_to_dreamlets(dreamlet_names, [_last_node_id], t, token)
+    # Add to collections if specified
+    if result == 0 and UploadConfig.collection and _last_node_id:
+        collection_names = [n.strip() for n in UploadConfig.collection.split(',') if n.strip()]
+        _add_to_collections(collection_names, [_last_node_id], t, token)
 
     return result
 
@@ -506,7 +506,7 @@ def _upload_video(file_path: Path, t, path: str, token: str) -> int:
         with httpx.Client(timeout=30, headers=headers) as client:
             r = client.post(f"{bss_url}/videos/upload/multipart/init", json={
                 "owner": t.namespace,
-                "project": t.space,
+                "project": t.project,
                 "hash": raw_hash,
                 "contentType": "video/mp4",
             })
@@ -580,7 +580,7 @@ def _upload_video(file_path: Path, t, path: str, token: str) -> int:
         r = client.post(f"{bss_url}/videos", json={
             "name": f"/{path}/{file_path.name}",
             "owner": t.namespace,
-            "project": t.space,
+            "project": t.project,
             "episodeId": t.episode,
             "stagingHash": raw_hash,
         })
@@ -591,7 +591,7 @@ def _upload_video(file_path: Path, t, path: str, token: str) -> int:
     with httpx.Client(timeout=30, headers=headers) as client:
         r = client.post(f"{remote}/assets/video", json={
             "namespace": t.namespace,
-            "space": t.space,
+            "project": t.project,
             "episodeName": t.episode,
             "name": f"/{path}/{file_path.name}",
             "bssVideoId": bss_video.get("id"),
@@ -689,7 +689,7 @@ def _upload_audio(file_path: Path, t, path: str, token: str) -> int:
         with httpx.Client(timeout=30, headers=headers) as client:
             r = client.post(f"{bss_url}/audio/upload/multipart/init", json={
                 "owner": t.namespace,
-                "project": t.space,
+                "project": t.project,
                 "hash": raw_hash,
                 "contentType": content_type,
             })
@@ -763,7 +763,7 @@ def _upload_audio(file_path: Path, t, path: str, token: str) -> int:
         r = client.post(f"{bss_url}/audio", json={
             "name": f"/{path}/{file_path.name}",
             "owner": t.namespace,
-            "project": t.space,
+            "project": t.project,
             "episodeId": t.episode,
             "stagingHash": raw_hash,
         })
@@ -776,7 +776,7 @@ def _upload_audio(file_path: Path, t, path: str, token: str) -> int:
     with httpx.Client(timeout=30, headers=headers) as client:
         r = client.post(f"{remote}/assets/audio", json={
             "namespace": t.namespace,
-            "space": t.space,
+            "project": t.project,
             "episodeName": t.episode,
             "name": f"/{path}/{file_path.name}",
             "bssAudioId": bss_audio_id,
@@ -851,7 +851,7 @@ def _upload_label_track(file_path: Path, t, path: str, token: str) -> int:
         with httpx.Client(timeout=30, headers=headers) as client:
             r = client.post(f"{bss_url}/labels/upload/multipart/init", json={
                 "owner": t.namespace,
-                "project": t.space,
+                "project": t.project,
                 "hash": raw_hash,
             })
             r.raise_for_status()
@@ -924,7 +924,7 @@ def _upload_label_track(file_path: Path, t, path: str, token: str) -> int:
         r = client.post(f"{bss_url}/labels", json={
             "name": f"/{path}/{file_path.name}",
             "owner": t.namespace,
-            "project": t.space,
+            "project": t.project,
             "episodeId": t.episode,
             "stagingHash": raw_hash,
         })
@@ -939,7 +939,7 @@ def _upload_label_track(file_path: Path, t, path: str, token: str) -> int:
     with httpx.Client(timeout=30, headers=headers) as client:
         r = client.post(f"{remote}/assets/label-track", json={
             "namespace": t.namespace,
-            "space": t.space,
+            "project": t.project,
             "episodeName": t.episode,
             "name": f"/{path}/{file_path.name}",
             "bssLabelId": bss_label_id,
@@ -1027,7 +1027,7 @@ def _upload_text_track(file_path: Path, t, path: str, token: str) -> int:
         with httpx.Client(timeout=30, headers=headers) as client:
             r = client.post(f"{bss_url}/text-tracks/upload/multipart/init", json={
                 "owner": t.namespace,
-                "project": t.space,
+                "project": t.project,
                 "hash": raw_hash,
             })
             r.raise_for_status()
@@ -1100,7 +1100,7 @@ def _upload_text_track(file_path: Path, t, path: str, token: str) -> int:
         r = client.post(f"{bss_url}/text-tracks", json={
             "name": f"/{path}/{file_path.name}",
             "owner": t.namespace,
-            "project": t.space,
+            "project": t.project,
             "episodeId": t.episode,
             "stagingHash": raw_hash,
             "format": fmt,
@@ -1115,7 +1115,7 @@ def _upload_text_track(file_path: Path, t, path: str, token: str) -> int:
     with httpx.Client(timeout=30, headers=headers) as client:
         r = client.post(f"{remote}/assets/text-track", json={
             "namespace": t.namespace,
-            "space": t.space,
+            "project": t.project,
             "episodeName": t.episode,
             "name": f"/{path}/{file_path.name}",
             "bssTextTrackId": bss_track_id,
@@ -1193,7 +1193,7 @@ def _upload_image(file_path: Path, t, path: str, token: str) -> int:
     if not upload_id:
         with httpx.Client(timeout=30, headers=headers) as client:
             r = client.post(f"{bss_url}/image/upload/multipart/init", json={
-                "owner": t.namespace, "project": t.space, "hash": raw_hash,
+                "owner": t.namespace, "project": t.project, "hash": raw_hash,
                 "contentType": content_type,
             })
             r.raise_for_status()
@@ -1258,7 +1258,7 @@ def _upload_image(file_path: Path, t, path: str, token: str) -> int:
         r = client.post(f"{bss_url}/image", json={
             "name": f"/{path}/{file_path.name}",
             "owner": t.namespace,
-            "project": t.space,
+            "project": t.project,
             "episodeId": t.episode,
             "stagingHash": raw_hash,
             "fileSize": file_size,
@@ -1272,7 +1272,7 @@ def _upload_image(file_path: Path, t, path: str, token: str) -> int:
     with httpx.Client(timeout=30, headers=headers) as client:
         r = client.post(f"{remote}/assets/image", json={
             "namespace": t.namespace,
-            "space": t.space,
+            "project": t.project,
             "episodeName": t.episode,
             "name": f"/{path}/{file_path.name}",
             "bssImageId": bss_image_id,

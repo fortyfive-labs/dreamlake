@@ -3,8 +3,8 @@ Vectorize command — run CLIP + LLaVA on video chunks for semantic search.
 
 Usage:
     dreamlake vectorize --episode space[@namespace][:episode]
-    dreamlake vectorize --dreamlet <name> --space space[@namespace]
-    dreamlake vectorize --dataset <name> --space space[@namespace]
+    dreamlake vectorize --collection <name> --project space[@namespace]
+    dreamlake vectorize --dataset <name> --project space[@namespace]
 """
 
 import os
@@ -14,7 +14,7 @@ import uuid
 
 from dreamlake.cli._args import args_to_dict
 from dreamlake.cli._config import ServerConfig
-from dreamlake.cli._target import parse_target, parse_space, format_target, format_space
+from dreamlake.cli._target import parse_target, parse_project, format_target, format_project
 
 RESET = "\033[0m"
 BOLD = "\033[1m"
@@ -37,62 +37,62 @@ def print_help():
 
 {BOLD}Usage:{RESET}
     dreamlake vectorize --episode space[@namespace][:episode]
-    dreamlake vectorize --dreamlet <name> --space space[@namespace]
-    dreamlake vectorize --dataset <name> --space space[@namespace]
+    dreamlake vectorize --collection <name> --project space[@namespace]
+    dreamlake vectorize --dataset <name> --project space[@namespace]
 
 {BOLD}Options:{RESET}
     --episode    Target episode: space[@namespace][:episode]
-    --dreamlet   Dreamlet name (requires --space)
-    --dataset    Dataset name (requires --space)
-    --space      Space target: space[@namespace]
+    --collection   Collection name (requires --project)
+    --dataset    Dataset name (requires --project)
+    --project      Space target: space[@namespace]
     --zaku-url   Zaku task queue URL (enables distributed mode)
 
 {BOLD}Examples:{RESET}
     dreamlake vectorize --episode robotics@alice:run-042
-    dreamlake vectorize --dreamlet "front-camera" --space robotics@alice
-    dreamlake vectorize --dataset "training-v1" --space robotics@alice
+    dreamlake vectorize --collection "front-camera" --project robotics@alice
+    dreamlake vectorize --dataset "training-v1" --project robotics@alice
 """.strip())
 
 
 def _resolve_videos(client, remote: str, headers: dict, namespace: str, space: str,
-                     episode: str | None, dreamlet: str | None, dataset: str | None) -> list[dict]:
+                     episode: str | None, collection: str | None, dataset: str | None) -> list[dict]:
     """Resolve scope to a list of videos with BSS IDs."""
     videos = []
 
     if episode:
         # Get videos from this episode
         r = client.get(f"{remote}/assets/video", params={
-            "namespace": namespace, "space": space, "episode": episode,
+            "namespace": namespace, "project": space, "episode": episode,
         })
         if r.status_code == 200:
             videos = r.json()
-    elif dreamlet:
-        # Get dreamlet → member episode IDs → videos from each
-        r = client.get(f"{remote}/namespaces/{namespace}/spaces/{space}/dreamlets/{dreamlet}")
+    elif collection:
+        # Get collection → member episode IDs → videos from each
+        r = client.get(f"{remote}/namespaces/{namespace}/projects/{space}/collections/{collection}")
         if r.status_code == 200:
             members = r.json().get("members", [])
             for ep_id in members:
                 r2 = client.get(f"{remote}/assets/video", params={
-                    "namespace": namespace, "space": space, "episodeId": ep_id,
+                    "namespace": namespace, "project": space, "episodeId": ep_id,
                 })
                 if r2.status_code == 200:
                     videos.extend(r2.json())
     elif dataset:
-        # Get dataset → dreamlets → episodes → videos
-        r = client.get(f"{remote}/namespaces/{namespace}/spaces/{space}/datasets/{dataset}")
+        # Get dataset → collections → episodes → videos
+        r = client.get(f"{remote}/namespaces/{namespace}/projects/{space}/datasets/{dataset}")
         if r.status_code == 200:
-            for dl in r.json().get("dreamlets", []):
+            for dl in r.json().get("collections", []):
                 members = dl.get("members", [])
                 for ep_id in members:
                     r2 = client.get(f"{remote}/assets/video", params={
-                        "namespace": namespace, "space": space, "episodeId": ep_id,
+                        "namespace": namespace, "project": space, "episodeId": ep_id,
                     })
                     if r2.status_code == 200:
                         videos.extend(r2.json())
     else:
         # All videos in space
         r = client.get(f"{remote}/assets/video", params={
-            "namespace": namespace, "space": space,
+            "namespace": namespace, "project": space,
         })
         if r.status_code == 200:
             videos = r.json()
@@ -147,9 +147,9 @@ def _get_chunk_s3_url(chunk_hash: str) -> str:
 
 def cmd_vectorize(args: dict) -> int:
     episode_str = args.get("episode")
-    dreamlet_name = args.get("dreamlet")
+    collection_name = args.get("collection")
     dataset_name = args.get("dataset")
-    space_str = args.get("space")
+    project_str = args.get("project")
 
     # Parse scope
     namespace = None
@@ -163,16 +163,16 @@ def cmd_vectorize(args: dict) -> int:
         except ValueError as e:
             print(f"{RED}error:{RESET} {e}", file=sys.stderr)
             return 1
-        namespace, space, episode = t.namespace, t.space, t.episode
-    elif space_str:
+        namespace, space, episode = t.namespace, t.project, t.episode
+    elif project_str:
         try:
-            s = parse_space(space_str)
+            s = parse_project(project_str)
         except ValueError as e:
             print(f"{RED}error:{RESET} {e}", file=sys.stderr)
             return 1
-        namespace, space = s.namespace, s.space
+        namespace, space = s.namespace, s.project
     else:
-        print(f"{RED}error:{RESET} --episode or --space is required", file=sys.stderr)
+        print(f"{RED}error:{RESET} --episode or --project is required", file=sys.stderr)
         return 1
 
     if not namespace:
@@ -197,8 +197,8 @@ def cmd_vectorize(args: dict) -> int:
     # Scope label
     if episode:
         scope_label = f"episode {space}@{namespace}:{episode}"
-    elif dreamlet_name:
-        scope_label = f"dreamlet '{dreamlet_name}' in {space}@{namespace}"
+    elif collection_name:
+        scope_label = f"collection '{collection_name}' in {space}@{namespace}"
     elif dataset_name:
         scope_label = f"dataset '{dataset_name}' in {space}@{namespace}"
     else:
@@ -210,20 +210,20 @@ def cmd_vectorize(args: dict) -> int:
         # 1. Resolve videos
         print(f"  {DIM}Resolving videos...{RESET}")
         videos = _resolve_videos(client, remote, headers, namespace, space,
-                                  episode, dreamlet_name, dataset_name)
+                                  episode, collection_name, dataset_name)
         if not videos:
             print(f"  {YELLOW}No videos found in scope{RESET}")
             return 0
 
         print(f"  Found {BOLD}{len(videos)}{RESET} video(s)")
 
-        # Resolve spaceId and episodeId for Qdrant payload
+        # Resolve projectId and episodeId for Qdrant payload
         resolved_space_id = f"{namespace}/{space}"  # use slug combo as stable ID
         resolved_episode_id = ""
         resolved_episode_name = episode or ""
         try:
             if episode:
-                r = client.get(f"{remote}/namespaces/{namespace}/spaces/{space}/episodes",
+                r = client.get(f"{remote}/namespaces/{namespace}/projects/{space}/episodes",
                                params={"pageSize": "200"})
                 if r.status_code == 200:
                     for ep in r.json().get("episodes", []):
@@ -245,7 +245,7 @@ def cmd_vectorize(args: dict) -> int:
                     "videoId": bss_id,
                     "episodeId": v.get("episodeId") or resolved_episode_id,
                     "episodeName": resolved_episode_name,
-                    "spaceId": v.get("spaceId") or resolved_space_id,
+                    "projectId": v.get("projectId") or resolved_space_id,
                     "chunkHash": h,
                     "chunkIndex": idx,
                     "timeStart": idx * 2.0,
@@ -301,7 +301,7 @@ def _vectorize_zaku(zaku_url: str, all_chunks: list, qdrant_url: str, video_coun
             "videoId": chunk["videoId"],
             "episodeId": chunk["episodeId"],
             "episodeName": chunk["episodeName"],
-            "spaceId": chunk["spaceId"],
+            "projectId": chunk["projectId"],
             "chunkHash": chunk["chunkHash"],
             "chunkIndex": chunk["chunkIndex"],
             "timeStart": chunk["timeStart"],
@@ -396,7 +396,7 @@ def _vectorize_direct(vectorize_url: str, all_chunks: list, qdrant_url: str, vid
                                 "videoId": chunk["videoId"],
                                 "episodeId": chunk["episodeId"],
                                 "episodeName": chunk["episodeName"],
-                                "spaceId": chunk["spaceId"],
+                                "projectId": chunk["projectId"],
                                 "chunkHash": chunk["chunkHash"],
                                 "chunkIndex": chunk["chunkIndex"],
                                 "timeStart": chunk["timeStart"],

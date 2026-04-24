@@ -4,12 +4,12 @@ Target syntax parser for DreamLake CLI.
 Syntax: space[@namespace][:episode]
 
 Examples:
-    robotics@alice:run-042       (space=robotics, namespace=alice, episode=run-042)
+    robotics@alice:run-042       (project=robotics, namespace=alice, episode=run-042)
     robotics:run-042             (namespace → current user)
     robotics@alice               (no episode → space-level)
     robotics                     (minimal — namespace=current user, no episode)
 
-Space syntax (for --space flag): space[@namespace]
+Space syntax (for --project flag): space[@namespace]
     robotics@alice
     robotics                     (namespace → current user)
 """
@@ -52,16 +52,16 @@ def parse_target(target: str) -> ParsedTarget:
     if not space:
         raise ValueError("target must include a space name")
 
-    return ParsedTarget(namespace=namespace, space=space, episode=episode, path=path)
+    return ParsedTarget(namespace=namespace, project=space, episode=episode, path=path)
 
 
 @dataclass
-class ParsedSpace:
+class ParsedProject:
     namespace: str | None   # None → resolved from current user's token
     space: str
 
 
-def parse_space(target: str) -> ParsedSpace:
+def parse_project(target: str) -> ParsedProject:
     """Parse a space target: space[@namespace]"""
     if "@" in target:
         space, namespace = target.split("@", 1)
@@ -72,12 +72,12 @@ def parse_space(target: str) -> ParsedSpace:
     if not space:
         raise ValueError("target must include a space name")
 
-    return ParsedSpace(namespace=namespace, space=space)
+    return ParsedProject(namespace=namespace, project=space)
 
 
 def format_target(t: ParsedTarget) -> str:
     """Reconstruct target string from parsed components (for display)."""
-    parts = t.space
+    parts = t.project
     if t.namespace:
         parts += f"@{t.namespace}"
     if t.episode:
@@ -87,8 +87,8 @@ def format_target(t: ParsedTarget) -> str:
     return parts
 
 
-def format_space(s: ParsedSpace) -> str:
+def format_project(s: ParsedProject) -> str:
     """Reconstruct space string for display."""
     if s.namespace:
-        return f"{s.space}@{s.namespace}"
-    return s.space
+        return f"{s.project}@{s.namespace}"
+    return s.project

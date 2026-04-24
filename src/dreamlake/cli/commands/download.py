@@ -2,7 +2,7 @@
 Download command.
 
 Usage:
-    dreamlake download --episode [namespace@]space[:episode] --from <path> [-o <output>]
+    dreamlake download --episode [nameproject@]space[:episode] --from <path> [-o <output>]
 """
 
 import sys
@@ -24,7 +24,7 @@ CYAN = "\033[36m"
 
 @proto.prefix
 class DownloadConfig:
-    sess: str | None = None       # [namespace@]space[:episode]
+    sess: str | None = None       # [nameproject@]space[:episode]
     from_path: str | None = None  # source path within episode (CLI flag: --from)
 
 
@@ -33,10 +33,10 @@ def print_help():
 {BOLD}dreamlake download{RESET} - Download a file from DreamLake
 
 {BOLD}Usage:{RESET}
-    dreamlake download --episode [namespace@]space[:episode] --from <path>
+    dreamlake download --episode [nameproject@]space[:episode] --from <path>
 
 {BOLD}Options:{RESET}
-    --episode    Episode scope: [namespace@]space[:episode]
+    --episode    Episode scope: [nameproject@]space[:episode]
     --from    Source path (including filename); output name derived from it
 
 {BOLD}Examples:{RESET}
@@ -114,7 +114,7 @@ def _download_asset(t, path: str, output: str, token: str) -> int:
     remote = ServerConfig.remote
     headers = {"Authorization": f"Bearer {token}"}
 
-    params: dict = {"namespace": t.namespace, "space": t.space, "path": f"/{path}"}
+    params: dict = {"namespace": t.namespace, "project": t.project, "path": f"/{path}"}
     if t.episode:
         params["episode"] = t.episode
 

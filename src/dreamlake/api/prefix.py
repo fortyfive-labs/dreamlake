@@ -2,7 +2,7 @@
 Prefix context manager for scoping space and path.
 
 Usage:
-    with dl.Prefix(space="robotics@alice", prefix="/2026/04/run-042"):
+    with dl.Prefix(project="robotics@alice", prefix="/2026/04/run-042"):
         dl.upload("./video.mp4", path="camera/front")
         # resolves to: /2026/04/run-042/camera/front
 """
@@ -10,21 +10,21 @@ Usage:
 import os
 import contextvars
 
-_ctx_space = contextvars.ContextVar("dl_space", default=None)
+_ctx_project = contextvars.ContextVar("dl_project", default=None)
 _ctx_prefix = contextvars.ContextVar("dl_prefix", default="")
 
 
 class Prefix:
     """Context manager that sets space and path prefix for all DreamLake calls."""
 
-    def __init__(self, space: str | None = None, prefix: str = ""):
-        self._space = space
+    def __init__(self, project: str | None = None, prefix: str = ""):
+        self._project = project
         self._prefix = prefix
         self._tokens: list = []
 
     def __enter__(self):
-        if self._space is not None:
-            self._tokens.append(_ctx_space.set(self._space))
+        if self._project is not None:
+            self._tokens.append(_ctx_project.set(self._project))
 
         current = _ctx_prefix.get()
         if self._prefix.startswith("/"):
@@ -56,6 +56,6 @@ def resolve_path(path: str | None = None) -> str:
     return path
 
 
-def resolve_space(space: str | None = None) -> str | None:
-    """Return explicit space or the one from the current prefix context."""
-    return space or _ctx_space.get()
+def resolve_project(project: str | None = None) -> str | None:
+    """Return explicit project or the one from the current prefix context."""
+    return project or _ctx_project.get()

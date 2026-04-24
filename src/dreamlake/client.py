@@ -632,7 +632,7 @@ class RemoteClient:
         if min_score is not None:
             payload["minScore"] = min_score
 
-        response = self._client.post(f"/spaces/{space_id}/search", json=payload)
+        response = self._client.post(f"/projects/{space_id}/search", json=payload)
         response.raise_for_status()
         return response.json()
 
@@ -648,13 +648,13 @@ class RemoteClient:
         if model_id:
             payload["modelId"] = model_id
 
-        response = self._client.post(f"/spaces/{space_id}/vectors", json=payload)
+        response = self._client.post(f"/projects/{space_id}/vectors", json=payload)
         response.raise_for_status()
         return response.json()
 
     def list_vector_indexes(self, space_id: str) -> Dict[str, Any]:
         """List vector indexes for a space."""
-        response = self._client.get(f"/spaces/{space_id}/vector-indexes")
+        response = self._client.get(f"/projects/{space_id}/vector-indexes")
         response.raise_for_status()
         return response.json()
 

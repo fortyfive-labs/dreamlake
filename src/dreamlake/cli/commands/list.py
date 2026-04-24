@@ -3,9 +3,9 @@ List command.
 
 Usage:
     dreamlake list --episode space[@namespace][:episode] [--prefix <path>] [--type <category>]
-    dreamlake list dreamlet --space space[@namespace]
-    dreamlake list dataset --space space[@namespace]
-    dreamlake list episode --space space[@namespace]
+    dreamlake list collection --project space[@namespace]
+    dreamlake list dataset --project space[@namespace]
+    dreamlake list episode --project space[@namespace]
 
 """
 
@@ -15,7 +15,7 @@ from params_proto import proto
 
 from dreamlake.cli._args import args_to_dict
 from dreamlake.cli._config import ServerConfig
-from dreamlake.cli._target import parse_target, parse_space, format_target, format_space
+from dreamlake.cli._target import parse_target, parse_project, format_target, format_project
 
 RESET = "\033[0m"
 BOLD = "\033[1m"
@@ -33,33 +33,33 @@ PAGE_SIZE = 20
 @proto.prefix
 class ListConfig:
     episode: str | None = None   # space[@namespace][:episode]
-    space: str | None = None     # space[@namespace] (for dreamlet listing)
+    space: str | None = None     # space[@namespace] (for collection listing)
     prefix: str | None = None    # path prefix filter
     type: str | None = None      # category filter (omit for all)
 
 
 def print_help():
     print(f"""
-{BOLD}dreamlake list{RESET} - List assets or dreamlets
+{BOLD}dreamlake list{RESET} - List assets or collections
 
 {BOLD}Usage:{RESET}
     dreamlake list --episode space[@namespace][:episode] [--prefix <path>] [--type <category>]
-    dreamlake list dreamlet --space space[@namespace]
-    dreamlake list dataset --space space[@namespace]
-    dreamlake list episode --space space[@namespace]
+    dreamlake list collection --project space[@namespace]
+    dreamlake list dataset --project space[@namespace]
+    dreamlake list episode --project space[@namespace]
 
 {BOLD}Options:{RESET}
     --episode   Target: space[@namespace][:episode]
-    --space     Space target: space[@namespace] (for dreamlet/dataset/episode listing)
+    --project     Space target: space[@namespace] (for collection/dataset/episode listing)
     --prefix    Filter by path prefix (optional)
     --type      Filter by category: audio, video, track, text-track, label-track (optional)
 
 {BOLD}Examples:{RESET}
     dreamlake list --episode robotics@alice:run-042
     dreamlake list --episode robotics@alice:run-042 --type video
-    dreamlake list dreamlet --space robotics@alice
-    dreamlake list dataset --space robotics@alice
-    dreamlake list episode --space robotics@alice
+    dreamlake list collection --project robotics@alice
+    dreamlake list dataset --project robotics@alice
+    dreamlake list episode --project robotics@alice
 """.strip())
 
 
@@ -134,7 +134,7 @@ def cmd_list_assets() -> int:
     remote = ServerConfig.remote
     headers = {"Authorization": f"Bearer {token}"}
 
-    params = {"namespace": t.namespace, "space": t.space}
+    params = {"namespace": t.namespace, "project": t.project}
     if t.episode:
         params["episode"] = t.episode
     if ListConfig.prefix:
@@ -176,9 +176,9 @@ def cmd_list_assets() -> int:
     return 0
 
 
-# ── List dreamlets ────────────────────────────────────────────────────────────
+# ── List collections ────────────────────────────────────────────────────────────
 
-def _render_dreamlets(dreamlets: list[dict], total: int, page: int, total_pages: int):
+def _render_collections(collections: list[dict], total: int, page: int, total_pages: int):
     from rich.console import Console
     from rich.table import Table
 
@@ -190,7 +190,7 @@ def _render_dreamlets(dreamlets: list[dict], total: int, page: int, total_pages:
     table.add_column("Description", style="dim")
     table.add_column("Created", style="dim")
 
-    for d in dreamlets:
+    for d in collections:
         members = d.get("members", [])
         member_count = str(len(members)) if isinstance(members, list) else "0"
         tags = ", ".join(d.get("tags", []))
@@ -199,16 +199,16 @@ def _render_dreamlets(dreamlets: list[dict], total: int, page: int, total_pages:
         table.add_row(d.get("name", ""), member_count, tags, desc, created)
 
     console.print(table)
-    console.print(f"\n  {total} dreamlet(s)")
+    console.print(f"\n  {total} collection(s)")
 
 
-def cmd_list_dreamlets() -> int:
-    if not ListConfig.space:
-        print(f"{RED}error:{RESET} --space is required for listing dreamlets", file=sys.stderr)
+def cmd_list_collections() -> int:
+    if not ListConfig.project:
+        print(f"{RED}error:{RESET} --project is required for listing collections", file=sys.stderr)
         return 1
 
     try:
-        s = parse_space(ListConfig.space)
+        s = parse_project(ListConfig.project)
     except ValueError as e:
         print(f"{RED}error:{RESET} {e}", file=sys.stderr)
         return 1
@@ -221,8 +221,8 @@ def cmd_list_dreamlets() -> int:
     if not token:
         return 1
 
-    scope = format_space(s)
-    print(f"Listing dreamlets in {BOLD}{scope}{RESET}")
+    scope = format_project(s)
+    print(f"Listing collections in {BOLD}{scope}{RESET}")
 
     import httpx
     remote = ServerConfig.remote
@@ -233,7 +233,7 @@ def cmd_list_dreamlets() -> int:
         with httpx.Client(timeout=30, headers=headers) as client:
             while True:
                 r = client.get(
-                    f"{remote}/namespaces/{s.namespace}/spaces/{s.space}/dreamlets",
+                    f"{remote}/namespaces/{s.namespace}/projects/{s.project}/collections",
                     params={"page": str(page), "pageSize": str(PAGE_SIZE)},
                 )
                 if r.status_code == 404:
@@ -241,15 +241,15 @@ def cmd_list_dreamlets() -> int:
                     return 0
                 r.raise_for_status()
                 data = r.json()
-                dreamlets = data.get("dreamlets", [])
+                collections = data.get("collections", [])
                 total = data.get("total", 0)
                 total_pages = data.get("totalPages", 1)
 
-                if not dreamlets:
-                    print(f"\n  {DIM}(no dreamlets found){RESET}")
+                if not collections:
+                    print(f"\n  {DIM}(no collections found){RESET}")
                     return 0
 
-                _render_dreamlets(dreamlets, total, page, total_pages)
+                _render_collections(collections, total, page, total_pages)
                 action = _pager_prompt(page, total_pages)
                 if action == "n":
                     page += 1
@@ -273,30 +273,30 @@ def _render_datasets(datasets: list[dict], total: int):
     console = Console()
     table = Table(show_edge=False, pad_edge=False)
     table.add_column("Name", style="cyan")
-    table.add_column("Dreamlets", justify="right")
+    table.add_column("Collections", justify="right")
     table.add_column("Tags")
     table.add_column("Description", style="dim")
     table.add_column("Created", style="dim")
 
     for d in datasets:
-        dreamlets = d.get("dreamlets", [])
-        dreamlet_count = str(len(dreamlets)) if isinstance(dreamlets, list) else "0"
+        collections = d.get("collections", [])
+        collection_count = str(len(collections)) if isinstance(collections, list) else "0"
         tags = ", ".join(d.get("tags", []))
         desc = (d.get("description") or "")[:40]
         created = (d.get("createdAt") or "")[:10]
-        table.add_row(d.get("name", ""), dreamlet_count, tags, desc, created)
+        table.add_row(d.get("name", ""), collection_count, tags, desc, created)
 
     console.print(table)
     console.print(f"\n  {total} dataset(s)")
 
 
 def cmd_list_datasets() -> int:
-    if not ListConfig.space:
-        print(f"{RED}error:{RESET} --space is required for listing datasets", file=sys.stderr)
+    if not ListConfig.project:
+        print(f"{RED}error:{RESET} --project is required for listing datasets", file=sys.stderr)
         return 1
 
     try:
-        s = parse_space(ListConfig.space)
+        s = parse_project(ListConfig.project)
     except ValueError as e:
         print(f"{RED}error:{RESET} {e}", file=sys.stderr)
         return 1
@@ -309,7 +309,7 @@ def cmd_list_datasets() -> int:
     if not token:
         return 1
 
-    scope = format_space(s)
+    scope = format_project(s)
     print(f"Listing datasets in {BOLD}{scope}{RESET}")
 
     import httpx
@@ -321,7 +321,7 @@ def cmd_list_datasets() -> int:
         with httpx.Client(timeout=30, headers=headers) as client:
             while True:
                 r = client.get(
-                    f"{remote}/namespaces/{s.namespace}/spaces/{s.space}/datasets",
+                    f"{remote}/namespaces/{s.namespace}/projects/{s.project}/datasets",
                     params={"page": str(page), "pageSize": str(PAGE_SIZE)},
                 )
                 if r.status_code == 404:
@@ -380,12 +380,12 @@ def _render_episodes(episodes: list[dict], total: int):
 
 
 def cmd_list_episodes() -> int:
-    if not ListConfig.space:
-        print(f"{RED}error:{RESET} --space is required for listing episodes", file=sys.stderr)
+    if not ListConfig.project:
+        print(f"{RED}error:{RESET} --project is required for listing episodes", file=sys.stderr)
         return 1
 
     try:
-        s = parse_space(ListConfig.space)
+        s = parse_project(ListConfig.project)
     except ValueError as e:
         print(f"{RED}error:{RESET} {e}", file=sys.stderr)
         return 1
@@ -398,7 +398,7 @@ def cmd_list_episodes() -> int:
     if not token:
         return 1
 
-    scope = format_space(s)
+    scope = format_project(s)
     print(f"Listing episodes in {BOLD}{scope}{RESET}")
 
     import httpx
@@ -410,7 +410,7 @@ def cmd_list_episodes() -> int:
         with httpx.Client(timeout=30, headers=headers) as client:
             while True:
                 r = client.get(
-                    f"{remote}/namespaces/{s.namespace}/spaces/{s.space}/episodes",
+                    f"{remote}/namespaces/{s.namespace}/projects/{s.project}/episodes",
                     params={"page": str(page), "pageSize": str(PAGE_SIZE)},
                 )
                 if r.status_code == 404:
@@ -448,10 +448,10 @@ def main(args: list) -> int:
         print_help()
         return 0 if args else 1
 
-    # Check for subcommand: dreamlake list dreamlet/dataset/episode --space ...
-    if args[0] == "dreamlet":
+    # Check for subcommand: dreamlake list collection/dataset/episode --project ...
+    if args[0] == "collection":
         ListConfig._update(args_to_dict(args[1:]))
-        return cmd_list_dreamlets()
+        return cmd_list_collections()
 
     if args[0] == "dataset":
         ListConfig._update(args_to_dict(args[1:]))

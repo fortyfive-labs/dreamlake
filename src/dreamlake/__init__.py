@@ -78,7 +78,7 @@ def load(resource_id: str):
 
 def upload(
     file_path: str,
-    space: str | None = None,
+    project: str | None = None,
     prefix: str | None = None,
     path: str | None = None,
     type: str | None = None,
@@ -86,25 +86,25 @@ def upload(
     """Upload a file to DreamLake. Type auto-detected from extension.
 
     Examples:
-        dl.upload("./video.mp4", space="robotics@alice", prefix="/2026/04/run-042/camera/front")
+        dl.upload("./video.mp4", project="robotics@alice", prefix="/2026/04/run-042/camera/front")
     """
-    from .api.prefix import resolve_path, resolve_space
+    from .api.prefix import resolve_path, resolve_project
     from pathlib import Path
     import hashlib
     import math
 
-    resolved_space = resolve_space(space)
+    resolved_project = resolve_project(project)
     resolved_path = resolve_path(prefix or path or "")
 
-    if not resolved_space:
-        raise ValueError("space is required. Set via dl.Prefix or space= arg.")
+    if not resolved_project:
+        raise ValueError("project is required. Set via dl.Prefix or project= arg.")
 
     # Parse space
-    parts = resolved_space.split("@")
+    parts = resolved_project.split("@")
     if len(parts) == 2:
-        space_slug, namespace = parts[0], parts[1]
+        project_slug, namespace = parts[0], parts[1]
     else:
-        space_slug = parts[0]
+        project_slug = parts[0]
         client = _get_client()
         me = client.get_auth_me()
         namespace = me.get("namespace", {}).get("slug", "")
@@ -150,7 +150,7 @@ def upload(
     print(f"  uploading {fp.name} ({asset_type}, {file_size / 1024 / 1024:.1f} MB)")
 
     # Multipart upload
-    init = client.upload_init(bss_route, namespace, space_slug, raw_hash, content_type)
+    init = client.upload_init(bss_route, namespace, project_slug, raw_hash, content_type)
     upload_id, key = init["uploadId"], init["key"]
     part_urls = client.upload_parts(bss_route, upload_id, key, list(range(1, total_parts + 1)))
 
@@ -189,7 +189,7 @@ def upload(
     bss_body = {
         "name": full_name,
         "owner": namespace,
-        "project": space_slug,
+        "project": project_slug,
         "stagingHash": raw_hash,
     }
     bss_result = client.register_bss_asset(asset_type, bss_body)
@@ -197,7 +197,7 @@ def upload(
 
     dl_body = {
         "namespace": namespace,
-        "space": space_slug,
+        "project": project_slug,
         "name": full_name,
     }
     if episode_name:
@@ -221,15 +221,15 @@ def upload(
 
 def text_track(
     prefix: str | None = None,
-    space: str | None = None,
+    project: str | None = None,
     path: str | None = None,
 ) -> TextTrack:
     """Create a TextTrack for buffering and uploading text entries.
 
     Examples:
-        track = dl.text_track(prefix="/2026/04/run-042/captions/llava", space="robotics@alice")
+        track = dl.text_track(prefix="/2026/04/run-042/captions/llava", project="robotics@alice")
     """
-    return TextTrack(prefix=prefix, space=space, path=path)
+    return TextTrack(prefix=prefix, project=space, path=path)
 
 
 def vec_index(name: str, dim: int = 768) -> VectorIndex:

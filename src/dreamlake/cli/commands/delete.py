@@ -2,15 +2,15 @@
 Delete command.
 
 Usage:
-    dreamlake delete dreamlet <name> --space space[@namespace]
-    dreamlake delete dataset <name> --space space[@namespace]
+    dreamlake delete collection <name> --project space[@namespace]
+    dreamlake delete dataset <name> --project space[@namespace]
 """
 
 import sys
 
 from dreamlake.cli._args import args_to_dict
 from dreamlake.cli._config import ServerConfig
-from dreamlake.cli._target import parse_space, format_space
+from dreamlake.cli._target import parse_project, format_project
 
 RESET = "\033[0m"
 BOLD = "\033[1m"
@@ -25,27 +25,27 @@ def print_help():
 {BOLD}dreamlake delete{RESET} - Delete resources
 
 {BOLD}Usage:{RESET}
-    dreamlake delete dreamlet <name> --space space[@namespace] [--yes]
-    dreamlake delete dataset <name> --space space[@namespace] [--yes]
+    dreamlake delete collection <name> --project space[@namespace] [--yes]
+    dreamlake delete dataset <name> --project space[@namespace] [--yes]
 
 {BOLD}Options:{RESET}
-    --space     Space target: space[@namespace]
+    --project     Space target: space[@namespace]
     --yes       Skip confirmation prompt
 
 {BOLD}Examples:{RESET}
-    dreamlake delete dreamlet "front-camera" --space robotics@alice
-    dreamlake delete dataset "training-v1" --space robotics@alice
+    dreamlake delete collection "front-camera" --project robotics@alice
+    dreamlake delete dataset "training-v1" --project robotics@alice
 """.strip())
 
 
-def cmd_delete_dreamlet(name: str, args: dict) -> int:
-    space_str = args.get("space")
-    if not space_str:
-        print(f"{RED}error:{RESET} --space is required", file=sys.stderr)
+def cmd_delete_collection(name: str, args: dict) -> int:
+    project_str = args.get("project")
+    if not project_str:
+        print(f"{RED}error:{RESET} --project is required", file=sys.stderr)
         return 1
 
     try:
-        s = parse_space(space_str)
+        s = parse_project(project_str)
     except ValueError as e:
         print(f"{RED}error:{RESET} {e}", file=sys.stderr)
         return 1
@@ -63,7 +63,7 @@ def cmd_delete_dreamlet(name: str, args: dict) -> int:
 
     # Confirm unless --yes
     if not args.get("yes"):
-        confirm = input(f"Delete dreamlet '{name}' from {format_space(s)}? [y/N] ").strip().lower()
+        confirm = input(f"Delete collection '{name}' from {format_project(s)}? [y/N] ").strip().lower()
         if confirm not in ("y", "yes"):
             print("Cancelled.")
             return 0
@@ -75,28 +75,28 @@ def cmd_delete_dreamlet(name: str, args: dict) -> int:
     try:
         with httpx.Client(timeout=30, headers=headers) as client:
             r = client.delete(
-                f"{remote}/namespaces/{s.namespace}/spaces/{s.space}/dreamlets/{name}",
+                f"{remote}/namespaces/{s.namespace}/projects/{s.project}/collections/{name}",
             )
             if r.status_code == 404:
-                print(f"{RED}error:{RESET} dreamlet '{name}' not found in {format_space(s)}", file=sys.stderr)
+                print(f"{RED}error:{RESET} collection '{name}' not found in {format_project(s)}", file=sys.stderr)
                 return 1
             r.raise_for_status()
     except Exception as e:
         print(f"{RED}error:{RESET} {e}", file=sys.stderr)
         return 1
 
-    print(f"{GREEN}✓ Deleted dreamlet:{RESET} {CYAN}{name}{RESET} from {BOLD}{format_space(s)}{RESET}")
+    print(f"{GREEN}✓ Deleted collection:{RESET} {CYAN}{name}{RESET} from {BOLD}{format_project(s)}{RESET}")
     return 0
 
 
 def cmd_delete_dataset(name: str, args: dict) -> int:
-    space_str = args.get("space")
-    if not space_str:
-        print(f"{RED}error:{RESET} --space is required", file=sys.stderr)
+    project_str = args.get("project")
+    if not project_str:
+        print(f"{RED}error:{RESET} --project is required", file=sys.stderr)
         return 1
 
     try:
-        s = parse_space(space_str)
+        s = parse_project(project_str)
     except ValueError as e:
         print(f"{RED}error:{RESET} {e}", file=sys.stderr)
         return 1
@@ -114,7 +114,7 @@ def cmd_delete_dataset(name: str, args: dict) -> int:
 
     # Confirm unless --yes
     if not args.get("yes"):
-        confirm = input(f"Delete dataset '{name}' from {format_space(s)}? [y/N] ").strip().lower()
+        confirm = input(f"Delete dataset '{name}' from {format_project(s)}? [y/N] ").strip().lower()
         if confirm not in ("y", "yes"):
             print("Cancelled.")
             return 0
@@ -126,17 +126,17 @@ def cmd_delete_dataset(name: str, args: dict) -> int:
     try:
         with httpx.Client(timeout=30, headers=headers) as client:
             r = client.delete(
-                f"{remote}/namespaces/{s.namespace}/spaces/{s.space}/datasets/{name}",
+                f"{remote}/namespaces/{s.namespace}/projects/{s.project}/datasets/{name}",
             )
             if r.status_code == 404:
-                print(f"{RED}error:{RESET} dataset '{name}' not found in {format_space(s)}", file=sys.stderr)
+                print(f"{RED}error:{RESET} dataset '{name}' not found in {format_project(s)}", file=sys.stderr)
                 return 1
             r.raise_for_status()
     except Exception as e:
         print(f"{RED}error:{RESET} {e}", file=sys.stderr)
         return 1
 
-    print(f"{GREEN}✓ Deleted dataset:{RESET} {CYAN}{name}{RESET} from {BOLD}{format_space(s)}{RESET}")
+    print(f"{GREEN}✓ Deleted dataset:{RESET} {CYAN}{name}{RESET} from {BOLD}{format_project(s)}{RESET}")
     return 0
 
 
@@ -147,7 +147,7 @@ def main(args: list) -> int:
 
     subcommand = args[0]
 
-    if subcommand in ("dreamlet", "dataset"):
+    if subcommand in ("collection", "dataset"):
         remaining = args[1:]
         name = None
         flags = []
@@ -163,10 +163,10 @@ def main(args: list) -> int:
             return 1
 
         parsed = args_to_dict(flags)
-        if subcommand == "dreamlet":
-            return cmd_delete_dreamlet(name, parsed)
+        if subcommand == "collection":
+            return cmd_delete_collection(name, parsed)
         return cmd_delete_dataset(name, parsed)
 
     else:
-        print(f"{RED}error:{RESET} unknown resource type '{subcommand}'. supported: dreamlet, dataset", file=sys.stderr)
+        print(f"{RED}error:{RESET} unknown resource type '{subcommand}'. supported: collection, dataset", file=sys.stderr)
         return 1
