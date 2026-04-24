@@ -157,9 +157,24 @@ def upload(
 
     client.upload_complete(bss_route, upload_id, key, completed)
 
+    # Build full asset name
+    full_name = f"{resolved_path}/{fp.name}" if resolved_path else fp.name
+    if not full_name.startswith("/"):
+        full_name = f"/{full_name}"
+
+    # Last segment of prefix = episode name
+    # e.g., prefix="/2026/04/session-001" → episode="session-001"
+    from .api.prefix import _ctx_prefix
+    prefix_str = _ctx_prefix.get().strip("/")
+    if prefix_str:
+        prefix_segments = prefix_str.split("/")
+        episode_name = prefix_segments[-1]
+    else:
+        episode_name = None
+
     # Register in BSS
     bss_body = {
-        "name": f"/{resolved_path}/{fp.name}" if resolved_path else f"/{fp.name}",
+        "name": full_name,
         "owner": namespace,
         "project": space_slug,
         "stagingHash": raw_hash,
@@ -167,15 +182,10 @@ def upload(
     bss_result = client.register_bss_asset(asset_type, bss_body)
     bss_id = bss_result.get("id")
 
-    # Extract episode name from path
-    path_parts = resolved_path.strip("/").split("/")
-    episode_name = path_parts[0] if path_parts and path_parts[0] else None
-
-    # Register in dreamlake-server
     dl_body = {
         "namespace": namespace,
         "space": space_slug,
-        "name": f"/{resolved_path}/{fp.name}" if resolved_path else f"/{fp.name}",
+        "name": full_name,
     }
     if episode_name:
         dl_body["episodeName"] = episode_name
