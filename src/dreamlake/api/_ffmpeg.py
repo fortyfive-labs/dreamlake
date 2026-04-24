@@ -92,9 +92,10 @@ def extract_frames(file_path: str, start: float = 0, end: float | None = None,
                    fps: float | None = None) -> list[bytes]:
     """Extract multiple frames from a video file. Returns list of PNG bytes."""
     with tempfile.TemporaryDirectory() as tmpdir:
+        # -ss after -i: slower but frame-accurate (important for .ts chunks)
         cmd = [_ffmpeg(), "-i", file_path]
         if start > 0:
-            cmd = [_ffmpeg(), "-ss", str(start), "-i", file_path]
+            cmd += ["-ss", str(start)]
         if end is not None:
             cmd += ["-t", str(end - start)]
 
