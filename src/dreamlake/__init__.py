@@ -109,13 +109,7 @@ def upload(
         me = client.get_auth_me()
         namespace = me.get("namespace", {}).get("slug", "")
 
-    # Verify namespace exists before uploading
     client = _get_client()
-    import httpx as _httpx
-    r = _httpx.get(f"{client.dl_url}/namespaces/{namespace}/spaces/{space_slug}/episodes",
-                   params={"pageSize": "1"}, headers=client._headers(), timeout=10)
-    if r.status_code == 404:
-        raise ValueError(f"Namespace '{namespace}' or space '{space_slug}' not found. Create them first.")
 
     # Auto-detect type
     ext_map = {
@@ -213,7 +207,14 @@ def upload(
     if bss_id_field:
         dl_body[bss_id_field] = bss_id
 
-    dl_result = client.register_dl_asset(asset_type, dl_body)
+    try:
+        dl_result = client.register_dl_asset(asset_type, dl_body)
+    except Exception as e:
+        import httpx as _hx
+        if isinstance(e, _hx.HTTPStatusError) and e.response.status_code == 404:
+            server_err = e.response.json().get("error", "")
+            raise ValueError(f"Registration failed: {server_err}") from e
+        raise
     print(f"  done: {full_name}")
     return dl_result
 
