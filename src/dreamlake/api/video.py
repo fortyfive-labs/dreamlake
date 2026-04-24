@@ -163,10 +163,16 @@ class Video:
         return self._download_and_extract(mid)
 
     def numpy(self) -> np.ndarray:
-        """All frames as numpy array (N, H, W, 3). Downloads all chunks in range."""
+        """Frames as numpy array.
+
+        Single-frame Video → (H, W, 3).
+        Multi-frame Video → (N, H, W, 3).
+        """
         frames = list(self.iterator())
         if not frames:
             return np.empty((0, 0, 0, 3), dtype=np.uint8)
+        if len(frames) == 1:
+            return np.asarray(frames[0])
         return np.stack([np.asarray(f) for f in frames])
 
     def tensor(self):
