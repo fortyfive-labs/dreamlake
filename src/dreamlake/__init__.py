@@ -109,6 +109,14 @@ def upload(
         me = client.get_auth_me()
         namespace = me.get("namespace", {}).get("slug", "")
 
+    # Verify namespace exists before uploading
+    client = _get_client()
+    import httpx as _httpx
+    r = _httpx.get(f"{client.dl_url}/namespaces/{namespace}/spaces/{space_slug}/episodes",
+                   params={"pageSize": "1"}, headers=client._headers(), timeout=10)
+    if r.status_code == 404:
+        raise ValueError(f"Namespace '{namespace}' or space '{space_slug}' not found. Create them first.")
+
     # Auto-detect type
     ext_map = {
         ".wav": "audio", ".mp3": "audio", ".aac": "audio", ".opus": "audio",
@@ -124,7 +132,6 @@ def upload(
 
     from rich.progress import Progress, BarColumn, TextColumn, TransferSpeedColumn
 
-    client = _get_client()
     content = fp.read_bytes()
     raw_hash = hashlib.sha256(content).hexdigest()[:16]
     file_size = len(content)
