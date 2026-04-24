@@ -122,6 +122,8 @@ def upload(
     if not asset_type:
         raise ValueError(f"Cannot detect type for {fp.suffix}. Use type= to specify.")
 
+    from rich.progress import Progress, BarColumn, TextColumn, TransferSpeedColumn
+
     client = _get_client()
     content = fp.read_bytes()
     raw_hash = hashlib.sha256(content).hexdigest()[:16]
@@ -139,31 +141,41 @@ def upload(
                 "text-track": "text/vtt", "label-track": "application/x-jsonlines"}
     content_type = mime_map.get(asset_type, "application/octet-stream")
 
-    # Multipart upload
-    init = client.upload_init(bss_route, namespace, space_slug, raw_hash, content_type)
-    upload_id, key = init["uploadId"], init["key"]
-
-    part_urls = client.upload_parts(bss_route, upload_id, key, list(range(1, total_parts + 1)))
-
-    import httpx as _httpx
-    completed = []
-    for pn in range(1, total_parts + 1):
-        start = (pn - 1) * chunk_size
-        end = min(start + chunk_size, file_size)
-        chunk = content[start:end]
-        r = _httpx.put(part_urls[str(pn)], content=chunk, headers={"Content-Type": content_type}, timeout=120)
-        r.raise_for_status()
-        completed.append({"partNumber": pn, "etag": r.headers["etag"]})
-
-    client.upload_complete(bss_route, upload_id, key, completed)
-
     # Build full asset name
     full_name = f"{resolved_path}/{fp.name}" if resolved_path else fp.name
     if not full_name.startswith("/"):
         full_name = f"/{full_name}"
 
+    print(f"  uploading {fp.name} ({asset_type}, {file_size / 1024 / 1024:.1f} MB)")
+
+    # Multipart upload
+    init = client.upload_init(bss_route, namespace, space_slug, raw_hash, content_type)
+    upload_id, key = init["uploadId"], init["key"]
+    part_urls = client.upload_parts(bss_route, upload_id, key, list(range(1, total_parts + 1)))
+
+    import httpx as _httpx
+    completed = []
+
+    with Progress(
+        TextColumn("[bold blue]{task.description}"),
+        BarColumn(),
+        TextColumn("{task.completed}/{task.total} parts"),
+        TransferSpeedColumn(),
+        transient=True,
+    ) as progress:
+        task = progress.add_task("uploading", total=total_parts)
+        for pn in range(1, total_parts + 1):
+            start = (pn - 1) * chunk_size
+            end = min(start + chunk_size, file_size)
+            chunk = content[start:end]
+            r = _httpx.put(part_urls[str(pn)], content=chunk, headers={"Content-Type": content_type}, timeout=120)
+            r.raise_for_status()
+            completed.append({"partNumber": pn, "etag": r.headers["etag"]})
+            progress.advance(task)
+
+    client.upload_complete(bss_route, upload_id, key, completed)
+
     # Last segment of prefix = episode name
-    # e.g., prefix="/2026/04/session-001" → episode="session-001"
     from .api.prefix import _ctx_prefix
     prefix_str = _ctx_prefix.get().strip("/")
     if prefix_str:
@@ -189,13 +201,13 @@ def upload(
     }
     if episode_name:
         dl_body["episodeName"] = episode_name
-    # Map BSS ID field by type
     bss_id_field = {"video": "bssVideoId", "audio": "bssAudioId", "image": "bssImageId",
                     "text-track": "bssTextTrackId", "label-track": "bssLabelId"}.get(asset_type)
     if bss_id_field:
         dl_body[bss_id_field] = bss_id
 
     dl_result = client.register_dl_asset(asset_type, dl_body)
+    print(f"  done: {full_name}")
     return dl_result
 
 
