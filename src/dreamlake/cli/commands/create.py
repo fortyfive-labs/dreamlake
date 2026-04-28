@@ -42,7 +42,7 @@ def print_help():
 
 
 def _fetch_all_episodes(client, remote: str, namespace: str, space: str) -> list[dict]:
-    """Fetch all episodes in a space (paginated)."""
+    """Fetch all episodes in a project (paginated)."""
     episodes = []
     page = 1
     while True:
@@ -147,7 +147,7 @@ def cmd_create_collection(name: str, args: dict) -> int:
                 print(f"{RED}error:{RESET} collection '{name}' already exists in {format_project(s)}", file=sys.stderr)
                 return 1
             if r.status_code == 404:
-                print(f"{RED}error:{RESET} space '{format_project(s)}' not found", file=sys.stderr)
+                print(f"{RED}error:{RESET} project '{format_project(s)}' not found", file=sys.stderr)
                 return 1
             r.raise_for_status()
     except httpx.HTTPStatusError as e:
@@ -215,7 +215,7 @@ def cmd_create_dataset(name: str, args: dict) -> int:
                 print(f"{RED}error:{RESET} dataset '{name}' already exists in {format_project(s)}", file=sys.stderr)
                 return 1
             if r.status_code == 404:
-                print(f"{RED}error:{RESET} space '{format_project(s)}' not found", file=sys.stderr)
+                print(f"{RED}error:{RESET} project '{format_project(s)}' not found", file=sys.stderr)
                 return 1
             r.raise_for_status()
     except httpx.HTTPStatusError as e:

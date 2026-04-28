@@ -6,7 +6,7 @@ Syntax: space[@namespace][:episode]
 Examples:
     robotics@alice:run-042       (project=robotics, namespace=alice, episode=run-042)
     robotics:run-042             (namespace → current user)
-    robotics@alice               (no episode → space-level)
+    robotics@alice               (no episode → project-level)
     robotics                     (minimal — namespace=current user, no episode)
 
 Space syntax (for --project flag): space[@namespace]
@@ -19,9 +19,9 @@ from dataclasses import dataclass
 
 @dataclass
 class ParsedTarget:
-    namespace: str | None   # None → resolved from current user's token
-    space: str
-    episode: str | None     # None → space-level (episodeId = null)
+    nameproject: str | None   # None → resolved from current user's token
+    project: str
+    episode: str | None     # None → project-level (episodeId = null)
     path: str | None        # None → list scope / not required
 
 
@@ -45,32 +45,32 @@ def parse_target(target: str) -> ParsedTarget:
 
     # Split off namespace (everything after @)
     if "@" in base:
-        space, namespace = base.split("@", 1)
+        project_part, namespace = base.split("@", 1)
     else:
-        space = base
+        project = base
 
-    if not space:
-        raise ValueError("target must include a space name")
+    if not project:
+        raise ValueError("target must include a project name")
 
     return ParsedTarget(namespace=namespace, project=space, episode=episode, path=path)
 
 
 @dataclass
 class ParsedProject:
-    namespace: str | None   # None → resolved from current user's token
-    space: str
+    nameproject: str | None   # None → resolved from current user's token
+    project: str
 
 
 def parse_project(target: str) -> ParsedProject:
     """Parse a space target: space[@namespace]"""
     if "@" in target:
-        space, namespace = target.split("@", 1)
+        project_part, namespace = target.split("@", 1)
     else:
-        space = target
+        project = target
         namespace = None
 
-    if not space:
-        raise ValueError("target must include a space name")
+    if not project:
+        raise ValueError("target must include a project name")
 
     return ParsedProject(namespace=namespace, project=space)
 
@@ -88,7 +88,7 @@ def format_target(t: ParsedTarget) -> str:
 
 
 def format_project(s: ParsedProject) -> str:
-    """Reconstruct space string for display."""
+    """Reconstruct project string for display."""
     if s.namespace:
         return f"{s.project}@{s.namespace}"
     return s.project

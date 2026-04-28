@@ -99,7 +99,7 @@ def upload(
     if not resolved_project:
         raise ValueError("project is required. Set via dl.Prefix or project= arg.")
 
-    # Parse space
+    # Parse project
     parts = resolved_project.split("@")
     if len(parts) == 2:
         project_slug, namespace = parts[0], parts[1]
@@ -229,7 +229,7 @@ def text_track(
     Examples:
         track = dl.text_track(prefix="/2026/04/run-042/captions/llava", project="robotics@alice")
     """
-    return TextTrack(prefix=prefix, project=space, path=path)
+    return TextTrack(prefix=prefix, project=project, path=path)
 
 
 def vec_index(name: str, dim: int = 768) -> VectorIndex:

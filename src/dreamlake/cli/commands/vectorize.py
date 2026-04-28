@@ -90,7 +90,7 @@ def _resolve_videos(client, remote: str, headers: dict, namespace: str, space: s
                     if r2.status_code == 200:
                         videos.extend(r2.json())
     else:
-        # All videos in space
+        # All videos in project
         r = client.get(f"{remote}/assets/video", params={
             "namespace": namespace, "project": space,
         })
@@ -152,8 +152,8 @@ def cmd_vectorize(args: dict) -> int:
     project_str = args.get("project")
 
     # Parse scope
-    namespace = None
-    space = None
+    nameproject = None
+    project = None
     episode = None
 
     if episode_str:

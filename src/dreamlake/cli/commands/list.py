@@ -237,7 +237,7 @@ def cmd_list_collections() -> int:
                     params={"page": str(page), "pageSize": str(PAGE_SIZE)},
                 )
                 if r.status_code == 404:
-                    print(f"\n  {DIM}(space not found){RESET}")
+                    print(f"\n  {DIM}(project not found){RESET}")
                     return 0
                 r.raise_for_status()
                 data = r.json()
@@ -325,7 +325,7 @@ def cmd_list_datasets() -> int:
                     params={"page": str(page), "pageSize": str(PAGE_SIZE)},
                 )
                 if r.status_code == 404:
-                    print(f"\n  {DIM}(space not found){RESET}")
+                    print(f"\n  {DIM}(project not found){RESET}")
                     return 0
                 r.raise_for_status()
                 data = r.json()
@@ -414,7 +414,7 @@ def cmd_list_episodes() -> int:
                     params={"page": str(page), "pageSize": str(PAGE_SIZE)},
                 )
                 if r.status_code == 404:
-                    print(f"\n  {DIM}(space not found){RESET}")
+                    print(f"\n  {DIM}(project not found){RESET}")
                     return 0
                 r.raise_for_status()
                 data = r.json()

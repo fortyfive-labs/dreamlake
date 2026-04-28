@@ -1,5 +1,5 @@
 """
-Prefix context manager for scoping space and path.
+Prefix context manager for scoping project and path.
 
 Usage:
     with dl.Prefix(project="robotics@alice", prefix="/2026/04/run-042"):
@@ -15,7 +15,7 @@ _ctx_prefix = contextvars.ContextVar("dl_prefix", default="")
 
 
 class Prefix:
-    """Context manager that sets space and path prefix for all DreamLake calls."""
+    """Context manager that sets project and path prefix for all DreamLake calls."""
 
     def __init__(self, project: str | None = None, prefix: str = ""):
         self._project = project

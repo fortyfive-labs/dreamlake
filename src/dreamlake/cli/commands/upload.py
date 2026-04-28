@@ -2,7 +2,7 @@
 Upload command.
 
 Usage:
-    dreamlake upload <file> --episode [nameproject@]space[:episode] --to <path>
+    dreamlake upload <file> --episode [namespace@]project[:episode] --to <path>
 
 File type is auto-detected from extension. Use --type to override.
 
@@ -45,7 +45,7 @@ CATEGORIES = {"audio", "video", "track", "text-track", "label-track", "image"}
 
 @proto.prefix
 class UploadConfig:
-    episode: str | None = None   # [nameproject@]space[:episode]
+    episode: str | None = None   # [namespace@]project[:episode]
     to: str | None = None     # destination path (within episode)
     type: str | None = None   # category override
     yes: bool = False         # skip confirmation prompt (for folder upload)
@@ -57,10 +57,10 @@ def print_help():
 {BOLD}dreamlake upload{RESET} - Upload a file to DreamLake
 
 {BOLD}Usage:{RESET}
-    dreamlake upload <file> --episode [nameproject@]space[:episode] --to <path>
+    dreamlake upload <file> --episode [namespace@]project[:episode] --to <path>
 
 {BOLD}Options:{RESET}
-    --episode    Episode scope: [nameproject@]space[:episode]
+    --episode    Episode scope: [namespace@]project[:episode]
     --to      Destination path within the episode
     --type    Override auto-detected file type
 

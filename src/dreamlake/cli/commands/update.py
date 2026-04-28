@@ -49,7 +49,7 @@ def print_help():
 
 
 def _fetch_all_episodes(client, remote: str, namespace: str, space: str) -> list[dict]:
-    """Fetch all episodes in a space (paginated)."""
+    """Fetch all episodes in a project (paginated)."""
     episodes = []
     page = 1
     while True:
@@ -183,7 +183,7 @@ def cmd_update_collection(name: str, args: dict) -> int:
 
 
 def _fetch_all_collections(client, remote: str, namespace: str, space: str) -> list[dict]:
-    """Fetch all collections in a space (paginated)."""
+    """Fetch all collections in a project (paginated)."""
     collections = []
     page = 1
     while True:

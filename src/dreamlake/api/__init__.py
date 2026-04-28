@@ -15,7 +15,7 @@ Functions:
     vec_index   — create/connect to a VectorIndex
 
 Context:
-    Prefix      — context manager for space/path scoping
+    Prefix      — context manager for project/path scoping
 """
 
 from .video import Video, VideoArray

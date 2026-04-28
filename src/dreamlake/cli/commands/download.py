@@ -2,7 +2,7 @@
 Download command.
 
 Usage:
-    dreamlake download --episode [nameproject@]space[:episode] --from <path> [-o <output>]
+    dreamlake download --episode [namespace@]project[:episode] --from <path> [-o <output>]
 """
 
 import sys
@@ -24,7 +24,7 @@ CYAN = "\033[36m"
 
 @proto.prefix
 class DownloadConfig:
-    sess: str | None = None       # [nameproject@]space[:episode]
+    sess: str | None = None       # [namespace@]project[:episode]
     from_path: str | None = None  # source path within episode (CLI flag: --from)
 
 
@@ -33,10 +33,10 @@ def print_help():
 {BOLD}dreamlake download{RESET} - Download a file from DreamLake
 
 {BOLD}Usage:{RESET}
-    dreamlake download --episode [nameproject@]space[:episode] --from <path>
+    dreamlake download --episode [namespace@]project[:episode] --from <path>
 
 {BOLD}Options:{RESET}
-    --episode    Episode scope: [nameproject@]space[:episode]
+    --episode    Episode scope: [namespace@]project[:episode]
     --from    Source path (including filename); output name derived from it
 
 {BOLD}Examples:{RESET}

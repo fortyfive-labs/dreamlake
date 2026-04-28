@@ -615,7 +615,7 @@ class RemoteClient:
         limit: int = 10,
         min_score: Optional[float] = None,
     ) -> Dict[str, Any]:
-        """Search for similar vectors within a space."""
+        """Search for similar vectors within a project."""
         payload: Dict[str, Any] = {"query": query, "limit": limit}
         if model_id:
             payload["modelId"] = model_id
@@ -653,7 +653,7 @@ class RemoteClient:
         return response.json()
 
     def list_vector_indexes(self, space_id: str) -> Dict[str, Any]:
-        """List vector indexes for a space."""
+        """List vector indexes for a project."""
         response = self._client.get(f"/projects/{space_id}/vector-indexes")
         response.raise_for_status()
         return response.json()

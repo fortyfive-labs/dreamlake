@@ -33,13 +33,13 @@ class TextTrack:
     def __init__(
         self,
         prefix: str | None = None,
-        space: str | None = None,
+        project: str | None = None,
         *,
         path: str | None = None,
         client: DreamLakeClient | None = None,
     ):
         self._prefix = resolve_path(prefix or path or "")
-        self._space = resolve_project(space)
+        self._project = resolve_project(project)
         self._client = client or get_client()
         self._entries: list[dict] = []
         self._id: str | None = None
@@ -53,8 +53,8 @@ class TextTrack:
         return self._prefix
 
     @property
-    def space(self) -> str | None:
-        return self._space
+    def project(self) -> str | None:
+        return self._project
 
     @property
     def count(self) -> int:
@@ -100,7 +100,7 @@ class TextTrack:
         if not self._entries:
             return None
         if not self._space:
-            raise ValueError("space is required for flush. Set via dl.Prefix or project= arg.")
+            raise ValueError("project is required for flush. Set via dl.Prefix or project= arg.")
 
         # Parse space into namespace + space slug
         parts = self._space.split("@")
