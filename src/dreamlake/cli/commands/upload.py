@@ -69,7 +69,7 @@ class UploadConfig:
     to: str | None = None     # destination path (within episode)
     type: str | None = None   # category override
     yes: bool = False         # skip confirmation prompt (for folder upload)
-    collection: str | None = None  # comma-separated collection names (auto-created)
+    bindr: str | None = None  # comma-separated bindr names (auto-created)
 
 
 def print_help():
@@ -106,40 +106,40 @@ def detect_category(file_path: Path, type_override: str | None) -> str | None:
     return EXTENSION_TO_CATEGORY.get(file_path.suffix.lower())
 
 
-def _add_to_collections(collection_names: list[str], node_ids: list[str], t, token: str) -> None:
-    """Add node IDs to collections (auto-created if they don't exist)."""
+def _add_to_bindrs(bindr_names: list[str], node_ids: list[str], t, token: str) -> None:
+    """Add node IDs to bindrs (auto-created if they don't exist)."""
     import httpx
 
-    if not collection_names or not node_ids:
+    if not bindr_names or not node_ids:
         return
 
     remote = ServerConfig.remote
     headers = {"Authorization": f"Bearer {token}"}
 
-    for name in collection_names:
+    for name in bindr_names:
         name = name.strip()
         if not name:
             continue
         try:
             with httpx.Client(timeout=30, headers=headers) as client:
                 r = client.post(
-                    f"{remote}/namespaces/{t.namespace}/projects/{t.project}/collections/{name}/members",
+                    f"{remote}/namespaces/{t.namespace}/projects/{t.project}/bindrs/{name}/members",
                     json={"add": node_ids},
                 )
                 if r.status_code == 404:
                     r = client.post(
-                        f"{remote}/namespaces/{t.namespace}/projects/{t.project}/collections",
+                        f"{remote}/namespaces/{t.namespace}/projects/{t.project}/bindrs",
                         json={"name": name, "members": node_ids},
                     )
                     r.raise_for_status()
-                    print(f"  {DIM}collection:{RESET}  created '{name}' ({len(node_ids)} files)")
+                    print(f"  {DIM}bindr:{RESET}  created '{name}' ({len(node_ids)} files)")
                 elif r.status_code == 200:
                     data = r.json()
-                    print(f"  {DIM}collection:{RESET}  added to '{name}' (total: {data.get('total', '?')} files)")
+                    print(f"  {DIM}bindr:{RESET}  added to '{name}' (total: {data.get('total', '?')} files)")
                 else:
-                    print(f"  {DIM}collection:{RESET}  '{name}' failed ({r.status_code})", file=sys.stderr)
+                    print(f"  {DIM}bindr:{RESET}  '{name}' failed ({r.status_code})", file=sys.stderr)
         except Exception as e:
-            print(f"  {DIM}collection:{RESET}  '{name}' error: {e}", file=sys.stderr)
+            print(f"  {DIM}bindr:{RESET}  '{name}' error: {e}", file=sys.stderr)
 
 
 # Shared state to capture nodeId from the last upload
@@ -563,12 +563,12 @@ def _upload_folder(dir_path: Path) -> int:
                 console.print(f"    {fname}: {info.get('error', 'unknown')}")
         console.print("  Re-run to retry failed files.")
 
-    # Add to collections if specified
-    if UploadConfig.collection:
-        collection_names = [n.strip() for n in UploadConfig.collection.split(',') if n.strip()]
+    # Add to bindrs if specified
+    if UploadConfig.bindr:
+        bindr_names = [n.strip() for n in UploadConfig.bindr.split(',') if n.strip()]
         node_ids = [info.get("nodeId") for info in manifest["files"].values() if info.get("nodeId")]
-        if node_ids and collection_names:
-            _add_to_collections(collection_names, node_ids, t, token)
+        if node_ids and bindr_names:
+            _add_to_bindrs(bindr_names, node_ids, t, token)
 
     # Clean up manifest if all done
     if total_failed == 0 and manifest_path.exists():
@@ -636,10 +636,10 @@ def cmd_upload(file: str) -> int:
 
     result = _upload_single_file(file_path, t, path, token, category)
 
-    # Add to collections if specified
-    if result == 0 and UploadConfig.collection and _last_node_id:
-        collection_names = [n.strip() for n in UploadConfig.collection.split(',') if n.strip()]
-        _add_to_collections(collection_names, [_last_node_id], t, token)
+    # Add to bindrs if specified
+    if result == 0 and UploadConfig.bindr and _last_node_id:
+        bindr_names = [n.strip() for n in UploadConfig.bindr.split(',') if n.strip()]
+        _add_to_bindrs(bindr_names, [_last_node_id], t, token)
 
     return result
 

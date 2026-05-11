@@ -2,7 +2,7 @@
 Create command.
 
 Usage:
-    dreamlake create collection <name> --project space[@namespace] [--episode <glob>] [--description <desc>] [--tags <tags>]
+    dreamlake create bindr <name> --project space[@namespace] [--episode <glob>] [--description <desc>] [--tags <tags>]
     dreamlake create dataset <name> --project space[@namespace] [--description <desc>] [--tags <tags>]
 """
 
@@ -25,18 +25,18 @@ def print_help():
 {BOLD}dreamlake create{RESET} - Create resources
 
 {BOLD}Usage:{RESET}
-    dreamlake create collection <name> --project space[@namespace] [--episode <glob>] [--description <desc>] [--tags <tags>]
+    dreamlake create bindr <name> --project space[@namespace] [--episode <glob>] [--description <desc>] [--tags <tags>]
     dreamlake create dataset <name> --project space[@namespace] [--description <desc>] [--tags <tags>]
 
 {BOLD}Options:{RESET}
     --project        Space target: space[@namespace]
-    --episode      Glob pattern to match episodes by node path (collection only)
+    --episode      Glob pattern to match episodes by node path (bindr only)
     --description  Description text
     --tags         Comma-separated tags
 
 {BOLD}Examples:{RESET}
-    dreamlake create collection "front-camera" --project robotics@alice --episode "camera/front/*"
-    dreamlake create collection "april-runs" --project robotics@alice --episode "2026/04/*"
+    dreamlake create bindr "front-camera" --project robotics@alice --episode "camera/front/*"
+    dreamlake create bindr "april-runs" --project robotics@alice --episode "2026/04/*"
     dreamlake create dataset "training-v1" --project robotics@alice --description "Q1 training" --tags robotics,training
 """.strip())
 
@@ -76,7 +76,7 @@ def _match_episodes(episodes: list[dict], pattern: str) -> list[dict]:
     return matched
 
 
-def cmd_create_collection(name: str, args: dict) -> int:
+def cmd_create_bindr(name: str, args: dict) -> int:
     project_str = args.get("project")
     if not project_str:
         print(f"{RED}error:{RESET} --project is required", file=sys.stderr)
@@ -126,7 +126,7 @@ def cmd_create_collection(name: str, args: dict) -> int:
                     path = ep.get("nodePath", ep.get("name", ""))
                     print(f"  {CYAN}{path}{RESET}")
 
-                confirm = input(f"\nCreate collection '{name}' with {len(matched)} episodes? [y/N] ").strip().lower()
+                confirm = input(f"\nCreate bindr '{name}' with {len(matched)} episodes? [y/N] ").strip().lower()
                 if confirm not in ("y", "yes"):
                     print("Cancelled.")
                     return 0
@@ -140,11 +140,11 @@ def cmd_create_collection(name: str, args: dict) -> int:
                 body["tags"] = tags
 
             r = client.post(
-                f"{remote}/namespaces/{s.namespace}/projects/{s.project}/collections",
+                f"{remote}/namespaces/{s.namespace}/projects/{s.project}/bindrs",
                 json=body,
             )
             if r.status_code == 409:
-                print(f"{RED}error:{RESET} collection '{name}' already exists in {format_project(s)}", file=sys.stderr)
+                print(f"{RED}error:{RESET} bindr '{name}' already exists in {format_project(s)}", file=sys.stderr)
                 return 1
             if r.status_code == 404:
                 print(f"{RED}error:{RESET} project '{format_project(s)}' not found", file=sys.stderr)
@@ -157,7 +157,7 @@ def cmd_create_collection(name: str, args: dict) -> int:
         print(f"{RED}error:{RESET} {e}", file=sys.stderr)
         return 1
 
-    print(f"{GREEN}✓ Created collection:{RESET} {CYAN}{name}{RESET} in {BOLD}{format_project(s)}{RESET}")
+    print(f"{GREEN}✓ Created bindr:{RESET} {CYAN}{name}{RESET} in {BOLD}{format_project(s)}{RESET}")
     if members:
         print(f"  {DIM}episodes:{RESET}    {len(members)}")
     if description:
@@ -253,7 +253,7 @@ def main(args: list) -> int:
 
     subcommand = args[0]
 
-    if subcommand in ("collection", "dataset"):
+    if subcommand in ("bindr", "dataset"):
         name, flags = _extract_name_and_flags(args[1:])
 
         if not name:
@@ -262,10 +262,10 @@ def main(args: list) -> int:
             return 1
 
         parsed = args_to_dict(flags)
-        if subcommand == "collection":
-            return cmd_create_collection(name, parsed)
+        if subcommand == "bindr":
+            return cmd_create_bindr(name, parsed)
         return cmd_create_dataset(name, parsed)
 
     else:
-        print(f"{RED}error:{RESET} unknown resource type '{subcommand}'. supported: collection, dataset", file=sys.stderr)
+        print(f"{RED}error:{RESET} unknown resource type '{subcommand}'. supported: bindr, dataset", file=sys.stderr)
         return 1

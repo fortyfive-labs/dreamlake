@@ -31,10 +31,10 @@ def print_help():
             {CYAN}profile{RESET}     Show current user
             {CYAN}upload{RESET}      Upload a file (type auto-detected)
             {CYAN}download{RESET}    Download a file
-            {CYAN}list{RESET}        List assets or collections
-            {CYAN}create{RESET}      Create a collection
-            {CYAN}delete{RESET}      Delete a collection
-            {CYAN}update{RESET}      Update a collection (add/remove episodes)
+            {CYAN}list{RESET}        List assets or bindrs
+            {CYAN}create{RESET}      Create a bindr
+            {CYAN}delete{RESET}      Delete a bindr
+            {CYAN}update{RESET}      Update a bindr (add/remove episodes)
             {CYAN}vectorize{RESET}   Run CLIP + LLaVA on video chunks for semantic search
             {CYAN}video{RESET}       Video commands (upload/download/list via BSS)
 
@@ -53,8 +53,8 @@ def print_help():
             dreamlake list --episode robotics@alice:2026/q1/run-042
             dreamlake list --episode robotics@alice:2026/q1/run-042 --type audio
 
-            {DIM}# List collections{RESET}
-            dreamlake list collection --project robotics@alice
+            {DIM}# List bindrs{RESET}
+            dreamlake list bindr --project robotics@alice
 
             {DIM}# Video commands{RESET}
             dreamlake video upload ./video.mp4 --user alice --project robotics

@@ -136,6 +136,72 @@ class DreamLakeClient:
         r.raise_for_status()
         return r.json()
 
+    def lookup_node(self, namespace: str, project: str, path: str,
+                    episode: str | None = None) -> dict:
+        """GET /nodes/lookup — resolve a node by namespace + project + path."""
+        params: dict = {"namespace": namespace, "project": project, "path": path}
+        if episode:
+            params["episode"] = episode
+        r = httpx.get(f"{self.dl_url}/nodes/lookup", params=params,
+                      headers=self._headers(), timeout=15)
+        r.raise_for_status()
+        return r.json()
+
+    def get_node_download_url(self, node_id: str) -> dict:
+        """GET /nodes/:id/download — returns { url, filename } (presigned S3)."""
+        r = httpx.get(f"{self.dl_url}/nodes/{node_id}/download",
+                      headers=self._headers(), timeout=30, follow_redirects=False)
+        r.raise_for_status()
+        return r.json()
+
+    # ── Bindrs ───────────────────────────────────────────────────────────
+
+    def create_bindr(self, namespace: str, project: str, name: str,
+                     members: list[str] | None = None,
+                     description: str | None = None,
+                     tags: list[str] | None = None) -> dict:
+        body: dict = {"name": name}
+        if members is not None: body["members"] = members
+        if description is not None: body["description"] = description
+        if tags is not None: body["tags"] = tags
+        r = httpx.post(
+            f"{self.dl_url}/namespaces/{namespace}/projects/{project}/bindrs",
+            json=body, headers=self._headers(), timeout=30,
+        )
+        r.raise_for_status()
+        return r.json()
+
+    def get_bindr(self, namespace: str, project: str, name: str) -> dict:
+        r = httpx.get(
+            f"{self.dl_url}/namespaces/{namespace}/projects/{project}/bindrs/{name}",
+            headers=self._headers(), timeout=15,
+        )
+        r.raise_for_status()
+        return r.json()
+
+    def add_bindr_members(self, namespace: str, project: str, name: str,
+                          node_ids: list[str]) -> dict:
+        r = httpx.post(
+            f"{self.dl_url}/namespaces/{namespace}/projects/{project}/bindrs/{name}/members",
+            json={"add": node_ids}, headers=self._headers(), timeout=30,
+        )
+        r.raise_for_status()
+        return r.json()
+
+    def get_node_descendants(self, node_id: str,
+                             leaves_only: bool = False,
+                             kind: str | None = None) -> dict:
+        """GET /nodes/:id/descendants — returns { root, rootPrefix, descendants, total }."""
+        params: dict = {}
+        if leaves_only:
+            params["leavesOnly"] = "true"
+        if kind:
+            params["kind"] = kind
+        r = httpx.get(f"{self.dl_url}/nodes/{node_id}/descendants",
+                      params=params, headers=self._headers(), timeout=30)
+        r.raise_for_status()
+        return r.json()
+
     # ── Qdrant ──────────────────────────────────────────────────────────
 
     def qdrant_ensure_collection(self, collection: str, dim: int = 768) -> None:

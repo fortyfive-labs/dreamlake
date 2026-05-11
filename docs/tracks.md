@@ -198,7 +198,7 @@ with Episode(prefix="cv/mnist-training",
     episode.log("Training complete")
 ```
 
-## Batch Collection Pattern
+## Batch Bindr Pattern
 
 Collect points in memory, then append in batches:
 

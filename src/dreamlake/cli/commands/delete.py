@@ -2,7 +2,7 @@
 Delete command.
 
 Usage:
-    dreamlake delete collection <name> --project space[@namespace]
+    dreamlake delete bindr <name> --project space[@namespace]
     dreamlake delete dataset <name> --project space[@namespace]
 """
 
@@ -25,7 +25,7 @@ def print_help():
 {BOLD}dreamlake delete{RESET} - Delete resources
 
 {BOLD}Usage:{RESET}
-    dreamlake delete collection <name> --project space[@namespace] [--yes]
+    dreamlake delete bindr <name> --project space[@namespace] [--yes]
     dreamlake delete dataset <name> --project space[@namespace] [--yes]
 
 {BOLD}Options:{RESET}
@@ -33,12 +33,12 @@ def print_help():
     --yes       Skip confirmation prompt
 
 {BOLD}Examples:{RESET}
-    dreamlake delete collection "front-camera" --project robotics@alice
+    dreamlake delete bindr "front-camera" --project robotics@alice
     dreamlake delete dataset "training-v1" --project robotics@alice
 """.strip())
 
 
-def cmd_delete_collection(name: str, args: dict) -> int:
+def cmd_delete_bindr(name: str, args: dict) -> int:
     project_str = args.get("project")
     if not project_str:
         print(f"{RED}error:{RESET} --project is required", file=sys.stderr)
@@ -63,7 +63,7 @@ def cmd_delete_collection(name: str, args: dict) -> int:
 
     # Confirm unless --yes
     if not args.get("yes"):
-        confirm = input(f"Delete collection '{name}' from {format_project(s)}? [y/N] ").strip().lower()
+        confirm = input(f"Delete bindr '{name}' from {format_project(s)}? [y/N] ").strip().lower()
         if confirm not in ("y", "yes"):
             print("Cancelled.")
             return 0
@@ -75,17 +75,17 @@ def cmd_delete_collection(name: str, args: dict) -> int:
     try:
         with httpx.Client(timeout=30, headers=headers) as client:
             r = client.delete(
-                f"{remote}/namespaces/{s.namespace}/projects/{s.project}/collections/{name}",
+                f"{remote}/namespaces/{s.namespace}/projects/{s.project}/bindrs/{name}",
             )
             if r.status_code == 404:
-                print(f"{RED}error:{RESET} collection '{name}' not found in {format_project(s)}", file=sys.stderr)
+                print(f"{RED}error:{RESET} bindr '{name}' not found in {format_project(s)}", file=sys.stderr)
                 return 1
             r.raise_for_status()
     except Exception as e:
         print(f"{RED}error:{RESET} {e}", file=sys.stderr)
         return 1
 
-    print(f"{GREEN}✓ Deleted collection:{RESET} {CYAN}{name}{RESET} from {BOLD}{format_project(s)}{RESET}")
+    print(f"{GREEN}✓ Deleted bindr:{RESET} {CYAN}{name}{RESET} from {BOLD}{format_project(s)}{RESET}")
     return 0
 
 
@@ -147,7 +147,7 @@ def main(args: list) -> int:
 
     subcommand = args[0]
 
-    if subcommand in ("collection", "dataset"):
+    if subcommand in ("bindr", "dataset"):
         remaining = args[1:]
         name = None
         flags = []
@@ -163,10 +163,10 @@ def main(args: list) -> int:
             return 1
 
         parsed = args_to_dict(flags)
-        if subcommand == "collection":
-            return cmd_delete_collection(name, parsed)
+        if subcommand == "bindr":
+            return cmd_delete_bindr(name, parsed)
         return cmd_delete_dataset(name, parsed)
 
     else:
-        print(f"{RED}error:{RESET} unknown resource type '{subcommand}'. supported: collection, dataset", file=sys.stderr)
+        print(f"{RED}error:{RESET} unknown resource type '{subcommand}'. supported: bindr, dataset", file=sys.stderr)
         return 1

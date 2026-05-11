@@ -3,7 +3,7 @@ List command.
 
 Usage:
     dreamlake list --episode space[@namespace][:episode] [--prefix <path>] [--type <category>]
-    dreamlake list collection --project space[@namespace]
+    dreamlake list bindr --project space[@namespace]
     dreamlake list dataset --project space[@namespace]
     dreamlake list episode --project space[@namespace]
 
@@ -33,31 +33,31 @@ PAGE_SIZE = 20
 @proto.prefix
 class ListConfig:
     episode: str | None = None   # space[@namespace][:episode]
-    space: str | None = None     # space[@namespace] (for collection listing)
+    space: str | None = None     # space[@namespace] (for bindr listing)
     prefix: str | None = None    # path prefix filter
     type: str | None = None      # category filter (omit for all)
 
 
 def print_help():
     print(f"""
-{BOLD}dreamlake list{RESET} - List assets or collections
+{BOLD}dreamlake list{RESET} - List assets or bindrs
 
 {BOLD}Usage:{RESET}
     dreamlake list --episode space[@namespace][:episode] [--prefix <path>] [--type <category>]
-    dreamlake list collection --project space[@namespace]
+    dreamlake list bindr --project space[@namespace]
     dreamlake list dataset --project space[@namespace]
     dreamlake list episode --project space[@namespace]
 
 {BOLD}Options:{RESET}
     --episode   Target: space[@namespace][:episode]
-    --project     Space target: space[@namespace] (for collection/dataset/episode listing)
+    --project     Space target: space[@namespace] (for bindr/dataset/episode listing)
     --prefix    Filter by path prefix (optional)
     --type      Filter by category: audio, video, track, text-track, label-track (optional)
 
 {BOLD}Examples:{RESET}
     dreamlake list --episode robotics@alice:run-042
     dreamlake list --episode robotics@alice:run-042 --type video
-    dreamlake list collection --project robotics@alice
+    dreamlake list bindr --project robotics@alice
     dreamlake list dataset --project robotics@alice
     dreamlake list episode --project robotics@alice
 """.strip())
@@ -176,9 +176,9 @@ def cmd_list_assets() -> int:
     return 0
 
 
-# ── List collections ────────────────────────────────────────────────────────────
+# ── List bindrs ────────────────────────────────────────────────────────────
 
-def _render_collections(collections: list[dict], total: int, page: int, total_pages: int):
+def _render_bindrs(bindrs: list[dict], total: int, page: int, total_pages: int):
     from rich.console import Console
     from rich.table import Table
 
@@ -190,7 +190,7 @@ def _render_collections(collections: list[dict], total: int, page: int, total_pa
     table.add_column("Description", style="dim")
     table.add_column("Created", style="dim")
 
-    for d in collections:
+    for d in bindrs:
         members = d.get("members", [])
         member_count = str(len(members)) if isinstance(members, list) else "0"
         tags = ", ".join(d.get("tags", []))
@@ -199,12 +199,12 @@ def _render_collections(collections: list[dict], total: int, page: int, total_pa
         table.add_row(d.get("name", ""), member_count, tags, desc, created)
 
     console.print(table)
-    console.print(f"\n  {total} collection(s)")
+    console.print(f"\n  {total} bindr(s)")
 
 
-def cmd_list_collections() -> int:
+def cmd_list_bindrs() -> int:
     if not ListConfig.project:
-        print(f"{RED}error:{RESET} --project is required for listing collections", file=sys.stderr)
+        print(f"{RED}error:{RESET} --project is required for listing bindrs", file=sys.stderr)
         return 1
 
     try:
@@ -222,7 +222,7 @@ def cmd_list_collections() -> int:
         return 1
 
     scope = format_project(s)
-    print(f"Listing collections in {BOLD}{scope}{RESET}")
+    print(f"Listing bindrs in {BOLD}{scope}{RESET}")
 
     import httpx
     remote = ServerConfig.remote
@@ -233,7 +233,7 @@ def cmd_list_collections() -> int:
         with httpx.Client(timeout=30, headers=headers) as client:
             while True:
                 r = client.get(
-                    f"{remote}/namespaces/{s.namespace}/projects/{s.project}/collections",
+                    f"{remote}/namespaces/{s.namespace}/projects/{s.project}/bindrs",
                     params={"page": str(page), "pageSize": str(PAGE_SIZE)},
                 )
                 if r.status_code == 404:
@@ -241,15 +241,15 @@ def cmd_list_collections() -> int:
                     return 0
                 r.raise_for_status()
                 data = r.json()
-                collections = data.get("collections", [])
+                bindrs = data.get("bindrs", [])
                 total = data.get("total", 0)
                 total_pages = data.get("totalPages", 1)
 
-                if not collections:
-                    print(f"\n  {DIM}(no collections found){RESET}")
+                if not bindrs:
+                    print(f"\n  {DIM}(no bindrs found){RESET}")
                     return 0
 
-                _render_collections(collections, total, page, total_pages)
+                _render_bindrs(bindrs, total, page, total_pages)
                 action = _pager_prompt(page, total_pages)
                 if action == "n":
                     page += 1
@@ -273,18 +273,18 @@ def _render_datasets(datasets: list[dict], total: int):
     console = Console()
     table = Table(show_edge=False, pad_edge=False)
     table.add_column("Name", style="cyan")
-    table.add_column("Collections", justify="right")
+    table.add_column("Bindrs", justify="right")
     table.add_column("Tags")
     table.add_column("Description", style="dim")
     table.add_column("Created", style="dim")
 
     for d in datasets:
-        collections = d.get("collections", [])
-        collection_count = str(len(collections)) if isinstance(collections, list) else "0"
+        bindrs = d.get("bindrs", [])
+        bindr_count = str(len(bindrs)) if isinstance(bindrs, list) else "0"
         tags = ", ".join(d.get("tags", []))
         desc = (d.get("description") or "")[:40]
         created = (d.get("createdAt") or "")[:10]
-        table.add_row(d.get("name", ""), collection_count, tags, desc, created)
+        table.add_row(d.get("name", ""), bindr_count, tags, desc, created)
 
     console.print(table)
     console.print(f"\n  {total} dataset(s)")
@@ -448,10 +448,10 @@ def main(args: list) -> int:
         print_help()
         return 0 if args else 1
 
-    # Check for subcommand: dreamlake list collection/dataset/episode --project ...
-    if args[0] == "collection":
+    # Check for subcommand: dreamlake list bindr/dataset/episode --project ...
+    if args[0] == "bindr":
         ListConfig._update(args_to_dict(args[1:]))
-        return cmd_list_collections()
+        return cmd_list_bindrs()
 
     if args[0] == "dataset":
         ListConfig._update(args_to_dict(args[1:]))

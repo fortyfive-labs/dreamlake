@@ -176,16 +176,29 @@ def upload(
 
     client.upload_complete(bss_route, upload_id, key, completed)
 
-    # Last segment of prefix = episode name
+    # Episode name = last segment of the Prefix context's prefix
+    # The path under the episode = resolved_path stripped of the episode segment
     from .api.prefix import _ctx_prefix
-    prefix_str = _ctx_prefix.get().strip("/")
-    if prefix_str:
-        prefix_segments = prefix_str.split("/")
-        episode_name = prefix_segments[-1]
+    ctx_prefix_str = _ctx_prefix.get().strip("/")
+    if ctx_prefix_str:
+        episode_name = ctx_prefix_str.split("/")[-1]
     else:
         episode_name = None
 
-    # Register in BSS
+    # Build the name to send to the server — relative to the episode (no episode prefix).
+    # The server creates folders under the episode's basePath, so we strip the prefix.
+    if ctx_prefix_str:
+        ctx_prefix_normalized = "/" + ctx_prefix_str
+        if full_name.startswith(ctx_prefix_normalized + "/"):
+            server_name = full_name[len(ctx_prefix_normalized):]
+        elif full_name == ctx_prefix_normalized + "/" + fp.name:
+            server_name = "/" + fp.name
+        else:
+            server_name = full_name
+    else:
+        server_name = full_name
+
+    # Register in BSS (uses full_name for human-readable reference)
     bss_body = {
         "name": full_name,
         "owner": namespace,
@@ -199,7 +212,7 @@ def upload(
     node_body: dict = {
         "namespace": namespace,
         "kind": asset_type,
-        "name": full_name,
+        "name": server_name,
         "project": project_slug,
         "metadata": {
             "bssId": bss_id,
@@ -221,6 +234,344 @@ def upload(
         raise
     print(f"  done: {full_name}")
     return dl_result
+
+
+def _download_file(client, node_id: str, dest_path: "Path") -> None:
+    """Stream a single file by node ID to dest_path."""
+    import httpx as _httpx
+    from rich.progress import Progress, BarColumn, TextColumn, TransferSpeedColumn, DownloadColumn
+
+    presigned = client.get_node_download_url(node_id)
+    url = presigned["url"]
+
+    dest_path.parent.mkdir(parents=True, exist_ok=True)
+
+    with _httpx.stream("GET", url, follow_redirects=True, timeout=300.0) as r:
+        r.raise_for_status()
+        total = int(r.headers.get("content-length", 0))
+        with Progress(
+            TextColumn("[bold blue]{task.description}"),
+            BarColumn(),
+            DownloadColumn(),
+            TransferSpeedColumn(),
+            transient=True,
+        ) as progress:
+            task = progress.add_task(dest_path.name, total=total or None)
+            with open(dest_path, "wb") as f:
+                for chunk in r.iter_bytes(chunk_size=64 * 1024):
+                    f.write(chunk)
+                    progress.update(task, advance=len(chunk))
+
+
+def _resolve_to_node(node_id_or_path: str, project: str | None) -> dict:
+    """Resolve a node ID or path to a node record."""
+    from .api.prefix import resolve_path, resolve_project, _ctx_prefix
+    import re
+
+    client = _get_client()
+
+    # Detect: 24-char hex = node ID
+    if re.fullmatch(r"[a-fA-F0-9]{24}", node_id_or_path):
+        # We only have the ID; need to fetch the node — use descendants endpoint
+        # with leavesOnly=false to also list folders, but easier: lookup by path is not
+        # possible from ID alone. Just call get_node_download_url to validate
+        # and return a minimal record.
+        # However for folder downloads we need kind. Hit GET /nodes?... or skip.
+        # Simpler: use the descendants endpoint — it returns the root too.
+        result = client.get_node_descendants(node_id_or_path)
+        return result["root"]
+
+    # Path resolution
+    resolved_project = resolve_project(project)
+    if not resolved_project:
+        raise ValueError("project is required when using a path. "
+                         "Set via dl.Prefix or project= arg.")
+    parts = resolved_project.split("@")
+    if len(parts) == 2:
+        project_slug, namespace = parts[0], parts[1]
+    else:
+        project_slug = parts[0]
+        me = client.get_auth_me()
+        namespace = me.get("namespace", {}).get("slug", "")
+
+    ctx_prefix_str = _ctx_prefix.get().strip("/")
+    episode_name = ctx_prefix_str.split("/")[-1] if ctx_prefix_str else None
+
+    if node_id_or_path.startswith("/"):
+        asset_path = node_id_or_path
+    else:
+        resolved = resolve_path(node_id_or_path)
+        if ctx_prefix_str:
+            ctx_norm = "/" + ctx_prefix_str
+            if resolved.startswith(ctx_norm + "/"):
+                asset_path = resolved[len(ctx_norm):]
+            elif resolved == ctx_norm:
+                asset_path = "/"
+            else:
+                asset_path = resolved
+        else:
+            asset_path = resolved if resolved.startswith("/") else "/" + resolved
+
+    return client.lookup_node(namespace, project_slug, asset_path, episode=episode_name)
+
+
+def download(
+    node_id_or_path: str,
+    to: str | None = None,
+    project: str | None = None,
+) -> "Path":
+    """Download a file or folder by node ID or path.
+
+    - File leaf nodes (video/audio/image/...) download as a single file.
+    - Container nodes (folder/episode/project) recursively download all
+      file descendants, preserving relative folder structure.
+
+    Args:
+        node_id_or_path: 24-char hex node ID, or a path like
+            "/sensors/camera/front/video.mp4" (use Prefix context or project=).
+        to: Destination. For files: target path or directory. For folders:
+            target directory (created if missing).
+        project: "slug@namespace" — overrides Prefix context.
+
+    Examples:
+        # Single file by path
+        with dl.Prefix(project="robotics@tom-tao", prefix="/session-042"):
+            dl.download("sensors/camera/front/video.mp4", to="./out/")
+
+        # Folder (recursive)
+        with dl.Prefix(project="robotics@tom-tao", prefix="/session-042"):
+            dl.download("sensors", to="./out/")
+
+        # Episode (everything in session-042)
+        dl.download("/session-042", project="robotics@tom-tao", to="./out/")
+    """
+    from pathlib import Path
+
+    client = _get_client()
+    node = _resolve_to_node(node_id_or_path, project)
+    kind = node["kind"]
+
+    # ── Single-file download ────────────────────────────────────────────
+    if kind not in ("folder", "episode", "project"):
+        filename = node["name"]
+        if to is None:
+            dest = Path(filename)
+        else:
+            dest = Path(to)
+            if dest.is_dir() or str(to).endswith("/") or str(to).endswith(Path.sep):
+                dest = dest / filename
+        print(f"  downloading {filename}")
+        _download_file(client, node["id"], dest)
+        print(f"  done: {dest}")
+        return dest
+
+    # ── Folder/Episode/Project download (recursive) ─────────────────────
+    result = client.get_node_descendants(node["id"], leaves_only=True)
+    files = result["descendants"]
+    root_prefix = result["rootPrefix"]  # e.g. ",robotics,session-042,sensors,"
+
+    if not files:
+        print(f"  no files under {kind} '{node['name']}'")
+        return Path(to or ".")
+
+    out_dir = Path(to or node["name"])
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    print(f"  downloading {len(files)} file(s) from {kind} '{node['name']}' → {out_dir}")
+
+    for f in files:
+        # Build relative path: strip root_prefix from full path
+        full_prefix = f["path"]
+        if full_prefix.startswith(root_prefix):
+            rel_segments = full_prefix[len(root_prefix):].strip(",").split(",")
+            rel_segments = [s for s in rel_segments if s]
+        else:
+            rel_segments = []
+
+        rel_path = Path(*rel_segments) / f["name"] if rel_segments else Path(f["name"])
+        dest = out_dir / rel_path
+        _download_file(client, f["id"], dest)
+
+    print(f"  done: {out_dir} ({len(files)} files)")
+    return out_dir
+
+
+def _parse_project_arg(project: str | None) -> tuple[str, str]:
+    """Parse 'slug@namespace' (or just 'slug') into (project_slug, namespace)."""
+    from .api.prefix import resolve_project
+    resolved = resolve_project(project)
+    if not resolved:
+        raise ValueError("project is required. Set via dl.Prefix or project= arg.")
+    parts = resolved.split("@")
+    if len(parts) == 2:
+        return parts[0], parts[1]
+    project_slug = parts[0]
+    me = _get_client().get_auth_me()
+    namespace = me.get("namespace", {}).get("slug", "")
+    return project_slug, namespace
+
+
+def _resolve_member_to_id(member: str, namespace: str, project_slug: str,
+                          episode_name: str | None) -> str:
+    """Resolve a member (24-char hex node ID or path) to a node ID."""
+    import re
+    from .api.prefix import resolve_path, _ctx_prefix
+
+    if re.fullmatch(r"[a-fA-F0-9]{24}", member):
+        return member  # already a node ID
+
+    # Treat as path
+    ctx_prefix_str = _ctx_prefix.get().strip("/")
+    if member.startswith("/"):
+        asset_path = member
+    else:
+        resolved = resolve_path(member)
+        if ctx_prefix_str:
+            ctx_norm = "/" + ctx_prefix_str
+            if resolved.startswith(ctx_norm + "/"):
+                asset_path = resolved[len(ctx_norm):]
+            elif resolved == ctx_norm:
+                asset_path = "/"
+            else:
+                asset_path = resolved
+        else:
+            asset_path = resolved if resolved.startswith("/") else "/" + resolved
+
+    node = _get_client().lookup_node(namespace, project_slug, asset_path,
+                                     episode=episode_name)
+    return node["id"]
+
+
+def bindr(
+    name: str,
+    project: str | None = None,
+    members: list[str] | None = None,
+    description: str | None = None,
+    tags: list[str] | None = None,
+    create: bool = True,
+) -> dict:
+    """Get or create a bindr. Adds members if provided.
+
+    Args:
+        name: Bindr name (unique within project)
+        project: "slug@namespace" — overrides Prefix context
+        members: List of paths or node IDs. Each entry can be:
+            - A 24-char hex node ID
+            - An absolute path "/episode/sensors/camera" (from project root)
+            - A relative path "sensors/camera" (resolved against Prefix context)
+        description: Optional description (set on create)
+        tags: Optional tag list (set on create)
+        create: If True, create the bindr if missing. Default True.
+
+    Examples:
+        # Inside a Prefix context — relative paths work
+        with dl.Prefix(project="robotics@tom-tao", prefix="/session-100"):
+            dl.bindr("my-set", members=["sensors", "audio"])
+
+        # Absolute paths
+        dl.bindr("my-set", project="robotics@tom-tao",
+                 members=["/session-100/sensors", "/session-100/audio"])
+
+        # Mixed paths and IDs
+        dl.bindr("my-set", project="robotics@tom-tao",
+                 members=["/sensors", "69e7264a1234567890abcdef"])
+    """
+    from .api.prefix import _ctx_prefix
+    client = _get_client()
+    project_slug, namespace = _parse_project_arg(project)
+
+    # Episode name from Prefix context (used for path resolution)
+    ctx_prefix_str = _ctx_prefix.get().strip("/")
+    episode_name = ctx_prefix_str.split("/")[-1] if ctx_prefix_str else None
+
+    # Resolve paths → node IDs (IDs pass through unchanged)
+    resolved_ids: list[str] | None = None
+    if members:
+        resolved_ids = [
+            _resolve_member_to_id(m, namespace, project_slug, episode_name)
+            for m in members
+        ]
+
+    # Try to fetch existing bindr
+    import httpx as _httpx
+    try:
+        existing = client.get_bindr(namespace, project_slug, name)
+        if resolved_ids:
+            updated = client.add_bindr_members(namespace, project_slug, name, resolved_ids)
+            existing["members"] = updated.get("members", existing.get("members"))
+        return existing
+    except _httpx.HTTPStatusError as e:
+        if e.response.status_code != 404 or not create:
+            raise
+
+    # Create
+    return client.create_bindr(
+        namespace, project_slug, name,
+        members=resolved_ids, description=description, tags=tags,
+    )
+
+
+def download_bindr(
+    name: str,
+    project: str | None = None,
+    to: str = ".",
+) -> "Path":
+    """Download all members of a bindr. Each member becomes a top-level
+    directory under `to` (preserving relative tree for folder members).
+
+    Examples:
+        dl.download_bindr("my-sensors",
+                          project="robotics@tom-tao",
+                          to="./out/")
+    """
+    from pathlib import Path
+
+    client = _get_client()
+    project_slug, namespace = _parse_project_arg(project)
+
+    b = client.get_bindr(namespace, project_slug, name)
+    members: list[str] = list(b.get("members") or [])
+
+    out_dir = Path(to)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    if not members:
+        print(f"  bindr '{name}' has no members")
+        return out_dir
+
+    print(f"  downloading bindr '{name}' ({len(members)} member(s)) → {out_dir}")
+
+    for member_id in members:
+        # Resolve member node so we know its name
+        result = client.get_node_descendants(member_id, leaves_only=True)
+        root = result["root"]
+        member_name = root["name"]
+
+        # File leaf member
+        if root["kind"] not in ("folder", "episode", "project"):
+            dest = out_dir / member_name
+            _download_file(client, member_id, dest)
+            print(f"  ✓ {member_name}")
+            continue
+
+        # Container — recurse into out_dir / member_name /
+        member_root = out_dir / member_name
+        member_root.mkdir(parents=True, exist_ok=True)
+        root_prefix = result["rootPrefix"]
+
+        for f in result["descendants"]:
+            full_prefix = f["path"]
+            if full_prefix.startswith(root_prefix):
+                rel = full_prefix[len(root_prefix):].strip(",").split(",")
+                rel = [s for s in rel if s]
+            else:
+                rel = []
+            dest = member_root.joinpath(*rel, f["name"]) if rel else member_root / f["name"]
+            _download_file(client, f["id"], dest)
+        print(f"  ✓ {member_name} ({len(result['descendants'])} file(s))")
+
+    print(f"  done: {out_dir}")
+    return out_dir
 
 
 def text_track(
@@ -264,6 +615,9 @@ __all__ = [
     "load_video",
     "load",
     "upload",
+    "download",
+    "bindr",
+    "download_bindr",
     "text_track",
     "vec_index",
 ]
