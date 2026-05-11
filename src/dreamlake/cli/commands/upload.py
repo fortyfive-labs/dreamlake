@@ -6,13 +6,16 @@ Usage:
 
 File type is auto-detected from extension. Use --type to override.
 
-Categories: audio, video, track, text-track, label-track
+Categories: audio, video, track, text-track, label-track, image
 """
 
 import sys
 import json
 import hashlib
+import math
+import threading
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from params_proto import proto
 
@@ -41,6 +44,23 @@ EXTENSION_TO_CATEGORY = {
 }
 
 CATEGORIES = {"audio", "video", "track", "text-track", "label-track", "image"}
+
+# BSS route prefix per category
+BSS_ROUTE_MAP = {
+    "video": "videos", "audio": "audio", "image": "image",
+    "text-track": "text-tracks", "label-track": "labels",
+}
+
+# MIME type per category
+MIME_MAP = {
+    ".wav": "audio/wav", ".mp3": "audio/mpeg", ".aac": "audio/aac", ".opus": "audio/ogg",
+    ".mp4": "video/mp4", ".mkv": "video/x-matroska",
+    ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png",
+    ".gif": "image/gif", ".webp": "image/webp", ".bmp": "image/bmp",
+    ".tiff": "image/tiff", ".tif": "image/tiff",
+    ".vtt": "text/vtt", ".srt": "text/plain",
+    ".jsonl": "application/x-jsonlines",
+}
 
 
 @proto.prefix
@@ -102,13 +122,11 @@ def _add_to_collections(collection_names: list[str], node_ids: list[str], t, tok
             continue
         try:
             with httpx.Client(timeout=30, headers=headers) as client:
-                # Try to add members to existing collection
                 r = client.post(
                     f"{remote}/namespaces/{t.namespace}/projects/{t.project}/collections/{name}/members",
                     json={"add": node_ids},
                 )
                 if r.status_code == 404:
-                    # Collection doesn't exist — create it with members
                     r = client.post(
                         f"{remote}/namespaces/{t.namespace}/projects/{t.project}/collections",
                         json={"name": name, "members": node_ids},
@@ -127,15 +145,226 @@ def _add_to_collections(collection_names: list[str], node_ids: list[str], t, tok
 # Shared state to capture nodeId from the last upload
 _last_node_id: str | None = None
 
+
+# ── Upload state (pause/resume) ─────────────────────────────────────────────
+
+def _state_path(raw_hash: str) -> Path:
+    state_dir = Path.home() / ".dreamlake" / "uploads"
+    state_dir.mkdir(parents=True, exist_ok=True)
+    return state_dir / f"{raw_hash}.json"
+
+
+def _save_state(raw_hash: str, upload_id: str, key: str, total_parts: int,
+                completed_parts: list, lock) -> None:
+    with lock:
+        _state_path(raw_hash).write_text(json.dumps({
+            "uploadId": upload_id,
+            "key": key,
+            "totalParts": total_parts,
+            "completedParts": completed_parts,
+        }))
+
+
+def _load_state(raw_hash: str) -> dict | None:
+    p = _state_path(raw_hash)
+    if p.exists():
+        try:
+            return json.loads(p.read_text())
+        except Exception:
+            return None
+    return None
+
+
+def _clear_state(raw_hash: str) -> None:
+    p = _state_path(raw_hash)
+    if p.exists():
+        p.unlink()
+
+
+# ── Unified upload function ──────────────────────────────────────────────────
+
+def _upload_file(file_path: Path, t, path: str, category: str, token: str) -> int:
+    """Upload any file type to BSS via S3 multipart, then register via POST /nodes."""
+    import httpx
+
+    global _last_node_id
+    _last_node_id = None
+
+    bss_url = ServerConfig.bss_url
+    remote = ServerConfig.remote
+    headers = {"Authorization": f"Bearer {token}"}
+
+    bss_route = BSS_ROUTE_MAP.get(category)
+    if not bss_route:
+        print(f"(upload for '{category}' not yet implemented)", file=sys.stderr)
+        return 1
+
+    content_type = MIME_MAP.get(file_path.suffix.lower(), "application/octet-stream")
+
+    # Phase 1: hash + compute parts
+    content = file_path.read_bytes()
+    raw_hash = hashlib.sha256(content).hexdigest()[:16]
+    file_size = len(content)
+    total_parts = max(1, math.ceil(file_size / CHUNK_SIZE))
+
+    size_str = f"{file_size / 1024 / 1024:.1f} MB" if file_size > 1024 * 1024 else f"{file_size / 1024:.1f} KB"
+    print(f"  {DIM}size:{RESET}   {size_str}")
+    print(f"  {DIM}parts:{RESET}  {total_parts} x {CHUNK_SIZE // 1024 // 1024} MB")
+
+    state_lock = threading.Lock()
+
+    # Check for existing upload state (pause/resume)
+    upload_id: str | None = None
+    key: str | None = None
+    completed_parts: list[dict] = []
+    completed_map: dict[int, dict] = {}
+
+    state = _load_state(raw_hash)
+    if state:
+        with httpx.Client(timeout=30, headers=headers) as client:
+            r = client.get(f"{bss_url}/{bss_route}/upload/multipart/parts-done", params={
+                "uploadId": state["uploadId"],
+                "key": state["key"],
+            })
+        if r.status_code == 200:
+            data = r.json()
+            if not data.get("expired"):
+                upload_id = state["uploadId"]
+                key = state["key"]
+                for part in data.get("parts", []):
+                    completed_map[part["partNumber"]] = part
+                completed_parts = list(completed_map.values())
+                remaining = total_parts - len(completed_parts)
+                print(f"  {DIM}resuming:{RESET} {len(completed_parts)}/{total_parts} parts done, {remaining} remaining")
+
+    # Phase 2: init multipart upload (only if not resuming)
+    if not upload_id:
+        with httpx.Client(timeout=30, headers=headers) as client:
+            r = client.post(f"{bss_url}/{bss_route}/upload/multipart/init", json={
+                "owner": t.namespace,
+                "project": t.project,
+                "hash": raw_hash,
+                "contentType": content_type,
+            })
+            r.raise_for_status()
+            init_data = r.json()
+            upload_id = init_data["uploadId"]
+            key = init_data["key"]
+        _save_state(raw_hash, upload_id, key, total_parts, [], state_lock)
+
+    # Phase 3: get presigned URLs for remaining parts
+    remaining_parts = [n for n in range(1, total_parts + 1) if n not in completed_map]
+    parts_data: dict[str, str] = {}
+    if remaining_parts:
+        with httpx.Client(timeout=30, headers=headers) as client:
+            r = client.post(f"{bss_url}/{bss_route}/upload/multipart/parts", json={
+                "uploadId": upload_id,
+                "key": key,
+                "partNumbers": remaining_parts,
+            })
+            r.raise_for_status()
+            parts_data = r.json()["parts"]
+
+    # Phase 4: parallel chunk upload
+    failed = False
+
+    def upload_part(part_number: int) -> dict:
+        start = (part_number - 1) * CHUNK_SIZE
+        chunk = content[start: start + CHUNK_SIZE]
+        url = parts_data[str(part_number)]
+        with httpx.Client(timeout=300) as s3_client:
+            resp = s3_client.put(url, content=chunk, headers={"Content-Type": content_type})
+            resp.raise_for_status()
+            etag = resp.headers.get("ETag", "").strip('"')
+            return {"partNumber": part_number, "etag": etag}
+
+    if remaining_parts:
+        with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+            futures = {executor.submit(upload_part, n): n for n in remaining_parts}
+            for future in as_completed(futures):
+                part_n = futures[future]
+                try:
+                    result = future.result()
+                    completed_parts.append(result)
+                    completed_map[result["partNumber"]] = result
+                    _save_state(raw_hash, upload_id, key, total_parts, completed_parts, state_lock)
+                    print(f"  {DIM}part {part_n}/{total_parts}{RESET} uploaded")
+                except Exception as e:
+                    print(f"{RED}error:{RESET} part {part_n} failed: {e}", file=sys.stderr)
+                    failed = True
+                    for f in futures:
+                        f.cancel()
+                    break
+
+    # Phase 5: complete or abort
+    if failed:
+        print(f"{RED}error:{RESET} upload paused — re-run to resume", file=sys.stderr)
+        return 1
+
+    completed_parts = sorted(completed_map.values(), key=lambda p: p["partNumber"])
+
+    with httpx.Client(timeout=60, headers=headers) as client:
+        r = client.post(f"{bss_url}/{bss_route}/upload/multipart/complete", json={
+            "uploadId": upload_id,
+            "key": key,
+            "parts": completed_parts,
+        })
+        r.raise_for_status()
+
+    _clear_state(raw_hash)
+
+    # Phase 6: Register in BSS
+    bss_body: dict = {
+        "name": f"/{path}/{file_path.name}",
+        "owner": t.namespace,
+        "project": t.project,
+        "stagingHash": raw_hash,
+    }
+    if category == "text-track":
+        ext_to_format = {".vtt": "vtt", ".srt": "srt", ".jsonl": "jsonl"}
+        bss_body["format"] = ext_to_format.get(file_path.suffix.lower(), "jsonl")
+
+    with httpx.Client(timeout=30, headers=headers) as client:
+        r = client.post(f"{bss_url}/{bss_route}", json=bss_body)
+        r.raise_for_status()
+        bss_result = r.json()
+
+    bss_id = bss_result.get("id")
+
+    # Phase 7: Register in dreamlake-server (POST /nodes)
+    node_body: dict = {
+        "namespace": t.namespace,
+        "kind": category,
+        "name": f"/{path}/{file_path.name}",
+        "project": t.project,
+        "metadata": {
+            "bssId": bss_id,
+            "hash": raw_hash,
+            "size": file_size,
+            "contentType": content_type,
+        },
+    }
+    if t.episode:
+        node_body["episode"] = t.episode
+
+    with httpx.Client(timeout=30, headers=headers) as client:
+        r = client.post(f"{remote}/nodes", json=node_body)
+        r.raise_for_status()
+        dl_result = r.json()
+        _last_node_id = dl_result.get("id")
+
+    print(f"{GREEN}✓ Uploaded:{RESET} /{path}/{file_path.name}")
+    print(f"  {DIM}bss id:{RESET}       {bss_id}")
+    print(f"  {DIM}node id:{RESET}      {_last_node_id}")
+    return 0
+
+
 def _upload_single_file(file_path: Path, t, path: str, token: str, category: str) -> int:
-    """Upload a single file. Returns 0 on success, 1 on failure. Sets _last_node_id."""
+    """Upload a single file. Returns 0 on success, 1 on failure."""
     global _last_node_id
     _last_node_id = None
     try:
-        if category == "video":
-            return _upload_video(file_path, t, path, token)
-        else:
-            return _upload_asset(file_path, t, path, category, token)
+        return _upload_file(file_path, t, path, category, token)
     except Exception as e:
         print(f"{RED}error:{RESET} {e}", file=sys.stderr)
         return 1
@@ -205,7 +434,7 @@ def _upload_folder(dir_path: Path) -> int:
         console.print("[red]error:[/red] not authenticated. run 'dreamlake login' first")
         return 1
 
-    # ── Step 1: Scan directory ────────────────────────────────────────────
+    # Step 1: Scan directory
     console.print(f"\nScanning [cyan]{dir_path}[/cyan] ...")
 
     all_files = sorted([f for f in dir_path.iterdir() if f.is_file()])
@@ -222,7 +451,7 @@ def _upload_folder(dir_path: Path) -> int:
     uploadable = {name: cat for cat, files in classified.items() for f in files for name, cat in [(f.name, cat)]}
     total_uploadable = sum(len(files) for files in classified.values())
 
-    # ── Load / create manifest ────────────────────────────────────────────
+    # Load / create manifest
     manifest_path = _folder_manifest_path(dir_path, UploadConfig.episode, UploadConfig.to)
     manifest = _load_folder_manifest(manifest_path) or {
         "sourceDir": str(dir_path.resolve()),
@@ -232,7 +461,6 @@ def _upload_folder(dir_path: Path) -> int:
         "skipped": [],
     }
 
-    # Merge: add new files, keep existing status
     for fname, cat in uploadable.items():
         if fname not in manifest["files"]:
             manifest["files"][fname] = {"status": "pending", "category": cat}
@@ -242,7 +470,7 @@ def _upload_folder(dir_path: Path) -> int:
     failed_count = sum(1 for f in manifest["files"].values() if f["status"] == "failed")
     pending_count = sum(1 for f in manifest["files"].values() if f["status"] in ("pending", "failed"))
 
-    # ── Step 2: Display summary ───────────────────────────────────────────
+    # Step 2: Display summary
     console.print()
     table = Table(show_header=False, box=None, padding=(0, 2))
     table.add_column(style="dim", width=14)
@@ -274,7 +502,7 @@ def _upload_folder(dir_path: Path) -> int:
 
     _save_folder_manifest(manifest_path, manifest)
 
-    # ── Step 3: Upload with progress ──────────────────────────────────────
+    # Step 3: Upload with progress
     to_upload = [
         (fname, info["category"])
         for fname, info in manifest["files"].items()
@@ -320,7 +548,7 @@ def _upload_folder(dir_path: Path) -> int:
             _save_folder_manifest(manifest_path, manifest)
             progress.advance(task)
 
-    # ── Step 4: Final summary ─────────────────────────────────────────────
+    # Step 4: Final summary
     console.print()
     total_done = sum(1 for f in manifest["files"].values() if f["status"] == "done")
     total_failed = sum(1 for f in manifest["files"].values() if f["status"] == "failed")
@@ -388,7 +616,6 @@ def cmd_upload(file: str) -> int:
 
     path = UploadConfig.to.lstrip("/")
 
-    # Resolve namespace from current user if omitted
     if not t.namespace:
         t.namespace = ServerConfig.resolve_namespace()
         if not t.namespace:
@@ -415,876 +642,6 @@ def cmd_upload(file: str) -> int:
         _add_to_collections(collection_names, [_last_node_id], t, token)
 
     return result
-
-
-def _state_path(raw_hash: str) -> Path:
-    state_dir = Path.home() / ".dreamlake" / "uploads"
-    state_dir.mkdir(parents=True, exist_ok=True)
-    return state_dir / f"{raw_hash}.json"
-
-
-def _save_state(raw_hash: str, upload_id: str, key: str, total_parts: int,
-                completed_parts: list, lock) -> None:
-    import json
-    with lock:
-        _state_path(raw_hash).write_text(json.dumps({
-            "uploadId": upload_id,
-            "key": key,
-            "totalParts": total_parts,
-            "completedParts": completed_parts,
-        }))
-
-
-def _load_state(raw_hash: str) -> dict | None:
-    import json
-    p = _state_path(raw_hash)
-    if p.exists():
-        try:
-            return json.loads(p.read_text())
-        except Exception:
-            return None
-    return None
-
-
-def _clear_state(raw_hash: str) -> None:
-    p = _state_path(raw_hash)
-    if p.exists():
-        p.unlink()
-
-
-def _upload_video(file_path: Path, t, path: str, token: str) -> int:
-    """Upload video to BSS via S3 multipart upload, then register in dreamlake-server."""
-    import hashlib
-    import json
-    import math
-    import threading
-    from concurrent.futures import ThreadPoolExecutor, as_completed
-    import httpx
-
-    bss_url = ServerConfig.bss_url
-    remote = ServerConfig.remote
-    headers = {"Authorization": f"Bearer {token}"}
-
-    # Phase 1: hash + compute parts
-    content = file_path.read_bytes()
-    raw_hash = hashlib.sha256(content).hexdigest()[:16]
-    file_size = len(content)
-    total_parts = max(1, math.ceil(file_size / CHUNK_SIZE))
-
-    print(f"  {DIM}size:{RESET}   {file_size / 1024 / 1024:.1f} MB")
-    print(f"  {DIM}parts:{RESET}  {total_parts} × {CHUNK_SIZE // 1024 // 1024} MB")
-
-    state_lock = threading.Lock()
-
-    # Check for existing upload state (pause/resume)
-    upload_id: str | None = None
-    key: str | None = None
-    completed_parts: list[dict] = []
-    completed_map: dict[int, dict] = {}  # partNumber → {partNumber, etag}
-
-    state = _load_state(raw_hash)
-    if state:
-        # Verify the upload is still alive in S3
-        with httpx.Client(timeout=30, headers=headers) as client:
-            r = client.get(f"{bss_url}/videos/upload/multipart/parts-done", params={
-                "uploadId": state["uploadId"],
-                "key": state["key"],
-            })
-        if r.status_code == 200:
-            data = r.json()
-            if not data.get("expired"):
-                upload_id = state["uploadId"]
-                key = state["key"]
-                for part in data["parts"]:
-                    completed_map[part["partNumber"]] = part
-                completed_parts = list(completed_map.values())
-                remaining = total_parts - len(completed_parts)
-                print(f"  {DIM}resuming:{RESET} {len(completed_parts)}/{total_parts} parts already uploaded, uploading {remaining} remaining")
-
-    # Phase 2: init multipart upload (only if not resuming)
-    if not upload_id:
-        with httpx.Client(timeout=30, headers=headers) as client:
-            r = client.post(f"{bss_url}/videos/upload/multipart/init", json={
-                "owner": t.namespace,
-                "project": t.project,
-                "hash": raw_hash,
-                "contentType": "video/mp4",
-            })
-            r.raise_for_status()
-            init_data = r.json()
-            upload_id = init_data["uploadId"]
-            key = init_data["key"]
-        _save_state(raw_hash, upload_id, key, total_parts, [], state_lock)
-
-    # Phase 3: get presigned URLs for remaining parts
-    remaining_parts = [n for n in range(1, total_parts + 1) if n not in completed_map]
-    parts_data: dict[str, str] = {}
-    if remaining_parts:
-        with httpx.Client(timeout=30, headers=headers) as client:
-            r = client.post(f"{bss_url}/videos/upload/multipart/parts", json={
-                "uploadId": upload_id,
-                "key": key,
-                "partNumbers": remaining_parts,
-            })
-            r.raise_for_status()
-            parts_data = r.json()["parts"]  # {"1": url, "2": url, ...}
-
-    # Phase 4: parallel chunk upload
-    failed = False
-
-    def upload_part(part_number: int) -> dict:
-        start = (part_number - 1) * CHUNK_SIZE
-        chunk = content[start: start + CHUNK_SIZE]
-        url = parts_data[str(part_number)]
-        with httpx.Client(timeout=300) as s3_client:
-            resp = s3_client.put(url, content=chunk, headers={"Content-Type": "video/mp4"})
-            resp.raise_for_status()
-            etag = resp.headers.get("ETag", "").strip('"')
-            return {"partNumber": part_number, "etag": etag}
-
-    if remaining_parts:
-        with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-            futures = {executor.submit(upload_part, n): n for n in remaining_parts}
-            for future in as_completed(futures):
-                part_n = futures[future]
-                try:
-                    result = future.result()
-                    completed_parts.append(result)
-                    completed_map[result["partNumber"]] = result
-                    _save_state(raw_hash, upload_id, key, total_parts, completed_parts, state_lock)
-                    print(f"  {DIM}part {part_n}/{total_parts}{RESET} uploaded")
-                except Exception as e:
-                    print(f"{RED}error:{RESET} part {part_n} failed: {e}", file=sys.stderr)
-                    failed = True
-                    for f in futures:
-                        f.cancel()
-                    break
-
-    # Phase 5: complete or abort
-    if failed:
-        print(f"{RED}error:{RESET} upload paused — re-run to resume", file=sys.stderr)
-        return 1
-
-    with httpx.Client(timeout=60, headers=headers) as client:
-        r = client.post(f"{bss_url}/videos/upload/multipart/complete", json={
-            "uploadId": upload_id,
-            "key": key,
-            "parts": completed_parts,
-        })
-        r.raise_for_status()
-
-    _clear_state(raw_hash)
-
-    # Register in BSS (creates DB record + S3 meta)
-    with httpx.Client(timeout=30, headers=headers) as client:
-        r = client.post(f"{bss_url}/videos", json={
-            "name": f"/{path}/{file_path.name}",
-            "owner": t.namespace,
-            "project": t.project,
-            "episodeId": t.episode,
-            "stagingHash": raw_hash,
-        })
-        r.raise_for_status()
-        bss_video = r.json()
-
-    # Register in dreamlake-server (links asset to namespace/space/episode)
-    with httpx.Client(timeout=30, headers=headers) as client:
-        r = client.post(f"{remote}/assets/video", json={
-            "namespace": t.namespace,
-            "project": t.project,
-            "episodeName": t.episode,
-            "name": f"/{path}/{file_path.name}",
-            "bssVideoId": bss_video.get("id"),
-            "fps": 30,
-            "lens": "pinhole",
-        })
-        r.raise_for_status()
-        dl_asset = r.json()
-        global _last_node_id; _last_node_id = dl_asset.get("nodeId")
-
-    # Trigger HLS splitting via presigned URL from dreamlake-server
-    lambda_url = dl_asset.get("lambdaUrl")
-    if lambda_url:
-        with httpx.Client(timeout=30) as client:
-            r = client.post(lambda_url)
-            if r.status_code == 202:
-                print(f"  {DIM}splitting:{RESET}    queued")
-            else:
-                print(f"  {DIM}splitting:{RESET}    skipped ({r.status_code})", file=sys.stderr)
-
-    print(f"{GREEN}✓ Uploaded:{RESET} /{path}")
-    print(f"  {DIM}bss id:{RESET}       {bss_video.get('id')}")
-    print(f"  {DIM}dreamlake id:{RESET} {dl_asset.get('id')}")
-    return 0
-
-
-def _upload_asset(file_path: Path, t, path: str, category: str, token: str) -> int:
-    """Upload non-video assets."""
-    if category == "audio":
-        return _upload_audio(file_path, t, path, token)
-    if category == "label-track":
-        return _upload_label_track(file_path, t, path, token)
-    if category == "text-track":
-        return _upload_text_track(file_path, t, path, token)
-    if category == "image":
-        return _upload_image(file_path, t, path, token)
-
-    print(f"(upload for '{category}' not yet implemented)", file=sys.stderr)
-    return 1
-
-
-def _upload_audio(file_path: Path, t, path: str, token: str) -> int:
-    """Upload audio to BSS via S3 multipart upload, then register in dreamlake-server."""
-    import hashlib
-    import math
-    import threading
-    from concurrent.futures import ThreadPoolExecutor, as_completed
-    import httpx
-
-    bss_url = ServerConfig.bss_url
-    remote = ServerConfig.remote
-    headers = {"Authorization": f"Bearer {token}"}
-
-    # Detect content type from extension
-    ext_to_mime = {
-        ".wav": "audio/wav", ".mp3": "audio/mpeg", ".aac": "audio/aac", ".opus": "audio/ogg",
-    }
-    content_type = ext_to_mime.get(file_path.suffix.lower(), "audio/wav")
-
-    # Phase 1: hash + split
-    content = file_path.read_bytes()
-    raw_hash = hashlib.sha256(content).hexdigest()[:16]
-    file_size = len(content)
-    total_parts = max(1, math.ceil(file_size / CHUNK_SIZE))
-
-    print(f"  {DIM}size:{RESET}   {file_size / 1024 / 1024:.1f} MB")
-    print(f"  {DIM}parts:{RESET}  {total_parts} × {CHUNK_SIZE // 1024 // 1024} MB")
-
-    state_lock = threading.Lock()
-    upload_id: str | None = None
-    key: str | None = None
-    completed_parts: list[dict] = []
-    completed_map: dict[int, dict] = {}
-
-    state = _load_state(raw_hash)
-    if state:
-        with httpx.Client(timeout=30, headers=headers) as client:
-            r = client.get(f"{bss_url}/audio/upload/multipart/parts-done", params={
-                "uploadId": state["uploadId"],
-                "key": state["key"],
-            })
-        if r.status_code == 200:
-            data = r.json()
-            if not data.get("expired"):
-                upload_id = state["uploadId"]
-                key = state["key"]
-                for part in data["parts"]:
-                    completed_map[part["partNumber"]] = part
-                completed_parts = list(completed_map.values())
-                remaining = total_parts - len(completed_parts)
-                print(f"  {DIM}resuming:{RESET} {len(completed_parts)}/{total_parts} parts done, {remaining} remaining")
-
-    # Phase 2: init
-    if not upload_id:
-        with httpx.Client(timeout=30, headers=headers) as client:
-            r = client.post(f"{bss_url}/audio/upload/multipart/init", json={
-                "owner": t.namespace,
-                "project": t.project,
-                "hash": raw_hash,
-                "contentType": content_type,
-            })
-            r.raise_for_status()
-            init_data = r.json()
-            upload_id = init_data["uploadId"]
-            key = init_data["key"]
-        _save_state(raw_hash, upload_id, key, total_parts, [], state_lock)
-
-    # Phase 3: get presigned URLs
-    remaining_parts = [n for n in range(1, total_parts + 1) if n not in completed_map]
-    parts_data: dict[str, str] = {}
-    if remaining_parts:
-        with httpx.Client(timeout=30, headers=headers) as client:
-            r = client.post(f"{bss_url}/audio/upload/multipart/parts", json={
-                "uploadId": upload_id,
-                "key": key,
-                "partNumbers": remaining_parts,
-            })
-            r.raise_for_status()
-            parts_data = r.json()["parts"]
-
-    # Phase 4: parallel upload
-    failed = False
-
-    def upload_part(part_number: int) -> dict:
-        start = (part_number - 1) * CHUNK_SIZE
-        chunk = content[start: start + CHUNK_SIZE]
-        url = parts_data[str(part_number)]
-        with httpx.Client(timeout=300) as s3_client:
-            resp = s3_client.put(url, content=chunk, headers={"Content-Type": content_type})
-            resp.raise_for_status()
-            etag = resp.headers.get("ETag", "").strip('"')
-            return {"partNumber": part_number, "etag": etag}
-
-    if remaining_parts:
-        with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-            futures = {executor.submit(upload_part, n): n for n in remaining_parts}
-            for future in as_completed(futures):
-                part_n = futures[future]
-                try:
-                    result = future.result()
-                    completed_parts.append(result)
-                    completed_map[result["partNumber"]] = result
-                    _save_state(raw_hash, upload_id, key, total_parts, completed_parts, state_lock)
-                    print(f"  {DIM}part {part_n}/{total_parts}{RESET} uploaded")
-                except Exception as e:
-                    print(f"{RED}error:{RESET} part {part_n} failed: {e}", file=sys.stderr)
-                    failed = True
-                    for f in futures:
-                        f.cancel()
-                    break
-
-    # Phase 5: complete or abort
-    if failed:
-        print(f"{RED}error:{RESET} upload paused — re-run to resume", file=sys.stderr)
-        return 1
-
-    with httpx.Client(timeout=60, headers=headers) as client:
-        r = client.post(f"{bss_url}/audio/upload/multipart/complete", json={
-            "uploadId": upload_id,
-            "key": key,
-            "parts": completed_parts,
-        })
-        r.raise_for_status()
-
-    _clear_state(raw_hash)
-
-    # Register in BSS
-    with httpx.Client(timeout=30, headers=headers) as client:
-        r = client.post(f"{bss_url}/audio", json={
-            "name": f"/{path}/{file_path.name}",
-            "owner": t.namespace,
-            "project": t.project,
-            "episodeId": t.episode,
-            "stagingHash": raw_hash,
-        })
-        r.raise_for_status()
-        bss_audio = r.json()
-
-    bss_audio_id = bss_audio.get("id")
-
-    # Register in dreamlake-server (gets presigned Lambda URL back)
-    with httpx.Client(timeout=30, headers=headers) as client:
-        r = client.post(f"{remote}/assets/audio", json={
-            "namespace": t.namespace,
-            "project": t.project,
-            "episodeName": t.episode,
-            "name": f"/{path}/{file_path.name}",
-            "bssAudioId": bss_audio_id,
-        })
-        r.raise_for_status()
-        dl_asset = r.json()
-        global _last_node_id; _last_node_id = dl_asset.get("nodeId")
-
-    # Trigger Lambda processing via presigned URL
-    lambda_url = dl_asset.get("lambdaUrl")
-    if lambda_url:
-        with httpx.Client(timeout=30) as client:
-            r = client.post(lambda_url)
-            if r.status_code == 202:
-                print(f"  {DIM}processing:{RESET}   queued")
-            else:
-                print(f"  {DIM}processing:{RESET}   skipped ({r.status_code})", file=sys.stderr)
-
-    print(f"{GREEN}✓ Uploaded:{RESET} /{path}")
-    print(f"  {DIM}bss id:{RESET}       {bss_audio_id}")
-    print(f"  {DIM}dreamlake id:{RESET} {dl_asset.get('id')}")
-    return 0
-
-
-def _upload_label_track(file_path: Path, t, path: str, token: str) -> int:
-    """Upload a JSONL label track to BSS via S3 multipart, then register in dreamlake-server."""
-    import hashlib
-    import math
-    import threading
-    from concurrent.futures import ThreadPoolExecutor, as_completed
-    import httpx
-
-    bss_url = ServerConfig.bss_url
-    remote = ServerConfig.remote
-    headers = {"Authorization": f"Bearer {token}"}
-
-    # Phase 1: hash + split
-    content = file_path.read_bytes()
-    raw_hash = hashlib.sha256(content).hexdigest()[:16]
-    file_size = len(content)
-    total_parts = max(1, math.ceil(file_size / CHUNK_SIZE))
-
-    print(f"  {DIM}size:{RESET}   {file_size / 1024:.1f} KB")
-    print(f"  {DIM}parts:{RESET}  {total_parts} × {CHUNK_SIZE // 1024 // 1024} MB")
-
-    state_lock = threading.Lock()
-    upload_id: str | None = None
-    key: str | None = None
-    completed_parts: list[dict] = []
-    completed_map: dict[int, dict] = {}
-
-    state = _load_state(raw_hash)
-    if state:
-        with httpx.Client(timeout=30, headers=headers) as client:
-            r = client.get(f"{bss_url}/labels/upload/multipart/parts-done", params={
-                "uploadId": state["uploadId"],
-                "key": state["key"],
-            })
-        if r.status_code == 200:
-            data = r.json()
-            if not data.get("expired"):
-                upload_id = state["uploadId"]
-                key = state["key"]
-                for part in data["parts"]:
-                    completed_map[part["partNumber"]] = part
-                completed_parts = list(completed_map.values())
-                remaining = total_parts - len(completed_parts)
-                print(f"  {DIM}resuming:{RESET} {len(completed_parts)}/{total_parts} parts done, {remaining} remaining")
-
-    # Phase 2: init
-    if not upload_id:
-        with httpx.Client(timeout=30, headers=headers) as client:
-            r = client.post(f"{bss_url}/labels/upload/multipart/init", json={
-                "owner": t.namespace,
-                "project": t.project,
-                "hash": raw_hash,
-            })
-            r.raise_for_status()
-            init_data = r.json()
-            upload_id = init_data["uploadId"]
-            key = init_data["key"]
-        _save_state(raw_hash, upload_id, key, total_parts, [], state_lock)
-
-    # Phase 3: get presigned URLs
-    remaining_parts = [n for n in range(1, total_parts + 1) if n not in completed_map]
-    parts_data: dict[str, str] = {}
-    if remaining_parts:
-        with httpx.Client(timeout=30, headers=headers) as client:
-            r = client.post(f"{bss_url}/labels/upload/multipart/parts", json={
-                "uploadId": upload_id,
-                "key": key,
-                "partNumbers": remaining_parts,
-            })
-            r.raise_for_status()
-            parts_data = r.json()["parts"]
-
-    # Phase 4: parallel upload
-    failed = False
-
-    def upload_part(part_number: int) -> dict:
-        start = (part_number - 1) * CHUNK_SIZE
-        chunk = content[start: start + CHUNK_SIZE]
-        url = parts_data[str(part_number)]
-        with httpx.Client(timeout=300) as s3_client:
-            resp = s3_client.put(url, content=chunk, headers={"Content-Type": "application/x-jsonlines"})
-            resp.raise_for_status()
-            etag = resp.headers.get("ETag", "").strip('"')
-            return {"partNumber": part_number, "etag": etag}
-
-    if remaining_parts:
-        with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-            futures = {executor.submit(upload_part, n): n for n in remaining_parts}
-            for future in as_completed(futures):
-                part_n = futures[future]
-                try:
-                    result = future.result()
-                    completed_parts.append(result)
-                    completed_map[result["partNumber"]] = result
-                    _save_state(raw_hash, upload_id, key, total_parts, completed_parts, state_lock)
-                    print(f"  {DIM}part {part_n}/{total_parts}{RESET} uploaded")
-                except Exception as e:
-                    print(f"{RED}error:{RESET} part {part_n} failed: {e}", file=sys.stderr)
-                    failed = True
-                    for f in futures:
-                        f.cancel()
-                    break
-
-    # Phase 5: complete or abort
-    if failed:
-        print(f"{RED}error:{RESET} upload paused — re-run to resume", file=sys.stderr)
-        return 1
-
-    with httpx.Client(timeout=60, headers=headers) as client:
-        r = client.post(f"{bss_url}/labels/upload/multipart/complete", json={
-            "uploadId": upload_id,
-            "key": key,
-            "parts": completed_parts,
-        })
-        r.raise_for_status()
-
-    _clear_state(raw_hash)
-
-    # Register in BSS (parses JSONL inline to extract stats)
-    with httpx.Client(timeout=30, headers=headers) as client:
-        r = client.post(f"{bss_url}/labels", json={
-            "name": f"/{path}/{file_path.name}",
-            "owner": t.namespace,
-            "project": t.project,
-            "episodeId": t.episode,
-            "stagingHash": raw_hash,
-        })
-        r.raise_for_status()
-        bss_label = r.json()
-
-    bss_label_id = bss_label.get("id")
-    entry_count = bss_label.get("entryCount", 0)
-    fields = bss_label.get("fields", [])
-
-    # Register in dreamlake-server
-    with httpx.Client(timeout=30, headers=headers) as client:
-        r = client.post(f"{remote}/assets/label-track", json={
-            "namespace": t.namespace,
-            "project": t.project,
-            "episodeName": t.episode,
-            "name": f"/{path}/{file_path.name}",
-            "bssLabelId": bss_label_id,
-        })
-        r.raise_for_status()
-        dl_asset = r.json()
-        global _last_node_id; _last_node_id = dl_asset.get("nodeId")
-
-    # Trigger Lambda processing via presigned URL
-    lambda_url = dl_asset.get("lambdaUrl")
-    if lambda_url:
-        with httpx.Client(timeout=30) as client:
-            r = client.post(lambda_url)
-            if r.status_code == 202:
-                print(f"  {DIM}processing:{RESET}   queued")
-            else:
-                print(f"  {DIM}processing:{RESET}   skipped ({r.status_code})", file=sys.stderr)
-
-    print(f"{GREEN}✓ Uploaded:{RESET} /{path}")
-    print(f"  {DIM}entries:{RESET}      {entry_count}")
-    print(f"  {DIM}fields:{RESET}       {', '.join(fields) if fields else '(none detected)'}")
-    print(f"  {DIM}bss id:{RESET}       {bss_label_id}")
-    print(f"  {DIM}dreamlake id:{RESET} {dl_asset.get('id')}")
-    return 0
-
-
-def _upload_text_track(file_path: Path, t, path: str, token: str) -> int:
-    """Upload a text track (VTT/SRT/JSONL) to BSS via S3 multipart, then register in dreamlake-server."""
-    import hashlib
-    import math
-    import threading
-    from concurrent.futures import ThreadPoolExecutor, as_completed
-    import httpx
-
-    bss_url = ServerConfig.bss_url
-    remote = ServerConfig.remote
-    headers = {"Authorization": f"Bearer {token}"}
-
-    # Detect format from extension
-    ext_to_format = {".vtt": "vtt", ".srt": "srt", ".jsonl": "jsonl"}
-    fmt = ext_to_format.get(file_path.suffix.lower())
-    if not fmt:
-        print(f"{RED}error:{RESET} unsupported text track extension '{file_path.suffix}' — use .vtt, .srt, or .jsonl", file=sys.stderr)
-        return 1
-
-    ext_to_mime = {".vtt": "text/vtt", ".srt": "text/plain", ".jsonl": "application/x-jsonlines"}
-    content_type = ext_to_mime[file_path.suffix.lower()]
-
-    # Phase 1: hash + split
-    content = file_path.read_bytes()
-    raw_hash = hashlib.sha256(content).hexdigest()[:16]
-    file_size = len(content)
-    total_parts = max(1, math.ceil(file_size / CHUNK_SIZE))
-
-    print(f"  {DIM}format:{RESET} {fmt}")
-    print(f"  {DIM}size:{RESET}   {file_size / 1024:.1f} KB")
-    print(f"  {DIM}parts:{RESET}  {total_parts} × {CHUNK_SIZE // 1024 // 1024} MB")
-
-    state_lock = threading.Lock()
-    upload_id: str | None = None
-    key: str | None = None
-    completed_parts: list[dict] = []
-    completed_map: dict[int, dict] = {}
-
-    state = _load_state(raw_hash)
-    if state:
-        with httpx.Client(timeout=30, headers=headers) as client:
-            r = client.get(f"{bss_url}/text-tracks/upload/multipart/parts-done", params={
-                "uploadId": state["uploadId"],
-                "key": state["key"],
-            })
-        if r.status_code == 200:
-            data = r.json()
-            if not data.get("expired"):
-                upload_id = state["uploadId"]
-                key = state["key"]
-                for part in data["parts"]:
-                    completed_map[part["partNumber"]] = part
-                completed_parts = list(completed_map.values())
-                remaining = total_parts - len(completed_parts)
-                print(f"  {DIM}resuming:{RESET} {len(completed_parts)}/{total_parts} parts done, {remaining} remaining")
-
-    # Phase 2: init
-    if not upload_id:
-        with httpx.Client(timeout=30, headers=headers) as client:
-            r = client.post(f"{bss_url}/text-tracks/upload/multipart/init", json={
-                "owner": t.namespace,
-                "project": t.project,
-                "hash": raw_hash,
-            })
-            r.raise_for_status()
-            init_data = r.json()
-            upload_id = init_data["uploadId"]
-            key = init_data["key"]
-        _save_state(raw_hash, upload_id, key, total_parts, [], state_lock)
-
-    # Phase 3: get presigned URLs
-    remaining_parts = [n for n in range(1, total_parts + 1) if n not in completed_map]
-    parts_data: dict[str, str] = {}
-    if remaining_parts:
-        with httpx.Client(timeout=30, headers=headers) as client:
-            r = client.post(f"{bss_url}/text-tracks/upload/multipart/parts", json={
-                "uploadId": upload_id,
-                "key": key,
-                "partNumbers": remaining_parts,
-            })
-            r.raise_for_status()
-            parts_data = r.json()["parts"]
-
-    # Phase 4: parallel upload
-    failed = False
-
-    def upload_part(part_number: int) -> dict:
-        start = (part_number - 1) * CHUNK_SIZE
-        chunk = content[start: start + CHUNK_SIZE]
-        url = parts_data[str(part_number)]
-        with httpx.Client(timeout=300) as s3_client:
-            resp = s3_client.put(url, content=chunk, headers={"Content-Type": content_type})
-            resp.raise_for_status()
-            etag = resp.headers.get("ETag", "").strip('"')
-            return {"partNumber": part_number, "etag": etag}
-
-    if remaining_parts:
-        with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-            futures = {executor.submit(upload_part, n): n for n in remaining_parts}
-            for future in as_completed(futures):
-                part_n = futures[future]
-                try:
-                    result = future.result()
-                    completed_parts.append(result)
-                    completed_map[result["partNumber"]] = result
-                    _save_state(raw_hash, upload_id, key, total_parts, completed_parts, state_lock)
-                    print(f"  {DIM}part {part_n}/{total_parts}{RESET} uploaded")
-                except Exception as e:
-                    print(f"{RED}error:{RESET} part {part_n} failed: {e}", file=sys.stderr)
-                    failed = True
-                    for f in futures:
-                        f.cancel()
-                    break
-
-    # Phase 5: complete or abort
-    if failed:
-        print(f"{RED}error:{RESET} upload paused — re-run to resume", file=sys.stderr)
-        return 1
-
-    with httpx.Client(timeout=60, headers=headers) as client:
-        r = client.post(f"{bss_url}/text-tracks/upload/multipart/complete", json={
-            "uploadId": upload_id,
-            "key": key,
-            "parts": completed_parts,
-        })
-        r.raise_for_status()
-
-    _clear_state(raw_hash)
-
-    # Register in BSS (parses content inline to extract stats)
-    with httpx.Client(timeout=30, headers=headers) as client:
-        r = client.post(f"{bss_url}/text-tracks", json={
-            "name": f"/{path}/{file_path.name}",
-            "owner": t.namespace,
-            "project": t.project,
-            "episodeId": t.episode,
-            "stagingHash": raw_hash,
-            "format": fmt,
-        })
-        r.raise_for_status()
-        bss_track = r.json()
-
-    bss_track_id = bss_track.get("id")
-    entry_count = bss_track.get("entryCount", 0)
-
-    # Register in dreamlake-server
-    with httpx.Client(timeout=30, headers=headers) as client:
-        r = client.post(f"{remote}/assets/text-track", json={
-            "namespace": t.namespace,
-            "project": t.project,
-            "episodeName": t.episode,
-            "name": f"/{path}/{file_path.name}",
-            "bssTextTrackId": bss_track_id,
-            "format": fmt,
-        })
-        r.raise_for_status()
-        dl_asset = r.json()
-        global _last_node_id; _last_node_id = dl_asset.get("nodeId")
-
-    # Trigger Lambda processing via presigned URL
-    lambda_url = dl_asset.get("lambdaUrl")
-    if lambda_url:
-        with httpx.Client(timeout=30) as client:
-            r = client.post(lambda_url)
-            if r.status_code == 202:
-                print(f"  {DIM}processing:{RESET}   queued")
-            else:
-                print(f"  {DIM}processing:{RESET}   skipped ({r.status_code})", file=sys.stderr)
-
-    print(f"{GREEN}✓ Uploaded:{RESET} /{path}")
-    print(f"  {DIM}entries:{RESET}      {entry_count}")
-    print(f"  {DIM}bss id:{RESET}       {bss_track_id}")
-    print(f"  {DIM}dreamlake id:{RESET} {dl_asset.get('id')}")
-    return 0
-
-
-def _upload_image(file_path: Path, t, path: str, token: str) -> int:
-    """Upload image to BSS via S3 multipart upload, then register in dreamlake-server. No Lambda."""
-    import hashlib
-    import math
-    import threading
-    from concurrent.futures import ThreadPoolExecutor, as_completed
-    import httpx
-
-    bss_url = ServerConfig.bss_url
-    remote = ServerConfig.remote
-    headers = {"Authorization": f"Bearer {token}"}
-
-    ext_to_mime = {
-        ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png",
-        ".gif": "image/gif", ".webp": "image/webp", ".bmp": "image/bmp",
-        ".tiff": "image/tiff", ".tif": "image/tiff",
-    }
-    content_type = ext_to_mime.get(file_path.suffix.lower(), "image/jpeg")
-
-    content = file_path.read_bytes()
-    raw_hash = hashlib.sha256(content).hexdigest()[:16]
-    file_size = len(content)
-    total_parts = max(1, math.ceil(file_size / CHUNK_SIZE))
-
-    print(f"  {DIM}size:{RESET}   {file_size / 1024 / 1024:.1f} MB")
-    print(f"  {DIM}parts:{RESET}  {total_parts} x {CHUNK_SIZE // 1024 // 1024} MB")
-
-    state_lock = threading.Lock()
-    upload_id: str | None = None
-    key: str | None = None
-    completed_parts: list[dict] = []
-    completed_map: dict[int, dict] = {}
-
-    state = _load_state(raw_hash)
-    if state:
-        with httpx.Client(timeout=30, headers=headers) as client:
-            r = client.get(f"{bss_url}/image/upload/multipart/parts-done", params={
-                "uploadId": state["uploadId"],
-                "key": state["key"],
-            })
-        if r.status_code == 200:
-            data = r.json()
-            if not data.get("expired"):
-                upload_id = state["uploadId"]
-                key = state["key"]
-                for p in data.get("parts", []):
-                    completed_map[p["partNumber"]] = p
-
-    if not upload_id:
-        with httpx.Client(timeout=30, headers=headers) as client:
-            r = client.post(f"{bss_url}/image/upload/multipart/init", json={
-                "owner": t.namespace, "project": t.project, "hash": raw_hash,
-                "contentType": content_type,
-            })
-            r.raise_for_status()
-            data = r.json()
-            upload_id = data["uploadId"]
-            key = data["key"]
-        _save_state(raw_hash, upload_id, key)
-
-    remaining_parts = [i + 1 for i in range(total_parts) if (i + 1) not in completed_map]
-
-    if remaining_parts:
-        with httpx.Client(timeout=30, headers=headers) as client:
-            r = client.post(f"{bss_url}/image/upload/multipart/parts", json={
-                "uploadId": upload_id, "key": key, "partNumbers": remaining_parts,
-            })
-            r.raise_for_status()
-            part_urls = r.json()["parts"]
-
-        def upload_part(part_number: int) -> dict:
-            url = part_urls[str(part_number)]
-            start = (part_number - 1) * CHUNK_SIZE
-            end = min(start + CHUNK_SIZE, file_size)
-            chunk = content[start:end]
-            resp = httpx.Client(timeout=120).put(url, content=chunk, headers={"Content-Type": content_type})
-            resp.raise_for_status()
-            return {"partNumber": part_number, "etag": resp.headers["etag"]}
-
-        failed = False
-        with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
-            futures = {pool.submit(upload_part, n): n for n in remaining_parts}
-
-            for f in as_completed(futures):
-                pn = futures[f]
-                try:
-                    part = f.result()
-                    with state_lock:
-                        completed_map[pn] = part
-                except Exception as e:
-                    print(f"  {RED}part {pn} failed:{RESET} {e}", file=sys.stderr)
-                    failed = True
-                    for pending in futures:
-                        if not pending.done():
-                            pending.cancel()
-                    break
-
-        if failed:
-            print(f"{RED}error:{RESET} upload paused — re-run to resume", file=sys.stderr)
-            return 1
-
-    completed_parts = sorted(completed_map.values(), key=lambda p: p["partNumber"])
-
-    with httpx.Client(timeout=60, headers=headers) as client:
-        r = client.post(f"{bss_url}/image/upload/multipart/complete", json={
-            "uploadId": upload_id, "key": key, "parts": completed_parts,
-        })
-        r.raise_for_status()
-
-    _clear_state(raw_hash)
-
-    # Register in BSS
-    with httpx.Client(timeout=30, headers=headers) as client:
-        r = client.post(f"{bss_url}/image", json={
-            "name": f"/{path}/{file_path.name}",
-            "owner": t.namespace,
-            "project": t.project,
-            "episodeId": t.episode,
-            "stagingHash": raw_hash,
-            "fileSize": file_size,
-        })
-        r.raise_for_status()
-        bss_image = r.json()
-
-    bss_image_id = bss_image.get("id")
-
-    # Register in dreamlake-server (no Lambda needed)
-    with httpx.Client(timeout=30, headers=headers) as client:
-        r = client.post(f"{remote}/assets/image", json={
-            "namespace": t.namespace,
-            "project": t.project,
-            "episodeName": t.episode,
-            "name": f"/{path}/{file_path.name}",
-            "bssImageId": bss_image_id,
-        })
-        r.raise_for_status()
-        dl_asset = r.json()
-        global _last_node_id; _last_node_id = dl_asset.get("nodeId")
-
-    print(f"{GREEN}✓ Uploaded:{RESET} /{path}/{file_path.name}")
-    print(f"  {DIM}bss id:{RESET}       {bss_image_id}")
-    print(f"  {DIM}dreamlake id:{RESET} {dl_asset.get('id')}")
-    return 0
 
 
 def main(args: list) -> int:

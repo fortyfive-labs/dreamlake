@@ -118,13 +118,18 @@ class DreamLakeClient:
 
     # ── DreamLake Server ────────────────────────────────────────────────
 
-    def register_dl_asset(self, asset_type: str, body: dict) -> dict:
+    def register_node(self, body: dict) -> dict:
+        """POST /nodes — create any node (project, episode, folder, or file asset)."""
         r = httpx.post(
-            f"{self.dl_url}/assets/{asset_type}",
+            f"{self.dl_url}/nodes",
             json=body, headers=self._headers(), timeout=30,
         )
         r.raise_for_status()
         return r.json()
+
+    def register_dl_asset(self, asset_type: str, body: dict) -> dict:
+        """Deprecated — use register_node() instead."""
+        return self.register_node(body)
 
     def get_auth_me(self) -> dict:
         r = httpx.get(f"{self.dl_url}/auth/me", headers=self._headers(), timeout=10)

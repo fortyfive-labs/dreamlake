@@ -120,7 +120,7 @@ Video("bss://...69e7264a", st=10.0, et=20.0, duration=10.0)
 ```python
 track.id             # "tt-Kx9mP2qR4tWn8vZy"
 track.prefix         # "/2026/04/run-042/captions/llava"
-track.space          # "robotics@alice"
+track.project        # "robotics@alice"
 track.count          # number of entries
 ```
 
@@ -129,7 +129,7 @@ track.count          # number of entries
 ```python
 track = dl.text_track(
     prefix="/2026/04/run-042/captions/llava",
-    space="robotics@alice",
+    project="robotics@alice",
 )
 ```
 
@@ -166,7 +166,7 @@ video = dl.load_video("v-BV1bW411n7fY9x01")
 # Create a caption track
 track = dl.text_track(
     prefix="/2026/04/run-042/captions/scene-description",
-    space="robotics@alice",
+    project="robotics@alice",
 )
 
 # Caption every 2s segment
@@ -183,7 +183,7 @@ track.flush()
 
 ```python
 >>> track
-TextTrack("/2026/04/run-042/captions/scene-description", space="robotics@alice", count=30)
+TextTrack("/2026/04/run-042/captions/scene-description", project="robotics@alice", count=30)
 ```
 
 ### VectorIndex
@@ -272,9 +272,9 @@ Returns a `Video`. Accepts resource ID or `bss://`, `file://`, `s3://` URI.
 ### dl.upload
 
 ```python
-dl.upload("./video.mp4", space="robotics@alice", prefix="/2026/04/run-042/camera/front")
-dl.upload("./captions.jsonl", space="robotics@alice", prefix="/2026/04/run-042/captions/llava")
-dl.upload("./audio.wav", space="robotics@alice", prefix="/2026/04/run-042/mic/front")
+dl.upload("./video.mp4", project="robotics@alice", prefix="/2026/04/run-042/camera/front")
+dl.upload("./captions.jsonl", project="robotics@alice", prefix="/2026/04/run-042/captions/llava")
+dl.upload("./audio.wav", project="robotics@alice", prefix="/2026/04/run-042/mic/front")
 ```
 
 Type auto-detected from extension. Chunked multipart upload with progress bar. Triggers Lambda processing (HLS split, etc.) after upload.
@@ -290,7 +290,7 @@ Type auto-detected from extension. Chunked multipart upload with progress bar. T
 Override with `type=`:
 
 ```python
-dl.upload("./data.jsonl", space="...", prefix="...", type="caption-track")
+dl.upload("./data.jsonl", project="...", prefix="...", type="caption-track")
 ```
 
 ### dl.text_track
@@ -298,7 +298,7 @@ dl.upload("./data.jsonl", space="...", prefix="...", type="caption-track")
 ```python
 track = dl.text_track(
     prefix="/2026/04/run-042/captions/llava",
-    space="robotics@alice",
+    project="robotics@alice",
 )
 ```
 
@@ -314,10 +314,10 @@ Creates or connects to a named `VectorIndex`. Lazy — collection created on fir
 
 ## Prefix Context
 
-Avoid repeating `space=` and `prefix=` on every call.
+Avoid repeating `project=` and `prefix=` on every call.
 
 ```python
-with dl.Prefix(space="robotics@alice", prefix="/2026/04/run-042"):
+with dl.Prefix(project="robotics@alice", prefix="/2026/04/run-042"):
     dl.upload("./video.mp4", path="/camera/front")
     track = dl.text_track(path="/captions/llava")
     index = dl.vec_index("my-experiment")
@@ -326,7 +326,7 @@ with dl.Prefix(space="robotics@alice", prefix="/2026/04/run-042"):
 All paths inside the block are relative to the prefix. Nestable:
 
 ```python
-with dl.Prefix(space="robotics@alice", prefix="/2026/04"):
+with dl.Prefix(project="robotics@alice", prefix="/2026/04"):
     with dl.Prefix(prefix="run-042"):
         dl.upload("./video.mp4", path="/camera/front")
         # resolves to: /2026/04/run-042/camera/front
@@ -335,10 +335,10 @@ with dl.Prefix(space="robotics@alice", prefix="/2026/04"):
 ## Path Resolution
 
 - **Relative** paths are appended to the current prefix
-- **Absolute** paths (starting with `/`) are resolved from the space root, ignoring prefix
+- **Absolute** paths (starting with `/`) are resolved from the project root, ignoring prefix
 
 ```python
-with dl.Prefix(space="robotics@alice", prefix="/2026/04/run-042"):
+with dl.Prefix(project="robotics@alice", prefix="/2026/04/run-042"):
     dl.upload("./a.mp4", path="camera/front")     # → /2026/04/run-042/camera/front
     dl.upload("./b.mp4", path="/shared/ref.mp4")   # → /shared/ref.mp4 (absolute)
 ```
@@ -351,7 +351,7 @@ from my_model import enc_image, describe
 
 video = dl.load_video("v-BV1bW411n7fY9x01")
 
-with dl.Prefix(space="robotics@alice", prefix="/2026/04/run-042"):
+with dl.Prefix(project="robotics@alice", prefix="/2026/04/run-042"):
     # Upload
     dl.upload("./video.mp4", path="camera/front")
 

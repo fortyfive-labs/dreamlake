@@ -195,20 +195,24 @@ def upload(
     bss_result = client.register_bss_asset(asset_type, bss_body)
     bss_id = bss_result.get("id")
 
-    dl_body = {
+    # Register in dreamlake-server (unified POST /nodes)
+    node_body: dict = {
         "namespace": namespace,
-        "project": project_slug,
+        "kind": asset_type,
         "name": full_name,
+        "project": project_slug,
+        "metadata": {
+            "bssId": bss_id,
+            "hash": raw_hash,
+            "size": file_size,
+            "contentType": content_type,
+        },
     }
     if episode_name:
-        dl_body["episodeName"] = episode_name
-    bss_id_field = {"video": "bssVideoId", "audio": "bssAudioId", "image": "bssImageId",
-                    "text-track": "bssTextTrackId", "label-track": "bssLabelId"}.get(asset_type)
-    if bss_id_field:
-        dl_body[bss_id_field] = bss_id
+        node_body["episode"] = episode_name
 
     try:
-        dl_result = client.register_dl_asset(asset_type, dl_body)
+        dl_result = client.register_node(node_body)
     except Exception as e:
         import httpx as _hx
         if isinstance(e, _hx.HTTPStatusError) and e.response.status_code == 404:
