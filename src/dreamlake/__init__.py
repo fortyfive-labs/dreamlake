@@ -111,18 +111,39 @@ def upload(
 
     client = _get_client()
 
-    # Auto-detect type
-    ext_map = {
-        ".wav": "audio", ".mp3": "audio", ".aac": "audio", ".opus": "audio",
-        ".mp4": "video", ".mkv": "video",
+    # Auto-detect kind from extension. Free-form — anything that isn't in this
+    # table falls through to kind="file" (still uploads, just no special tag).
+    ext_to_kind = {
+        ".mp4": "video", ".mkv": "video", ".mov": "video", ".webm": "video",
+        ".wav": "audio", ".mp3": "audio", ".aac": "audio", ".opus": "audio", ".flac": "audio",
         ".jpg": "image", ".jpeg": "image", ".png": "image", ".gif": "image",
         ".webp": "image", ".bmp": "image", ".tiff": "image",
         ".jsonl": "label-track", ".vtt": "text-track", ".srt": "text-track",
+        ".parquet": "parquet", ".csv": "csv", ".npy": "npy", ".npz": "npy",
+        ".pkl": "pickle", ".pickle": "pickle",
+        ".txt": "text", ".md": "text", ".log": "text",
+        ".json": "json",
     }
+
+    # MIME content-types (browsers + S3 use this for Content-Type headers)
+    ext_to_mime = {
+        ".mp4": "video/mp4", ".mkv": "video/x-matroska", ".mov": "video/quicktime", ".webm": "video/webm",
+        ".wav": "audio/wav", ".mp3": "audio/mpeg", ".aac": "audio/aac",
+        ".opus": "audio/ogg", ".flac": "audio/flac",
+        ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png",
+        ".gif": "image/gif", ".webp": "image/webp", ".bmp": "image/bmp", ".tiff": "image/tiff",
+        ".vtt": "text/vtt", ".srt": "text/plain", ".jsonl": "application/x-jsonlines",
+        ".parquet": "application/vnd.apache.parquet", ".csv": "text/csv",
+        ".npy": "application/octet-stream", ".npz": "application/octet-stream",
+        ".pkl": "application/octet-stream", ".pickle": "application/octet-stream",
+        ".txt": "text/plain", ".md": "text/markdown", ".log": "text/plain",
+        ".json": "application/json",
+    }
+
     fp = Path(file_path)
-    asset_type = type or ext_map.get(fp.suffix.lower())
-    if not asset_type:
-        raise ValueError(f"Cannot detect type for {fp.suffix}. Use type= to specify.")
+    ext = fp.suffix.lower()
+    asset_type = type or ext_to_kind.get(ext) or "file"  # default kind="file"
+    content_type = ext_to_mime.get(ext, "application/octet-stream")
 
     from rich.progress import Progress, BarColumn, TextColumn, TransferSpeedColumn
 
@@ -133,26 +154,18 @@ def upload(
     chunk_size = 10 * 1024 * 1024
     total_parts = max(1, math.ceil(file_size / chunk_size))
 
-    # BSS route for upload
-    bss_type_map = {"video": "videos", "audio": "audio", "image": "image",
-                    "text-track": "text-tracks", "label-track": "labels"}
-    bss_route = bss_type_map.get(asset_type, asset_type)
-
-    mime_map = {"video": "video/mp4", "audio": "audio/wav", "image": "image/jpeg",
-                "text-track": "text/vtt", "label-track": "application/x-jsonlines"}
-    content_type = mime_map.get(asset_type, "application/octet-stream")
-
     # Build full asset name
     full_name = f"{resolved_path}/{fp.name}" if resolved_path else fp.name
     if not full_name.startswith("/"):
         full_name = f"/{full_name}"
 
-    print(f"  uploading {fp.name} ({asset_type}, {file_size / 1024 / 1024:.1f} MB)")
+    size_str = f"{file_size / 1024 / 1024:.1f} MB" if file_size > 1024 * 1024 else f"{file_size / 1024:.1f} KB"
+    print(f"  uploading {fp.name} (kind={asset_type}, {size_str})")
 
-    # Multipart upload
-    init = client.upload_init(bss_route, namespace, project_slug, raw_hash, content_type)
+    # Multipart upload — unified /files route
+    init = client.upload_init("files", namespace, project_slug, raw_hash, content_type)
     upload_id, key = init["uploadId"], init["key"]
-    part_urls = client.upload_parts(bss_route, upload_id, key, list(range(1, total_parts + 1)))
+    part_urls = client.upload_parts("files", upload_id, key, list(range(1, total_parts + 1)))
 
     import httpx as _httpx
     completed = []
@@ -174,7 +187,7 @@ def upload(
             completed.append({"partNumber": pn, "etag": r.headers["etag"]})
             progress.advance(task)
 
-    client.upload_complete(bss_route, upload_id, key, completed)
+    client.upload_complete("files", upload_id, key, completed)
 
     # Episode name = last segment of the Prefix context's prefix
     # The path under the episode = resolved_path stripped of the episode segment
@@ -198,14 +211,18 @@ def upload(
     else:
         server_name = full_name
 
-    # Register in BSS (uses full_name for human-readable reference)
+    # Register in BSS — unified /files route, kind passes through
     bss_body = {
         "name": full_name,
         "owner": namespace,
         "project": project_slug,
         "stagingHash": raw_hash,
+        "kind": asset_type,
+        "contentType": content_type,
+        "size": file_size,
+        "originalName": fp.name,
     }
-    bss_result = client.register_bss_asset(asset_type, bss_body)
+    bss_result = client.register_bss_asset("file", bss_body)
     bss_id = bss_result.get("id")
 
     # Register in dreamlake-server (unified POST /nodes)
@@ -411,21 +428,16 @@ def _parse_project_arg(project: str | None) -> tuple[str, str]:
     return project_slug, namespace
 
 
-def _resolve_member_to_id(member: str, namespace: str, project_slug: str,
-                          episode_name: str | None) -> str:
-    """Resolve a member (24-char hex node ID or path) to a node ID."""
-    import re
+def _resolve_path_to_id(path: str, namespace: str, project_slug: str,
+                        episode_name: str | None) -> str:
+    """Resolve a path to a node ID via /nodes/lookup."""
     from .api.prefix import resolve_path, _ctx_prefix
 
-    if re.fullmatch(r"[a-fA-F0-9]{24}", member):
-        return member  # already a node ID
-
-    # Treat as path
     ctx_prefix_str = _ctx_prefix.get().strip("/")
-    if member.startswith("/"):
-        asset_path = member
+    if path.startswith("/"):
+        asset_path = path
     else:
-        resolved = resolve_path(member)
+        resolved = resolve_path(path)
         if ctx_prefix_str:
             ctx_norm = "/" + ctx_prefix_str
             if resolved.startswith(ctx_norm + "/"):
@@ -455,8 +467,7 @@ def bindr(
     Args:
         name: Bindr name (unique within project)
         project: "slug@namespace" — overrides Prefix context
-        members: List of paths or node IDs. Each entry can be:
-            - A 24-char hex node ID
+        members: List of paths to include. Each is either:
             - An absolute path "/episode/sensors/camera" (from project root)
             - A relative path "sensors/camera" (resolved against Prefix context)
         description: Optional description (set on create)
@@ -464,17 +475,13 @@ def bindr(
         create: If True, create the bindr if missing. Default True.
 
     Examples:
-        # Inside a Prefix context — relative paths work
+        # Inside a Prefix context — relative paths
         with dl.Prefix(project="robotics@tom-tao", prefix="/session-100"):
             dl.bindr("my-set", members=["sensors", "audio"])
 
         # Absolute paths
         dl.bindr("my-set", project="robotics@tom-tao",
                  members=["/session-100/sensors", "/session-100/audio"])
-
-        # Mixed paths and IDs
-        dl.bindr("my-set", project="robotics@tom-tao",
-                 members=["/sensors", "69e7264a1234567890abcdef"])
     """
     from .api.prefix import _ctx_prefix
     client = _get_client()
@@ -484,11 +491,11 @@ def bindr(
     ctx_prefix_str = _ctx_prefix.get().strip("/")
     episode_name = ctx_prefix_str.split("/")[-1] if ctx_prefix_str else None
 
-    # Resolve paths → node IDs (IDs pass through unchanged)
+    # Resolve paths → node IDs
     resolved_ids: list[str] | None = None
     if members:
         resolved_ids = [
-            _resolve_member_to_id(m, namespace, project_slug, episode_name)
+            _resolve_path_to_id(m, namespace, project_slug, episode_name)
             for m in members
         ]
 

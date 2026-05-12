@@ -106,13 +106,11 @@ class DreamLakeClient:
         r.raise_for_status()
 
     def register_bss_asset(self, asset_type: str, body: dict) -> dict:
-        # Map asset type to BSS route
-        route_map = {
-            "video": "videos", "audio": "audio", "image": "image",
-            "text-track": "text-tracks", "label-track": "labels",
-        }
-        route = route_map.get(asset_type, asset_type)
-        r = httpx.post(f"{self.bss_url}/{route}", json=body, timeout=30)
+        """Register a file with BSS via unified /files route.
+
+        `asset_type` is kept for backward compat but ignored — kind lives in body.
+        """
+        r = httpx.post(f"{self.bss_url}/files", json=body, timeout=30)
         r.raise_for_status()
         return r.json()
 
