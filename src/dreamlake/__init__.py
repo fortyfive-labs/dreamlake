@@ -253,6 +253,146 @@ def upload(
     return dl_result
 
 
+def upload_folder(
+    local_dir,
+    project: str | None = None,
+    prefix: str | None = None,
+    path: str | None = None,
+    recursive: bool = True,
+    parallel: int = 4,
+    ignore: list[str] | None = None,
+    on_file=None,
+) -> dict:
+    """Upload every file in a local directory tree, preserving structure.
+
+    A file at `<local_dir>/a/b/c.mp4` lands at `<prefix>/a/b/c.mp4` on the
+    server. Folders along the way are auto-created. Files dedupe by hash,
+    so re-running this on the same directory is cheap.
+
+    Args:
+        local_dir: Local directory to walk.
+        project: "slug@namespace". Overrides Prefix context.
+        prefix: Server-side destination prefix (last segment = episode name).
+            Inherits from Prefix context if omitted.
+        path: Alias for `prefix` — same semantics as `dl.upload(path=...)`.
+        recursive: If True (default), walks subdirectories. Otherwise only
+            uploads files directly inside `local_dir`.
+        parallel: Max concurrent uploads. Default 4.
+        ignore: List of fnmatch glob patterns (matched against the file's
+            basename) to skip. Defaults to common temp/hidden patterns:
+            [".DS_Store", "Thumbs.db", "*.tmp", "*.lock", "*.swp", ".*"].
+            Pass an explicit empty list to skip nothing.
+        on_file: Optional callback `(file_path: Path, index: int, total: int)`
+            invoked after each file completes (success or failure).
+
+    Returns:
+        `{"total": N, "uploaded": K, "failed": F, "errors": [{file, error}, ...]}`
+
+    Examples:
+        # Recursive upload — local tree mirrored under the episode.
+        with dl.Prefix(project="robotics@alice", prefix="/run-100"):
+            dl.upload_folder("./capture-001")
+
+        # Explicit project + prefix, no Prefix context needed.
+        dl.upload_folder(
+            "./capture-001",
+            project="robotics@alice",
+            prefix="/run-100",
+            parallel=8,
+            ignore=["*.swp", "*.bak"],
+        )
+
+        # Flat (just files at the top level — no recursion)
+        dl.upload_folder("./top-level-only", recursive=False)
+    """
+    import fnmatch
+    import os
+    import sys
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    from pathlib import Path
+    from .api.prefix import resolve_project as _resolve_project, _ctx_prefix
+
+    local = Path(local_dir)
+    if not local.exists():
+        raise FileNotFoundError(f"local directory not found: {local}")
+    if not local.is_dir():
+        raise NotADirectoryError(f"not a directory: {local}")
+
+    # Resolve target context up front so worker threads don't depend on
+    # contextvars inheritance (Python threads don't auto-inherit them).
+    resolved_project = _resolve_project(project)
+    if not resolved_project:
+        raise ValueError("project is required. Set via dl.Prefix or project= arg.")
+
+    effective_prefix = prefix if prefix is not None else (path if path is not None else None)
+    if effective_prefix is None:
+        effective_prefix = _ctx_prefix.get()
+    if not effective_prefix:
+        raise ValueError("prefix is required. Set via dl.Prefix(prefix=...) or prefix= arg.")
+
+    default_ignore = [".DS_Store", "Thumbs.db", "*.tmp", "*.lock", "*.swp", ".*"]
+    ignore_patterns = default_ignore if ignore is None else list(ignore)
+
+    def _name_skipped(name: str) -> bool:
+        return any(fnmatch.fnmatch(name, pat) for pat in ignore_patterns)
+
+    def _skip(p: Path) -> bool:
+        # Skip if the file itself matches, OR any parent directory between
+        # `local` and the file matches an ignore pattern (e.g. `.git/HEAD`).
+        rel_parts = p.relative_to(local).parts
+        return any(_name_skipped(seg) for seg in rel_parts)
+
+    files = (
+        [f for f in local.rglob("*") if f.is_file() and not _skip(f)]
+        if recursive
+        else [f for f in local.iterdir() if f.is_file() and not _skip(f)]
+    )
+    files.sort()
+    total = len(files)
+
+    if total == 0:
+        print(f"  no files to upload in {local}")
+        return {"total": 0, "uploaded": 0, "failed": 0, "errors": []}
+
+    print(f"  uploading {total} file(s) from {local}  (parallel={parallel})")
+
+    def _upload_one(idx_file):
+        idx, file = idx_file
+        try:
+            rel = file.parent.relative_to(local)
+            sub = "" if rel == Path(".") else str(rel).replace(os.sep, "/")
+            with Prefix(project=resolved_project, prefix=effective_prefix):
+                result = upload(str(file), path=sub)
+            if on_file:
+                try: on_file(file, idx, total)
+                except Exception: pass
+            return ("ok", file, result)
+        except Exception as e:
+            if on_file:
+                try: on_file(file, idx, total)
+                except Exception: pass
+            return ("err", file, str(e))
+
+    uploaded = 0
+    failed = 0
+    errors: list[dict] = []
+
+    with ThreadPoolExecutor(max_workers=max(1, parallel)) as pool:
+        futures = [pool.submit(_upload_one, (i, f)) for i, f in enumerate(files)]
+        for fut in as_completed(futures):
+            status, file, payload = fut.result()
+            if status == "ok":
+                uploaded += 1
+            else:
+                failed += 1
+                errors.append({"file": str(file), "error": payload})
+                print(f"  ✗ {file.name}: {payload}", file=sys.stderr)
+
+    tail = f", {failed} failed" if failed else ""
+    print(f"  done: {uploaded}/{total} uploaded{tail}")
+    return {"total": total, "uploaded": uploaded, "failed": failed, "errors": errors}
+
+
 def _download_file(client, node_id: str, dest_path: "Path") -> None:
     """Stream a single file by node ID to dest_path."""
     import httpx as _httpx
@@ -668,6 +808,7 @@ __all__ = [
     "load_video",
     "load",
     "upload",
+    "upload_folder",
     "download",
     "bindr",
     "download_bindr",
