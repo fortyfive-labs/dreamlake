@@ -177,11 +177,28 @@ class DreamLakeClient:
         r.raise_for_status()
         return r.json()
 
+    def get_bindr_by_id(self, bindr_id: str) -> dict:
+        """Lookup a bindr by its ID — used to resolve nested bindr members."""
+        r = httpx.get(
+            f"{self.dl_url}/bindrs/{bindr_id}",
+            headers=self._headers(), timeout=15,
+        )
+        r.raise_for_status()
+        return r.json()
+
     def add_bindr_members(self, namespace: str, project: str, name: str,
-                          node_ids: list[str]) -> dict:
+                          add: list) -> dict:
+        """Add members to a bindr.
+
+        `add` is a list of:
+          - str            → treated as a node ID (backwards compat)
+          - {"type":"node",  "id":...}
+          - {"type":"bindr", "id":...}
+        Server rejects cycles for bindr-typed refs.
+        """
         r = httpx.post(
             f"{self.dl_url}/namespaces/{namespace}/projects/{project}/bindrs/{name}/members",
-            json={"add": node_ids}, headers=self._headers(), timeout=30,
+            json={"add": add}, headers=self._headers(), timeout=30,
         )
         r.raise_for_status()
         return r.json()

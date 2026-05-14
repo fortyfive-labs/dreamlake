@@ -458,30 +458,33 @@ def bindr(
     name: str,
     project: str | None = None,
     members: list[str] | None = None,
+    bindrs: list[str] | None = None,
     description: str | None = None,
     tags: list[str] | None = None,
     create: bool = True,
 ) -> dict:
-    """Get or create a bindr. Adds members if provided.
+    """Get or create a bindr. Adds members and/or nested bindrs if provided.
 
     Args:
         name: Bindr name (unique within project)
         project: "slug@namespace" — overrides Prefix context
-        members: List of paths to include. Each is either:
-            - An absolute path "/episode/sensors/camera" (from project root)
-            - A relative path "sensors/camera" (resolved against Prefix context)
+        members: List of paths (each resolves to a node id). Paths are
+            absolute (`/episode/sensors`) or relative to Prefix context.
+        bindrs: List of bindr names to include as nested bindr members
+            (resolved within the same project). Server rejects cycles.
         description: Optional description (set on create)
         tags: Optional tag list (set on create)
         create: If True, create the bindr if missing. Default True.
 
     Examples:
-        # Inside a Prefix context — relative paths
-        with dl.Prefix(project="robotics@tom-tao", prefix="/session-100"):
-            dl.bindr("my-set", members=["sensors", "audio"])
+        # File/folder members by path
+        with dl.Prefix(project="robotics@alice", prefix="/run-100"):
+            dl.bindr("training-set", members=["camera/front", "labels/yolo"])
 
-        # Absolute paths
-        dl.bindr("my-set", project="robotics@tom-tao",
-                 members=["/session-100/sensors", "/session-100/audio"])
+        # Nest other bindrs
+        dl.bindr("master-train",
+                 project="robotics@alice",
+                 bindrs=["train-batch-1", "train-batch-2"])
     """
     from .api.prefix import _ctx_prefix
     client = _get_client()
@@ -491,31 +494,107 @@ def bindr(
     ctx_prefix_str = _ctx_prefix.get().strip("/")
     episode_name = ctx_prefix_str.split("/")[-1] if ctx_prefix_str else None
 
-    # Resolve paths → node IDs
-    resolved_ids: list[str] | None = None
+    # Build the unified list of refs to add: tagged {type, id} objects.
+    refs: list[dict] = []
     if members:
-        resolved_ids = [
-            _resolve_path_to_id(m, namespace, project_slug, episode_name)
-            for m in members
-        ]
+        for m in members:
+            node_id = _resolve_path_to_id(m, namespace, project_slug, episode_name)
+            refs.append({"type": "node", "id": node_id})
+    if bindrs:
+        for bname in bindrs:
+            b = client.get_bindr(namespace, project_slug, bname)
+            refs.append({"type": "bindr", "id": b["id"]})
 
     # Try to fetch existing bindr
     import httpx as _httpx
     try:
         existing = client.get_bindr(namespace, project_slug, name)
-        if resolved_ids:
-            updated = client.add_bindr_members(namespace, project_slug, name, resolved_ids)
+        if refs:
+            updated = client.add_bindr_members(namespace, project_slug, name, refs)
             existing["members"] = updated.get("members", existing.get("members"))
         return existing
     except _httpx.HTTPStatusError as e:
         if e.response.status_code != 404 or not create:
             raise
 
-    # Create
+    # Create — pass refs as members (the server normalizes either form)
     return client.create_bindr(
         namespace, project_slug, name,
-        members=resolved_ids, description=description, tags=tags,
+        members=refs or None, description=description, tags=tags,
     )
+
+
+def _normalize_member_ref(m) -> dict:
+    """Coerce a member entry into {type, id}. Legacy strings become node refs."""
+    if isinstance(m, str):
+        return {"type": "node", "id": m}
+    if isinstance(m, dict) and "id" in m:
+        return {"type": "bindr" if m.get("type") == "bindr" else "node", "id": m["id"]}
+    return {"type": "node", "id": str(m)}
+
+
+def _download_node_member(client, member_id: str, out_dir: "Path") -> int:
+    """Download a single node member (file or folder). Returns file count."""
+    from pathlib import Path
+
+    result = client.get_node_descendants(member_id, leaves_only=True)
+    root = result["root"]
+    member_name = root["name"]
+
+    if root["kind"] not in ("folder", "episode", "project"):
+        # Single file member
+        dest = out_dir / member_name
+        _download_file(client, member_id, dest)
+        print(f"  ✓ {member_name}")
+        return 1
+
+    # Container — recurse into out_dir / member_name /
+    member_root = out_dir / member_name
+    member_root.mkdir(parents=True, exist_ok=True)
+    root_prefix = result["rootPrefix"]
+    count = 0
+    for f in result["descendants"]:
+        full_prefix = f["path"]
+        if full_prefix.startswith(root_prefix):
+            rel = full_prefix[len(root_prefix):].strip(",").split(",")
+            rel = [s for s in rel if s]
+        else:
+            rel = []
+        dest = member_root.joinpath(*rel, f["name"]) if rel else member_root / f["name"]
+        _download_file(client, f["id"], dest)
+        count += 1
+    print(f"  ✓ {member_name} ({count} file(s))")
+    return count
+
+
+def _download_bindr_recursive(client, bindr: dict, out_dir: "Path",
+                              visited: set, depth: int = 0) -> int:
+    """Walk a bindr's members; recurse into nested bindrs. Returns file count."""
+    from pathlib import Path
+
+    bindr_id = bindr["id"]
+    if bindr_id in visited:
+        print(f"  ↺ skipping '{bindr['name']}' (cycle)")
+        return 0
+    visited.add(bindr_id)
+
+    members = [_normalize_member_ref(m) for m in (bindr.get("members") or [])]
+    if not members:
+        print(f"  bindr '{bindr['name']}' has no members")
+        return 0
+
+    indent = "  " * depth
+    if depth > 0:
+        print(f"{indent}── nested bindr '{bindr['name']}' ({len(members)} member(s))")
+
+    count = 0
+    for m in members:
+        if m["type"] == "bindr":
+            child = client.get_bindr_by_id(m["id"])
+            count += _download_bindr_recursive(client, child, out_dir, visited, depth + 1)
+        else:
+            count += _download_node_member(client, m["id"], out_dir)
+    return count
 
 
 def download_bindr(
@@ -523,13 +602,15 @@ def download_bindr(
     project: str | None = None,
     to: str = ".",
 ) -> "Path":
-    """Download all members of a bindr. Each member becomes a top-level
-    directory under `to` (preserving relative tree for folder members).
+    """Download every node referenced by a bindr (recursing into nested
+    bindrs). Each leaf member becomes a top-level entry under `to`,
+    preserving the relative tree for folder members.
+
+    Cycles in the bindr graph are detected and broken — already-visited
+    bindrs are skipped with a warning.
 
     Examples:
-        dl.download_bindr("my-sensors",
-                          project="robotics@tom-tao",
-                          to="./out/")
+        dl.download_bindr("training-set", project="robotics@alice", to="./train/")
     """
     from pathlib import Path
 
@@ -537,47 +618,12 @@ def download_bindr(
     project_slug, namespace = _parse_project_arg(project)
 
     b = client.get_bindr(namespace, project_slug, name)
-    members: list[str] = list(b.get("members") or [])
-
     out_dir = Path(to)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    if not members:
-        print(f"  bindr '{name}' has no members")
-        return out_dir
-
-    print(f"  downloading bindr '{name}' ({len(members)} member(s)) → {out_dir}")
-
-    for member_id in members:
-        # Resolve member node so we know its name
-        result = client.get_node_descendants(member_id, leaves_only=True)
-        root = result["root"]
-        member_name = root["name"]
-
-        # File leaf member
-        if root["kind"] not in ("folder", "episode", "project"):
-            dest = out_dir / member_name
-            _download_file(client, member_id, dest)
-            print(f"  ✓ {member_name}")
-            continue
-
-        # Container — recurse into out_dir / member_name /
-        member_root = out_dir / member_name
-        member_root.mkdir(parents=True, exist_ok=True)
-        root_prefix = result["rootPrefix"]
-
-        for f in result["descendants"]:
-            full_prefix = f["path"]
-            if full_prefix.startswith(root_prefix):
-                rel = full_prefix[len(root_prefix):].strip(",").split(",")
-                rel = [s for s in rel if s]
-            else:
-                rel = []
-            dest = member_root.joinpath(*rel, f["name"]) if rel else member_root / f["name"]
-            _download_file(client, f["id"], dest)
-        print(f"  ✓ {member_name} ({len(result['descendants'])} file(s))")
-
-    print(f"  done: {out_dir}")
+    print(f"  downloading bindr '{name}' → {out_dir}")
+    total = _download_bindr_recursive(client, b, out_dir, visited=set())
+    print(f"  done: {out_dir} ({total} file(s))")
     return out_dir
 
 
