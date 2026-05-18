@@ -140,7 +140,7 @@ def upload(
         ".json": "application/json",
     }
 
-    fp = Path(file_path)
+    fp = Path(file_path).expanduser()
     ext = fp.suffix.lower()
     asset_type = type or ext_to_kind.get(ext) or "file"  # default kind="file"
     content_type = ext_to_mime.get(ext, "application/octet-stream")
@@ -312,7 +312,7 @@ def upload_folder(
     from pathlib import Path
     from .api.prefix import resolve_project as _resolve_project, _ctx_prefix
 
-    local = Path(local_dir)
+    local = Path(local_dir).expanduser()
     if not local.exists():
         raise FileNotFoundError(f"local directory not found: {local}")
     if not local.is_dir():
@@ -515,7 +515,8 @@ def download(
             dest = Path(filename)
         else:
             dest = Path(to)
-            if dest.is_dir() or str(to).endswith("/") or str(to).endswith(Path.sep):
+            import os as _os
+            if dest.is_dir() or str(to).endswith("/") or str(to).endswith(_os.sep):
                 dest = dest / filename
         print(f"  downloading {filename}")
         _download_file(client, node["id"], dest)
