@@ -39,7 +39,6 @@ Episode(prefix="my-workspace/my-experiment",
 
 **Option 2: Export and import** (planned feature)
 ```python
-# Coming in v0.3
 from dreamlake import migrate
 
 migrate.local_to_remote(
@@ -53,10 +52,9 @@ migrate.local_to_remote(
 
 ### Can I use both local and url mode simultaneously?
 
-Not yet! **Hybrid mode** is planned for v0.3:
+Not yet! **Hybrid mode** is planned for a future release:
 
 ```python
-# Coming soon
 Episode(prefix="my-workspace/my-experiment",
     root=".dreamlake",  # Local backup
     url="http://localhost:3000",  # Syncs to url
@@ -64,7 +62,7 @@ Episode(prefix="my-workspace/my-experiment",
 )
 ```
 
-This will automatically sync local data to url server.
+This will automatically sync local data to the remote server.
 
 ---
 
@@ -79,7 +77,7 @@ This will automatically sync local data to url server.
 | **Price** | ✅ Free & OSS | ✅ Free | ⚠️ $$$ | ⚠️ $$$ |
 | **API Style** | ✅ Fluent/Builder | ⚠️ Functional | ✅ Fluent | ✅ Fluent |
 | **File Storage** | ✅ Built-in | ✅ Artifacts | ✅ Yes | ✅ Yes |
-| **Web UI** | 🔜 v0.3 | ✅ Yes | ✅ Advanced | ✅ Advanced |
+| **Web UI** | ✅ Yes | ✅ Yes | ✅ Advanced | ✅ Advanced |
 
 **DreamLake's strengths**:
 - Simplest setup (literally zero for local mode)
@@ -136,7 +134,7 @@ with Episode(name=f"training-rank-{rank}", workspace="distributed", ...) as epis
     episode.track("train").append(loss=local_loss, epoch=epoch)
 ```
 
-**Planned (v0.4)**: First-class distributed training support with:
+**Planned**: First-class distributed training support with:
 - Automatic rank detection
 - Aggregated metrics
 - Distributed file uploads
@@ -151,11 +149,11 @@ with Episode(name=f"training-rank-{rank}", workspace="distributed", ...) as epis
 - ✅ Can use `find`, `grep`, or Python to search JSON files
 
 **Remote Mode**:
-- 🔜 Query API coming in v0.3
-- 🔜 Filter by tags, parameters, date ranges
+- ✅ Query API
+- ✅ Filter by tags, parameters, date ranges
 - 🔜 Full-text search on logs
 
-Example (coming soon):
+Example:
 ```python
 from dreamlake import query
 

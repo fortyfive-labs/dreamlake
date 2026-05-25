@@ -450,19 +450,20 @@ Episode(url="...", api_key="actual-jwt-token")
 
 ## Future Roadmap
 
-### Short Term (v0.3)
-- [ ] Hybrid mode (local + url sync)
-- [ ] Query API for searching experiments
-- [ ] Web UI for visualization
-- [ ] Batch file uploads
+### Completed
+- [x] Batch file uploads (v0.3)
+- [x] Query API for searching experiments (v0.4)
+- [x] Web UI for visualization (v0.4)
+- [x] Msgpack-lines storage format (v0.4)
 
-### Medium Term (v0.4-0.5)
+### In Progress
+- [ ] Hybrid mode (local + remote sync)
 - [ ] Real-time streaming API
 - [ ] Experiment comparison tools
+
+### Planned
 - [ ] Plugin system
 - [ ] Integration with popular frameworks
-
-### Long Term (v1.0+)
 - [ ] Distributed training support
 - [ ] Advanced query language
 - [ ] Multi-cloud support
