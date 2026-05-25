@@ -1,8 +1,8 @@
 # Files
 
-Upload and manage experiment artifacts - models, plots, configs, and results. Files are automatically checksummed and organized with metadata.
+Upload experiment artifacts — models, plots, configs, results. Files are checksummed (SHA256) and organized with metadata.
 
-## Basic Upload
+## Upload
 
 ```{code-block} python
 :linenos:
@@ -11,60 +11,16 @@ from dreamlake import Episode
 
 with Episode(prefix="project/my-experiment",
         local_path=".dreamlake") as episode:
-    result = episode.files.upload("model.pth", path="/models")
-
-    print(f"Uploaded: {result['filename']}")
-    print(f"Size: {result['sizeBytes']} bytes")
-    print(f"Checksum: {result['checksum']}")
-```
-
-## Organizing Files
-
-Use paths to organize files logically:
-
-```{code-block} python
-:linenos:
-
-with Episode(prefix="project/my-experiment",
-        local_path=".dreamlake") as episode:
-    # Models
     episode.files.upload("model.pth", path="/models")
-    episode.files.upload("best_model.pth", path="/models/checkpoints")
-
-    # Visualizations
     episode.files.upload("loss_curve.png", path="/visualizations")
-    episode.files.upload("confusion_matrix.png", path="/visualizations")
-
-    # Configuration
-    episode.files.upload("config.json", path="/config")
-
-    # Results
-    episode.files.upload("results.csv", path="/results")
-```
-
-## File Metadata
-
-Add description, tags, and custom metadata:
-
-```{code-block} python
-:linenos:
-
-with Episode(prefix="project/my-experiment",
-        local_path=".dreamlake") as episode:
-    episode.files.upload("best_model.pth", path="/models",
-        description="Best model from epoch 50",
-        tags=["checkpoint", "best"],
-        metadata={
-            "epoch": 50,
-            "val_accuracy": 0.95,
-            "optimizer_state": True
-        }
+    episode.files.upload("config.json", path="/config",
+        description="Experiment configuration",
+        tags=["config"],
+        metadata={"epoch": 50, "accuracy": 0.95}
     )
 ```
 
-## Training with Checkpoints
-
-Save models during training:
+## Checkpoints During Training
 
 ```{code-block} python
 :linenos:
@@ -74,137 +30,36 @@ from dreamlake import Episode
 
 with Episode(prefix="cv/resnet-training",
         local_path=".dreamlake") as episode:
-    episode.params.set(model="resnet50", epochs=100)
-    episode.log("Starting training")
-
     best_accuracy = 0.0
 
     for epoch in range(100):
         train_loss = train_one_epoch(model, train_loader)
-        val_loss, val_accuracy = validate(model, val_loader)
+        _, val_accuracy = validate(model, val_loader)
 
-        # Track metrics
         episode.track("train").append(loss=train_loss, epoch=epoch)
         episode.track("val").append(accuracy=val_accuracy, epoch=epoch)
 
-        # Save checkpoint every 10 epochs
-        if (epoch + 1) % 10 == 0:
-            checkpoint_path = f"checkpoint_epoch_{epoch + 1}.pth"
-            torch.save(model.state_dict(), checkpoint_path)
-
-            episode.file(
-                checkpoint_path,
-                prefix="/checkpoints",
-                tags=["checkpoint"],
-                metadata={"epoch": epoch + 1, "val_accuracy": val_accuracy}
-            )
-
-        # Save best model
         if val_accuracy > best_accuracy:
             best_accuracy = val_accuracy
-
             torch.save(model.state_dict(), "best_model.pth")
             episode.files.upload("best_model.pth", path="/models",
-                description=f"Best model (accuracy: {best_accuracy:.4f})",
                 tags=["best"],
-                metadata={"epoch": epoch + 1, "accuracy": best_accuracy}
+                metadata={"epoch": epoch, "accuracy": best_accuracy}
             )
-
-            episode.log(f"New best model saved (accuracy: {best_accuracy:.4f})")
-
-    episode.log("Training complete")
 ```
 
-## Saving Visualizations
-
-Upload matplotlib plots:
+## List Files
 
 ```{code-block} python
 :linenos:
 
-import matplotlib.pyplot as plt
-from dreamlake import Episode
-
-with Episode(prefix="project/my-experiment",
-        local_path=".dreamlake") as episode:
-    # Generate plot
-    losses = [0.5, 0.4, 0.3, 0.25, 0.2]
-    plt.plot(losses)
-    plt.title("Training Loss")
-    plt.xlabel("Epoch")
-    plt.ylabel("Loss")
-
-    # Save and upload
-    plt.savefig("loss_curve.png")
-    episode.files.upload("loss_curve.png", path="/visualizations",
-        description="Training loss over epochs",
-        tags=["plot"]
-    )
-
-    plt.close()
+files = episode.files.list()
+for file in files:
+    print(f"{file['prefix']}{file['filename']}")
 ```
 
-## Uploading Configuration
+## Storage
 
-Save config files alongside parameters:
+**Local:** Files stored under `files/<prefix>/<file_id>/<filename>` with centralized metadata in `.files_metadata.json`.
 
-```{code-block} python
-:linenos:
-
-import json
-from dreamlake import Episode
-
-config = {
-    "model": {"architecture": "resnet50", "pretrained": True},
-    "training": {"epochs": 100, "batch_size": 32, "lr": 0.001}
-}
-
-with Episode(prefix="project/my-experiment",
-        local_path=".dreamlake") as episode:
-    # Track as parameters
-    episode.params.set(**config)
-
-    # Also save as file
-    with open("config.json", "w") as f:
-        json.dump(config, f, indent=2)
-
-    episode.files.upload("config.json", path="/config",
-        description="Experiment configuration",
-        tags=["config"]
-    )
-```
-
-## Storage Format
-
-**Local mode** - Files stored in episode directory with prefix organization:
-
-```
-./experiments/
-└── project/
-    └── my-experiment/
-        └── files/
-            ├── .files_metadata.json        # Centralized metadata
-            ├── models/                     # Prefix folder
-            │   ├── {file_id_1}/           # Unique file ID
-            │   │   └── model.pth
-            │   └── {file_id_2}/
-            │       └── best_model.pth
-            ├── visualizations/
-            │   └── {file_id_3}/
-            │       └── loss_curve.png
-            └── config/
-                └── {file_id_4}/
-                    └── config.json
-```
-
-Each file is stored in a unique ID folder within its prefix directory, ensuring no conflicts and enabling easy tracking.
-
-**Remote mode** - Files uploaded to S3, metadata in MongoDB:
-- Files stored: `s3://bucket/files/{namespace}/{workspace}/{episode}/{file_id}/filename`
-- Metadata: path, size, SHA256 checksum, tags, description
-
-**File size limit:** 5GB per file
-
----
-
-**That's it!** You've completed all the core DreamLake tutorials. Check out the API Reference for detailed method documentation.
+**Remote:** S3 with metadata in MongoDB. 5GB per file limit.
