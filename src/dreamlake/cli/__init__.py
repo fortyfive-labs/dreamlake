@@ -37,6 +37,7 @@ def print_help():
             {CYAN}update{RESET}      Update a bindr (add/remove episodes)
             {CYAN}vectorize{RESET}   Run CLIP + LLaVA on video chunks for semantic search
             {CYAN}video{RESET}       Video commands (upload/download/list via BSS)
+            {CYAN}artifact{RESET}    Upload/list renderable artifacts (HTML/React/Markdown/SVG/code)
 
         {BOLD}Target syntax:{RESET}
             --episode space[@namespace][:episode]
@@ -143,6 +144,10 @@ def main():
     elif command == "vectorize":
         from .commands import vectorize
         return vectorize.main(sys.argv[2:])
+
+    elif command == "artifact":
+        from .commands import artifact
+        return artifact.main(sys.argv[2:])
 
     else:
         print(f"{RED}Unknown command:{RESET} {command}", file=sys.stderr)
