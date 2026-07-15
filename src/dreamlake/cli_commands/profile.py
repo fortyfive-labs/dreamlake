@@ -3,7 +3,7 @@
 import time
 
 from dreamlake.auth.token_storage import get_token_storage, decode_jwt_payload
-from dreamlake.config import config
+from dreamlake.config import config, DEFAULT_REMOTE_URL
 
 TOKEN_KEY = "dreamlake-token"
 
@@ -78,8 +78,8 @@ def cmd_profile(args) -> int:
         print("Not logged in. Run: dreamlake login")
         return 1
 
-    # Determine server URL: --url flag > config file
-    server_url = getattr(args, "url", None) or config.remote_url
+    # Determine server URL: --url flag > config file > default (prod)
+    server_url = getattr(args, "url", None) or config.remote_url or DEFAULT_REMOTE_URL
 
     if server_url:
         server_data = _fetch_server_profile(token, server_url)

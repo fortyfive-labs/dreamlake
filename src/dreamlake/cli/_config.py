@@ -5,6 +5,8 @@ Resolved from env vars → ~/.dreamlake/config.json → defaults.
 
 from params_proto import proto, EnvVar
 
+from dreamlake.config import DEFAULT_REMOTE_URL
+
 # Dev secrets (local only — never used in production)
 _DEBUG_NAMESPACE = "testuser"
 _DEBUG_DL_SECRET = "your-secret-key-change-this-in-production"
@@ -24,7 +26,7 @@ def _make_debug_token() -> str:
 
 @proto.prefix
 class ServerConfig:
-    remote: str = EnvVar @ "DREAMLAKE_REMOTE" | "http://localhost:10334"
+    remote: str = EnvVar @ "DREAMLAKE_REMOTE" | DEFAULT_REMOTE_URL
     token: str | None = EnvVar @ "DREAMLAKE_API_KEY" | None
     bss_url: str = EnvVar @ "DREAMLAKE_BSS_URL" | "http://localhost:10234"
     debug: bool = False  # skip auth checks, use dev tokens and local URLs

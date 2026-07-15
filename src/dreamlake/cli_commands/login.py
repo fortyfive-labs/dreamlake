@@ -10,7 +10,7 @@ from dreamlake.auth.exceptions import (
     TokenExchangeError,
 )
 from dreamlake.auth.token_storage import get_token_storage
-from dreamlake.config import config
+from dreamlake.config import config, DEFAULT_REMOTE_URL
 
 TOKEN_KEY = "dreamlake-token"
 
@@ -23,7 +23,7 @@ def add_parser(subparsers):
     parser.add_argument(
         "--url",
         type=str,
-        help="DreamLake server URL (e.g., http://localhost:3000)",
+        help=f"DreamLake server URL (default: {DEFAULT_REMOTE_URL})",
     )
     parser.add_argument(
         "--no-browser",
@@ -59,14 +59,8 @@ def cmd_login(args) -> int:
 
     console = Console()
 
-    remote_url = getattr(args, "url", None) or config.remote_url
-    if not remote_url:
-        console.print(
-            "[red]Error: No server URL configured.[/red]\n\n"
-            "Specify with --url:\n"
-            "  dreamlake login --url http://localhost:3000"
-        )
-        return 1
+    # Server URL precedence: --url flag > stored config.json > default (prod).
+    remote_url = getattr(args, "url", None) or config.remote_url or DEFAULT_REMOTE_URL
 
     try:
         console.print("[bold]Initializing device authorization...[/bold]\n")

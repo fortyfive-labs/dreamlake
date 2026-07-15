@@ -4,6 +4,12 @@ import json
 from pathlib import Path
 from typing import Any, Optional
 
+# Default DreamLake server. Single source of truth for every entry point
+# (login, profile, the CLI ServerConfig, and the SDK API client). Override with
+# `--url`, the DREAMLAKE_REMOTE env var, a stored `remote_url` in config.json,
+# or `--debug` (which points at the local dev server).
+DEFAULT_REMOTE_URL = "https://api.dreamlake.ai"
+
 
 class Config:
     """Manages persistent configuration stored in ~/.dreamlake/config.json."""

@@ -3,7 +3,7 @@ HTTP client for BSS and dreamlake-server.
 
 Reads config from environment variables:
   DREAMLAKE_BSS_URL   (default: http://localhost:10234)
-  DREAMLAKE_REMOTE    (default: http://localhost:10334)
+  DREAMLAKE_REMOTE    (default: https://api.dreamlake.ai)
   DREAMLAKE_API_KEY   (token)
   QDRANT_URL          (default: http://localhost:6333)
 """
@@ -13,8 +13,10 @@ import re
 
 import httpx
 
+from dreamlake.config import DEFAULT_REMOTE_URL
+
 _DEFAULT_BSS = "http://localhost:10234"
-_DEFAULT_DL = "http://localhost:10334"
+_DEFAULT_DL = DEFAULT_REMOTE_URL
 _DEFAULT_QDRANT = "http://localhost:6333"
 
 
