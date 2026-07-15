@@ -277,7 +277,11 @@ def _vectorize_zaku(zaku_url: str, all_chunks: list, qdrant_url: str, video_coun
     try:
         from zaku import TaskQ
     except ImportError:
-        print(f"  {RED}error:{RESET} zaku not installed. run: pip install zaku", file=sys.stderr)
+        print(
+            f"  {RED}error:{RESET} distributed vectorize needs the 'vectorize' extra. "
+            f"run: pip install 'dreamlake[vectorize]'",
+            file=sys.stderr,
+        )
         return 1
 
     s3_bucket = os.environ.get("S3_BUCKET", "amzn-s3-dreamlake-bucket-test")
