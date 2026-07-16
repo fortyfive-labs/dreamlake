@@ -77,6 +77,28 @@ def _slugify(text: str) -> str:
     return out or "artifact"
 
 
+def _web_base(remote: str) -> str:
+    """Dashboard origin the artifact can be opened at.
+
+    Explicit override via DREAMLAKE_WEB_URL wins; otherwise derive it from the
+    API remote by dropping a leading `api.` (api.dreamlake.ai -> dreamlake.ai).
+    Falls back to the remote itself when it can't be derived (e.g. localhost)."""
+    override = os.environ.get("DREAMLAKE_WEB_URL")
+    if override:
+        return override.rstrip("/")
+    try:
+        from urllib.parse import urlparse
+
+        u = urlparse(remote)
+        host = u.hostname or ""
+        if host.startswith("api."):
+            port = f":{u.port}" if u.port else ""
+            return f"{u.scheme}://{host[len('api.'):]}{port}"
+    except Exception:
+        pass
+    return remote.rstrip("/")
+
+
 def _detect_kind(file_path: Path, override: str | None) -> str | None:
     if override:
         return override if override in KINDS else None
@@ -242,6 +264,7 @@ def cmd_push(args: list) -> int:
         body["visibility"] = ns.visibility
     if ns.share:
         body["share"] = True
+    share_token = None
     try:
         vr = httpx.post(
             f"{remote}/namespaces/{namespace}/artifacts/{artifact_id}",
@@ -252,10 +275,16 @@ def cmd_push(args: list) -> int:
         vr.raise_for_status()
         cat = vr.json()
         print(f"  {DIM}visibility:{RESET} {cat.get('visibility')}")
-        if cat.get("shareToken"):
-            print(f"  {DIM}share:{RESET}      ?share={cat['shareToken']}")
+        share_token = cat.get("shareToken")
     except Exception as e:
         print(f"{RED}warning:{RESET} upload ok but could not register in catalog: {e}", file=sys.stderr)
+
+    # Print an openable dashboard link so the user can view what they pushed.
+    # Include the share token when one exists so the link works for its audience.
+    url = f"{_web_base(remote)}/{namespace}/artifacts/{artifact_id}"
+    if share_token:
+        url += f"?share={share_token}"
+    print(f"  {DIM}open:{RESET}      {CYAN}{url}{RESET}")
 
     return 0
 
