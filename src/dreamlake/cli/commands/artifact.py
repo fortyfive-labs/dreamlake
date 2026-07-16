@@ -97,8 +97,9 @@ def _import_dreamdb():
 
 
 def _artifact_schema(db):
-    # ONE dataset per namespace holds all artifacts; the content blob mime is
-    # therefore FIXED ("artifact") and the real type lives in the `kind` scalar.
+    # One dataset PER ARTIFACT (users/<ns>/<artifactId>); rows are the artifact's
+    # versions. The content blob mime is FIXED ("artifact"); the real type lives
+    # in the `kind` scalar. Schema is shared by every artifact dataset.
     return (
         db.Schema()
         .add_image("content", mime="artifact")
@@ -184,6 +185,7 @@ def cmd_push(args: list) -> int:
         r = httpx.post(
             f"{remote}/namespaces/{namespace}/artifacts/upload-credentials",
             headers={"Authorization": f"Bearer {token}"},
+            json={"artifactId": artifact_id},  # server returns this artifact's own dataset backend
             timeout=30,
         )
         r.raise_for_status()
@@ -232,22 +234,28 @@ def cmd_push(args: list) -> int:
 
     print(f"{GREEN}✓ Pushed:{RESET} {artifact_id} v{version} — '{title}'")
 
-    # 3) optionally set read visibility / issue a share link
-    if ns.visibility or ns.share:
-        try:
-            vr = httpx.post(
-                f"{remote}/namespaces/{namespace}/artifacts/{artifact_id}/visibility",
-                headers={"Authorization": f"Bearer {token}"},
-                json={"visibility": ns.visibility, "share": bool(ns.share)},
-                timeout=30,
-            )
-            vr.raise_for_status()
-            vis = vr.json()
-            print(f"  {DIM}visibility:{RESET} {vis.get('visibility')}")
-            if vis.get("shareToken"):
-                print(f"  {DIM}share:{RESET}      ?share={vis['shareToken']}")
-        except Exception as e:
-            print(f"{RED}warning:{RESET} upload ok but could not set visibility: {e}", file=sys.stderr)
+    # 3) register the artifact in the server catalog (metadata + visibility).
+    # Always runs so the catalog (which drives the gallery + `list`) stays in
+    # sync; --visibility/--share tune access. Non-fatal if it fails.
+    body = {"title": title, "kind": kind, "version": version}
+    if ns.visibility:
+        body["visibility"] = ns.visibility
+    if ns.share:
+        body["share"] = True
+    try:
+        vr = httpx.post(
+            f"{remote}/namespaces/{namespace}/artifacts/{artifact_id}",
+            headers={"Authorization": f"Bearer {token}"},
+            json=body,
+            timeout=30,
+        )
+        vr.raise_for_status()
+        cat = vr.json()
+        print(f"  {DIM}visibility:{RESET} {cat.get('visibility')}")
+        if cat.get("shareToken"):
+            print(f"  {DIM}share:{RESET}      ?share={cat['shareToken']}")
+    except Exception as e:
+        print(f"{RED}warning:{RESET} upload ok but could not register in catalog: {e}", file=sys.stderr)
 
     return 0
 
@@ -264,51 +272,33 @@ def cmd_list(args: list) -> int:
         print(f"{RED}error:{RESET} namespace not resolved. run 'dreamlake login'.", file=sys.stderr)
         return 1
 
-    # Reads are anonymous against the public bucket — clear any AWS creds.
-    for k in ("AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN"):
-        os.environ.pop(k, None)
-    os.environ.setdefault("AWS_REGION", DEFAULT_ARTIFACTS_REGION)
-
-    backend = (
-        f"https://s3.{DEFAULT_ARTIFACTS_REGION}.amazonaws.com/"
-        f"{DEFAULT_ARTIFACTS_BUCKET}/users/{namespace}"
-    )
-
-    db = _import_dreamdb()
-    if db is None:
-        return 1
-
+    # Read from the server catalog (source of truth now that each artifact lives
+    # in its own dataset). Authed → all your artifacts; anonymous → public only.
+    # Works after the bucket is locked down (no unsigned S3 reads).
+    import httpx
+    remote = ServerConfig.remote
+    token = ServerConfig.resolve_token()
+    headers = {"Authorization": f"Bearer {token}"} if token else {}
     try:
-        ds = db.Dataset.open(REF_NAME, _artifact_schema(db), backend)
-    except Exception:
-        print(f"{DIM}no artifacts in namespace '{namespace}'.{RESET}")
-        return 0
-
-    # enumerate artifact_ids (distinct_values → [(value, count), ...]),
-    # then take the highest version per id (iter_scalar needs a predicate).
-    latest: dict[str, dict] = {}
-    try:
-        for row in ds.distinct_values("artifact_id"):
-            aid = row[0] if isinstance(row, (list, tuple)) else row
-            for batch in ds.iter_scalar(where_eq={"artifact_id": aid}):
-                titles = batch.get("title", [])
-                kinds = batch.get("kind", [])
-                vers = batch.get("version", [])
-                for i in range(len(vers)):
-                    ver = int(vers[i])
-                    if aid not in latest or ver > latest[aid]["version"]:
-                        latest[aid] = {"title": titles[i], "kind": kinds[i], "version": ver}
+        r = httpx.get(f"{remote}/namespaces/{namespace}/artifacts", headers=headers, timeout=30)
+        r.raise_for_status()
+        artifacts = r.json().get("artifacts", [])
     except Exception as e:
-        print(f"{RED}error:{RESET} could not read artifacts: {e}", file=sys.stderr)
+        print(f"{RED}error:{RESET} could not list artifacts: {e}", file=sys.stderr)
         return 1
 
-    if not latest:
+    if not artifacts:
         print(f"{DIM}no artifacts in namespace '{namespace}'.{RESET}")
         return 0
 
     print(f"{BOLD}Artifacts in {namespace}:{RESET}")
-    for aid, info in sorted(latest.items()):
-        print(f"  {CYAN}{aid}{RESET}  {DIM}v{info['version']} · {info['kind']}{RESET}  {info['title']}")
+    for a in artifacts:
+        vis = a.get("visibility", "private")
+        vtag = "" if vis == "private" else f"  {DIM}[{vis}]{RESET}"
+        print(
+            f"  {CYAN}{a['artifactId']}{RESET}  {DIM}v{a.get('latestVersion')} · {a.get('kind')}{RESET}"
+            f"  {a.get('title')}{vtag}"
+        )
     return 0
 
 
