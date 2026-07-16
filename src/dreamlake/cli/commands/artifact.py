@@ -137,6 +137,17 @@ def cmd_push(args: list) -> int:
     p.add_argument("--kind", default=None)
     p.add_argument("--id", dest="artifact_id", default=None)
     p.add_argument("--namespace", default=None)
+    p.add_argument(
+        "--visibility",
+        choices=["public", "private"],
+        default=None,
+        help="read visibility (default: private). public artifacts are readable without login.",
+    )
+    p.add_argument(
+        "--share",
+        action="store_true",
+        help="issue a share token so the artifact can be read via a ?share= link.",
+    )
     ns = p.parse_args(args)
 
     file_path = Path(ns.file)
@@ -220,6 +231,24 @@ def cmd_push(args: list) -> int:
         return 1
 
     print(f"{GREEN}✓ Pushed:{RESET} {artifact_id} v{version} — '{title}'")
+
+    # 3) optionally set read visibility / issue a share link
+    if ns.visibility or ns.share:
+        try:
+            vr = httpx.post(
+                f"{remote}/namespaces/{namespace}/artifacts/{artifact_id}/visibility",
+                headers={"Authorization": f"Bearer {token}"},
+                json={"visibility": ns.visibility, "share": bool(ns.share)},
+                timeout=30,
+            )
+            vr.raise_for_status()
+            vis = vr.json()
+            print(f"  {DIM}visibility:{RESET} {vis.get('visibility')}")
+            if vis.get("shareToken"):
+                print(f"  {DIM}share:{RESET}      ?share={vis['shareToken']}")
+        except Exception as e:
+            print(f"{RED}warning:{RESET} upload ok but could not set visibility: {e}", file=sys.stderr)
+
     return 0
 
 
