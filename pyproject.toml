@@ -35,13 +35,6 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# Distributed vectorize (`dreamlake vectorize --zaku-url`). Kept optional because
-# zaku-turbo pulls the standalone `bson` package, which fails to build on
-# Python 3.14 (its setup.py uses pkgutil.find_loader, removed in 3.14). Moving it
-# here lets the core CLI install everywhere; only vectorize needs the extra.
-vectorize = [
-    "zaku-turbo",
-]
 auth = [
     "keyring>=25.0.0",
     "cryptography>=42.0.0",
@@ -71,9 +64,6 @@ dev = [
 dreamlake = "dreamlake.cli:main"
 
 [tool.uv]
-
-[tool.uv.sources]
-zaku-turbo = { path = "../../zaku-service", editable = true }
 
 [build-system]
 requires = ["uv_build>=0.9.2,<0.10.0"]
