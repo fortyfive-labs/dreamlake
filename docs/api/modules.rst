@@ -9,7 +9,6 @@ Core Modules
 .. toctree::
    :maxdepth: 2
 
-   session
    client
    storage
 
