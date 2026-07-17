@@ -5,26 +5,26 @@ A simple and flexible SDK for ML experiment tracking and data storage.
 
 Usage:
 
-    # Remote mode (API server)
     from dreamlake import Episode
 
-    with Episode(
-        name="my-experiment",
-        workspace="my-workspace",
-        remote="http://localhost:3000",
-        api_key="your-jwt-token"
-    ) as episode:
+    # Local mode (filesystem, default root ".dreamlake")
+    with Episode(prefix="my-workspace/my-experiment") as episode:
         episode.log("Training started")
-        episode.track("loss", {"step": 0, "value": 0.5})
+        episode.track("loss").append(step=0, value=0.5)
 
-    # Local mode (filesystem)
+    # Remote mode (API server; requires DREAMLAKE_API_KEY env var)
     with Episode(
-        name="my-experiment",
-        workspace="my-workspace",
-        local_path=".dreamlake"
+        prefix="my-workspace/my-experiment",
+        url="http://localhost:3000",
+        root=None,
     ) as episode:
         episode.log("Training started")
+
+    # Hybrid mode (local + remote): pass both url and root.
 """
+
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as _dist_version
 
 from .episode import Episode, OperationMode
 from .client import RemoteClient
@@ -32,7 +32,13 @@ from .storage import LocalStorage
 from .log import LogLevel, LogBuilder
 from .params import ParametersBuilder
 
-__version__ = "0.4.8"
+try:
+    # Single source of truth: the installed distribution's metadata
+    # (pyproject.toml's version). No second hardcoded copy to drift.
+    __version__ = _dist_version("dreamlake")
+except PackageNotFoundError:
+    # Source tree without an installed distribution (e.g. PYTHONPATH=src).
+    __version__ = "0.0.0+unknown"
 
 # ── Python API ──────────────────────────────────────────────────────────────
 

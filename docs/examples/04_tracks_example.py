@@ -1,7 +1,4 @@
 """Tracks example - Time-series metrics tracking."""
-import sys
-sys.path.insert(0, '../../src')
-
 from dreamlake import Episode
 import random
 
@@ -11,9 +8,8 @@ def main():
     print("=" * 60)
 
     with Episode(
-        name="tracks-demo",
-        workspace="tutorials",
-        local_path="./tutorial_data"
+        prefix="tutorials/tracks-demo",
+        root="./tutorial_data",
     ) as episode:
         episode.parameters().set(epochs=10, learning_rate=0.001)
 
@@ -62,7 +58,7 @@ def main():
         print("\n4. Reading track data...")
 
         # Read track data
-        result = episode.track("train_loss").read(start_index=0, limit=5)
+        result = episode.track("train").read(start_index=0, limit=5)
         print(f"   Read {result['total']} data points:")
         for point in result['data'][:3]:
             print(f"     Index {point['index']}: {point['data']}")
@@ -70,14 +66,14 @@ def main():
         print("\n5. Getting track statistics...")
 
         # Get track stats
-        stats = episode.track("train_loss").stats()
+        stats = episode.track("train").stats()
         print(f"   Track: {stats['name']}")
         print(f"   Total points: {stats['totalDataPoints']}")
 
         print("\n6. Listing all tracks...")
 
         # List all tracks
-        tracks = episode.track("train_loss").list_all()
+        tracks = episode.track("train").list_all()
         print(f"   Found {len(tracks)} tracks:")
         for track in tracks:
             print(f"     - {track['name']}: {track['totalDataPoints']} points")
@@ -87,8 +83,8 @@ def main():
     print("\n✓ All metrics tracked!")
     print("\n" + "=" * 60)
     print("View track data (msgpack-lines format):")
-    print("  python -c \"import msgpack; [print(obj) for obj in msgpack.Unpacker(open('tutorial_data/.dreamlake/tutorials/tracks-demo/tracks/train/data.msgpack', 'rb'), raw=False)]\"")
-    print("  cat tutorial_data/.dreamlake/tutorials/tracks-demo/tracks/train/metadata.json")
+    print("  python -c \"import msgpack; [print(obj) for obj in msgpack.Unpacker(open('tutorial_data/tutorials/tracks-demo/tracks/train/data.msgpack', 'rb'), raw=False)]\"")
+    print("  cat tutorial_data/tutorials/tracks-demo/tracks/train/metadata.json")
     print("=" * 60)
 
 if __name__ == "__main__":

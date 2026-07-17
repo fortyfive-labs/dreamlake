@@ -23,9 +23,8 @@ def log_robot_data_synchronized():
     """Example: Log robot pose, camera image, and sensor data with synchronized timestamps."""
 
     with Episode(
-        name="robot-sync-demo",
-        workspace="robotics",
-        local_path=".dreamlake"
+        prefix="robotics/robot-sync-demo",
+        root=".dreamlake",
     ) as episode:
         # Simulate 10 timesteps of robot operation
         for step in range(10):
@@ -83,9 +82,8 @@ def log_with_explicit_timestamps():
     """Example: Use explicit timestamps for precise control."""
 
     with Episode(
-        name="explicit-ts-demo",
-        workspace="robotics",
-        local_path=".dreamlake"
+        prefix="robotics/explicit-ts-demo",
+        root=".dreamlake",
     ) as episode:
         # Use explicit timestamp
         ts = 1234567890.123
@@ -108,9 +106,8 @@ def log_multi_field_merging():
     """Example: Merge multiple fields into single timestamped entry."""
 
     with Episode(
-        name="merge-demo",
-        workspace="robotics",
-        local_path=".dreamlake"
+        prefix="robotics/merge-demo",
+        root=".dreamlake",
     ) as episode:
         # Log different fields separately but merge into single entry
         ts = time.time()

@@ -1,7 +1,4 @@
 """Files example - Upload models and artifacts."""
-import sys
-sys.path.insert(0, '../../src')
-
 from dreamlake import Episode
 import os
 import json
@@ -34,9 +31,8 @@ def main():
             f.write(f"{i+1},{1.0/(i+1):.4f},{0.5+i*0.05:.4f}\n")
 
     with Episode(
-        name="files-demo",
-        workspace="tutorials",
-        local_path="./tutorial_data"
+        prefix="tutorials/files-demo",
+        root="./tutorial_data",
     ) as episode:
         print("\n1. Uploading model file...")
 
@@ -90,7 +86,7 @@ def main():
     print("\n✓ All files uploaded!")
     print("\n" + "=" * 60)
     print("View uploaded files:")
-    print("  ls -lR tutorial_data/.dreamlake/tutorials/files-demo/files/")
+    print("  ls -lR tutorial_data/tutorials/files-demo/files/")
     print("=" * 60)
 
 if __name__ == "__main__":

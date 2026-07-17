@@ -1,7 +1,4 @@
 """Basic episode example - Your first Dreamlake episode."""
-import sys
-sys.path.insert(0, '../../src')
-
 from dreamlake import Episode
 
 def main():
@@ -11,11 +8,10 @@ def main():
 
     # Create a episode in local mode
     with Episode(
-        name="hello-dreamlake",
-        workspace="tutorials",
-        local_path="./tutorial_data",
-        description="My first Dreamlake episode",
-        tags=["tutorial", "basic"]
+        prefix="tutorials/hello-dreamlake",
+        root="./tutorial_data",
+        readme="My first Dreamlake episode",
+        tags=["tutorial", "basic"],
     ) as episode:
         # Log a message
         episode.log("Hello from Dreamlake!", level="info")
@@ -29,8 +25,8 @@ def main():
 
     print("\n" + "=" * 60)
     print("Check your data:")
-    print("  cat tutorial_data/.dreamlake/tutorials/hello-dreamlake/logs.jsonl")
-    print("  cat tutorial_data/.dreamlake/tutorials/hello-dreamlake/parameters.json")
+    print("  cat tutorial_data/tutorials/hello-dreamlake/logs.jsonl")
+    print("  cat tutorial_data/tutorials/hello-dreamlake/parameters.json")
     print("=" * 60)
 
 if __name__ == "__main__":

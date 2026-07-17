@@ -146,7 +146,10 @@ class TestFfmpeg:
     @pytest.fixture
     def test_video(self, tmp_path):
         """Create a small test video with ffmpeg."""
+        import shutil
         import subprocess
+        if shutil.which("ffmpeg") is None:
+            pytest.skip("ffmpeg not installed (needed to synthesize the test video)")
         out = tmp_path / "test.mp4"
         result = subprocess.run([
             "ffmpeg", "-y", "-f", "lavfi",

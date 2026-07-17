@@ -44,7 +44,7 @@ class RemoteClient:
                     "Not authenticated. Run 'dreamlake login' to log in."
                 )
             api_key = token
-        self.api_key = api_key
+        self._api_key = api_key
         self._default_namespace: Optional[str] = None
         self._client = httpx.Client(
             base_url=self.base_url,
@@ -55,6 +55,23 @@ class RemoteClient:
             },
             timeout=30.0,
         )
+
+    @property
+    def api_key(self) -> str:
+        """The bearer token used for authentication."""
+        return self._api_key
+
+    @api_key.setter
+    def api_key(self, value: str) -> None:
+        """
+        Swap the auth token.
+
+        Rebuilds the Authorization header on the underlying HTTP client and
+        drops the cached default namespace (it belongs to the old identity).
+        """
+        self._api_key = value
+        self._client.headers["Authorization"] = f"Bearer {value}"
+        self._default_namespace = None
 
     def get_me(self) -> Dict[str, Any]:
         """
@@ -626,7 +643,12 @@ class RemoteClient:
             limit: Max points to read (default 1000, max 10000)
 
         Returns:
-            Dict with data, startIndex, endIndex, total, hasMore
+            Dict with data, startIndex, endIndex, total, hasMore — the same
+            shape LocalStorage.read_track_data returns, so callers see one
+            schema in every mode. (The server's raw response is
+            {trackName, points, startIndex, count}; it is normalized here,
+            at the client boundary. hasMore is best-effort: the server does
+            not report the track total, so a full page implies more data.)
 
         Raises:
             httpx.HTTPStatusError: If request fails
@@ -639,7 +661,18 @@ class RemoteClient:
             },
         )
         response.raise_for_status()
-        return response.json()
+        payload = response.json()
+
+        points = payload.get("points", payload.get("data", []))
+        response_start = payload.get("startIndex", start_index)
+        count = payload.get("count", len(points))
+        return {
+            "data": points,
+            "startIndex": response_start,
+            "endIndex": response_start + count - 1 if count else response_start - 1,
+            "total": count,
+            "hasMore": bool(count) and count >= limit,
+        }
 
     def get_track_stats(
         self,
@@ -717,7 +750,7 @@ class RemoteClient:
         if min_score is not None:
             payload["minScore"] = min_score
 
-        response = self._client.post(f"/projects/{space_id}/search", json=payload)
+        response = self._client.post(f"/projects/{_seg(space_id)}/search", json=payload)
         response.raise_for_status()
         return response.json()
 
@@ -733,13 +766,13 @@ class RemoteClient:
         if model_id:
             payload["modelId"] = model_id
 
-        response = self._client.post(f"/projects/{space_id}/vectors", json=payload)
+        response = self._client.post(f"/projects/{_seg(space_id)}/vectors", json=payload)
         response.raise_for_status()
         return response.json()
 
     def list_vector_indexes(self, space_id: str) -> Dict[str, Any]:
         """List vector indexes for a project."""
-        response = self._client.get(f"/projects/{space_id}/vector-indexes")
+        response = self._client.get(f"/projects/{_seg(space_id)}/vector-indexes")
         response.raise_for_status()
         return response.json()
 

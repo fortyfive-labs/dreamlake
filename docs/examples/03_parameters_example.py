@@ -1,7 +1,4 @@
 """Parameters example - Track hyperparameters and configuration."""
-import sys
-sys.path.insert(0, '../../src')
-
 from dreamlake import Episode
 
 def main():
@@ -10,9 +7,8 @@ def main():
     print("=" * 60)
 
     with Episode(
-        name="parameters-demo",
-        workspace="tutorials",
-        local_path="./tutorial_data"
+        prefix="tutorials/parameters-demo",
+        root="./tutorial_data",
     ) as episode:
         # Simple parameters
         episode.parameters().set(
@@ -63,7 +59,7 @@ def main():
     print("\n✓ All parameters saved!")
     print("\n" + "=" * 60)
     print("View parameters:")
-    print("  cat tutorial_data/.dreamlake/tutorials/parameters-demo/parameters.json")
+    print("  cat tutorial_data/tutorials/parameters-demo/parameters.json")
     print("\nExpected flat structure:")
     print("  learning_rate: 0.0001 (updated)")
     print("  model.architecture: resnet50")
