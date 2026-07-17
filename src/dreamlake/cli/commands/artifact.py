@@ -8,7 +8,7 @@ DreamLake's artifacts S3 bucket, then browsed + rendered by the dreamlake-ai UI.
 Usage:
     dreamlake artifact push <file> [--title T] [--kind K] [--id ID]
     dreamlake artifact list [--namespace NS]
-    dreamlake artifact delete <id> [--namespace NS] [-y]
+    dreamlake artifact delete <id> [--namespace NS] [-y] [--permanent]
     dreamlake artifact restore <id> [--namespace NS]
 
 The push path:
@@ -58,7 +58,7 @@ def print_help():
 {BOLD}Usage:{RESET}
     dreamlake artifact push <file> [--title T] [--kind K] [--id ID]
     dreamlake artifact list [--namespace NS]
-    dreamlake artifact delete <id> [--namespace NS] [-y]
+    dreamlake artifact delete <id> [--namespace NS] [-y] [--permanent]
     dreamlake artifact restore <id> [--namespace NS]
 
 {BOLD}push options:{RESET}
@@ -366,6 +366,12 @@ def cmd_delete(args: list) -> int:
     p.add_argument("artifact_id")
     p.add_argument("--namespace", default=None)
     p.add_argument("-y", "--yes", action="store_true", help="skip the confirmation prompt")
+    p.add_argument(
+        "-p",
+        "--permanent",
+        action="store_true",
+        help="permanently delete the artifact AND its stored content — irreversible (no restore)",
+    )
     ns = p.parse_args(args)
 
     namespace = ns.namespace or ServerConfig.resolve_namespace()
@@ -378,8 +384,15 @@ def cmd_delete(args: list) -> int:
         return 1
 
     if not ns.yes:
+        if ns.permanent:
+            prompt = (
+                f"{RED}PERMANENTLY delete{RESET} artifact '{ns.artifact_id}' from '{namespace}'?\n"
+                f"This erases all versions and stored content and {RED}cannot be undone{RESET}. [y/N] "
+            )
+        else:
+            prompt = f"Delete artifact '{ns.artifact_id}' from '{namespace}'? [y/N] "
         try:
-            resp = input(f"Delete artifact '{ns.artifact_id}' from '{namespace}'? [y/N] ").strip().lower()
+            resp = input(prompt).strip().lower()
         except EOFError:
             print("aborted (no input; pass -y to skip the prompt).")
             return 1
@@ -389,12 +402,13 @@ def cmd_delete(args: list) -> int:
 
     import httpx
     remote = ServerConfig.remote
+    # `--permanent` purges storage + catalog (irreversible); the default is a
+    # restorable soft-delete.
+    url = f"{remote}/namespaces/{namespace}/artifacts/{ns.artifact_id}"
+    if ns.permanent:
+        url += "/purge"
     try:
-        r = httpx.delete(
-            f"{remote}/namespaces/{namespace}/artifacts/{ns.artifact_id}",
-            headers={"Authorization": f"Bearer {token}"},
-            timeout=30,
-        )
+        r = httpx.delete(url, headers={"Authorization": f"Bearer {token}"}, timeout=60)
         r.raise_for_status()
     except Exception as e:
         body = getattr(getattr(e, "response", None), "text", "")
@@ -403,7 +417,18 @@ def cmd_delete(args: list) -> int:
             print(f"       server said: {body[:200]}", file=sys.stderr)
         return 1
 
-    print(f"{GREEN}✓ Deleted:{RESET} {ns.artifact_id}  {DIM}(restore with 'dreamlake artifact restore {ns.artifact_id}'){RESET}")
+    if ns.permanent:
+        try:
+            n = r.json().get("objectsDeleted")
+        except Exception:
+            n = None
+        detail = f"  {DIM}({n} objects removed){RESET}" if isinstance(n, int) else ""
+        print(f"{GREEN}✓ Permanently deleted:{RESET} {ns.artifact_id}{detail}")
+    else:
+        print(
+            f"{GREEN}✓ Deleted:{RESET} {ns.artifact_id}  "
+            f"{DIM}(restore with 'dreamlake artifact restore {ns.artifact_id}'){RESET}"
+        )
     return 0
 
 
