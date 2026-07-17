@@ -3,6 +3,7 @@ import json
 import pytest
 import hashlib
 from pathlib import Path
+from conftest import server_files_bug
 
 
 class TestBasicFileOperations:
@@ -26,6 +27,7 @@ class TestBasicFileOperations:
         assert len(saved_files) == 1
 
     @pytest.mark.remote
+    @server_files_bug
     def test_upload_single_file_remote(self, remote_episode, sample_files):
         """Test uploading a file in remote mode."""
         with remote_episode(prefix="test/file-test-remote") as episode:
@@ -47,6 +49,7 @@ class TestBasicFileOperations:
         assert len(file_dirs) == 3
 
     @pytest.mark.remote
+    @server_files_bug
     def test_upload_multiple_files_remote(self, remote_episode, sample_files):
         """Test uploading multiple files in remote mode."""
         with remote_episode(prefix="test/multi-file-remote") as episode:
@@ -82,6 +85,7 @@ class TestFileMetadata:
         assert our_file["metadata"]["epochs"] == 10
 
     @pytest.mark.remote
+    @server_files_bug
     def test_file_with_metadata_remote(self, remote_episode, sample_files):
         """Test file metadata in remote mode."""
         with remote_episode(prefix="test/file-meta-remote") as episode:
@@ -142,6 +146,7 @@ class TestListFiles:
         assert "config.json" in filenames
 
     @pytest.mark.remote
+    @server_files_bug
     def test_list_files_remote(self, remote_episode, sample_files):
         """Test listing files in remote mode."""
         with remote_episode(prefix="test/file-list-remote") as episode:
@@ -241,6 +246,7 @@ class TestFileTypes:
             assert result["sizeBytes"] == 1024 * 100  # 100 KB
 
     @pytest.mark.remote
+    @server_files_bug
     def test_various_file_types_remote(self, remote_episode, sample_files):
         """Test uploading various file types in remote mode."""
         with remote_episode(prefix="test/file-types-remote") as episode:
@@ -330,6 +336,7 @@ class TestFileEdgeCases:
             assert len(result["tags"]) == 50
 
     @pytest.mark.remote
+    @server_files_bug
     def test_large_file_remote(self, remote_episode, sample_files):
         """Test uploading large file in remote mode."""
         with remote_episode(prefix="test/large-file-remote") as episode:

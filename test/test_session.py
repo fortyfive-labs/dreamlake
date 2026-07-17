@@ -2,6 +2,7 @@
 import json
 import pytest
 from pathlib import Path
+from conftest import server_params_bug
 
 
 class TestEpisodeCreation:
@@ -51,6 +52,7 @@ class TestEpisodeCreation:
         assert (episode_dir / "logs" / "logs.jsonl").exists()
 
     @pytest.mark.remote
+    @server_params_bug
     def test_manual_open_close_remote(self, remote_episode):
         """Test manual episode lifecycle management in remote mode."""
         episode = remote_episode(prefix="test-ws/manual-test-remote")
@@ -140,6 +142,7 @@ class TestMultipleEpisodes:
         assert (workspace_dir / "episode-3").exists()
 
     @pytest.mark.remote
+    @server_params_bug
     def test_multiple_episodes_same_workspace_remote(self, remote_episode):
         """Test creating multiple episodes in the same workspace in remote mode."""
         with remote_episode(prefix="shared-ws-remote/remote-episode-1") as episode:
@@ -201,6 +204,7 @@ class TestEpisodeErrorHandling:
         assert (episode_dir / "parameters.json").exists()
 
     @pytest.mark.remote
+    @server_params_bug
     def test_episode_error_still_saves_data_remote(self, remote_episode):
         """Test that remote episode handles errors gracefully."""
         try:
@@ -264,6 +268,7 @@ class TestEpisodeReuse:
         assert len(logs) >= 2
 
     @pytest.mark.remote
+    @server_params_bug
     def test_reopen_existing_episode_remote(self, remote_episode):
         """Test reopening an existing episode in remote mode."""
         # Create initial episode

@@ -2,6 +2,7 @@
 import json
 import pytest
 from pathlib import Path
+from conftest import server_params_bug
 
 
 class TestBasicParameters:
@@ -24,6 +25,7 @@ class TestBasicParameters:
         assert params["epochs"] == 100
 
     @pytest.mark.remote
+    @server_params_bug
     def test_simple_parameters_remote(self, remote_episode, sample_data):
         """Test setting simple parameters in remote mode."""
         with remote_episode(prefix="test/params-test-remote") as episode:
@@ -56,6 +58,7 @@ class TestBasicParameters:
         assert params["list_param"] == [1, 2, 3, 4, 5]
 
     @pytest.mark.remote
+    @server_params_bug
     def test_parameter_types_remote(self, remote_episode):
         """Test different parameter types in remote mode."""
         with remote_episode(prefix="test/param-types-remote") as episode:
@@ -90,6 +93,7 @@ class TestNestedParameters:
         assert params["optimizer.lr"] == 0.001
 
     @pytest.mark.remote
+    @server_params_bug
     def test_nested_parameters_remote(self, remote_episode, sample_data):
         """Test nested parameters in remote mode."""
         with remote_episode(prefix="test/nested-params-remote") as episode:
@@ -177,6 +181,7 @@ class TestParameterUpdates:
         assert params["epochs"] == 100  # New
 
     @pytest.mark.remote
+    @server_params_bug
     def test_parameter_update_remote(self, remote_episode):
         """Test updating parameters in remote mode."""
         with remote_episode(prefix="test/param-update-remote") as episode:
@@ -309,6 +314,7 @@ class TestParameterEdgeCases:
         assert params["large_int"] == 999999999999
 
     @pytest.mark.remote
+    @server_params_bug
     def test_large_parameter_set_remote(self, remote_episode):
         """Test setting many parameters in remote mode."""
         large_params = {f"param_{i}": i for i in range(100)}

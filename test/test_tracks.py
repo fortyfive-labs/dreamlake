@@ -2,7 +2,7 @@
 import json
 import pytest
 from pathlib import Path
-from conftest import read_msgpack_track_file
+from conftest import read_msgpack_track_file, server_tracks_bug
 
 
 class TestBasicTracks:
@@ -44,6 +44,7 @@ class TestBasicTracks:
         assert data_points[0]["data"]["epoch"] == 0
 
     @pytest.mark.remote
+    @server_tracks_bug
     def test_single_track_append_remote(self, remote_episode):
         """Test appending data points in remote mode."""
         with remote_episode(prefix="test/track-test-remote") as episode:
@@ -64,6 +65,7 @@ class TestBasicTracks:
         assert (tracks_dir / "accuracy" / "data.msgpack").exists()
 
     @pytest.mark.remote
+    @server_tracks_bug
     def test_multiple_tracks_remote(self, remote_episode):
         """Test tracking multiple metrics in remote mode."""
         with remote_episode(prefix="test/multi-track-remote") as episode:
@@ -99,6 +101,7 @@ class TestBatchAppend:
         assert data_points[4]["data"]["value"] == 0.2
 
     @pytest.mark.remote
+    @server_tracks_bug
     def test_batch_append_remote(self, remote_episode, sample_data):
         """Test batch appending in remote mode."""
         with remote_episode(prefix="test/batch-track-remote") as episode:
@@ -143,6 +146,7 @@ class TestFlexibleSchema:
         assert data_points[0]["data"]["train_acc"] == 0.85
 
     @pytest.mark.remote
+    @server_tracks_bug
     def test_multi_field_tracking_remote(self, remote_episode, sample_data):
         """Test multi-field tracking in remote mode."""
         with remote_episode(prefix="test/multi-field-remote") as episode:
@@ -195,6 +199,7 @@ class TestTrackMetadata:
         assert int(stats["totalDataPoints"]) == 20
 
     @pytest.mark.remote
+    @server_tracks_bug
     def test_track_stats_remote(self, remote_episode):
         """Test getting track stats in remote mode."""
         with remote_episode(prefix="test/track-stats-remote") as episode:
@@ -239,6 +244,7 @@ class TestTrackRead:
             assert page2["data"][0]["data"]["step"] == 25
 
     @pytest.mark.remote
+    @server_tracks_bug
     def test_read_track_data_remote(self, remote_episode):
         """Test reading track data in remote mode."""
         with remote_episode(prefix="test/track-read-remote") as episode:
@@ -268,6 +274,7 @@ class TestListTracks:
         assert "learning_rate" in track_names
 
     @pytest.mark.remote
+    @server_tracks_bug
     def test_list_all_tracks_remote(self, remote_episode):
         """Test listing tracks in remote mode."""
         with remote_episode(prefix="test/track-list-remote") as episode:
@@ -358,6 +365,7 @@ class TestTrackEdgeCases:
         assert len(data_points) == 1000
 
     @pytest.mark.remote
+    @server_tracks_bug
     def test_frequent_tracking_remote(self, remote_episode):
         """Test rapid tracking in remote mode."""
         with remote_episode(prefix="test/frequent-track-remote") as episode:
@@ -522,6 +530,7 @@ class TestTrackTimeQueries:
         assert result["total"] == 5  # Points 0, 1, 2, 3, 4
 
     @pytest.mark.remote
+    @server_tracks_bug
     def test_read_by_time_remote(self, remote_episode):
         """Test time-based queries in remote mode."""
         import time

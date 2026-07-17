@@ -1,11 +1,24 @@
 """
 Remote API client for dreamlake server.
+
+Episodes are addressed through their namespace + project:
+    POST /namespaces/{namespace}/projects/{project}/episodes
+Episode-scoped resources (logs, parameters, files, tracks) are addressed
+by episode id:
+    POST /episodes/{episode_id}/logs
 """
 
 from typing import Optional, Dict, Any, List
+from urllib.parse import quote
+
 import httpx
 
 _TOKEN_KEY = "dreamlake-token"
+
+
+def _seg(value: str) -> str:
+    """URL-encode a single path segment (same as encodeURIComponent)."""
+    return quote(value, safe="")
 
 
 class RemoteClient:
@@ -32,6 +45,7 @@ class RemoteClient:
                 )
             api_key = token
         self.api_key = api_key
+        self._default_namespace: Optional[str] = None
         self._client = httpx.Client(
             base_url=self.base_url,
             headers={
@@ -42,35 +56,121 @@ class RemoteClient:
             timeout=30.0,
         )
 
-    def create_or_update_episode(
-        self,
-        workspace: str,
-        name: str,
-        description: Optional[str] = None,
-        tags: Optional[List[str]] = None,
-        folder: Optional[str] = None,
-        write_protected: bool = False,
-        metadata: Optional[Dict[str, Any]] = None,
-    ) -> Dict[str, Any]:
+    def get_me(self) -> Dict[str, Any]:
         """
-        Create or update a episode.
+        Get the authenticated user profile.
 
-        Args:
-            workspace: Workspace name
-            name: Episode name
-            description: Optional description
-            tags: Optional list of tags
-            folder: Optional folder path
-            write_protected: If True, episode becomes immutable
-            metadata: Optional metadata dict
+        On first call for a new token, the server registers the user and
+        allocates their personal namespace.
 
         Returns:
-            Response dict with episode, workspace, folder, and namespace data
+            User profile dict with id, sub, email, name, and namespace
+            ({"id": ..., "slug": ...}) fields
 
         Raises:
             httpx.HTTPStatusError: If request fails
         """
-        payload = {
+        response = self._client.get(
+            "/auth/me",
+        )
+        response.raise_for_status()
+        return response.json()
+
+    def resolve_namespace(self) -> str:
+        """
+        Resolve the authenticated user's default namespace slug (cached).
+
+        Returns:
+            Namespace slug string
+
+        Raises:
+            RuntimeError: If the server reports no namespace for the user
+            httpx.HTTPStatusError: If request fails
+        """
+        if self._default_namespace:
+            return self._default_namespace
+
+        me = self.get_me()
+        namespace = (me.get("namespace") or {}).get("slug")
+        if not namespace:
+            raise RuntimeError(
+                "Server returned no namespace for the authenticated user. "
+                "Pass a namespace explicitly (prefix='namespace/project/name')."
+            )
+        self._default_namespace = namespace
+        return namespace
+
+    def create_project(
+        self,
+        namespace: str,
+        name: str,
+        slug: Optional[str] = None,
+        description: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Create a project in a namespace.
+
+        Args:
+            namespace: Namespace slug
+            name: Project display name
+            slug: Optional URL-safe slug (derived from name if omitted)
+            description: Optional description
+
+        Returns:
+            Created project dict (id, name, slug, ...)
+
+        Raises:
+            httpx.HTTPStatusError: If request fails (409 if it already exists)
+        """
+        payload: Dict[str, Any] = {
+            "name": name,
+        }
+        if slug is not None:
+            payload["slug"] = slug
+        if description is not None:
+            payload["description"] = description
+
+        response = self._client.post(
+            f"/namespaces/{_seg(namespace)}/projects",
+            json=payload,
+        )
+        response.raise_for_status()
+        return response.json()
+
+    def create_or_update_episode(
+        self,
+        namespace: str,
+        project: str,
+        name: str,
+        description: Optional[str] = None,
+        tags: Optional[List[str]] = None,
+        status: Optional[str] = None,
+        write_protected: bool = False,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """
+        Create or update (upsert) an episode in a project.
+
+        If the project does not exist yet, it is created automatically.
+
+        Args:
+            namespace: Namespace slug
+            project: Project slug
+            name: Episode name (unique within project)
+            description: Optional description
+            tags: Optional list of tags
+            status: Optional status (e.g. "running", "completed", "failed")
+            write_protected: If True, episode becomes immutable
+            metadata: Optional metadata dict
+
+        Returns:
+            Episode dict: id, name, description, status, writeProtected,
+            tags, projectNodeId, createdAt, updatedAt
+
+        Raises:
+            httpx.HTTPStatusError: If request fails
+        """
+        payload: Dict[str, Any] = {
             "name": name,
         }
 
@@ -78,17 +178,36 @@ class RemoteClient:
             payload["description"] = description
         if tags is not None:
             payload["tags"] = tags
-        if folder is not None:
-            payload["folder"] = folder
+        if status is not None:
+            payload["status"] = status
         if write_protected:
             payload["writeProtected"] = write_protected
         if metadata is not None:
             payload["metadata"] = metadata
 
+        path = f"/namespaces/{_seg(namespace)}/projects/{_seg(project)}/episodes"
         response = self._client.post(
-            f"/workspaces/{workspace}/episodes",
+            path,
             json=payload,
         )
+
+        if response.status_code == 404:
+            # Project (or namespace) not found — auto-create the project,
+            # then retry the episode upsert once.
+            try:
+                self.create_project(
+                    namespace=namespace,
+                    name=project,
+                    slug=project,
+                )
+            except httpx.HTTPStatusError as error:
+                if error.response.status_code != 409:
+                    raise
+            response = self._client.post(
+                path,
+                json=payload,
+            )
+
         response.raise_for_status()
         return response.json()
 
@@ -106,7 +225,9 @@ class RemoteClient:
             episode_id: Episode ID (Snowflake ID)
             logs: List of log entries, each with fields:
                 - timestamp: ISO 8601 string
-                - level: "info"|"warn"|"error"|"debug"|"fatal"
+                - level: "debug"|"info"|"warn"|"error" (the current server
+                  rejects "fatal": its route schema only allows "critical",
+                  while its service only allows "fatal")
                 - message: Log message string
                 - metadata: Optional dict
 
@@ -123,7 +244,7 @@ class RemoteClient:
             httpx.HTTPStatusError: If request fails
         """
         response = self._client.post(
-            f"/episodes/{episode_id}/logs",
+            f"/episodes/{_seg(episode_id)}/logs",
             json={"logs": logs}
         )
         response.raise_for_status()
@@ -159,7 +280,7 @@ class RemoteClient:
             httpx.HTTPStatusError: If request fails
         """
         response = self._client.post(
-            f"/episodes/{episode_id}/parameters",
+            f"/episodes/{_seg(episode_id)}/parameters",
             json={"data": data}
         )
         response.raise_for_status()
@@ -179,7 +300,7 @@ class RemoteClient:
         Raises:
             httpx.HTTPStatusError: If request fails or parameters don't exist
         """
-        response = self._client.get(f"/episodes/{episode_id}/parameters")
+        response = self._client.get(f"/episodes/{_seg(episode_id)}/parameters")
         response.raise_for_status()
         result = response.json()
         return result.get("data", {})
@@ -239,7 +360,7 @@ class RemoteClient:
 
         # httpx will automatically set multipart/form-data content-type
         response = self._client.post(
-            f"/episodes/{episode_id}/files",
+            f"/episodes/{_seg(episode_id)}/files",
             files=files,
             data=data
         )
@@ -274,7 +395,7 @@ class RemoteClient:
             params["tags"] = ",".join(tags)
 
         response = self._client.get(
-            f"/episodes/{episode_id}/files",
+            f"/episodes/{_seg(episode_id)}/files",
             params=params
         )
         response.raise_for_status()
@@ -295,7 +416,7 @@ class RemoteClient:
         Raises:
             httpx.HTTPStatusError: If request fails
         """
-        response = self._client.get(f"/episodes/{episode_id}/files/{file_id}")
+        response = self._client.get(f"/episodes/{_seg(episode_id)}/files/{_seg(file_id)}")
         response.raise_for_status()
         return response.json()
 
@@ -331,7 +452,7 @@ class RemoteClient:
 
         # Download file
         response = self._client.get(
-            f"/episodes/{episode_id}/files/{file_id}/download"
+            f"/episodes/{_seg(episode_id)}/files/{_seg(file_id)}/download"
         )
         response.raise_for_status()
 
@@ -363,7 +484,7 @@ class RemoteClient:
         Raises:
             httpx.HTTPStatusError: If request fails
         """
-        response = self._client.delete(f"/episodes/{episode_id}/files/{file_id}")
+        response = self._client.delete(f"/episodes/{_seg(episode_id)}/files/{_seg(file_id)}")
         response.raise_for_status()
         return response.json()
 
@@ -400,7 +521,7 @@ class RemoteClient:
             payload["metadata"] = metadata
 
         response = self._client.patch(
-            f"/episodes/{episode_id}/files/{file_id}",
+            f"/episodes/{_seg(episode_id)}/files/{_seg(file_id)}",
             json=payload
         )
         response.raise_for_status()
@@ -441,7 +562,7 @@ class RemoteClient:
             payload["metadata"] = metadata
 
         response = self._client.post(
-            f"/episodes/{episode_id}/tracks/{track_name}/append",
+            f"/episodes/{_seg(episode_id)}/tracks/{_seg(track_name)}/append",
             json=payload
         )
         response.raise_for_status()
@@ -482,7 +603,7 @@ class RemoteClient:
             payload["metadata"] = metadata
 
         response = self._client.post(
-            f"/episodes/{episode_id}/tracks/{track_name}/append-batch",
+            f"/episodes/{_seg(episode_id)}/tracks/{_seg(track_name)}/append-batch",
             json=payload
         )
         response.raise_for_status()
@@ -511,47 +632,11 @@ class RemoteClient:
             httpx.HTTPStatusError: If request fails
         """
         response = self._client.get(
-            f"/episodes/{episode_id}/tracks/{track_name}",
-            params={"s": start_index, "limit": limit}
-        )
-        response.raise_for_status()
-        return response.json()
-
-    def read_track_data_by_time(
-        self,
-        episode_id: str,
-        track_name: str,
-        start_time: Optional[float] = None,
-        end_time: Optional[float] = None,
-        limit: int = 1000,
-        reverse: bool = False
-    ) -> Dict[str, Any]:
-        """
-        Read data points from a track by time range (MCAP-like API).
-
-        Args:
-            episode_id: Episode ID (Snowflake ID)
-            track_name: Track name
-            start_time: Starting timestamp (seconds since epoch, None = from beginning)
-            end_time: Ending timestamp (seconds since epoch, None = to end)
-            limit: Max points to read (default 1000, max 10000)
-            reverse: If True, return newest points first (default False)
-
-        Returns:
-            Dict with data, startTime, endTime, total, hasMore
-
-        Raises:
-            httpx.HTTPStatusError: If request fails
-        """
-        params = {"limit": limit, "reverse": str(reverse).lower()}
-        if start_time is not None:
-            params["st"] = start_time
-        if end_time is not None:
-            params["et"] = end_time
-
-        response = self._client.get(
-            f"/episodes/{episode_id}/tracks/{track_name}/by-time",
-            params=params
+            f"/episodes/{_seg(episode_id)}/tracks/{_seg(track_name)}/data",
+            params={
+                "startIndex": start_index,
+                "limit": limit,
+            },
         )
         response.raise_for_status()
         return response.json()
@@ -575,7 +660,7 @@ class RemoteClient:
             httpx.HTTPStatusError: If request fails
         """
         response = self._client.get(
-            f"/episodes/{episode_id}/tracks/{track_name}/stats"
+            f"/episodes/{_seg(episode_id)}/tracks/{_seg(track_name)}/stats"
         )
         response.raise_for_status()
         return response.json()
@@ -596,7 +681,7 @@ class RemoteClient:
         Raises:
             httpx.HTTPStatusError: If request fails
         """
-        response = self._client.get(f"/episodes/{episode_id}/tracks")
+        response = self._client.get(f"/episodes/{_seg(episode_id)}/tracks")
         response.raise_for_status()
         return response.json()["tracks"]
 
