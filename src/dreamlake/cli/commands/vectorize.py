@@ -7,7 +7,6 @@ Usage:
     dreamlake vectorize --dataset <name> --project space[@namespace]
 """
 
-import os
 import sys
 import re
 import uuid
@@ -27,8 +26,6 @@ YELLOW = "\033[33m"
 VECTORIZE_URL_DEFAULT = "http://localhost:8001"
 QDRANT_URL_DEFAULT = "http://localhost:6333"
 QDRANT_COLLECTION = "dreamlake-search"
-ZAKU_URL_DEFAULT = "http://localhost:9000"
-ZAKU_QUEUE_NAME = "dreamlake-vectorize"
 
 
 def print_help():
@@ -45,7 +42,6 @@ def print_help():
     --bindr   Bindr name (requires --project)
     --dataset    Dataset name (requires --project)
     --project      Space target: space[@namespace]
-    --zaku-url   Zaku task queue URL (enables distributed mode)
 
 {BOLD}Examples:{RESET}
     dreamlake vectorize --episode robotics@alice:run-042
@@ -146,6 +142,15 @@ def _get_chunk_s3_url(chunk_hash: str) -> str:
 
 
 def cmd_vectorize(args: dict) -> int:
+    # The zaku-backed distributed path was removed in favor of lakeshore.
+    if args.get("zaku_url"):
+        print(
+            f"{RED}error:{RESET} distributed vectorize moved to lakeshore — "
+            f"'pip install dreamlake-lakeshore', see https://lakeshore.dreamlake.ai/python-sdk/",
+            file=sys.stderr,
+        )
+        return 1
+
     episode_str = args.get("episode")
     bindr_name = args.get("bindr")
     dataset_name = args.get("dataset")
@@ -258,101 +263,13 @@ def cmd_vectorize(args: dict) -> int:
 
         print(f"  Found {BOLD}{len(all_chunks)}{RESET} chunk(s) across {len(videos)} video(s)")
 
-    # 3. Dispatch — Zaku (distributed) or direct HTTP (sequential)
-    zaku_url = args.get("zaku_url")
-
-    if zaku_url:
-        return _vectorize_zaku(zaku_url, all_chunks, qdrant_url, len(videos))
-    else:
-        return _vectorize_direct(vectorize_url, all_chunks, qdrant_url, len(videos))
+    return _vectorize_direct(vectorize_url, all_chunks, qdrant_url, len(videos))
 
 
-# ── Zaku distributed mode ───────────────────────────────────────────────────
-
-def _vectorize_zaku(zaku_url: str, all_chunks: list, qdrant_url: str, video_count: int) -> int:
-    """Dispatch chunks to Zaku queue. Workers process and write to Qdrant."""
-    import time
-    from rich.progress import Progress, BarColumn, MofNCompleteColumn, TimeElapsedColumn, TextColumn
-
-    try:
-        from zaku import TaskQ
-    except ImportError:
-        print(
-            f"  {RED}error:{RESET} distributed vectorize needs the 'vectorize' extra. "
-            f"run: pip install 'dreamlake[vectorize]'",
-            file=sys.stderr,
-        )
-        return 1
-
-    s3_bucket = os.environ.get("S3_BUCKET", "amzn-s3-dreamlake-bucket-test")
-    queue = TaskQ(uri=zaku_url, name=ZAKU_QUEUE_NAME, s3_bucket=s3_bucket)
-
-    # Health check
-    try:
-        count = queue.count()
-    except Exception as e:
-        print(f"  {RED}error:{RESET} Zaku unreachable at {zaku_url}: {e}", file=sys.stderr)
-        return 1
-
-    total = len(all_chunks)
-    print(f"\n  Dispatching {BOLD}{total}{RESET} jobs to Zaku ({zaku_url})...")
-
-    # Add all chunks as jobs
-    for chunk in all_chunks:
-        queue.add({
-            "url": _get_chunk_s3_url(chunk["chunkHash"]),
-            "caption": True,
-            "videoId": chunk["videoId"],
-            "episodeId": chunk["episodeId"],
-            "episodeName": chunk["episodeName"],
-            "projectId": chunk["projectId"],
-            "chunkHash": chunk["chunkHash"],
-            "chunkIndex": chunk["chunkIndex"],
-            "timeStart": chunk["timeStart"],
-            "timeEnd": chunk["timeEnd"],
-            "qdrant_url": qdrant_url,
-            "qdrant_collection": QDRANT_COLLECTION,
-        })
-
-    print(f"  {GREEN}Dispatched {total} jobs{RESET}. Workers will process and write to Qdrant.")
-    print(f"  Monitoring progress...\n")
-
-    # Monitor queue drain
-    with Progress(
-        TextColumn("[bold blue]{task.description}"),
-        BarColumn(),
-        MofNCompleteColumn(),
-        TimeElapsedColumn(),
-    ) as progress:
-        task = progress.add_task("Vectorizing", total=total)
-
-        while True:
-            try:
-                remaining = queue.count()
-            except Exception:
-                time.sleep(2)
-                continue
-
-            completed = total - remaining
-            progress.update(task, completed=completed)
-
-            if remaining == 0:
-                break
-            time.sleep(2)
-
-    print(f"\n{GREEN}Done.{RESET}")
-    print(f"  Videos:  {video_count}")
-    print(f"  Chunks:  {total}")
-    print(f"  Mode:    distributed (Zaku)")
-    print(f"  Qdrant Collection: {QDRANT_COLLECTION}")
-    print()
-    return 0
-
-
-# ── Direct HTTP mode (sequential fallback) ──────────────────────────────────
+# ── Direct HTTP mode (sequential) ───────────────────────────────────────────
 
 def _vectorize_direct(vectorize_url: str, all_chunks: list, qdrant_url: str, video_count: int) -> int:
-    """Process chunks sequentially via HTTP. Fallback when Zaku is unavailable."""
+    """Process chunks sequentially via HTTP."""
     import httpx
     from rich.progress import Progress, BarColumn, MofNCompleteColumn, TimeElapsedColumn, TextColumn
 
