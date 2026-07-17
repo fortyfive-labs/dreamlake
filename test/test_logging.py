@@ -2,7 +2,6 @@
 import json
 import pytest
 from pathlib import Path
-from conftest import server_fatal_log_bug
 
 
 class TestBasicLogging:
@@ -78,7 +77,6 @@ class TestLogLevels:
         assert logs[4]["level"] == "fatal"
 
     @pytest.mark.remote
-    @server_fatal_log_bug
     def test_all_log_levels_remote(self, remote_episode):
         """Test all log levels in remote mode."""
         with remote_episode(prefix="test/log-levels-remote") as episode:
