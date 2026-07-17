@@ -140,17 +140,16 @@ def _next_version(ds, artifact_id: str) -> int:
     DreamDB's iter_scalar requires a predicate, so we filter by artifact_id via
     where_eq (a missing value simply yields no rows → version 1).
     """
-    try:
-        max_v = 0
-        for batch in ds.iter_scalar(where_eq={"artifact_id": artifact_id}):
-            for v in batch.get("version", []):
-                try:
-                    max_v = max(max_v, int(v))
-                except (TypeError, ValueError):
-                    pass
-        return max_v + 1
-    except Exception:
-        return 1
+    # A read error PROPAGATES (the caller aborts before writing) — a transient
+    # failure must never silently reset the version to 1 and clobber history.
+    max_v = 0
+    for batch in ds.iter_scalar(where_eq={"artifact_id": artifact_id}):
+        for v in batch.get("version", []):
+            try:
+                max_v = max(max_v, int(v))
+            except (TypeError, ValueError):
+                pass
+    return max_v + 1
 
 
 # ── push ──────────────────────────────────────────────────────────────────────
@@ -237,7 +236,12 @@ def cmd_push(args: list) -> int:
     except Exception:
         ds = db.Dataset.create(ref, schema, backend=backend)
 
-    version = _next_version(ds, artifact_id)
+    try:
+        version = _next_version(ds, artifact_id)
+    except Exception as e:
+        # Abort BEFORE writing — never guess v1 on a read failure.
+        print(f"{RED}error:{RESET} could not determine the next version: {e}", file=sys.stderr)
+        return 1
 
     print(f"Uploading {CYAN}{file_path.name}{RESET} ({kind})")
     print(f"  {DIM}namespace:{RESET} {namespace}")
@@ -279,7 +283,15 @@ def cmd_push(args: list) -> int:
         print(f"  {DIM}visibility:{RESET} {cat.get('visibility')}")
         share_token = cat.get("shareToken")
     except Exception as e:
-        print(f"{RED}warning:{RESET} upload ok but could not register in catalog: {e}", file=sys.stderr)
+        # The content is written, but without a catalog row it won't appear in the
+        # gallery/list. Surface a FAILURE (non-zero) so scripts/CI don't treat a
+        # half-created artifact as success.
+        body_txt = getattr(getattr(e, "response", None), "text", "")
+        print(f"{RED}error:{RESET} uploaded the content but failed to register it in the catalog: {e}", file=sys.stderr)
+        if body_txt:
+            print(f"       server said: {body_txt[:200]}", file=sys.stderr)
+        print(f"       it won't show in the gallery/list until you re-push the same id.", file=sys.stderr)
+        return 1
 
     # Print an openable dashboard link so the user can view what they pushed.
     # Include the share token when one exists so the link works for its audience.
