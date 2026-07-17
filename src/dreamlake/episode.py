@@ -199,7 +199,9 @@ class Episode:
 
         Prefix Format:
             - "workspace/name" → workspace="workspace", name="name"
-            - "owner/workspace/name" → workspace="workspace", name="name"
+              (remote mode resolves the namespace from the API token)
+            - "namespace/workspace/name" → namespace="namespace",
+              workspace="workspace", name="name"
 
         Mode Selection:
             - url=None: Local-only mode (writes to root)
@@ -214,8 +216,10 @@ class Episode:
         if len(parts) < 2:
             raise ValueError(f"prefix must have at least 2 segments (workspace/name), got: {prefix}")
 
-        # Extract workspace (second-to-last or second segment) and name (last segment)
-        self.workspace = parts[-2] if len(parts) >= 2 else parts[0]
+        # Extract namespace (third-to-last segment, if present), workspace
+        # (second-to-last segment), and name (last segment)
+        self.namespace = parts[-3] if len(parts) >= 3 else None
+        self.workspace = parts[-2]
         self.name = parts[-1]
         self.prefix = prefix
 
@@ -312,19 +316,21 @@ class Episode:
             return self
 
         if self._client:
-            # Remote mode: create/update episode via API
-            # TODO: Update client API to use readme instead of description
+            # Remote mode: create/update episode via API. The namespace comes
+            # from the prefix when it has 3+ segments, otherwise from the
+            # authenticated user's default namespace.
+            namespace = self.namespace or self._client.resolve_namespace()
             response = self._client.create_or_update_episode(
-                workspace=self.workspace,
+                namespace=namespace,
+                project=self.workspace,
                 name=self.name,
                 description=self.readme,  # Map readme → description for now
                 tags=self.tags,
-                folder=None,  # Removed from ML-Dash API
                 write_protected=self.write_protected,
                 metadata=self.metadata,
             )
             self._episode_data = response
-            self._episode_id = response["episode"]["id"]
+            self._episode_id = response["id"]
 
         if self._storage:
             # Local mode: create episode directory structure
@@ -1207,32 +1213,25 @@ class Episode:
         Returns:
             Dict with data, startTime, endTime, total, hasMore
         """
-        result = None
-
-        if self._client:
-            # Remote mode: read via API
-            result = self._client.read_track_data_by_time(
-                episode_id=self._episode_id,
-                track_name=name,
-                start_time=start_time,
-                end_time=end_time,
-                limit=limit,
-                reverse=reverse
-            )
-
         if self._storage:
-            # Local mode: read from local storage
-            result = self._storage.read_track_data_by_time(
+            # Local/hybrid mode: read from local storage
+            return self._storage.read_track_data_by_time(
                 workspace=self.workspace,
                 episode=self.name,
                 track_name=name,
                 start_time=start_time,
                 end_time=end_time,
                 limit=limit,
-                reverse=reverse
+                reverse=reverse,
             )
 
-        return result
+        # Remote-only mode: dreamlake-server no longer exposes a by-time
+        # track read route, so this needs local storage (root=...).
+        raise NotImplementedError(
+            "read_by_time is not available in remote-only mode: "
+            "dreamlake-server no longer exposes a by-time track read route. "
+            "Set root=... to keep a local copy and read by time from it."
+        )
 
     def _get_track_stats(self, name: str) -> Dict[str, Any]:
         """
@@ -1311,7 +1310,7 @@ class Episode:
         if not self._episode_data:
             raise RuntimeError("Episode must be opened before searching")
 
-        space_id = self._episode_data["episode"]["projectId"]
+        space_id = self._episode_data["projectNodeId"]
 
         result = self._client.search_vectors(
             space_id=space_id,

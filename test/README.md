@@ -98,11 +98,76 @@ set, the suite passes on a machine with nothing running.
 - `TEST_VIDEO_ID` - ID of a video that exists in the BSS instance above
 - `QDRANT_URL` - Qdrant URL for vector-index tests (default: `http://localhost:6333`)
 
+## Running Remote Tests Against a Local Server
+
+The remote client targets the current server surface: episodes live under
+`/namespaces/:slug/projects/:projectSlug/episodes`, and episode-scoped
+resources (logs, parameters, files, tracks) under `/episodes/:episodeId/...`.
+The namespace comes from the API token (`GET /auth/me`) unless the prefix has
+three segments (`namespace/project/name`); missing projects are auto-created
+on first episode open.
+
+1. Start dreamlake-server (it reads `dreamlake-server/.env`, which points at
+   the shared Atlas dev cluster and sets the dev `JWT_SECRET`):
+
+   ```bash
+   cd ../dreamlake-server && pnpm dev   # listens on :10334
+   ```
+
+2. Mint a JWT signed with the server's `JWT_SECRET` (the committed dev value
+   is `your-secret-key-change-this-in-production`). Any `sub` works; the
+   `username` claim becomes the namespace slug:
+
+   ```python
+   import time, jwt
+   token = jwt.encode(
+       {
+           "sub": "sdk-remote-test",
+           "email": "sdk-remote-test@localhost",
+           "name": "SDK Remote Test",
+           "username": "sdk-remote-test",
+           "iat": int(time.time()),
+           "exp": int(time.time()) + 7 * 24 * 3600,
+       },
+       "your-secret-key-change-this-in-production",
+       algorithm="HS256",
+   )
+   ```
+
+   The first authenticated request (e.g. `GET /auth/me`) registers the user
+   and allocates their personal namespace — no manual DB seeding needed.
+
+   Alternatively, run the server with `SKIP_AUTH=true` to disable token
+   verification entirely (a stub `dev-user` is injected on every request).
+
+3. Run the suite:
+
+   ```bash
+   DREAMLAKE_URL=http://localhost:10334 DREAMLAKE_API_KEY=<token> uv run pytest test/
+   ```
+
+## Known Server Bugs (Gated Remote Tests)
+
+Some remote tests are skipped unconditionally because the corresponding
+server-side handlers are currently broken (the SDK sends correct requests;
+the failures are internal to dreamlake-server). The skip marks live in
+`conftest.py` — remove each once the server fix lands:
+
+- `server_params_bug` - `POST /episodes/:id/parameters` 500s on first write
+  (`services/parameters.ts` passes `deletedAt`, but the Prisma `Parameters`
+  model has no such field)
+- `server_tracks_bug` - track creation 500s (`services/tracks.ts` hardcodes
+  `projectNodeId: ''`, which is not a valid ObjectID)
+- `server_files_bug` - multipart file upload always 400s (`routes/files.ts`
+  declares a JSON body schema, but multipart leaves `request.body` undefined)
+- `server_fatal_log_bug` - no accepted wire value for log level `fatal`
+  (route schema only allows `critical`; `services/logs.ts` only allows
+  `fatal`; each rejects the other)
+
 ## Notes
 
 - All tests use temporary directories and are automatically cleaned up
 - Remote tests are skipped if `DREAMLAKE_URL` is not configured
-- The remote (ML-Dash compatible) client still targets the server's legacy
-  `/workspaces/...` routes, which the server has since replaced with
-  `/namespaces/:slug/projects/:projectSlug/...`. Until the client is ported,
-  remote-mode tests will fail against a current server even when opted in.
+- `read_by_time` is local-only: the server no longer exposes a by-time track
+  read route, so remote-only episodes raise `NotImplementedError`; hybrid
+  episodes (url + root) read from local storage
