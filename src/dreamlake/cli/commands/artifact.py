@@ -8,6 +8,7 @@ DreamLake's artifacts S3 bucket, then browsed + rendered by the dreamlake-ai UI.
 Usage:
     dreamlake artifact push <file> [--title T] [--kind K] [--id ID]
     dreamlake artifact list [--namespace NS]
+    dreamlake artifact delete <id> [--namespace NS] [-y]
 
 The push path:
   1. asks dreamlake-server for short-lived, prefix-scoped AWS credentials
@@ -56,6 +57,7 @@ def print_help():
 {BOLD}Usage:{RESET}
     dreamlake artifact push <file> [--title T] [--kind K] [--id ID]
     dreamlake artifact list [--namespace NS]
+    dreamlake artifact delete <id> [--namespace NS] [-y]
 
 {BOLD}push options:{RESET}
     --title    Human title (default: file stem)
@@ -331,6 +333,47 @@ def cmd_list(args: list) -> int:
     return 0
 
 
+# ── delete ──────────────────────────────────────────────────────────────────
+
+def cmd_delete(args: list) -> int:
+    p = argparse.ArgumentParser(prog="dreamlake artifact delete", add_help=True)
+    p.add_argument("artifact_id")
+    p.add_argument("--namespace", default=None)
+    p.add_argument("-y", "--yes", action="store_true", help="skip the confirmation prompt")
+    ns = p.parse_args(args)
+
+    namespace = ns.namespace or ServerConfig.resolve_namespace()
+    if not namespace:
+        print(f"{RED}error:{RESET} namespace not resolved. run 'dreamlake login'.", file=sys.stderr)
+        return 1
+    token = ServerConfig.resolve_token()
+    if not token:
+        print(f"{RED}error:{RESET} not authenticated. run 'dreamlake login' first.", file=sys.stderr)
+        return 1
+
+    if not ns.yes:
+        resp = input(f"Delete artifact '{ns.artifact_id}' from '{namespace}'? [y/N] ").strip().lower()
+        if resp not in ("y", "yes"):
+            print("aborted.")
+            return 1
+
+    import httpx
+    remote = ServerConfig.remote
+    try:
+        r = httpx.delete(
+            f"{remote}/namespaces/{namespace}/artifacts/{ns.artifact_id}",
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=30,
+        )
+        r.raise_for_status()
+    except Exception as e:
+        print(f"{RED}error:{RESET} could not delete artifact: {e}", file=sys.stderr)
+        return 1
+
+    print(f"{GREEN}✓ Deleted:{RESET} {ns.artifact_id}  {DIM}(re-push the same id to restore){RESET}")
+    return 0
+
+
 def main(args: list) -> int:
     if not args or args[0] in ("-h", "--help", "help"):
         print_help()
@@ -341,6 +384,8 @@ def main(args: list) -> int:
         return cmd_push(rest)
     if sub == "list":
         return cmd_list(rest)
+    if sub == "delete":
+        return cmd_delete(rest)
 
     print(f"{RED}error:{RESET} unknown artifact subcommand '{sub}'", file=sys.stderr)
     print_help()
