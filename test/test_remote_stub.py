@@ -10,7 +10,9 @@ These cover behavior that needs exact control over server responses
   buffer so a later flush can re-send it.
 * RemoteClient.read_track_data normalizes the server's raw
   {trackName, points, startIndex, count} response to the documented
-  {data, startIndex, endIndex, total, hasMore} shape.
+  {data, startIndex, endIndex, total, hasMore} shape; likewise
+  append_batch_to_track normalizes {inserted, trackName, startIndex}
+  to {trackName, startIndex, endIndex, count}.
 * RemoteClient.api_key is a live property: assigning it rebuilds the
   auth header and invalidates the cached default namespace.
 """
@@ -160,12 +162,13 @@ class TestHybridFlushDurability:
                 if state["fail"]:
                     return 500, {"error": "boom"}
                 payload = json.loads(body)
-                count = len(payload["dataPoints"])
-                return 200, {
-                    "trackId": "t-1",
+                # The server's exact raw schema — no `count` key; the client
+                # normalizes {inserted, trackName, startIndex} to the
+                # documented {trackName, startIndex, endIndex, count} shape.
+                return 201, {
+                    "inserted": len(payload["dataPoints"]),
+                    "trackName": "metric",
                     "startIndex": 0,
-                    "endIndex": count - 1,
-                    "count": count,
                 }
             return 404, {"error": f"unhandled {method} {route}"}
 

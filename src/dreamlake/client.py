@@ -606,7 +606,11 @@ class RemoteClient:
             metadata: Optional metadata
 
         Returns:
-            Dict with trackId, startIndex, endIndex, count, bufferedDataPoints, chunkSize
+            Dict with trackName, startIndex, endIndex, count — the same shape
+            LocalStorage.append_batch_to_track reports, so callers see one
+            schema in every mode. (The server's raw response is
+            {inserted, trackName, startIndex}; it is normalized here, at the
+            client boundary, mirroring read_track_data.)
 
         Raises:
             httpx.HTTPStatusError: If request fails
@@ -624,7 +628,16 @@ class RemoteClient:
             json=payload
         )
         response.raise_for_status()
-        return response.json()
+        body = response.json()
+
+        count = body.get("inserted", body.get("count", len(data_points)))
+        start_index = body.get("startIndex", 0)
+        return {
+            "trackName": body.get("trackName", track_name),
+            "startIndex": start_index,
+            "endIndex": start_index + count - 1 if count else start_index - 1,
+            "count": count,
+        }
 
     def read_track_data(
         self,

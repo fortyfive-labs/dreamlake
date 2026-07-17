@@ -140,6 +140,24 @@ on first episode open.
    Alternatively, run the server with `SKIP_AUTH=true` to disable token
    verification entirely (a stub `dev-user` is injected on every request).
 
+   Note: the file tests need the server's S3 bucket (`S3_BUCKET` in
+   `dreamlake-server/.env`) to actually exist — file binaries are streamed
+   to S3, so uploads 500 without it (track appends only touch S3 at the
+   1000-point chunk flush, and a failed flush is non-fatal). If the bucket
+   is unreachable, run a local MinIO and point the server at it:
+
+   ```bash
+   docker run -d -p 19000:9000 \
+     -e MINIO_ROOT_USER=minioadmin -e MINIO_ROOT_PASSWORD=minioadmin \
+     minio/minio server /data
+   mc alias set local http://localhost:19000 minioadmin minioadmin
+   mc mb local/amzn-s3-ml-logger-test    # the S3_BUCKET name from .env
+   cd ../dreamlake-server && env -u AWS_PROFILE \
+     AWS_ENDPOINT=http://localhost:19000 S3_FORCE_PATH_STYLE=true \
+     AWS_ACCESS_KEY_ID=minioadmin AWS_SECRET_ACCESS_KEY=minioadmin \
+     pnpm dev
+   ```
+
 3. Run the suite:
 
    ```bash
@@ -148,13 +166,10 @@ on first episode open.
 
 ## Known Server Bugs (Gated Remote Tests)
 
-Some remote tests are skipped unconditionally because the corresponding
-server-side handlers are currently broken (the SDK sends correct requests;
-the failures are internal to dreamlake-server). The skip marks live in
-`conftest.py` — remove each once the server fix lands.
+All known-server-bug gates are lifted — no remote test is skipped
+unconditionally anymore.
 
-Fixed by dreamlake-server#61 (PR #65, verified live against the fixed
-server — gates removed):
+Fixed by dreamlake-server#61 (PR #65, verified live — gates removed):
 
 - parameters create - `POST /episodes/:id/parameters` no longer 500s
   (the stray `deletedAt` writes were dropped)
@@ -164,15 +179,28 @@ server — gates removed):
   `descendants` array from its response (no SDK test gated on this;
   listed for completeness)
 
-Still broken (dreamlake-server#67) — these gates stay:
+Fixed by dreamlake-server#67 (PR #68, verified live — the
+`server_tracks_bug` / `server_files_bug` / `server_content_bugs` gates
+are removed):
 
-- `server_tracks_bug` - track append 500s: the Track row now creates
-  correctly, but `services/tracks.ts` still calls Prisma models
-  (`TrackMetadata`/`TrackBuffer`/`TrackChunk`) deleted by the `3b2779a`
-  schema redesign
-- `server_files_bug` - file upload 500s: the multipart route now accepts
-  the request, but `services/files.ts` still calls the deleted Prisma
-  `File` model
+- track append/read/stats/list - `services/tracks.ts` was ported onto the
+  `3b2779a` schema: a Track is one row whose `chunks` Json field holds the
+  manifest, with full inline chunks flushed to S3 at 1000 points
+- file upload/download/list/delete - `services/files.ts` was ported onto
+  the schema: files are `kind="file"` leaf Nodes; binaries live in S3
+- additive wire change: track stats now also returns `name` (mirroring
+  `trackName`), matching what the SDK reads
+- behavior change: a malformed upload `prefix` (not starting with `/`,
+  ending with `/`, or containing characters outside alphanumeric/`/`/`-`/
+  `_`) now returns 400 instead of being accepted
+
+The only remaining skips are environment-gated, not bug-gated:
+
+- `DREAMLAKE_URL` / `DREAMLAKE_API_KEY` unset - all remote tests skip
+- `DREAMLAKE_BSS_URL` + `TEST_VIDEO_ID` unset - the BSS video integration
+  tests in `test_api.py` skip
+- ffmpeg not installed - video-synthesis tests in `test_api.py` skip
+- Qdrant unreachable - vector-index tests skip
 
 ## Notes
 
