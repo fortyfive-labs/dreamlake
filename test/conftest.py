@@ -47,8 +47,49 @@ def read_msgpack_track_file(file_path):
 
 
 # Configuration
-REMOTE_SERVER_URL = "http://localhost:3000"
+#
+# Remote tests are opt-in: set DREAMLAKE_URL to a running dreamlake-server
+# (dev default: http://localhost:10334) to enable them. When DREAMLAKE_URL is
+# unset or the server is unreachable, all remote tests are skipped so the
+# suite passes on a machine with nothing running.
+REMOTE_SERVER_URL = os.environ.get("DREAMLAKE_URL")
 TEST_USERNAME = "test-user"
+
+_remote_available_cache = None
+
+
+def remote_server_available():
+    """
+    Check (once) whether a dreamlake-server is reachable at DREAMLAKE_URL.
+
+    Requires an actual dreamlake-server /health response (JSON with
+    status "ok") — a plain 200 is not enough, because other services
+    (e.g. the frontend dev server) also answer /health with HTML.
+    """
+    global _remote_available_cache
+    if _remote_available_cache is not None:
+        return _remote_available_cache
+
+    if not REMOTE_SERVER_URL:
+        _remote_available_cache = False
+        return False
+
+    import httpx
+    try:
+        response = httpx.get(f"{REMOTE_SERVER_URL}/health", timeout=2.0)
+        body = response.json()
+        _remote_available_cache = (
+            response.status_code == 200 and body.get("status") == "ok"
+        )
+    except Exception:
+        _remote_available_cache = False
+    return _remote_available_cache
+
+
+REMOTE_SKIP_REASON = (
+    "Remote server not available (set DREAMLAKE_URL to a running dreamlake-server, "
+    "e.g. http://localhost:10334, and DREAMLAKE_API_KEY to enable remote tests)"
+)
 
 
 @pytest.fixture
@@ -84,10 +125,15 @@ def remote_episode():
     """
     Create a test episode in remote mode (ML-Dash compatible API).
 
-    Returns a function that creates remote episodes with localhost:3000.
+    Returns a function that creates remote episodes against DREAMLAKE_URL.
     Use the @pytest.mark.remote marker for tests that require a running server.
     Requires DREAMLAKE_API_KEY environment variable to be set.
     """
+    if not remote_server_available():
+        pytest.skip(REMOTE_SKIP_REASON)
+    if not os.environ.get("DREAMLAKE_API_KEY"):
+        pytest.skip("DREAMLAKE_API_KEY not set (required for remote tests)")
+
     def _create_episode(prefix="test-workspace/test-episode", **kwargs):
         defaults = {
             "url": REMOTE_SERVER_URL,
@@ -100,7 +146,7 @@ def remote_episode():
 
 
 @pytest.fixture(params=["local", "remote"])
-def any_episode(request, local_episode, remote_episode):
+def any_episode(request):
     """
     Parametrized fixture that runs tests with both local and remote episodes.
 
@@ -108,12 +154,12 @@ def any_episode(request, local_episode, remote_episode):
     Remote tests will be skipped if the server is not available.
     """
     if request.param == "local":
-        return local_episode
+        return request.getfixturevalue("local_episode")
     else:
-        # Check if remote server is available before running remote tests
         if request.node.get_closest_marker("skip_remote"):
             pytest.skip("Test explicitly skips remote mode")
-        return remote_episode
+        # remote_episode itself skips when the server is unavailable
+        return request.getfixturevalue("remote_episode")
 
 
 @pytest.fixture
@@ -213,19 +259,14 @@ def check_remote_available():
     Returns True if the server responds, False otherwise.
     Useful for conditional test skipping.
     """
-    import httpx
-    try:
-        response = httpx.get(f"{REMOTE_SERVER_URL}/health", timeout=2.0)
-        return response.status_code == 200
-    except Exception:
-        return False
+    return remote_server_available()
 
 
 def pytest_configure(config):
     """Register custom markers."""
     config.addinivalue_line(
         "markers",
-        "remote: mark test as requiring remote server (will attempt to connect to localhost:3000)"
+        "remote: mark test as requiring remote server (set DREAMLAKE_URL to enable)"
     )
     config.addinivalue_line(
         "markers",
@@ -251,16 +292,9 @@ def pytest_collection_modifyitems(items):
 
     Adds skip markers to remote tests if the server is not available.
     """
-    # Check if remote server is available
-    import httpx
-    server_available = False
-    try:
-        response = httpx.get(f"{REMOTE_SERVER_URL}/health", timeout=2.0)
-        server_available = response.status_code == 200
-    except Exception:
-        pass
+    server_available = remote_server_available()
 
-    skip_remote = pytest.mark.skip(reason="Remote server not available at localhost:3000")
+    skip_remote = pytest.mark.skip(reason=REMOTE_SKIP_REASON)
 
     for item in items:
         # Skip remote-only tests if server not available

@@ -82,19 +82,27 @@ Creates sample files for testing file uploads:
 - `results.txt` - CSV-like results
 
 ### `remote_episode` (Optional)
-Factory function to create remote-mode episodes. Requires `DREAMLAKE_SERVER_URL` env variable.
+Factory function to create remote-mode episodes. Requires `DREAMLAKE_URL` and
+`DREAMLAKE_API_KEY` env variables; skipped otherwise.
 
 ## Environment Variables
 
-Optional environment variables for remote testing:
+Live-server tests are opt-in via environment variables. With none of these
+set, the suite passes on a machine with nothing running.
 
-- `DREAMLAKE_SERVER_URL` - Remote server URL (default: skip remote tests)
-- `DREAMLAKE_TEST_USER` - Test username (default: "test-user")
-- `DREAMLAKE_API_KEY` - API key (optional, auto-generated from username)
+- `DREAMLAKE_URL` - dreamlake-server URL (dev default: `http://localhost:10334`);
+  unset = skip remote tests. Note: port 3000 is the frontend, not the server.
+- `DREAMLAKE_API_KEY` - API token for remote mode; unset = skip remote tests
+- `DREAMLAKE_BSS_URL` - BSS URL for the `test_api.py` integration tests;
+  unset = skip integration tests
+- `TEST_VIDEO_ID` - ID of a video that exists in the BSS instance above
+- `QDRANT_URL` - Qdrant URL for vector-index tests (default: `http://localhost:6333`)
 
 ## Notes
 
 - All tests use temporary directories and are automatically cleaned up
-- Tests use simple function notation (no test classes)
-- Remote tests are skipped if server URL is not configured
-- All 47 tests currently passing (as of last run)
+- Remote tests are skipped if `DREAMLAKE_URL` is not configured
+- The remote (ML-Dash compatible) client still targets the server's legacy
+  `/workspaces/...` routes, which the server has since replaced with
+  `/namespaces/:slug/projects/:projectSlug/...`. Until the client is ported,
+  remote-mode tests will fail against a current server even when opted in.
