@@ -198,8 +198,8 @@ class Episode:
             _write_protected: Internal - if True, episode becomes immutable after creation
 
         Prefix Format:
-            - "workspace/name" → workproject="workspace", name="name"
-            - "owner/workspace/name" → workproject="workspace", name="name"
+            - "workspace/name" → workspace="workspace", name="name"
+            - "owner/workspace/name" → workspace="workspace", name="name"
 
         Mode Selection:
             - url=None: Local-only mode (writes to root)
@@ -315,7 +315,7 @@ class Episode:
             # Remote mode: create/update episode via API
             # TODO: Update client API to use readme instead of description
             response = self._client.create_or_update_episode(
-                workproject=self.workspace,
+                workspace=self.workspace,
                 name=self.name,
                 description=self.readme,  # Map readme → description for now
                 tags=self.tags,
@@ -330,7 +330,7 @@ class Episode:
             # Local mode: create episode directory structure
             # TODO: Update storage API to use readme instead of description
             self._storage.create_episode(
-                workproject=self.workspace,
+                workspace=self.workspace,
                 name=self.name,
                 description=self.readme,  # Map readme → description for now
                 tags=self.tags,
@@ -589,7 +589,7 @@ class Episode:
         if self._storage:
             # Local mode: write to file immediately
             self._storage.write_log(
-                workproject=self.workspace,
+                workspace=self.workspace,
                 episode=self.name,
                 message=log_entry["message"],
                 level=log_entry["level"],
@@ -675,7 +675,7 @@ class Episode:
         if self._storage:
             # Local mode: copy to local storage
             result = self._storage.write_file(
-                workproject=self.workspace,
+                workspace=self.workspace,
                 episode=self.name,
                 file_path=file_path,
                 prefix=prefix,
@@ -718,7 +718,7 @@ class Episode:
         if self._storage:
             # Local mode: read from metadata file
             files = self._storage.list_files(
-                workproject=self.workspace,
+                workspace=self.workspace,
                 episode=self.name,
                 prefix=prefix,
                 tags=tags
@@ -752,7 +752,7 @@ class Episode:
         if self._storage:
             # Local mode: copy from local storage
             return self._storage.read_file(
-                workproject=self.workspace,
+                workspace=self.workspace,
                 episode=self.name,
                 file_id=file_id,
                 dest_path=dest_path
@@ -782,7 +782,7 @@ class Episode:
         if self._storage:
             # Local mode: soft delete in metadata
             result = self._storage.delete_file(
-                workproject=self.workspace,
+                workspace=self.workspace,
                 episode=self.name,
                 file_id=file_id
             )
@@ -823,7 +823,7 @@ class Episode:
         if self._storage:
             # Local mode: update in metadata file
             result = self._storage.update_file_metadata(
-                workproject=self.workspace,
+                workspace=self.workspace,
                 episode=self.name,
                 file_id=file_id,
                 description=description,
@@ -876,7 +876,7 @@ class Episode:
         if self._storage:
             # Local mode: write to file
             self._storage.write_parameters(
-                workproject=self.workspace,
+                workspace=self.workspace,
                 episode=self.name,
                 data=flattened_params
             )
@@ -901,7 +901,7 @@ class Episode:
         if self._storage:
             # Local mode: read from file
             params = self._storage.read_parameters(
-                workproject=self.workspace,
+                workspace=self.workspace,
                 episode=self.name
             )
 
@@ -1018,7 +1018,7 @@ class Episode:
 
         if self._storage:
             result = self._storage.append_batch_to_track(
-                workproject=self.workspace,
+                workspace=self.workspace,
                 episode=self.name,
                 track_name=name,
                 data_points=merged,
@@ -1135,7 +1135,7 @@ class Episode:
         if self._storage:
             # Local mode: append batch to local storage
             result = self._storage.append_batch_to_track(
-                workproject=self.workspace,
+                workspace=self.workspace,
                 episode=self.name,
                 track_name=name,
                 data_points=data_points,
@@ -1177,7 +1177,7 @@ class Episode:
         if self._storage:
             # Local mode: read from local storage
             result = self._storage.read_track_data(
-                workproject=self.workspace,
+                workspace=self.workspace,
                 episode=self.name,
                 track_name=name,
                 start_index=start_index,
@@ -1223,7 +1223,7 @@ class Episode:
         if self._storage:
             # Local mode: read from local storage
             result = self._storage.read_track_data_by_time(
-                workproject=self.workspace,
+                workspace=self.workspace,
                 episode=self.name,
                 track_name=name,
                 start_time=start_time,
@@ -1256,7 +1256,7 @@ class Episode:
         if self._storage:
             # Local mode: get stats from local storage
             result = self._storage.get_track_stats(
-                workproject=self.workspace,
+                workspace=self.workspace,
                 episode=self.name,
                 track_name=name
             )
@@ -1279,7 +1279,7 @@ class Episode:
         if self._storage:
             # Local mode: list from local storage
             result = self._storage.list_tracks(
-                workproject=self.workspace,
+                workspace=self.workspace,
                 episode=self.name
             )
 
@@ -1338,7 +1338,7 @@ def dreamlake_episode(
     Usage:
         @dreamlake_episode(
             name="my-experiment",
-            workproject="my-workspace",
+            workspace="my-workspace",
             remote="http://localhost:3000",
             api_key="your-token"
         )
@@ -1352,7 +1352,7 @@ def dreamlake_episode(
     def decorator(func: Callable) -> Callable:
         @functools.wraps(func)
         def wrapper(*args, **func_kwargs):
-            with Episode(name=name, workproject=workspace, **kwargs) as episode:
+            with Episode(prefix=f"{workspace}/{name}", **kwargs) as episode:
                 # Inject episode into function kwargs
                 func_kwargs['episode'] = episode
                 return func(*args, **func_kwargs)

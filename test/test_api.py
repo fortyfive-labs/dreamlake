@@ -102,9 +102,9 @@ class TestPrefix:
     """Test Prefix context manager."""
 
     def test_basic(self):
-        from dreamlake.api.prefix import Prefix, resolve_space, resolve_path
-        with Prefix(space="robotics@alice", prefix="/2026/04/run-042"):
-            assert resolve_space() == "robotics@alice"
+        from dreamlake.api.prefix import Prefix, resolve_project, resolve_path
+        with Prefix(project="robotics@alice", prefix="/2026/04/run-042"):
+            assert resolve_project() == "robotics@alice"
             assert resolve_path("camera/front") == "/2026/04/run-042/camera/front"
 
     def test_absolute_path_ignores_prefix(self):
@@ -113,31 +113,31 @@ class TestPrefix:
             assert resolve_path("/shared/ref.mp4") == "/shared/ref.mp4"
 
     def test_nested(self):
-        from dreamlake.api.prefix import Prefix, resolve_space, resolve_path
-        with Prefix(space="robotics@alice", prefix="/2026/04"):
+        from dreamlake.api.prefix import Prefix, resolve_project, resolve_path
+        with Prefix(project="robotics@alice", prefix="/2026/04"):
             with Prefix(prefix="run-042"):
-                assert resolve_space() == "robotics@alice"
+                assert resolve_project() == "robotics@alice"
                 assert resolve_path("camera") == "/2026/04/run-042/camera"
             # Back to outer
             assert resolve_path("camera") == "/2026/04/camera"
 
-    def test_space_override(self):
-        from dreamlake.api.prefix import Prefix, resolve_space
-        with Prefix(space="outer"):
-            with Prefix(space="inner"):
-                assert resolve_space() == "inner"
-            assert resolve_space() == "outer"
+    def test_project_override(self):
+        from dreamlake.api.prefix import Prefix, resolve_project
+        with Prefix(project="outer"):
+            with Prefix(project="inner"):
+                assert resolve_project() == "inner"
+            assert resolve_project() == "outer"
 
     def test_no_context(self):
-        from dreamlake.api.prefix import resolve_space, resolve_path
-        assert resolve_space() is None
+        from dreamlake.api.prefix import resolve_project, resolve_path
+        assert resolve_project() is None
         assert resolve_path("test") == "test"
 
-    def test_resolve_space_explicit(self):
-        from dreamlake.api.prefix import Prefix, resolve_space
-        with Prefix(space="context-space"):
-            assert resolve_space("explicit") == "explicit"
-            assert resolve_space() == "context-space"
+    def test_resolve_project_explicit(self):
+        from dreamlake.api.prefix import Prefix, resolve_project
+        with Prefix(project="context-project"):
+            assert resolve_project("explicit") == "explicit"
+            assert resolve_project() == "context-project"
 
 
 class TestFfmpeg:
@@ -298,15 +298,22 @@ class TestVideoArrayUnit:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# Integration tests — require BSS + dreamlake-server
+# Integration tests — require BSS + dreamlake-server + seeded test data
+#
+# Opt-in: set DREAMLAKE_BSS_URL (and TEST_VIDEO_ID for a video that exists in
+# that BSS instance) to enable. Without the env var these tests are skipped —
+# probing a default localhost port is not enough, because a BSS without the
+# seeded test video would still 404.
 # ═══════════════════════════════════════════════════════════════════════════════
 
-BSS_URL = os.environ.get("DREAMLAKE_BSS_URL", "http://localhost:10234")
+BSS_URL = os.environ.get("DREAMLAKE_BSS_URL")
 # Use a known video ID from the test data
 TEST_VIDEO_ID = os.environ.get("TEST_VIDEO_ID", "69e7264a4357796451fa4592")
 
 
 def _bss_available():
+    if not BSS_URL:
+        return False
     import httpx
     try:
         r = httpx.get(f"{BSS_URL}/health", timeout=2)
@@ -327,7 +334,10 @@ def _qdrant_available():
         return False
 
 
-integration = pytest.mark.skipif(not _bss_available(), reason="BSS not available")
+integration = pytest.mark.skipif(
+    not _bss_available(),
+    reason="BSS integration tests are opt-in (set DREAMLAKE_BSS_URL and TEST_VIDEO_ID)",
+)
 qdrant_required = pytest.mark.skipif(not _qdrant_available(), reason="Qdrant not available")
 
 
@@ -435,7 +445,7 @@ class TestTextTrackIntegration:
 
     def test_create_and_add(self):
         import dreamlake as dl
-        track = dl.text_track(prefix="/test/captions", space="robotics@tom-tao-6f6b82")
+        track = dl.text_track(prefix="/test/captions", project="robotics@tom-tao-6f6b82")
         track.add("First caption", st=0.0, et=2.0)
         track.add("Second caption", st=2.0, et=4.0)
         assert track.count == 2
@@ -445,7 +455,7 @@ class TestTextTrackIntegration:
         video = dl.load_video(f"bss://{BSS_URL.split('//')[1]}/videos/{TEST_VIDEO_ID}")
         clip = video[0.0:2.0]
 
-        track = dl.text_track(prefix="/test/captions-source", space="robotics@tom-tao-6f6b82")
+        track = dl.text_track(prefix="/test/captions-source", project="robotics@tom-tao-6f6b82")
         track.add("Robot arm caption", source=clip)
         assert track.count == 1
 
@@ -456,10 +466,10 @@ class TestPrefixIntegration:
 
     def test_prefix_with_text_track(self):
         import dreamlake as dl
-        with dl.Prefix(space="robotics@tom-tao-6f6b82", prefix="/2026/04/run-test"):
+        with dl.Prefix(project="robotics@tom-tao-6f6b82", prefix="/2026/04/run-test"):
             track = dl.text_track(path="captions/test")
             assert track.prefix == "/2026/04/run-test/captions/test"
-            assert track.space == "robotics@tom-tao-6f6b82"
+            assert track.project == "robotics@tom-tao-6f6b82"
 
 
 class TestTopLevelImports:

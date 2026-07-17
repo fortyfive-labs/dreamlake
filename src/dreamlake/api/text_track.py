@@ -99,11 +99,11 @@ class TextTrack:
         """Write JSONL, upload to BSS, register in dreamlake-server. Returns asset ID."""
         if not self._entries:
             return None
-        if not self._space:
+        if not self._project:
             raise ValueError("project is required for flush. Set via dl.Prefix or project= arg.")
 
-        # Parse space into namespace + space slug
-        parts = self._space.split("@")
+        # Parse project into namespace + project slug
+        parts = self._project.split("@")
         if len(parts) == 2:
             project_slug, namespace = parts[0], parts[1]
         else:
@@ -176,4 +176,4 @@ class TextTrack:
             os.unlink(tmp_path)
 
     def __repr__(self) -> str:
-        return f'TextTrack("{self._prefix}", project="{self._space}", count={self.count})'
+        return f'TextTrack("{self._prefix}", project="{self._project}", count={self.count})'
