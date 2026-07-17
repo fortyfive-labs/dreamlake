@@ -92,34 +92,13 @@ REMOTE_SKIP_REASON = (
 )
 
 
-# ── Known dreamlake-server bugs (verified live, 2026-07-17) ───────────────
-#
-# These marks gate remote tests whose server-side handlers are currently
-# broken. The SDK sends correct requests to the correct routes; the requests
-# reach the handlers and fail inside the server. Remove each mark once the
-# corresponding server fix lands.
-#
-# Fixed by dreamlake-server#61 / PR #65 (gates removed, verified live):
-# parameters create, the 'fatal' log level, and the descendants response
-# schema. Still broken (dreamlake-server#67): track append and full file
-# upload — services/tracks.ts and services/files.ts call Prisma models
-# (TrackMetadata / TrackBuffer / TrackChunk / File) that the 3b2779a schema
-# redesign deleted, so both 500 one layer past the #65 fixes.
-server_tracks_bug = pytest.mark.skip(
-    reason="dreamlake-server bug (dreamlake-server#67): track append 500s — the "
-    "Track row now creates correctly, but services/tracks.ts still calls Prisma "
-    "models (TrackMetadata/TrackBuffer/TrackChunk) deleted by the 3b2779a schema "
-    "redesign, so the append path dies at the deleted-model call",
-)
-server_files_bug = pytest.mark.skip(
-    reason="dreamlake-server bug (dreamlake-server#67): file upload 500s — the "
-    "multipart route now accepts the request, but services/files.ts still calls "
-    "the Prisma File model deleted by the 3b2779a schema redesign",
-)
-server_content_bugs = pytest.mark.skip(
-    reason="dreamlake-server bugs (dreamlake-server#67): track append 500s and "
-    "file upload 500s (see server_tracks_bug / server_files_bug in conftest.py)",
-)
+# All known-server-bug gates are lifted: dreamlake-server#61 (parameters,
+# 'fatal' log level, descendants — fixed by PR #65) and dreamlake-server#67
+# (track append/read + file upload/download/list/delete — fixed by PR #68,
+# which ported services/tracks.ts and services/files.ts onto the 3b2779a
+# schema redesign). The only remaining skips are environment-gated:
+# DREAMLAKE_URL/DREAMLAKE_API_KEY (remote), DREAMLAKE_BSS_URL + TEST_VIDEO_ID
+# (BSS video), ffmpeg, and Qdrant — see test/README.md.
 
 
 @pytest.fixture
