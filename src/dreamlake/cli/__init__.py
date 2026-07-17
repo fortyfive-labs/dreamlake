@@ -73,6 +73,18 @@ def print_help():
 
 def main():
     """Main CLI entry point."""
+    # Tranche-2 migration pointer: the subcommands (except `artifact
+    # push`) were ported to the TS CLI's `lakeshore dreamlake` group.
+    # argv[0]-gated — `python -m dreamlake.cli` stays silent.
+    from dreamlake.cli._notice import migration_notice
+
+    notice = migration_notice(
+        sys.argv[0],
+        sys.argv[1:],
+    )
+    if notice:
+        print(notice, file=sys.stderr)
+
     # Strip --debug early (before params-proto sees argv) and apply globally
     if "--debug" in sys.argv:
         sys.argv = [a for a in sys.argv if a != "--debug"]
