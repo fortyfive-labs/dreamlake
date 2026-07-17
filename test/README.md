@@ -151,18 +151,28 @@ on first episode open.
 Some remote tests are skipped unconditionally because the corresponding
 server-side handlers are currently broken (the SDK sends correct requests;
 the failures are internal to dreamlake-server). The skip marks live in
-`conftest.py` — remove each once the server fix lands:
+`conftest.py` — remove each once the server fix lands.
 
-- `server_params_bug` - `POST /episodes/:id/parameters` 500s on first write
-  (`services/parameters.ts` passes `deletedAt`, but the Prisma `Parameters`
-  model has no such field)
-- `server_tracks_bug` - track creation 500s (`services/tracks.ts` hardcodes
-  `projectNodeId: ''`, which is not a valid ObjectID)
-- `server_files_bug` - multipart file upload always 400s (`routes/files.ts`
-  declares a JSON body schema, but multipart leaves `request.body` undefined)
-- `server_fatal_log_bug` - no accepted wire value for log level `fatal`
-  (route schema only allows `critical`; `services/logs.ts` only allows
-  `fatal`; each rejects the other)
+Fixed by dreamlake-server#61 (PR #65, verified live against the fixed
+server — gates removed):
+
+- parameters create - `POST /episodes/:id/parameters` no longer 500s
+  (the stray `deletedAt` writes were dropped)
+- `fatal` log level - the route schema now accepts the canonical
+  debug/info/warn/error/fatal set
+- descendants - `GET /nodes/:id/descendants` no longer strips the
+  `descendants` array from its response (no SDK test gated on this;
+  listed for completeness)
+
+Still broken (dreamlake-server#67) — these gates stay:
+
+- `server_tracks_bug` - track append 500s: the Track row now creates
+  correctly, but `services/tracks.ts` still calls Prisma models
+  (`TrackMetadata`/`TrackBuffer`/`TrackChunk`) deleted by the `3b2779a`
+  schema redesign
+- `server_files_bug` - file upload 500s: the multipart route now accepts
+  the request, but `services/files.ts` still calls the deleted Prisma
+  `File` model
 
 ## Notes
 
