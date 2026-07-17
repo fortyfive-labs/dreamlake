@@ -158,7 +158,7 @@ def cmd_push(args: list) -> int:
     p = argparse.ArgumentParser(prog="dreamlake artifact push", add_help=True)
     p.add_argument("file")
     p.add_argument("--title", default=None)
-    p.add_argument("--kind", default=None)
+    p.add_argument("--kind", default=None, choices=sorted(KINDS))
     p.add_argument("--id", dest="artifact_id", default=None)
     p.add_argument("--namespace", default=None)
     p.add_argument(
@@ -214,16 +214,25 @@ def cmd_push(args: list) -> int:
         r.raise_for_status()
         broker = r.json()
     except Exception as e:
+        body = getattr(getattr(e, "response", None), "text", "")
         print(f"{RED}error:{RESET} could not get upload credentials: {e}", file=sys.stderr)
+        if body:
+            print(f"       server said: {body[:200]}", file=sys.stderr)
         return 1
 
-    creds = broker["credentials"]
-    os.environ["AWS_ACCESS_KEY_ID"] = creds["accessKeyId"]
-    os.environ["AWS_SECRET_ACCESS_KEY"] = creds["secretAccessKey"]
-    os.environ["AWS_SESSION_TOKEN"] = creds["sessionToken"]
-    os.environ["AWS_REGION"] = broker.get("region", DEFAULT_ARTIFACTS_REGION)
-    backend = broker["backendUrl"]
-    ref = broker.get("refName", REF_NAME)
+    # Parse the broker response defensively — a shape change shouldn't crash with
+    # a raw KeyError traceback.
+    try:
+        creds = broker["credentials"]
+        os.environ["AWS_ACCESS_KEY_ID"] = creds["accessKeyId"]
+        os.environ["AWS_SECRET_ACCESS_KEY"] = creds["secretAccessKey"]
+        os.environ["AWS_SESSION_TOKEN"] = creds["sessionToken"]
+        os.environ["AWS_REGION"] = broker.get("region", DEFAULT_ARTIFACTS_REGION)
+        backend = broker["backendUrl"]
+        ref = broker.get("refName", REF_NAME)
+    except (KeyError, TypeError) as e:
+        print(f"{RED}error:{RESET} unexpected upload-credentials response (missing {e}).", file=sys.stderr)
+        return 1
 
     # 2) write via dreamdb-py
     db = _import_dreamdb()
@@ -327,7 +336,10 @@ def cmd_list(args: list) -> int:
         r.raise_for_status()
         artifacts = r.json().get("artifacts", [])
     except Exception as e:
+        body = getattr(getattr(e, "response", None), "text", "")
         print(f"{RED}error:{RESET} could not list artifacts: {e}", file=sys.stderr)
+        if body:
+            print(f"       server said: {body[:200]}", file=sys.stderr)
         return 1
 
     if not artifacts:
@@ -339,7 +351,7 @@ def cmd_list(args: list) -> int:
         vis = a.get("visibility", "private")
         vtag = "" if vis == "private" else f"  {DIM}[{vis}]{RESET}"
         print(
-            f"  {CYAN}{a['artifactId']}{RESET}  {DIM}v{a.get('latestVersion')} · {a.get('kind')}{RESET}"
+            f"  {CYAN}{a.get('artifactId')}{RESET}  {DIM}v{a.get('latestVersion')} · {a.get('kind')}{RESET}"
             f"  {a.get('title')}{vtag}"
         )
     return 0
@@ -364,7 +376,11 @@ def cmd_delete(args: list) -> int:
         return 1
 
     if not ns.yes:
-        resp = input(f"Delete artifact '{ns.artifact_id}' from '{namespace}'? [y/N] ").strip().lower()
+        try:
+            resp = input(f"Delete artifact '{ns.artifact_id}' from '{namespace}'? [y/N] ").strip().lower()
+        except EOFError:
+            print("aborted (no input; pass -y to skip the prompt).")
+            return 1
         if resp not in ("y", "yes"):
             print("aborted.")
             return 1
@@ -379,7 +395,10 @@ def cmd_delete(args: list) -> int:
         )
         r.raise_for_status()
     except Exception as e:
+        body = getattr(getattr(e, "response", None), "text", "")
         print(f"{RED}error:{RESET} could not delete artifact: {e}", file=sys.stderr)
+        if body:
+            print(f"       server said: {body[:200]}", file=sys.stderr)
         return 1
 
     print(f"{GREEN}✓ Deleted:{RESET} {ns.artifact_id}  {DIM}(re-push the same id to restore){RESET}")
