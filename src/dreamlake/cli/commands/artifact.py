@@ -9,6 +9,7 @@ Usage:
     dreamlake artifact push <file> [--title T] [--kind K] [--id ID]
     dreamlake artifact list [--namespace NS]
     dreamlake artifact delete <id> [--namespace NS] [-y]
+    dreamlake artifact restore <id> [--namespace NS]
 
 The push path:
   1. asks dreamlake-server for short-lived, prefix-scoped AWS credentials
@@ -58,6 +59,7 @@ def print_help():
     dreamlake artifact push <file> [--title T] [--kind K] [--id ID]
     dreamlake artifact list [--namespace NS]
     dreamlake artifact delete <id> [--namespace NS] [-y]
+    dreamlake artifact restore <id> [--namespace NS]
 
 {BOLD}push options:{RESET}
     --title    Human title (default: file stem)
@@ -401,7 +403,44 @@ def cmd_delete(args: list) -> int:
             print(f"       server said: {body[:200]}", file=sys.stderr)
         return 1
 
-    print(f"{GREEN}✓ Deleted:{RESET} {ns.artifact_id}  {DIM}(re-push the same id to restore){RESET}")
+    print(f"{GREEN}✓ Deleted:{RESET} {ns.artifact_id}  {DIM}(restore with 'dreamlake artifact restore {ns.artifact_id}'){RESET}")
+    return 0
+
+
+# ── restore ─────────────────────────────────────────────────────────────────
+
+def cmd_restore(args: list) -> int:
+    p = argparse.ArgumentParser(prog="dreamlake artifact restore", add_help=True)
+    p.add_argument("artifact_id")
+    p.add_argument("--namespace", default=None)
+    ns = p.parse_args(args)
+
+    namespace = ns.namespace or ServerConfig.resolve_namespace()
+    if not namespace:
+        print(f"{RED}error:{RESET} namespace not resolved. run 'dreamlake login'.", file=sys.stderr)
+        return 1
+    token = ServerConfig.resolve_token()
+    if not token:
+        print(f"{RED}error:{RESET} not authenticated. run 'dreamlake login' first.", file=sys.stderr)
+        return 1
+
+    import httpx
+    remote = ServerConfig.remote
+    try:
+        r = httpx.post(
+            f"{remote}/namespaces/{namespace}/artifacts/{ns.artifact_id}/restore",
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=30,
+        )
+        r.raise_for_status()
+    except Exception as e:
+        body = getattr(getattr(e, "response", None), "text", "")
+        print(f"{RED}error:{RESET} could not restore artifact: {e}", file=sys.stderr)
+        if body:
+            print(f"       server said: {body[:200]}", file=sys.stderr)
+        return 1
+
+    print(f"{GREEN}✓ Restored:{RESET} {ns.artifact_id}")
     return 0
 
 
@@ -417,6 +456,8 @@ def main(args: list) -> int:
         return cmd_list(rest)
     if sub == "delete":
         return cmd_delete(rest)
+    if sub == "restore":
+        return cmd_restore(rest)
 
     print(f"{RED}error:{RESET} unknown artifact subcommand '{sub}'", file=sys.stderr)
     print_help()
