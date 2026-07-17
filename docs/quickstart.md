@@ -57,6 +57,5 @@ The API is identical — just add `url` and `user_name`.
 
 ## Next Steps
 
-- [Episodes](sessions.md) — lifecycle, resuming, metadata
 - [Logging](logging.md), [Parameters](parameters.md), [Tracks](tracks.md), [Files](files.md) — feature guides
 - [CLI](cli.md) — command-line interface

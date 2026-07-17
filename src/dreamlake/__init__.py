@@ -24,21 +24,9 @@ Usage:
         local_path=".dreamlake"
     ) as episode:
         episode.log("Training started")
-
-    # Decorator style
-    from dreamlake import dreamlake_episode
-
-    @dreamlake_episode(
-        name="my-experiment",
-        workspace="my-workspace",
-        remote="http://localhost:3000",
-        api_key="your-jwt-token"
-    )
-    def train_model(episode):
-        episode.log("Training started")
 """
 
-from .episode import Episode, dreamlake_episode, OperationMode
+from .episode import Episode, OperationMode
 from .client import RemoteClient
 from .storage import LocalStorage
 from .log import LogLevel, LogBuilder
@@ -793,7 +781,6 @@ def vec_index(name: str, dim: int = 768) -> VectorIndex:
 __all__ = [
     # Legacy
     "Episode",
-    "dreamlake_episode",
     "OperationMode",
     "RemoteClient",
     "LocalStorage",

@@ -1,15 +1,13 @@
 """
 Episode class for dreamlake SDK.
 
-Supports three usage styles:
-1. Decorator: @dreamlake_episode(...)
-2. Context manager: with Episode(...) as sess:
-3. Direct instantiation: sess = Episode(...)
+Supports two usage styles:
+1. Context manager: with Episode(...) as sess:
+2. Direct instantiation: sess = Episode(...)
 """
 
-from typing import Optional, Dict, Any, List, Callable
+from typing import Optional, Dict, Any, List
 from enum import Enum
-import functools
 from pathlib import Path
 from datetime import datetime
 import time
@@ -1324,36 +1322,3 @@ class Episode:
             model_id=model_id,
         )
         return result.get("results", [])
-
-
-def dreamlake_episode(
-    name: str,
-    workspace: str,
-    **kwargs
-) -> Callable:
-    """
-    Decorator for wrapping functions with a dreamlake episode.
-
-    Usage:
-        @dreamlake_episode(
-            name="my-experiment",
-            workspace="my-workspace",
-            remote="http://localhost:3000",
-            api_key="your-token"
-        )
-        def train_model():
-            # Function code here
-            pass
-
-    The decorated function will receive a 'episode' keyword argument
-    with the active Episode instance.
-    """
-    def decorator(func: Callable) -> Callable:
-        @functools.wraps(func)
-        def wrapper(*args, **func_kwargs):
-            with Episode(prefix=f"{workspace}/{name}", **kwargs) as episode:
-                # Inject episode into function kwargs
-                func_kwargs['episode'] = episode
-                return func(*args, **func_kwargs)
-        return wrapper
-    return decorator

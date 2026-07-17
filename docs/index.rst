@@ -24,7 +24,6 @@ Python SDK for ML experiment tracking and data storage.
    :hidden:
 
    quickstart
-   sessions
    logging
    parameters
    tracks
