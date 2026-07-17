@@ -12,6 +12,9 @@ from pathlib import Path
 from datetime import datetime
 import time
 import threading
+import warnings
+
+import httpx
 
 from .client import RemoteClient
 from .storage import LocalStorage
@@ -895,11 +898,14 @@ class Episode:
         params = None
 
         if self._client:
-            # Remote mode: fetch from API
+            # Remote mode: fetch from API. A 404 just means the parameters
+            # don't exist yet; anything else (auth failure, 5xx, network
+            # error) is a real error and must surface.
             try:
                 params = self._client.get_parameters(episode_id=self._episode_id)
-            except Exception:
-                # Parameters don't exist yet
+            except httpx.HTTPStatusError as error:
+                if error.response.status_code != 404:
+                    raise
                 params = None
 
         if self._storage:
@@ -1008,18 +1014,12 @@ class Episode:
             # Clear buffer before sending (avoid re-sending on retry)
             self._track_buffers[name] = []
 
-        # Send to backend (outside lock to allow concurrent appends)
+        # Send to backend (outside lock to allow concurrent appends).
+        #
+        # Local is written FIRST: in hybrid mode the local copy is the
+        # durability anchor, so once it is on disk a remote failure can
+        # no longer lose the batch.
         result = None
-        if self._client:
-            result = self._client.append_batch_to_track(
-                episode_id=self._episode_id,
-                track_name=name,
-                data_points=merged,
-                description=description,
-                tags=tags,
-                metadata=metadata
-            )
-
         if self._storage:
             result = self._storage.append_batch_to_track(
                 workspace=self.workspace,
@@ -1028,8 +1028,40 @@ class Episode:
                 data_points=merged,
                 description=description,
                 tags=tags,
-                metadata=metadata
+                metadata=metadata,
             )
+
+        if self._client:
+            try:
+                remote_result = self._client.append_batch_to_track(
+                    episode_id=self._episode_id,
+                    track_name=name,
+                    data_points=merged,
+                    description=description,
+                    tags=tags,
+                    metadata=metadata,
+                )
+            except Exception as error:
+                if self._storage is None:
+                    # Remote-only: nothing was persisted. Put the batch back
+                    # in the buffer so a later flush can re-send it, then
+                    # surface the failure.
+                    with self._track_buffer_lock:
+                        self._track_buffers[name] = (
+                            merged + self._track_buffers.get(name, [])
+                        )
+                    raise
+                # Hybrid: the batch is already durable on disk — warn loudly
+                # instead of raising so the local copy keeps the data safe.
+                warnings.warn(
+                    f"Remote append for track '{name}' failed ({error!r}); "
+                    "the batch was persisted locally but NOT uploaded.",
+                    RuntimeWarning,
+                    stacklevel=2,
+                )
+            else:
+                if result is None:
+                    result = remote_result
 
         return result
 
@@ -1123,18 +1155,9 @@ class Episode:
         Returns:
             Dict with trackId, startIndex, endIndex, count
         """
+        # Local first — in hybrid mode the local copy is the durability
+        # anchor, so a remote failure never prevents the local write.
         result = None
-
-        if self._client:
-            # Remote mode: append batch via API
-            result = self._client.append_batch_to_track(
-                episode_id=self._episode_id,
-                track_name=name,
-                data_points=data_points,
-                description=description,
-                tags=tags,
-                metadata=metadata
-            )
 
         if self._storage:
             # Local mode: append batch to local storage
@@ -1145,8 +1168,21 @@ class Episode:
                 data_points=data_points,
                 description=description,
                 tags=tags,
-                metadata=metadata
+                metadata=metadata,
             )
+
+        if self._client:
+            # Remote mode: append batch via API
+            remote_result = self._client.append_batch_to_track(
+                episode_id=self._episode_id,
+                track_name=name,
+                data_points=data_points,
+                description=description,
+                tags=tags,
+                metadata=metadata,
+            )
+            if result is None:
+                result = remote_result
 
         return result
 

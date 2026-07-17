@@ -1,7 +1,4 @@
 """Complete training example - Full end-to-end ML experiment tracking."""
-import sys
-sys.path.insert(0, '../../src')
-
 from dreamlake import Episode
 import random
 import time
@@ -49,11 +46,10 @@ def main():
 
     # Create Dreamlake episode
     with Episode(
-        name="complete-training-demo",
-        workspace="tutorials",
-        local_path="./tutorial_data",
-        description="Complete end-to-end training example",
-        tags=["tutorial", "complete", "cifar10", "resnet"]
+        prefix="tutorials/complete-training-demo",
+        root="./tutorial_data",
+        readme="Complete end-to-end training example",
+        tags=["tutorial", "complete", "cifar10", "resnet"],
     ) as episode:
         # 1. Track configuration
         print("\n[1/6] Tracking configuration...")
@@ -204,12 +200,12 @@ def main():
     print("Training Complete!")
     print("=" * 60)
     print(f"Best validation accuracy: {best_val_acc:.4f} at epoch {best_epoch}")
-    print(f"\nAll data saved to: tutorial_data/.dreamlake/tutorials/complete-training-demo/")
+    print(f"\nAll data saved to: tutorial_data/tutorials/complete-training-demo/")
     print("\nExplore your results:")
-    print("  - Logs: cat tutorial_data/.dreamlake/tutorials/complete-training-demo/logs.jsonl")
-    print("  - Parameters: cat tutorial_data/.dreamlake/tutorials/complete-training-demo/parameters.json")
-    print("  - Tracks: ls tutorial_data/.dreamlake/tutorials/complete-training-demo/tracks/")
-    print("  - Files: ls tutorial_data/.dreamlake/tutorials/complete-training-demo/files/")
+    print("  - Logs: cat tutorial_data/tutorials/complete-training-demo/logs.jsonl")
+    print("  - Parameters: cat tutorial_data/tutorials/complete-training-demo/parameters.json")
+    print("  - Tracks: ls tutorial_data/tutorials/complete-training-demo/tracks/")
+    print("  - Files: ls tutorial_data/tutorials/complete-training-demo/files/")
     print("=" * 60)
 
 if __name__ == "__main__":

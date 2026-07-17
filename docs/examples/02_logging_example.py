@@ -1,7 +1,4 @@
 """Logging example - Structured logging with different levels."""
-import sys
-sys.path.insert(0, '../../src')
-
 from dreamlake import Episode
 import time
 
@@ -11,9 +8,8 @@ def main():
     print("=" * 60)
 
     with Episode(
-        name="logging-demo",
-        workspace="tutorials",
-        local_path="./tutorial_data"
+        prefix="tutorials/logging-demo",
+        root="./tutorial_data",
     ) as episode:
         # Different log levels //
         episode.log("Debug information", level="debug")
@@ -74,7 +70,7 @@ def main():
     print("\n✓ All logs saved!")
     print("\n" + "=" * 60)
     print("View logs:")
-    print("  cat tutorial_data/.dreamlake/tutorials/logging-demo/logs.jsonl")
+    print("  cat tutorial_data/tutorials/logging-demo/logs.jsonl")
     print("=" * 60)
 
 if __name__ == "__main__":
