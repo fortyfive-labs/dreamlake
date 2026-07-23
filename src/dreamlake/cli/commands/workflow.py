@@ -46,14 +46,19 @@ def print_help():
 {BOLD}dreamlake workflow{RESET} - Push and list workflow specs (WorkflowSpec v1 JSON)
 
 {BOLD}Usage:{RESET}
-    dreamlake workflow push <file.json> [--name N] [--namespace NS]
+    dreamlake workflow push <file> [--name N] [--namespace NS]
     dreamlake workflow list [--namespace NS]
+
+<file> is a WorkflowSpec v1 JSON. The '.workflow.json' suffix is optional:
+'dreamlake workflow push bimanual-pretrain-set' finds
+'bimanual-pretrain-set.workflow.json'.
 
 {BOLD}push options:{RESET}
     --name       Workflow name (default: the spec's "name" field)
     --namespace  Target namespace (default: your login namespace)
 
 {BOLD}Examples:{RESET}
+    dreamlake workflow push bimanual-pretrain-set
     dreamlake workflow push ./bimanual-pretrain-set.workflow.json
     dreamlake workflow list
 """.strip())
@@ -174,9 +179,15 @@ def cmd_push(args: list) -> int:
     p.add_argument("--namespace", default=None)
     ns = p.parse_args(args)
 
-    file_path = Path(ns.file)
-    if not file_path.exists() or not file_path.is_file():
-        print(f"{RED}error:{RESET} file not found: {ns.file}", file=sys.stderr)
+    # The '.workflow.json' (or '.json') suffix is optional — resolve the first
+    # candidate that exists, so `dreamlake workflow push <name>` just works.
+    candidates = [Path(ns.file)]
+    if not ns.file.endswith(".json"):
+        candidates += [Path(ns.file + ".workflow.json"), Path(ns.file + ".json")]
+    file_path = next((p for p in candidates if p.is_file()), None)
+    if file_path is None:
+        tried = " or ".join(str(p) for p in candidates)
+        print(f"{RED}error:{RESET} file not found: {tried}", file=sys.stderr)
         return 1
 
     try:
