@@ -141,9 +141,10 @@ def _validate_spec(spec: object) -> list[str]:
 
 def _workflow_schema(db):
     # One dataset PER WORKFLOW (workflows/<ns>/<name>); rows are spec versions.
+    # NOTE: DreamDB modality segments must be lowercase [a-z0-9_] — no hyphens.
     return (
         db.Schema()
-        .add_image("content", mime="workflow-spec")
+        .add_image("content", mime="workflow_spec")
         .add_scalar_string("workflow_id")
         .add_scalar_string("title")
         .add_scalar_int("version")
