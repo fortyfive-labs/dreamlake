@@ -38,6 +38,7 @@ def print_help():
             {CYAN}vectorize{RESET}   Run CLIP + LLaVA on video chunks for semantic search
             {CYAN}video{RESET}       Video commands (upload/download/list via BSS)
             {CYAN}artifact{RESET}    Upload/list renderable artifacts (HTML/React/Markdown/SVG/code)
+            {CYAN}workflow{RESET}    Push/list workflow specs (WorkflowSpec v1 JSON)
 
         {BOLD}Target syntax:{RESET}
             --episode space[@namespace][:episode]
@@ -160,6 +161,10 @@ def main():
     elif command == "artifact":
         from .commands import artifact
         return artifact.main(sys.argv[2:])
+
+    elif command == "workflow":
+        from .commands import workflow
+        return workflow.main(sys.argv[2:])
 
     else:
         print(f"{RED}Unknown command:{RESET} {command}", file=sys.stderr)
