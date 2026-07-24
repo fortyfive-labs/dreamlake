@@ -1,23 +1,23 @@
-"""Migration pointer for the ``dreamlake`` console script.
+"""Deprecation pointer for the ``dreamlake`` console script.
 
-Tranche 2 of the TS CLI migration ported this CLI's subcommands to the
-TypeScript ``lakeshore`` CLI (npm ``@dreamlake/lakeshore``) as the
-``lakeshore dreamlake`` group. The Python implementations keep working,
-but the console script prints a one-line-per-run stderr pointer so
-muscle memory migrates.
+The CLI has been fully reimplemented in TypeScript as ``@dreamlake/cli``
+(npm), which installs the SAME ``dreamlake`` bin — every subcommand,
+including ``artifact push`` and the ``workflow`` group, lives there now.
+This Python console script is DEPRECATED: it keeps working, but new
+features land in the TS CLI only.
 
-Same pattern as the ``lakeshore-daemon`` notice (tranche 1): gated on
-``argv[0]`` so programmatic ``python -m dreamlake.cli`` invocations stay
-silent, and skipped entirely for ``artifact push`` — the one subcommand
-that stays Python (it writes through the ``dreamdb`` SigV4 writer,
-which has no TypeScript port yet).
+Gating (same pattern as the earlier tranche notices):
+  * argv[0]-gated — programmatic ``python -m dreamlake.cli`` invocations
+    stay silent;
+  * ``append-local`` subcommands are exempt — they are the canonical
+    DreamDB writers that dreamlake-server itself spawns (the ONE part of
+    the Python CLI that is not deprecated), and their stdout/stderr is a
+    machine contract.
 """
 
 from pathlib import PurePath
 
-# Subcommand → the TS command that supersedes it. ``artifact`` is
-# handled specially (push stays here; list/delete/restore moved).
-_PORTED_COMMANDS = {
+_KNOWN_COMMANDS = {
     "login",
     "logout",
     "profile",
@@ -30,6 +30,7 @@ _PORTED_COMMANDS = {
     "vectorize",
     "video",
     "artifact",
+    "workflow",
 }
 
 
@@ -42,31 +43,32 @@ def migration_notice(
     Silent when:
       * not invoked as the ``dreamlake`` console script (``python -m
         dreamlake.cli`` sees a module path in ``argv[0]``), or
-      * the invocation is ``dreamlake artifact push ...`` — the only
-        subcommand that has not moved.
+      * the invocation is an internal ``append-local`` writer call
+        (``dreamlake artifact|workflow append-local ...``).
     """
     if PurePath(argv0).name != "dreamlake":
         return None
 
     command = args[0] if args else None
-    if command not in _PORTED_COMMANDS:
+    if command not in _KNOWN_COMMANDS:
         # Bare help / unknown commands: still point at the TS CLI.
         command = None
 
-    if command == "artifact" and len(args) >= 2 and args[1] == "push":
-        # `artifact push` stays Python (dreamdb SigV4 writer) — no noise.
+    if command in ("artifact", "workflow") and len(args) >= 2 and args[1] == "append-local":
+        # Canonical-writer subprocess calls (spawned by dreamlake-server) —
+        # never add noise to a machine contract.
         return None
 
     if command:
-        equivalent = f"lakeshore dreamlake {command}"
+        equivalent = f"dreamlake {command}"
     else:
-        equivalent = "lakeshore dreamlake"
+        equivalent = "dreamlake"
 
     return (
-        "dreamlake: note — this CLI now lives in the TypeScript `lakeshore` CLI\n"
-        "(npm i -g @dreamlake/lakeshore):\n"
-        f"    {equivalent} ...\n"
-        "Same flags and env vars (DREAMLAKE_REMOTE / DREAMLAKE_API_KEY /\n"
-        "DREAMLAKE_BSS_URL). Only `dreamlake artifact push` stays Python for\n"
-        "now. This console script keeps working, but new features land there."
+        "dreamlake: DEPRECATED — this Python CLI has moved to TypeScript:\n"
+        "    npm i -g @dreamlake/cli   (installs the same `dreamlake` bin)\n"
+        f"then run:  {equivalent} ...\n"
+        "Same commands, flags, and env vars (DREAMLAKE_REMOTE / DREAMLAKE_API_KEY /\n"
+        "DREAMLAKE_BSS_URL), including `artifact push` and `workflow push`. This\n"
+        "console script keeps working for now, but new features land there."
     )

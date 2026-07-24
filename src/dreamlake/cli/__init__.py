@@ -74,9 +74,10 @@ def print_help():
 
 def main():
     """Main CLI entry point."""
-    # Tranche-2 migration pointer: the subcommands (except `artifact
-    # push`) were ported to the TS CLI's `lakeshore dreamlake` group.
-    # argv[0]-gated — `python -m dreamlake.cli` stays silent.
+    # Deprecation pointer: the CLI moved to TypeScript (npm
+    # `@dreamlake/cli`, same `dreamlake` bin). argv[0]-gated — `python
+    # -m dreamlake.cli` and the internal append-local writers stay
+    # silent.
     from dreamlake.cli._notice import migration_notice
 
     notice = migration_notice(
