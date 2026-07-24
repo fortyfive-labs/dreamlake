@@ -314,6 +314,82 @@ def cmd_push(args: list) -> int:
     return 0
 
 
+# ── append-local (internal) ───────────────────────────────────────────────────
+
+def cmd_append_local(args: list) -> int:
+    """INTERNAL — used by dreamlake-server's artifact Apply endpoint, which
+    delegates every write to this canonical writer as a subprocess (the same
+    pattern as `workflow append-local`).
+
+    Reads {"content_base64", "title", "kind"} JSON from stdin, appends one
+    version to the artifact's DreamDB dataset at --backend using AWS_* env
+    credentials, and prints a single JSON line on stdout:
+    {"version": N} on success, {"error": ...} on failure (non-zero exit)."""
+    import base64
+    import json
+
+    p = argparse.ArgumentParser(prog="dreamlake artifact append-local", add_help=True)
+    p.add_argument("--backend", required=True, help="dataset backend URL (…/<bucket>/users/<ns>/<artifactId>)")
+    p.add_argument("--id", dest="artifact_id", required=True, help="artifact id")
+    p.add_argument("--ref", default=REF_NAME)
+    ns = p.parse_args(args)
+
+    def fail(payload: dict) -> int:
+        print(json.dumps(payload))
+        return 1
+
+    try:
+        payload = json.load(sys.stdin)
+    except Exception as e:
+        return fail({"error": "bad_json", "message": f"stdin is not valid JSON: {e}"})
+    if not isinstance(payload, dict):
+        return fail({"error": "bad_json", "message": "stdin must be a JSON object"})
+
+    try:
+        content = base64.b64decode(payload["content_base64"], validate=True)
+    except Exception as e:
+        return fail({"error": "bad_content", "message": f"content_base64 is not valid base64: {e}"})
+    if not content:
+        return fail({"error": "bad_content", "message": "content is empty"})
+
+    title = payload.get("title") or ns.artifact_id
+    kind = payload.get("kind")
+    if kind not in KINDS:
+        return fail({"error": "bad_kind", "message": f"kind must be one of {', '.join(sorted(KINDS))}"})
+
+    db = _import_dreamdb()
+    if db is None:
+        return fail({"error": "no_dreamdb", "message": "the dreamdb package is not installed"})
+
+    schema = _artifact_schema(db)
+    try:
+        ds = db.Dataset.open(ns.ref, schema, ns.backend)
+    except Exception:
+        try:
+            ds = db.Dataset.create(ns.ref, schema, backend=ns.backend)
+        except Exception as e:
+            return fail({"error": "open_failed", "message": str(e)[:400]})
+
+    try:
+        version = _next_version(ds, ns.artifact_id)
+    except Exception as e:
+        return fail({"error": "version_read_failed", "message": str(e)[:400]})
+
+    try:
+        ds.append_many([{
+            "content": content,
+            "artifact_id": ns.artifact_id,
+            "title": title,
+            "kind": kind,
+            "version": version,
+        }])
+    except Exception as e:
+        return fail({"error": "append_failed", "message": str(e)[:400]})
+
+    print(json.dumps({"version": version}))
+    return 0
+
+
 # ── list ──────────────────────────────────────────────────────────────────────
 
 def cmd_list(args: list) -> int:
@@ -477,6 +553,8 @@ def main(args: list) -> int:
     sub, rest = args[0], args[1:]
     if sub == "push":
         return cmd_push(rest)
+    if sub == "append-local":  # internal — see cmd_append_local docstring
+        return cmd_append_local(rest)
     if sub == "list":
         return cmd_list(rest)
     if sub == "delete":
