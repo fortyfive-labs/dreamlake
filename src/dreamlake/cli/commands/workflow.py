@@ -144,6 +144,188 @@ def _validate_spec(spec: object) -> list[str]:
     return errs
 
 
+# ── graph rules (beyond what a JSON Schema can express) ───────────────────────
+# Mirrors uikit's spec.ts contract: type lattice (equal, or into `artifact`),
+# one inbound edge per input unless `collect: true` or the sources are
+# mutually EXCLUSIVE (different ports of one condition/switch — including
+# transitively: guarded anywhere upstream on every path), switch routing must
+# cover every case plus `default`, and the graph must be acyclic.
+
+_BRANCH_TYPES = ("condition", "switch")
+_SAMPLER_INPUTS = ("samples", "table", "directory")
+
+
+def _node_input_ports(n: dict) -> dict:
+    return {p.get("name", "in"): p for p in (n.get("inputs") or []) if isinstance(p, dict)}
+
+
+def _node_output_types(n: dict) -> dict:
+    """Output port → type. Samplers/control derive from their single input."""
+    kind = n.get("kind")
+    if kind in ("compute", "uda"):
+        return {p.get("name", "out"): p.get("type") for p in (n.get("outputs") or []) if isinstance(p, dict)}
+    ins = n.get("inputs") or []
+    t = ins[0].get("type") if ins and isinstance(ins[0], dict) else "artifact"
+    if kind == "sampler":
+        return {"out": t}
+    c = n.get("control") or {}
+    ct = c.get("type")
+    if ct == "condition":
+        return {"true": t, "false": t}
+    if ct == "switch":
+        out = {cs.get("name"): t for cs in (c.get("cases") or []) if isinstance(cs, dict)}
+        out["default"] = t
+        return out
+    return {"out": t}  # loop, approval
+
+
+def _is_branch(n: dict | None) -> bool:
+    return bool(n) and n.get("kind") == "control" and (n.get("control") or {}).get("type") in _BRANCH_TYPES
+
+
+def _validate_graph(spec: dict) -> list[str]:
+    errs: list[str] = []
+    nodes = [n for n in (spec.get("nodes") or []) if isinstance(n, dict)]
+    edges = [e for e in (spec.get("edges") or []) if isinstance(e, dict)]
+    stages = [s for s in (spec.get("stages") or []) if isinstance(s, dict)]
+    node_by_id = {n.get("id"): n for n in nodes}
+
+    # ids unique across stages + nodes (the canvas keys on this)
+    seen: set = set()
+    for x in [*stages, *nodes]:
+        xid = x.get("id")
+        if xid in seen:
+            errs.append(f"id '{xid}': duplicated across stages/nodes")
+        seen.add(xid)
+
+    # per-node family rules
+    for n in nodes:
+        nid, kind = n.get("id"), n.get("kind")
+        ins = n.get("inputs") or []
+        if kind in ("sampler", "control"):
+            if n.get("outputs"):
+                errs.append(f"{nid}: {kind} nodes must not declare outputs (derived, type-preserving)")
+            if len(ins) != 1:
+                errs.append(f"{nid}: {kind} nodes take exactly one input (got {len(ins)})")
+        if kind == "sampler" and ins:
+            t = ins[0].get("type")
+            if t not in _SAMPLER_INPUTS:
+                errs.append(f"{nid}: sampler input must be one of {'/'.join(_SAMPLER_INPUTS)} (got '{t}')")
+        if kind == "uda":
+            uda = n.get("uda") or {}
+            if bool(uda.get("queue")) == bool(uda.get("provider")):
+                errs.append(f"{nid}: uda needs exactly one of queue | provider")
+            if ((n.get("execution") or {}).get("cache") or {}).get("enabled"):
+                errs.append(f"{nid}: execution.cache is forbidden on uda (agents are non-deterministic)")
+
+    # edge endpoints + ports + types
+    for e in edges:
+        eid, f, t = e.get("id"), e.get("from"), e.get("to")
+        fn, tn = node_by_id.get(f), node_by_id.get(t)
+        if fn is None or tn is None:
+            errs.append(f"edge {eid}: endpoints must be member nodes (from='{f}', to='{t}')")
+            continue
+        fport = e.get("fromPort") or "out"
+        tport = e.get("toPort") or "in"
+        outs = _node_output_types(fn)
+        if fport not in outs:
+            errs.append(f"edge {eid}: '{f}' has no output port '{fport}' (has: {', '.join(map(str, outs))})")
+            continue
+        tin = _node_input_ports(tn).get(tport)
+        if tin is None:
+            errs.append(f"edge {eid}: '{t}' has no input port '{tport}'")
+            continue
+        ft, tt = outs[fport], tin.get("type")
+        if ft is not None and tt is not None and ft != tt and tt != "artifact":
+            errs.append(f"edge {eid}: type mismatch {f}.{fport} ({ft}) → {t}.{tport} ({tt})")
+
+    # acyclicity (Kahn) — guard computation below needs a topological order
+    indeg = {n.get("id"): 0 for n in nodes}
+    outs_by = {n.get("id"): [] for n in nodes}
+    for e in edges:
+        f, t = e.get("from"), e.get("to")
+        if f in outs_by and t in indeg:
+            outs_by[f].append(t)
+            indeg[t] += 1
+    queue = [i for i, d in indeg.items() if d == 0]
+    topo: list = []
+    while queue:
+        i = queue.pop()
+        topo.append(i)
+        for j in outs_by[i]:
+            indeg[j] -= 1
+            if indeg[j] == 0:
+                queue.append(j)
+    if len(topo) != len(nodes):
+        cyc = sorted(i for i, d in indeg.items() if d > 0)
+        errs.append(f"graph has a cycle involving: {', '.join(map(str, cyc))} (loops belong in loop-node config, not back-edges)")
+        return errs  # everything below assumes a DAG
+
+    # guard sets: (branch_id, port) pairs present on EVERY path from the roots.
+    inbound: dict = {}
+    for e in edges:
+        if e.get("from") in node_by_id and e.get("to") in node_by_id:
+            inbound.setdefault(e.get("to"), []).append(e)
+
+    def edge_guards(e: dict) -> set:
+        s = set(guards.get(e.get("from"), frozenset()))
+        if _is_branch(node_by_id.get(e.get("from"))):
+            s.add((e.get("from"), e.get("fromPort") or "out"))
+        return s
+
+    guards: dict = {}
+    for nid in topo:
+        ins = inbound.get(nid) or []
+        if not ins:
+            guards[nid] = frozenset()
+            continue
+        sets = [edge_guards(e) for e in ins]
+        guards[nid] = frozenset(set.intersection(*sets)) if sets else frozenset()
+
+    def exclusive(e1: dict, e2: dict) -> bool:
+        a = {bid: port for bid, port in edge_guards(e1)}
+        b = {bid: port for bid, port in edge_guards(e2)}
+        return any(bid in b and b[bid] != port for bid, port in a.items())
+
+    # fan-in: >1 inbound per input port needs collect, or pairwise exclusivity
+    per_port: dict = {}
+    for e in edges:
+        tn = node_by_id.get(e.get("to"))
+        if tn is None:
+            continue
+        per_port.setdefault((e.get("to"), e.get("toPort") or "in"), []).append(e)
+    for (tid, tport), group in per_port.items():
+        if len(group) <= 1:
+            continue
+        port = _node_input_ports(node_by_id[tid]).get(tport) or {}
+        if port.get("collect"):
+            continue
+        for i in range(len(group)):
+            for j in range(i + 1, len(group)):
+                if not exclusive(group[i], group[j]):
+                    errs.append(
+                        f"{tid}.{tport}: {len(group)} inbound edges but sources "
+                        f"'{group[i].get('from')}' and '{group[j].get('from')}' are not mutually exclusive — "
+                        f"add \"collect\": true or route through exclusive branches"
+                    )
+                    break
+            else:
+                continue
+            break
+
+    # switch routing must cover every case + default
+    for n in nodes:
+        if not (_is_branch(n) and (n.get("control") or {}).get("type") == "switch"):
+            continue
+        routed = {e.get("fromPort") or "out" for e in edges if e.get("from") == n.get("id")}
+        wanted = [cs.get("name") for cs in ((n.get("control") or {}).get("cases") or []) if isinstance(cs, dict)]
+        missing = [p for p in [*wanted, "default"] if p not in routed]
+        if missing:
+            errs.append(f"{n.get('id')}: switch must route every case AND default (missing: {', '.join(map(str, missing))})")
+
+    return errs
+
+
 def _workflow_schema(db):
     # One dataset PER WORKFLOW (workflows/<ns>/<name>); rows are spec versions.
     # NOTE: DreamDB modality segments must be lowercase [a-z0-9_] — no hyphens.
@@ -196,8 +378,12 @@ def cmd_push(args: list) -> int:
         print(f"{RED}error:{RESET} not valid JSON: {e}", file=sys.stderr)
         return 1
 
-    # 0) validate BEFORE any upload
+    # 0) validate BEFORE any upload — JSON Schema first, then the graph rules
+    #    a schema cannot express (types across edges, fan-in legality, switch
+    #    coverage, acyclicity).
     errors = _validate_spec(spec)
+    if not errors and isinstance(spec, dict):
+        errors = _validate_graph(spec)
     if errors:
         print(f"{RED}error:{RESET} spec failed validation ({len(errors)} problem(s)):", file=sys.stderr)
         for e in errors:
