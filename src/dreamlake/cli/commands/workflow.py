@@ -506,6 +506,84 @@ def cmd_push(args: list) -> int:
     return 0
 
 
+# ── append-local (internal) ───────────────────────────────────────────────────
+
+def cmd_append_local(args: list) -> int:
+    """INTERNAL — used by dreamlake-server's spec Apply endpoint, which
+    delegates every write to this canonical writer as a subprocess.
+
+    Reads the spec JSON from stdin, validates it EXACTLY like `push`
+    (JSON Schema + graph rules), appends one version to the workflow's
+    DreamDB dataset at --backend using AWS_* env credentials, and prints a
+    single JSON line on stdout: {"version": N, "meta": {...}} on success,
+    {"error": ...} on failure (non-zero exit)."""
+    p = argparse.ArgumentParser(prog="dreamlake workflow append-local", add_help=True)
+    p.add_argument("--backend", required=True, help="dataset backend URL (…/<bucket>/<prefix>)")
+    p.add_argument("--name", required=True, help="workflow name (spec name must match)")
+    p.add_argument("--ref", default=REF_NAME)
+    ns = p.parse_args(args)
+
+    def fail(payload: dict) -> int:
+        print(json.dumps(payload))
+        return 1
+
+    try:
+        spec = json.load(sys.stdin)
+    except Exception as e:
+        return fail({"error": "bad_json", "message": f"stdin is not valid JSON: {e}"})
+
+    errors = _validate_spec(spec)
+    if not errors and isinstance(spec, dict):
+        errors = _validate_graph(spec)
+    if errors:
+        return fail({"error": "validation", "problems": errors[:20]})
+
+    if not NAME_RE.match(ns.name):
+        return fail({"error": "bad_name", "message": "workflow name must match ^[a-z0-9][a-z0-9._-]{0,63}$"})
+    if isinstance(spec, dict) and spec.get("name") != ns.name:
+        return fail({"error": "name_mismatch", "message": f"spec name '{spec.get('name')}' != workflow '{ns.name}'"})
+
+    db = _import_dreamdb()
+    if db is None:
+        return fail({"error": "no_dreamdb", "message": "the dreamdb package is not installed"})
+
+    content = json.dumps(spec, indent=2).encode("utf-8")
+    meta = {
+        "description": spec.get("description") or "",
+        "stageCount": len(spec.get("stages") or []),
+        "nodeCount": len(spec.get("nodes") or []),
+        "edgeCount": len(spec.get("edges") or []),
+    }
+
+    schema = _workflow_schema(db)
+    try:
+        ds = db.Dataset.open(ns.ref, schema, ns.backend)
+    except Exception:
+        try:
+            ds = db.Dataset.create(ns.ref, schema, backend=ns.backend)
+        except Exception as e:
+            return fail({"error": "open_failed", "message": str(e)[:400]})
+
+    try:
+        version = _next_version(ds, ns.name)
+    except Exception as e:
+        return fail({"error": "version_read_failed", "message": str(e)[:400]})
+
+    try:
+        ds.append_many([{
+            "content": content,
+            "workflow_id": ns.name,
+            "title": ns.name,
+            "version": version,
+            "meta_json": json.dumps(meta),
+        }])
+    except Exception as e:
+        return fail({"error": "append_failed", "message": str(e)[:400]})
+
+    print(json.dumps({"version": version, "meta": meta}))
+    return 0
+
+
 # ── list ──────────────────────────────────────────────────────────────────────
 
 def cmd_list(args: list) -> int:
@@ -559,6 +637,8 @@ def main(args: list) -> int:
         return cmd_push(rest)
     if sub == "list":
         return cmd_list(rest)
+    if sub == "append-local":  # internal — see cmd_append_local docstring
+        return cmd_append_local(rest)
     print(f"{RED}unknown subcommand:{RESET} {sub}", file=sys.stderr)
     print_help()
     return 1
