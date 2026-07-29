@@ -809,3 +809,14 @@ __all__ = [
     "text_track",
     "vec_index",
 ]
+
+
+def __getattr__(name):
+    # `Dataset` (robot-training datasets on DreamDB) is exported lazily:
+    # dreamlake.dataset needs the optional `dreamdb` package, and an eager
+    # import here would make it a hard dependency of every dreamlake user.
+    if name == "Dataset":
+        from .dataset import Dataset
+
+        return Dataset
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
