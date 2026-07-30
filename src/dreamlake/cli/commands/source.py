@@ -39,9 +39,9 @@ FIELD_RE = re.compile(r"^[a-z0-9][a-z0-9_]*$")
 VIDEO_EXTS = {".mp4", ".mov", ".mkv", ".webm", ".m4v", ".avi"}
 SCALAR_TYPES = {"scalar_string", "scalar_int", "scalar_float", "scalar_bool", "scalar_categorical", "scalar_timestamp"}
 BLOB_TYPES = {"image"}            # non-video blobs ingestable via append_many (raw bytes)
-# audio is declarable in a schema but NOT yet ingestable by the dreamdb SDK's
-# append_many (planned "Phase 1.6"); we allow the field, reject audio *values* at push.
-SCHEMA_TYPES = {"video", "audio", "embedding"} | BLOB_TYPES | SCALAR_TYPES
+# audio is intentionally omitted: the dreamdb SDK's append_many can't ingest it
+# yet (planned "Phase 1.6"), so a declarable-but-unfillable field would only mislead.
+SCHEMA_TYPES = {"video", "embedding"} | BLOB_TYPES | SCALAR_TYPES
 PRESET_VIDEO_FIELDS = [
     {"name": "video", "type": "video", "mime": "h264"},
     {"name": "path", "type": "scalar_string"},
@@ -173,8 +173,6 @@ def _build_schema(db, fields):
             s = s.add_video(n, mime=f.get("mime", "h264"), required=False)
         elif t == "image":
             s = s.add_image(n, mime=f.get("mime", "jpeg"), required=False)
-        elif t == "audio":
-            s = s.add_audio(n, mime=f.get("mime", "wav"), required=False)
         elif t == "scalar_string":
             s = s.add_scalar_string(n, required=False)
         elif t == "scalar_int":
@@ -453,11 +451,6 @@ def cmd_push(args) -> int:
             _err(f"no video files under {root} (looked for {', '.join(sorted(VIDEO_EXTS))})"); return 1
 
     video_fields, blob_fields, emb_fields, scalar_fields = _classify(fields)
-    audio_fields = {f["name"] for f in fields if f["type"] == "audio"}
-    if any(af in rec for rec in records for af in audio_fields):
-        _err("audio ingestion is not supported by the DreamDB SDK yet (planned Phase 1.6). "
-             "video / image / embedding / scalars work — drop audio values from your records for now.")
-        return 1
     if video_fields and not _has_ffmpeg():
         _err("ffmpeg/ffprobe not found in PATH. install: brew install ffmpeg (macOS) / apt install ffmpeg"); return 1
 
@@ -554,7 +547,7 @@ def _help() -> None:
                  {{ "name": "label", "type": "scalar_categorical" }} ],
               "records": [ {{ "anchor": 0, "video": "a.mp4", "thumb": "a.jpg",
                               "clip": "a.npy", "label": "cat" }} ] }}
-            types: video · image · audio · embedding · scalar_string · scalar_int ·
+            types: video · image · embedding · scalar_string · scalar_int ·
                    scalar_float · scalar_bool · scalar_categorical · scalar_timestamp
             push --manifest uses records; file fields (video/image/audio, .npy
             embeddings) are paths relative to the manifest. embeddings may also
