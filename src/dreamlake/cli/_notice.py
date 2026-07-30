@@ -31,6 +31,7 @@ _KNOWN_COMMANDS = {
     "video",
     "artifact",
     "workflow",
+    "source",
 }
 
 
