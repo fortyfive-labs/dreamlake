@@ -60,6 +60,11 @@ dev = [
     "ruff>=0.3.0",
     "mypy>=1.9.0",
 ]
+search = [
+    "torch>=2.0",
+    "transformers>=4.40",
+    "pillow>=10",
+]
 
 [project.scripts]
 dreamlake = "dreamlake.cli:main"

@@ -342,3 +342,216 @@ class TestEpisodeEdgeCases:
         episode = local_episode(prefix="test-ws/not-opened")
         # Attempting operations before opening should handle gracefully
         # The actual behavior depends on implementation
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# dreamlake._session — unified token / remote / namespace resolution
+#
+# House style (see test_remote_stub.py): a real-socket stub HTTP server whose
+# behavior is a per-test ``app(method, path, headers, body)`` callable.
+# ═════════════════════════════════════════════════════════════════════════════
+
+import base64
+import socket
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import urlparse
+
+from dreamlake import _session
+from dreamlake.auth.exceptions import NotAuthenticatedError
+
+
+class _StubServer(ThreadingHTTPServer):
+    daemon_threads = True
+    app = None
+
+
+class _StubHandler(BaseHTTPRequestHandler):
+    def log_message(self, format, *args):
+        pass
+
+    def _dispatch(self):
+        length = int(self.headers.get("Content-Length") or 0)
+        body = self.rfile.read(length) if length else b""
+        headers = {key.lower(): value for key, value in self.headers.items()}
+        status, payload = self.server.app(self.command, self.path, headers, body)
+        data = json.dumps(payload).encode()
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    do_GET = _dispatch
+    do_POST = _dispatch
+
+
+@pytest.fixture
+def stub_server():
+    server = _StubServer(("127.0.0.1", 0), _StubHandler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield server
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+@pytest.fixture
+def stub_url(stub_server):
+    host, port = stub_server.server_address[:2]
+    return f"http://{host}:{port}"
+
+
+@pytest.fixture
+def dead_url():
+    """A URL on a port that was just released — connections get refused fast."""
+    s = socket.socket()
+    s.bind(("127.0.0.1", 0))
+    port = s.getsockname()[1]
+    s.close()
+    return f"http://127.0.0.1:{port}"
+
+
+def _make_jwt(payload: dict) -> str:
+    """An unsigned JWT — _session's fallback decodes without verification."""
+
+    def b64(obj):
+        return base64.urlsafe_b64encode(json.dumps(obj).encode()).rstrip(b"=").decode()
+
+    return f"{b64({'alg': 'none', 'typ': 'JWT'})}.{b64(payload)}.sig"
+
+
+class _FixedStorage:
+    """Stand-in for get_token_storage() with a canned token."""
+
+    def __init__(self, token):
+        self.token = token
+        self.loaded_keys = []
+
+    def load(self, key):
+        self.loaded_keys.append(key)
+        return self.token
+
+
+class TestSessionToken:
+    """get_token / get_token_or_none precedence."""
+
+    @pytest.fixture(autouse=True)
+    def _isolate(self, monkeypatch):
+        # Never let the developer's real env/keyring leak into these tests.
+        monkeypatch.delenv("DREAMLAKE_API_KEY", raising=False)
+        _session._namespace_cache.clear()
+        yield
+        _session._namespace_cache.clear()
+
+    def test_env_wins_over_storage(self, monkeypatch):
+        storage = _FixedStorage("stored-token")
+        monkeypatch.setattr(
+            "dreamlake.auth.token_storage.get_token_storage",
+            lambda config_dir=None: storage,
+        )
+        monkeypatch.setenv("DREAMLAKE_API_KEY", "env-token")
+
+        assert _session.get_token() == "env-token"
+        assert storage.loaded_keys == []  # storage never consulted
+
+    def test_storage_fallback(self, monkeypatch):
+        storage = _FixedStorage("stored-token")
+        monkeypatch.setattr(
+            "dreamlake.auth.token_storage.get_token_storage",
+            lambda config_dir=None: storage,
+        )
+
+        assert _session.get_token() == "stored-token"
+        assert storage.loaded_keys == ["dreamlake-token"]
+
+    def test_not_authenticated_raises(self, monkeypatch):
+        monkeypatch.setattr(
+            "dreamlake.auth.token_storage.get_token_storage",
+            lambda config_dir=None: _FixedStorage(None),
+        )
+
+        assert _session.get_token_or_none() is None
+        with pytest.raises(NotAuthenticatedError, match="dreamlake login"):
+            _session.get_token()
+
+
+class TestSessionRemoteUrl:
+    """remote_url precedence: env → config.json → default."""
+
+    def test_env_wins(self, monkeypatch):
+        monkeypatch.setenv("DREAMLAKE_REMOTE", "http://env-server:9999/")
+        assert _session.remote_url() == "http://env-server:9999"
+
+    def test_config_fallback(self, monkeypatch, tmp_path):
+        from dreamlake.config import Config
+
+        monkeypatch.delenv("DREAMLAKE_REMOTE", raising=False)
+        cfg = Config(config_dir=tmp_path)
+        cfg.set("remote_url", "http://config-server:8888")
+        cfg.save()
+        monkeypatch.setattr("dreamlake.config.config", Config(config_dir=tmp_path))
+
+        assert _session.remote_url() == "http://config-server:8888"
+
+    def test_default_fallback(self, monkeypatch, tmp_path):
+        from dreamlake.config import Config, DEFAULT_REMOTE_URL
+
+        monkeypatch.delenv("DREAMLAKE_REMOTE", raising=False)
+        monkeypatch.setattr("dreamlake.config.config", Config(config_dir=tmp_path))
+
+        assert _session.remote_url() == DEFAULT_REMOTE_URL
+
+
+class TestSessionNamespace:
+    """get_namespace: server-authoritative, cached, JWT fallback."""
+
+    @pytest.fixture(autouse=True)
+    def _isolate(self):
+        _session._namespace_cache.clear()
+        yield
+        _session._namespace_cache.clear()
+
+    def test_happy_path_hits_auth_me_with_bearer(self, stub_server, stub_url):
+        def app(method, path, headers, body):
+            route = urlparse(path).path
+            if method == "GET" and route == "/auth/me":
+                token = headers.get("authorization", "").removeprefix("Bearer ")
+                return 200, {
+                    "id": "u-1",
+                    "namespace": {"id": "n-1", "slug": f"ns-{token}"},
+                }
+            return 404, {"error": f"unhandled {method} {route}"}
+
+        stub_server.app = app
+
+        assert _session.get_namespace(token="alpha", remote=stub_url) == "ns-alpha"
+        # Cache is per (remote, token): a new token re-asks the server.
+        assert _session.get_namespace(token="beta", remote=stub_url) == "ns-beta"
+
+    def test_server_answer_is_cached(self, stub_server, stub_url):
+        hits = []
+
+        def app(method, path, headers, body):
+            hits.append(path)
+            return 200, {"namespace": {"slug": "cached-ns"}}
+
+        stub_server.app = app
+
+        assert _session.get_namespace(token="tok", remote=stub_url) == "cached-ns"
+        assert _session.get_namespace(token="tok", remote=stub_url) == "cached-ns"
+        assert len(hits) == 1
+
+    def test_jwt_fallback_when_server_unreachable(self, dead_url):
+        token = _make_jwt({"username": "jwt-user", "sub": "u-123"})
+        assert _session.get_namespace(token=token, remote=dead_url) == "jwt-user"
+
+    def test_jwt_fallback_uses_sub_without_username(self, dead_url):
+        token = _make_jwt({"sub": "u-123"})
+        assert _session.get_namespace(token=token, remote=dead_url) == "u-123"
+
+    def test_clear_error_when_nothing_works(self, dead_url):
+        with pytest.raises(RuntimeError, match="namespace"):
+            _session.get_namespace(token="not-a-jwt", remote=dead_url)

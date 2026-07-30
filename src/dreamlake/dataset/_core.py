@@ -4,23 +4,30 @@ The write path a labeling pipeline calls once per processed video::
 
     from dreamlake.dataset import Dataset
 
-    ds = Dataset.create(backend="file:///tmp/datasets/wash-the-dishes")
+    ds = Dataset.create("wash-the-dishes")          # platform bucket (default)
     ds.add_video(
         video="Ceramics.mov",
         video_id="Ceramics",
         joints_pose=joints_dict,   # your pipeline's per-frame joints output
         subtasks=subtasks_dict,    # your pipeline's action segmentation
     )
+    ds.embed_videos()                               # make it searchable
+    ds.search("hands rinsing a bowl")
 
-Storage: one DreamDB Space per dataset, five tracks, one timeline. Videos
-occupy disjoint one-hour anchor slots (see ``_schema``). The layout is shared
-byte-for-byte with the TypeScript CLI, so ``dreamlake dataset ls`` and the web
-viewer read datasets written here, and vice versa.
+Storage: one DreamDB Space per dataset, one timeline. Videos occupy disjoint
+one-hour anchor slots (see ``_schema``). The layout is shared byte-for-byte
+with the TypeScript CLI, so ``dreamlake dataset ls`` and the web viewer read
+datasets written here, and vice versa.
 
-This phase is local-first: ``backend`` is any URI dreamdb accepts —
-``file:///path`` for a directory (serve it statically and the browser reads
-it), or ``s3://bucket/prefix`` with your own AWS credentials. Server-brokered
-credentials arrive in a later phase and change only the backend string.
+Backends: by default the dataset lives in the DreamLake platform bucket
+(``Dataset.create("name")`` — server issues scoped credentials; requires
+``dreamlake login`` or ``DREAMLAKE_API_KEY``). Pass ``backend=`` to write
+anywhere dreamdb can reach instead: ``file:///path`` for a directory (serve
+it statically and the browser reads it) or an ``https://…`` S3 URL with your
+own credentials in the environment.
+
+This preset is a thin layer over ``dreamlake.db`` — the same datasets are
+fully readable and writable through the bare re-exported dreamdb API.
 """
 
 from __future__ import annotations
@@ -29,18 +36,24 @@ import json
 import os
 import warnings
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple, Union
 
 from ._ffmpeg import FfmpegError, FragmentedVideo, fragment_video, probe
 from ._schema import (
     DATASET_REF,
+    DATASET_SCHEMA_TYPE,
     DEFAULT_PREVIEW_FPS,
+    FIELD_FRAME_VEC,
     FIELD_JOINTS_POSE,
+    FIELD_SUBTASK_LABEL,
+    FIELD_SUBTASK_VEC,
     FIELD_SUBTASKS,
     FIELD_VIDEO_META,
     FIELD_VIDEO_PREVIEW,
     FIELD_VIDEO_RAW,
+    FRAME_VEC_DIM,
     MAX_VIDEO_SECONDS,
+    SUBTASK_VEC_DIM,
     VIDEO_STRIDE_NS,
     base_anchor,
     build_schema,
@@ -92,46 +105,132 @@ def _fps_drift_frames(ann_fps: float, video_fps: float, duration_sec: float) -> 
     return abs(ann_fps - video_fps) * duration_sec
 
 
+_ENCODER_CACHE: Dict[str, Any] = {}
+
+
+def _clip_encoder():
+    """Process-wide encoder singletons. A CLIP load is ~7 s; paying it once
+    per search() call would make interactive use miserable."""
+    enc = _ENCODER_CACHE.get("clip")
+    if enc is None:
+        from dreamlake.encoders import ClipEncoder
+
+        enc = _ENCODER_CACHE["clip"] = ClipEncoder()
+    return enc
+
+
+def _text_encoder():
+    enc = _ENCODER_CACHE.get("text")
+    if enc is None:
+        from dreamlake.encoders import TextEncoder
+
+        enc = _ENCODER_CACHE["text"] = TextEncoder()
+    return enc
+
+
+def _check_schema_type(inner, where: str) -> None:
+    """Refuse to interpret a space written under a DIFFERENT schemaType as a
+    robot dataset — the slot conventions and blob shapes would be garbage.
+    A space with no stamp at all is accepted: TS-CLI-created datasets predate
+    the meta, and the field layout check happens naturally on first read."""
+    try:
+        meta = inner.meta() or {}
+    except Exception:
+        return
+    stamped = meta.get("dreamdb.schema_type")
+    if stamped and stamped != DATASET_SCHEMA_TYPE:
+        raise DatasetError(
+            f"{where} holds schemaType '{stamped}', not '{DATASET_SCHEMA_TYPE}' — "
+            f"open it with dreamlake.db instead of the robot-dataset preset"
+        )
+
+
 class Dataset:
     """One robot-training dataset: many videos plus their annotations."""
 
-    def __init__(self, inner, backend: str):
+    def __init__(self, inner, backend: str, name: Optional[str] = None):
         self._ds = inner
         self.backend = backend
+        self.name = name
+        # Exact-scan matrices for search(), per vector field. Invalidated on
+        # every add_search_vectors — see _vector_hits.
+        self._vec_scan_cache: Dict[str, Any] = {}
 
     # ---- Construction --------------------------------------------------
+    #
+    # Both constructors are thin over `dreamlake.db`: platform mode (name)
+    # brokers scoped credentials from dreamlake-server and writes the catalog
+    # row; backend mode writes anywhere dreamdb can reach. Creation is
+    # deliberately not idempotent — a typo'd name/path cannot silently fork a
+    # second history.
 
     @classmethod
-    def create(cls, backend: str) -> "Dataset":
-        """Create an empty dataset at ``backend``. Fails if one already exists
-        there — creation is deliberately not idempotent, so a typo'd path
-        cannot silently fork a second history."""
-        import dreamdb
+    def create(
+        cls,
+        name: Optional[str] = None,
+        *,
+        backend: Optional[str] = None,
+        visibility: Optional[str] = None,
+    ) -> "Dataset":
+        """Create an empty dataset.
 
-        try:
-            dreamdb.Dataset.open(DATASET_REF, backend=backend)
-        except Exception:
-            pass  # nothing there — the good case
-        else:
+        ``Dataset.create("wash-the-dishes")`` puts it in the DreamLake
+        platform bucket (needs ``dreamlake login`` or ``DREAMLAKE_API_KEY``).
+        ``Dataset.create(backend="file:///data/x")`` writes to any dreamdb
+        backend instead.
+        """
+        from dreamlake import db
+
+        if backend is None and not name:
             raise DatasetError(
-                f"a dataset already exists at {backend} — use Dataset.open() to add to it"
+                "Dataset.create needs a name (platform mode) or backend= (self-hosted)"
             )
-
-        inner = dreamdb.Dataset.create(DATASET_REF, build_schema(), backend)
-        return cls(inner, backend)
-
-    @classmethod
-    def open(cls, backend: str) -> "Dataset":
-        """Open the dataset at ``backend``."""
-        import dreamdb
+        if backend is not None:
+            # Refuse an existing space, mirroring the platform's 409.
+            try:
+                db.open(backend=backend)
+            except Exception:
+                pass  # nothing there — the good case
+            else:
+                raise DatasetError(
+                    f"a dataset already exists at {backend} — use Dataset.open() to add to it"
+                )
 
         try:
-            inner = dreamdb.Dataset.open(DATASET_REF, backend=backend)
-        except Exception as e:
+            inner = db.create(
+                name,
+                build_schema(),
+                backend=backend,
+                schema_type=DATASET_SCHEMA_TYPE,
+                visibility=visibility,
+            )
+        except db.DatasetExistsError as e:
+            raise DatasetError(str(e)) from e
+        lease = getattr(inner, "dreamlake_lease", None)
+        return cls(inner, backend or (lease or {}).get("backend_url", ""), name)
+
+    @classmethod
+    def open(cls, name: Optional[str] = None, *, backend: Optional[str] = None) -> "Dataset":
+        """Open an existing dataset by platform name or by backend URI."""
+        from dreamlake import db
+
+        if backend is None and not name:
             raise DatasetError(
-                f"no dataset at {backend} — create one with Dataset.create() ({e})"
-            ) from e
-        return cls(inner, backend)
+                "Dataset.open needs a name (platform mode) or backend= (self-hosted)"
+            )
+        try:
+            inner = db.open(name, backend=backend)
+        except db.DatasetNotFoundError as e:
+            raise DatasetError(str(e)) from e
+        except Exception as e:
+            if backend is not None:
+                raise DatasetError(
+                    f"no dataset at {backend} — create one with Dataset.create() ({e})"
+                ) from e
+            raise
+        _check_schema_type(inner, backend or f"dataset '{name}'")
+        lease = getattr(inner, "dreamlake_lease", None)
+        return cls(inner, backend or (lease or {}).get("backend_url", ""), name)
 
     # ---- Read path ------------------------------------------------------
 
@@ -381,3 +480,278 @@ class Dataset:
 
         out["meta"] = meta
         return out
+
+    # ---- Natural-language search ----------------------------------------
+    #
+    # The schema declares the vector fields with LSH indexes, which DreamDB
+    # maintains on append — so a vector is searchable the moment it lands.
+    # There is no separate index-build phase. `add_search_vectors` is the
+    # pure-upload half (bring your own vectors); `embed_videos` is the
+    # convenience that runs the encoders and then uploads.
+
+    def add_search_vectors(
+        self,
+        video_id: str,
+        *,
+        frame_vecs: Optional[Sequence[Tuple[float, Any]]] = None,
+        subtask_vecs: Optional[Sequence[Tuple[float, Any, str]]] = None,
+    ) -> Dict[str, int]:
+        """Upload search vectors you computed yourself.
+
+        ``frame_vecs``: ``[(t_sec, vec512)]`` — one CLIP-space vector per
+        sampled frame, timestamped on the video's own clock.
+        ``subtask_vecs``: ``[(t_sec, vec384, label)]`` — one BGE-space vector
+        per segment, timestamped at the segment start; ``label`` is the text
+        shown when the segment is a search hit.
+
+        Vectors become searchable immediately. Re-uploading the same
+        ``(t_sec, vec)`` is deduplicated by content addressing.
+        """
+        row = self._require_video(video_id)
+        base = row["anchor"]
+
+        # Two separate appends on purpose: within one append_many call every
+        # sample must carry the SAME field set (frame rows and subtask rows
+        # differ), and dreamdb rejects mixed batches.
+        frame_rows = [
+            {"_anchor": base + round(float(t_sec) * 1e9), FIELD_FRAME_VEC: vec}
+            for t_sec, vec in frame_vecs or []
+        ]
+        subtask_rows = [
+            {
+                "_anchor": base + round(float(t_sec) * 1e9),
+                FIELD_SUBTASK_VEC: vec,
+                FIELD_SUBTASK_LABEL: str(label),
+            }
+            for t_sec, vec, label in subtask_vecs or []
+        ]
+
+        for batch in (frame_rows, subtask_rows):
+            if not batch:
+                continue
+            try:
+                self._ds.append_many(batch)
+            except Exception as e:
+                if "not in schema" in str(e):
+                    raise DatasetError(
+                        "this dataset predates schema v2 (no search fields) — "
+                        "re-create it with the current SDK to make it searchable"
+                    ) from e
+                raise
+        if frame_rows or subtask_rows:
+            self._vec_scan_cache.clear()
+        return {
+            "frame_vecs": len(frame_vecs or []),
+            "subtask_vecs": len(subtask_vecs or []),
+        }
+
+    def embed_videos(
+        self,
+        video_id: Optional[str] = None,
+        *,
+        fps: float = 1.0,
+        video_path: Optional[str] = None,
+        batch_size: int = 32,
+    ) -> Dict[str, Any]:
+        """Encode and upload search vectors for one video (or every video).
+
+        Frames are sampled at ``fps`` from the SOURCE file and encoded with
+        CLIP; subtask segment texts are encoded with BGE. The source file is
+        found via the ``source_uri`` recorded at ingest — pass ``video_path=``
+        when the dataset moved machines. Videos are committed one at a time,
+        so an interrupted run resumes by simply re-running (already-uploaded
+        vectors deduplicate).
+
+        Needs the search extra: ``pip install "dreamlake[search]"``.
+        """
+        try:
+            from dreamlake.encoders import iter_video_frames
+        except ImportError as e:
+            raise DatasetError(str(e)) from e
+
+        if video_path is not None and video_id is None:
+            raise DatasetError("video_path= only makes sense with a specific video_id")
+
+        rows = [self._require_video(video_id)] if video_id else self.videos()
+        clip = _clip_encoder()
+        text = _text_encoder()
+        report: Dict[str, Any] = {}
+
+        for row in rows:
+            vid = row["video_id"]
+            src = video_path if (video_path and vid == video_id) else row.get("source_uri")
+
+            frame_vecs: List[Tuple[float, Any]] = []
+            if src and os.path.exists(src):
+                stamps: List[float] = []
+                images = []
+                for t_sec, img in iter_video_frames(src, fps=fps):
+                    stamps.append(t_sec)
+                    images.append(img)
+                    if len(images) == batch_size:
+                        for s, v in zip(stamps, clip.encode_images(images)):
+                            frame_vecs.append((s, v))
+                        stamps, images = [], []
+                if images:
+                    for s, v in zip(stamps, clip.encode_images(images)):
+                        frame_vecs.append((s, v))
+            else:
+                warnings.warn(
+                    f"'{vid}': source file not found ({src or 'no source_uri'}) — "
+                    f"skipping frame vectors; pass video_path= to supply it",
+                    stacklevel=2,
+                )
+
+            subtask_vecs: List[Tuple[float, Any, str]] = []
+            segments = self.read_subtasks(vid)
+            if segments:
+                segs = segments.get("labeled_subtasks", [])
+                if segs:
+                    labels = [s["subtask"] for s in segs]
+                    vecs = text.encode(labels)
+                    subtask_vecs = [
+                        (float(seg["start_sec"]), vec, label)
+                        for seg, vec, label in zip(segs, vecs, labels)
+                    ]
+
+            counts = self.add_search_vectors(
+                vid, frame_vecs=frame_vecs, subtask_vecs=subtask_vecs
+            )
+            report[vid] = counts
+        return report
+
+    def search(
+        self,
+        query: str,
+        top_k: int = 10,
+        kind: str = "both",
+    ) -> List[Dict[str, Any]]:
+        """Find video moments by natural language.
+
+        Runs the query through CLIP's text tower against frame vectors and/or
+        through BGE against subtask-text vectors, then fuses the two rankings
+        with reciprocal-rank fusion. Returns
+        ``[{"video_id", "time_sec", "score", "source", "subtask"?}]`` sorted
+        by score. ``kind`` is ``"frames"``, ``"subtasks"`` or ``"both"``.
+
+        First call loads the encoder models (a few seconds; cached after).
+        """
+        if kind not in ("frames", "subtasks", "both"):
+            raise DatasetError('kind must be "frames", "subtasks" or "both"')
+        try:
+            import dreamlake.encoders  # noqa: F401 — the [search] gate
+        except ImportError as e:
+            raise DatasetError(str(e)) from e
+
+        by_gid = {r["gid"]: r for r in self.videos()}
+        RRF_K = 60.0
+        merged: Dict[int, Dict[str, Any]] = {}
+
+        def fold(hits_in: List[Tuple[int, Optional[str]]], source: str):
+            for rank, (anchor, label) in enumerate(hits_in):
+                row = by_gid.get(gid_of(anchor))
+                if row is None:
+                    continue  # a vector whose video row vanished — skip, don't crash
+                hit = merged.get(anchor)
+                if hit is None:
+                    hit = {
+                        "video_id": row["video_id"],
+                        "time_sec": (anchor - row["anchor"]) / 1e9,
+                        "score": 0.0,
+                        "source": source,
+                    }
+                    merged[anchor] = hit
+                hit["score"] += 1.0 / (RRF_K + rank + 1)
+                if label is not None:
+                    hit["subtask"] = label
+                    hit["source"] = source
+
+        if kind in ("frames", "both"):
+            qv = _clip_encoder().encode_text(query)
+            fold(self._vector_hits(FIELD_FRAME_VEC, qv, top_k), "frame")
+
+        if kind in ("subtasks", "both"):
+            qv = _text_encoder().encode(query)
+            fold(
+                self._vector_hits(FIELD_SUBTASK_VEC, qv, top_k, label_field=FIELD_SUBTASK_LABEL),
+                "subtask",
+            )
+
+        hits = sorted(merged.values(), key=lambda h: h["score"], reverse=True)
+        return hits[:top_k]
+
+    def _vector_hits(
+        self,
+        field: str,
+        qvec: Any,
+        top_k: int,
+        label_field: Optional[str] = None,
+    ) -> List[Tuple[int, Optional[str]]]:
+        """Ranked ``(anchor, label?)`` for one vector field.
+
+        ANN first (cheap at scale), exact scan when ANN under-returns. The
+        two regimes are complementary: LSH cells are sparse exactly when the
+        corpus is small — which is exactly when reading every vector and
+        doing the cosine in numpy is trivial. Big corpora fill their cells,
+        ANN returns a full top-k, and the fallback never runs.
+        """
+        import numpy as np
+
+        fields = [label_field] if label_field else []
+        try:
+            batches = self._ds.iter_vector(
+                field, qvec.tolist(), top_k=top_k, nprobe=256, fields=fields
+            )
+        except Exception as e:
+            msg = str(e)
+            if "no FieldTrack" in msg or "not in schema" in msg:
+                raise DatasetError(
+                    "this dataset predates schema v2 (no search fields) — "
+                    "re-create it with the current SDK to make it searchable"
+                ) from e
+            batches = []
+
+        out: List[Tuple[int, Optional[str]]] = []
+        for batch in batches:
+            anchors = batch.get("_time_anchors") or []
+            labels = batch.get(label_field) if label_field else None
+            for i, a in enumerate(anchors):
+                out.append((int(a), labels[i] if labels else None))
+        if len(out) >= top_k:
+            return out[:top_k]
+
+        # Exact scan. Cached per field: the whole point of falling back is
+        # that the corpus is small, so holding it in memory is nothing.
+        cached = self._vec_scan_cache.get(field)
+        if cached is None:
+            anchors_l: List[int] = []
+            vecs: List[Any] = []
+            labels_l: List[Optional[str]] = []
+            read_fields = [field] + ([label_field] if label_field else [])
+            for batch in self._ds.iter_all_batches(fields=read_fields, batch_size=2048):
+                b_anchors = batch.get("_time_anchors") or []
+                b_vecs = batch.get(field) or []
+                b_labels = batch.get(label_field) if label_field else None
+                for i, a in enumerate(b_anchors):
+                    v = b_vecs[i] if i < len(b_vecs) else None
+                    if v is None:
+                        continue
+                    anchors_l.append(int(a))
+                    vecs.append(v)
+                    labels_l.append(b_labels[i] if b_labels else None)
+            matrix = (
+                np.asarray(vecs, dtype=np.float32)
+                if vecs
+                else np.zeros((0, 1), dtype=np.float32)
+            )
+            cached = (anchors_l, matrix, labels_l)
+            self._vec_scan_cache[field] = cached
+
+        anchors_l, matrix, labels_l = cached
+        if matrix.shape[0] == 0:
+            return out
+        q = np.asarray(qvec, dtype=np.float32)
+        # Vectors are L2-normalized by the encoders, so dot product == cosine.
+        sims = matrix @ q
+        order = np.argsort(-sims)[:top_k]
+        return [(anchors_l[i], labels_l[i]) for i in order]

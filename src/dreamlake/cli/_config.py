@@ -33,44 +33,27 @@ class ServerConfig:
 
     @classmethod
     def resolve_token(cls) -> str | None:
-        """Return token from config, falling back to keyring. In debug mode, returns a dev JWT."""
+        """Return token from config, falling back to storage (via dreamlake._session).
+        In debug mode, returns a dev JWT."""
         if cls.debug:
             return _make_debug_token()
         if cls.token:
             return cls.token
-        try:
-            from dreamlake.auth.token_storage import get_token_storage
-            return get_token_storage().load("dreamlake-token")
-        except Exception:
-            return None
-
-    _cached_namespace: str | None = None
+        from dreamlake import _session
+        return _session.get_token_or_none()
 
     @classmethod
     def resolve_namespace(cls) -> str | None:
-        """Return current user's namespace slug. Queries server for the authoritative slug."""
+        """Return current user's namespace slug (server-authoritative, JWT fallback).
+
+        Delegates to dreamlake._session, which caches per (remote, token)."""
         if cls.debug:
             return _DEBUG_NAMESPACE
-        if cls._cached_namespace:
-            return cls._cached_namespace
         token = cls.resolve_token()
         if not token:
             return None
-        # Query server for authoritative namespace slug
+        from dreamlake import _session
         try:
-            import httpx
-            r = httpx.get(f"{cls.remote}/auth/me", headers={"Authorization": f"Bearer {token}"}, timeout=5)
-            if r.status_code == 200:
-                ns = r.json().get("namespace")
-                if ns and ns.get("slug"):
-                    cls._cached_namespace = ns["slug"]
-                    return cls._cached_namespace
-        except Exception:
-            pass
-        # Fallback: decode from JWT (stale but better than nothing)
-        try:
-            import jwt as pyjwt
-            payload = pyjwt.decode(token, options={"verify_signature": False})
-            return payload.get("username") or payload.get("sub")
+            return _session.get_namespace(token=token, remote=cls.remote)
         except Exception:
             return None

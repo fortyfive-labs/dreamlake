@@ -32,12 +32,27 @@ DATASET_REF = "main"
 # dataset hold footage from different rigs.
 DEFAULT_PREVIEW_FPS = 30
 
-# The five track names. One field == one DreamDB track.
+# Track names. One field == one DreamDB track.
 FIELD_VIDEO_RAW = "video_raw"
 FIELD_VIDEO_PREVIEW = "video_preview"
 FIELD_JOINTS_POSE = "joints_pose"
 FIELD_SUBTASKS = "subtasks"
 FIELD_VIDEO_META = "video_meta"
+# Search fields (schema v2). Declared at CREATE time because DreamDB only
+# accepts embedding fields there; retrofitting needs a pre-trained index.
+FIELD_FRAME_VEC = "frame_vec"          # CLIP ViT-B/32 frame vectors
+FIELD_SUBTASK_VEC = "subtask_vec"      # BGE-small segment-text vectors
+FIELD_SUBTASK_LABEL = "subtask_label"  # the segment's text, for showing hits
+
+# Vector dimensions are a cross-SDK contract (CLIP ViT-B/32 = 512,
+# bge-small-en-v1.5 = 384). The TypeScript CLI pins the same numbers.
+FRAME_VEC_DIM = 512
+SUBTASK_VEC_DIM = 384
+
+# The schemaType dispatch key this preset writes — into the platform catalog
+# row AND the space's own meta — so list pages and viewers know which data
+# structure / visualization to use without opening the tracks.
+DATASET_SCHEMA_TYPE = "robot.video/v2"
 
 
 def base_anchor(gid: int) -> int:
@@ -87,6 +102,15 @@ def build_schema():
     # One JSON row per video. One track rather than eight scalar tracks:
     # listing a dataset is then a single column read.
     schema.add_scalar_string(FIELD_VIDEO_META, required=False)
+    # Search vectors (schema v2). LSH index: maintained on append, so vectors
+    # are searchable the moment they land — no separate build step.
+    # lsh_bits=14 targets the 10k-100k-vector regime a real dataset reaches
+    # (the default 20 spreads a small corpus over 2^20 cells and near-miss
+    # queries land in empty ones). Below that regime search() compensates
+    # with an exact-scan fallback, so recall is right at every size.
+    schema.add_embedding(FIELD_FRAME_VEC, dim=FRAME_VEC_DIM, required=False, lsh_bits=14)
+    schema.add_embedding(FIELD_SUBTASK_VEC, dim=SUBTASK_VEC_DIM, required=False, lsh_bits=14)
+    schema.add_scalar_string(FIELD_SUBTASK_LABEL, required=False)
     return schema
 
 
