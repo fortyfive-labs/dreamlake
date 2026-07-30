@@ -3,226 +3,234 @@
 `dreamlake.dataset` stores annotated robot-training video: raw footage goes in
 once, gets transcoded so any browser can stream and scrub it, and lives next
 to your pipeline's per-frame joint annotations and action segments in one
-versioned DreamDB space. The web viewer renders all of it — video, skeleton
-overlay, subtask captions and timeline — with no extra export step.
+versioned dataset. On top of that, videos can be embedded and searched with
+natural language ("hands shaping clay on a pottery wheel" → the pottery
+video at 12s).
 
 The intended caller is the last stage of a labeling pipeline: you already
 hold the video file and two Python dicts (joints, segments); one
 `add_video()` call publishes them.
 
-## Requirements
+## Install & authorize
 
 ```bash
-pip install dreamdb        # the DreamDB Python SDK (Rust native extension)
-brew install ffmpeg        # transcoding; any ffmpeg ≥ 5 on PATH works
+pip install "dreamlake[search]"   # [search] adds CLIP/BGE for embed/search;
+                                  # everything else works without it
+pip install dreamdb               # the storage engine (separate package)
+brew install ffmpeg               # transcoding + frame sampling
+
+dreamlake login                   # once, interactive browser authorization
+# or, for CI / scripts:
+export DREAMLAKE_API_KEY=<token>
 ```
 
-`backend` is any URI dreamdb accepts. This phase is local-first:
-`file:///path` writes a directory that a static file server makes readable to
-the browser. `s3://bucket/prefix` works with your own AWS credentials.
-Server-brokered credentials come later and change only this string.
+`dreamlake login` runs a device-code flow: it opens a browser page, you
+approve, and a long-lived token is stored on this machine (OS keychain when
+available). Every platform call the SDK makes carries that token; the server
+checks your namespace membership and mints temporary, prefix-scoped S3
+credentials — you never handle bucket keys.
 
 ## Quickstart
 
 ```python
 from dreamlake.dataset import Dataset
 
-ds = Dataset.create(backend="file:///data/datasets/wash-the-dishes")
+ds = Dataset.create("wash-the-dishes")     # lives in the DreamLake bucket
+# ds = Dataset.create(backend="file:///data/x")   # or anywhere dreamdb writes
 
 # ... your pipeline produces `joints` and `segments` dicts per video ...
+ds.add_video("captures/Ceramics.mov", video_id="Ceramics",
+             joints_pose=joints, subtasks=segments)
 
-ds.add_video(
-    "captures/Ceramics.mov",
-    video_id="Ceramics",
-    joints_pose=joints,      # dict, or a path to a JSON file
-    subtasks=segments,       # dict, or a path to a JSON file
-)
-
-for row in ds.videos():
-    print(row["gid"], row["video_id"], row["duration_s"])
+ds.embed_videos()                          # make it searchable (CLIP + BGE)
+ds.search("hands rinsing a bowl")
 ```
 
 Runnable version with a self-contained demo mode:
-`docs/examples/09_robot_dataset.py`.
+`docs/examples/09_robot_dataset.py` (`--demo`, `--platform NAME`).
 
 ## Calling order
 
 ```
-Dataset.create(backend)          once per dataset   ─┐
-Dataset.open(backend)            every later session ─┴─→  ds
+Dataset.create("name")               once per dataset      ─┐
+Dataset.open("name")                 every later session    ─┴─→  ds
+        (or backend="file:///…" / "https://…" on both)
 
-ds.add_video(...)                once per video, any number of times
+ds.add_video(...)                    once per video
 
-ds.videos()                      ─┐
-ds.info(video_id)                 ├─ read back, any time, any order
-ds.read_joints_pose(video_id)     │
-ds.read_subtasks(video_id)       ─┘
+ds.embed_videos(...)                 any time after add_video   ─┐  either path;
+ds.add_search_vectors(...)           (bring your own vectors)   ─┘  vectors are
+                                                                    searchable
+                                                                    immediately
+ds.search(...)                       ─┐
+ds.videos() / ds.info(id)             ├─ read back, any time, any order
+ds.read_joints_pose(id) / read_subtasks(id) ─┘
 ```
 
 Rules the order implies:
 
-- `create` refuses an existing dataset and `open` refuses a missing one —
-  there is no silent get-or-create, so a typo'd path cannot fork a second
-  history. If you want get-or-create, do `try open / except create` (the
-  example does).
-- `add_video` calls append; nothing is ever overwritten. There is no
-  `remove_video` in this phase.
-- Reads and writes may interleave freely; every `add_video` is atomic-ish
-  (video tracks land first, then one committed row with metadata +
-  annotations).
+- `create` refuses an existing dataset/name (409 on the platform) and `open`
+  refuses a missing one — no silent get-or-create. Want it? `try open /
+  except create` (the example does).
+- `add_video` appends; nothing is overwritten. Search vectors are also
+  append-only and deduplicate by content.
+- **There is no index-build step.** Vector indexes are maintained on append —
+  `search()` works the moment `embed_videos`/`add_search_vectors` returns,
+  and finds whatever exists so far.
+- Platform credentials live ~12 h per handle; for longer sessions call
+  `Dataset.open(name)` again.
 
 ## Function reference
 
-### `Dataset.create(backend: str) -> Dataset`
-
-Creates an empty dataset (five tracks, ref `main`).
-
-| in | format |
-| --- | --- |
-| `backend` | URI: `file:///abs/path` or `s3://bucket/prefix` |
-
-**Returns** a `Dataset` handle. **Raises** `DatasetError` if a dataset
-already exists at `backend`.
-
-### `Dataset.open(backend: str) -> Dataset`
-
-Opens an existing dataset. Same argument; raises `DatasetError` when nothing
-is there.
-
-### `ds.add_video(video, *, video_id=None, joints_pose=None, subtasks=None, task=None, scene=None, gid=None, preview_height=720, preview_fps=30, frag_seconds=2.0, raw=True) -> dict`
-
-Transcodes one video into the dataset together with its annotations.
+### `Dataset.create(name=None, *, backend=None, visibility=None) -> Dataset`
 
 | in | format | notes |
 | --- | --- | --- |
-| `video` | path (str/Path) | any codec/container — it is re-encoded for playback |
-| `video_id` | str | stable id; default: filename stem. Must be unique in the dataset |
-| `joints_pose` | dict **or** JSON path | shape below; optional |
-| `subtasks` | dict **or** JSON path | shape below; optional |
-| `task` | str | default: the subtasks dict's `task` |
-| `scene` | str | free-form grouping label |
-| `gid` | int ≥ 0 | anchor slot; default: next free. Only pass it to reproduce an exact layout |
-| `preview_height` | int | playback-track height; keep it constant within a dataset |
-| `preview_fps` | float | playback-track rate; keep it constant within a dataset |
-| `frag_seconds` | float 1–30 | streaming fragment duration |
-| `raw` | bool | also store a lossless archival copy (best-effort, see below) |
+| `name` | `[a-z0-9][a-z0-9._-]{0,63}` | platform mode: catalog row + platform bucket. Needs auth |
+| `backend` | `file:///abs/path` or `https://…` S3 URL | self-hosted mode; `name` unused |
+| `visibility` | `"private"` (default) / `"public"` | platform only |
 
-**Returns** a summary dict:
+**Raises** `DatasetError`: name and backend both missing; name already exists
+(→ use `open`); a space already exists at `backend`.
+
+The dataset's schemaType (`robot.video/v2`) is written to the platform
+catalog **and** into the space itself, so viewers and `open()` can dispatch
+on it even over a bare `file://` backend.
+
+### `Dataset.open(name=None, *, backend=None) -> Dataset`
+
+Same arguments. **Raises** `DatasetError` when missing, and when the target
+space carries a *different* schemaType (a custom `dreamlake.db` store is not
+interpretable as a robot dataset).
+
+### `ds.add_video(video, *, video_id=None, joints_pose=None, subtasks=None, task=None, scene=None, gid=None, preview_height=720, preview_fps=30, frag_seconds=2.0, raw=True) -> dict`
+
+Unchanged from v1 — see the table below for the annotation dict shapes.
+Returns `{video_id, gid, anchor, video_preview: {fragments}, video_raw:
+{...}|None, joints_pose?: {annotated_frames}, subtasks?: {segments}, meta}`.
+
+Pre-transcode refusals (all `DatasetError`, all before any encoding time is
+spent): video ≥ 3600 s; duplicate `video_id`; occupied `gid`; annotation
+`src_fps` disagreeing with the video by >10 accumulated frames; **aspect
+ratio differing from the dataset's** (one dataset, one camera geometry).
+Warns and continues: 1–10 frames of fps drift; archival track skipped on a
+codec-config mismatch (lossless copies cannot be normalized).
+
+### `ds.embed_videos(video_id=None, *, fps=1.0, video_path=None, batch_size=32) -> dict`
+
+Encode + upload in one step: samples frames at `fps` from the SOURCE file
+(found via the `source_uri` recorded at ingest; pass `video_path=` if the
+dataset changed machines), encodes them with CLIP, encodes each subtask
+segment's text with BGE, uploads all vectors. One video per commit —
+interrupt and re-run freely, uploads deduplicate.
+
+| in | format |
+| --- | --- |
+| `video_id` | one video, or `None` = every video |
+| `fps` | frame sampling rate (1.0 = one frame per second) |
+| `video_path` | source file override (only with a specific `video_id`) |
+
+**Returns** `{video_id: {"frame_vecs": N, "subtask_vecs": M}}`. **Raises**
+`DatasetError` when the `[search]` extra is missing. Warns and skips frame
+vectors when the source file cannot be found (subtask vectors still upload).
+
+### `ds.add_search_vectors(video_id, *, frame_vecs=None, subtask_vecs=None) -> dict`
+
+The pure-upload half, for pipelines that run their own encoders (see
+`dreamlake.encoders` for the matching models — vectors must be CLIP-space
+512-d for frames and BGE-space 384-d for subtask text, L2-normalized).
+
+| in | format |
+| --- | --- |
+| `frame_vecs` | `[(t_sec: float, vec512)]` — time on the video's own clock |
+| `subtask_vecs` | `[(t_sec, vec384, label: str)]` — anchored at segment start; `label` is shown on hits |
+
+### `ds.search(query, top_k=10, kind="both") -> list[dict]`
+
+| in | format |
+| --- | --- |
+| `query` | natural language, English (the models are English CLIP/BGE) |
+| `kind` | `"frames"` (visual), `"subtasks"` (labels), `"both"` (fused) |
+
+**Returns**, sorted by fused score:
 
 ```python
-{"video_id": ..., "gid": 0, "anchor": 0,
- "video_preview": {"fragments": 34, "ingest": {...}},
- "video_raw":     {"fragments": 34, "ingest": {...}} | None,   # None = skipped
- "joints_pose":   {"annotated_frames": 1707},                  # only if given
- "subtasks":      {"segments": 8},                             # only if given
- "meta": {...}}                                                # the stored video_meta row
+[{"video_id": "713488", "time_sec": 464.5, "score": 0.0164,
+  "source": "subtask",                     # or "frame"
+  "subtask": "screw shelf to brackets"},   # present on subtask hits
+ ...]
 ```
 
-**Raises** `DatasetError` before any transcoding when: the video is ≥ 3600 s
-(each video owns a one-hour timeline slot); `video_id` already exists; the
-requested `gid` is taken; the annotation's `src_fps` disagrees with the
-video's by more than 10 frames of accumulated drift (they describe different
-videos); or the video's **aspect ratio** differs from the dataset's (all
-videos on the shared playback track must encode to one frame size — keep one
-dataset per camera geometry).
+First call loads the encoder models (a few seconds); warm queries are
+sub-second. Recall is exact at small scale (an automatic exact-scan fallback
+kicks in when the ANN index under-returns) and ANN-served as the dataset
+grows.
 
-**Warns** (`warnings.warn`) and continues when: fps drift is 1–10 frames, or
-the archival track is skipped because this video's codec configuration
-differs from the clips already stored (a lossless track cannot be
-normalized; playback and annotations are unaffected).
+### `ds.videos() / ds.info(video_id) / ds.read_joints_pose(video_id) / ds.read_subtasks(video_id)`
 
-### `ds.videos() -> list[dict]`
-
-The dataset's catalog, one dict per video, sorted by slot. This is a single
-column read — cheap at any dataset size.
-
-```python
-[{"gid": 0, "anchor": 0, "video_id": "Ceramics", "source_uri": ...,
-  "task": "ceramics", "src_fps": 29.987, "width": 1920, "height": 1080,
-  "total_frames": 2024, "duration_s": 67.495}, ...]
-```
-
-`gid` is the positional slot (an implementation detail of the timeline
-layout); `video_id` is the stable name. Key your own bookkeeping off
-`video_id`.
-
-### `ds.info(video_id: str) -> dict`
-
-One video's catalog row plus annotation summaries
-(`{"joints_pose": {"annotated_frames": N}, "subtasks": {"segments": N,
-"ends_at_sec": S}}` — keys present only when the annotation is). Accepts a
-`video_id` or a slot number as a string. **Raises** `DatasetError` for an
-unknown video, listing the ids that do exist.
-
-### `ds.read_joints_pose(video_id) -> dict | None` / `ds.read_subtasks(video_id) -> dict | None`
-
-The stored annotation documents, byte-exact as uploaded. `None` when that
-video has no such annotation (normal, not an error).
+Unchanged from v1: catalog listing (one cheap column read), per-video
+summary, and byte-exact annotation read-back.
 
 ## Annotation formats
 
-Both are wire-compatible with the web viewer's overlay renderers — upload
-these shapes and the skeleton/captions draw with no conversion.
+Wire-compatible with the web viewer's overlay renderers — upload these
+shapes and the skeleton/captions draw with no conversion.
 
 ### `joints_pose`
 
 ```jsonc
 {
-  "width": 1920,              // REQUIRED: pixel space of the coordinates —
-  "height": 1080,             //   the ORIGINAL video's size, upright
-  "src_fps": 29.987,          // REQUIRED: true frame rate the detector saw;
-                              //   frame k renders at k / src_fps seconds
-  "total_frames": 2024,       // optional
-  "joint_order": ["wrist", "thumb_cmc", ...],   // names, index-aligned
-  "bones": [[0, 1], [1, 2], ...],               // skeleton edges
-  "frames": {                 // REQUIRED, SPARSE: only annotated frames
-    "0": [                    // key = 0-based ORIGINAL-video frame index
-      {"is_right": 1,                          // 0 left / 1 right (coloring)
-       "det_conf": 0.9,                        // 0..1
-       "bbox": [x1, y1, x2, y2],               // optional
-       "keypoints_2d": [[x, y], ...]}          // REQUIRED, matches joint_order
-    ]
+  "width": 1920, "height": 1080,   // REQUIRED: pixel space (original video, upright)
+  "src_fps": 29.987,               // REQUIRED: true rate; frame k renders at k/src_fps
+  "total_frames": 2024,            // optional
+  "joint_order": ["wrist", ...],   // names, index-aligned
+  "bones": [[0, 1], ...],          // skeleton edges
+  "frames": {                      // REQUIRED, SPARSE: only annotated frames
+    "0": [{"is_right": 1, "det_conf": 0.9,
+           "bbox": [x1, y1, x2, y2],            // optional
+           "keypoints_2d": [[x, y], ...]}]      // REQUIRED
   }
 }
 ```
 
-The skeleton is self-describing: `joint_order`/`bones` make the same track
-carry a 21-joint hand, a full body, or a manipulator arm.
+`joint_order`/`bones` make the track self-describing: a 21-joint hand, a
+full body, or a manipulator arm all fit.
 
 ### `subtasks`
 
 ```jsonc
 {
-  "task": "wash the dishes",       // becomes the video's default task label
-  "labeled_subtasks": [            // REQUIRED; gaps between segments are fine
-    {"start_sec": 0.0,             // seconds on the video's own clock
-     "end_sec": 2.5,               // exclusive
-     "subtask": "pick up plate"}   // caption + timeline block label
+  "task": "wash the dishes",           // becomes the video's default task label
+  "labeled_subtasks": [                // REQUIRED; gaps are fine
+    {"start_sec": 0.0, "end_sec": 2.5, "subtask": "pick up plate"}
   ]
 }
 ```
 
 ## Visualizing
 
+Platform datasets appear in your namespace's catalog (the web dataset list
+dispatches its viewer on schemaType). For a local dataset, serve the
+directory and open the debug viewer:
+
 ```bash
 npx http-server /data/datasets/wash-the-dishes -p 8791 --cors
-# with the dreamlake-ai app running (pnpm dev):
 open 'http://localhost:3000/dataset-debug?space=http://localhost:8791/refs/main'
 ```
 
-`--cors` matters only for browsers. The TypeScript CLI reads the same
-datasets (`dreamlake dataset ls|info --backend file:///...`) and its
-`dataset add-video` writes them interchangeably with this SDK — same schema,
-same layout, verified byte-compatible.
+The TypeScript CLI reads and writes the same datasets
+(`dreamlake dataset ls|info|add-video`) — same schema, verified
+byte-compatible.
 
 ## Constraints worth knowing up front
 
-- **≤ 3600 s per video.** Each video owns a one-hour slot on the dataset's
-  timeline; `add_video` refuses longer files rather than corrupt the layout.
-- **One aspect ratio per dataset.** All videos share one playback track and
-  it holds exactly one frame geometry.
-- **The archival track is best-effort on mixed sources.** A lossless copy
-  keeps the source's codec configuration, and the track only holds one — so
-  footage from different rigs keeps playback but not a shared archive.
-- **Append-only.** Datasets version like git: adding never rewrites, and the
-  underlying store keeps every published state addressable.
+- **≤ 3600 s per video** (one-hour timeline slot per video).
+- **One aspect ratio per dataset** (shared playback track, one frame
+  geometry).
+- **Archival track is best-effort on mixed sources** (lossless copies keep
+  their codec config; the track holds exactly one).
+- **Search fields exist only on v2 datasets.** Datasets created before v2
+  must be re-created to become searchable (embedding fields cannot be
+  retrofitted).
+- **Append-only.** Nothing is rewritten; every published state stays
+  addressable.

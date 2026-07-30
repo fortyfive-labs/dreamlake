@@ -6,7 +6,7 @@ per-frame joint positions and action segments. This script is the last step:
 hand the video file plus those two dicts to the SDK, which transcodes the
 video for browser playback and stores everything in one DreamDB dataset.
 
-Run it two ways:
+Run it three ways:
 
     # Self-contained demo — synthesizes a test video and mock annotations:
     python 09_robot_dataset.py --demo
@@ -15,7 +15,14 @@ Run it two ways:
     python 09_robot_dataset.py --video Ceramics.mov \
         --joints Ceramics.joints.json --subtasks Ceramics.subtasks.json
 
-Then look at the result in a browser:
+    # Platform mode — the dataset lives in the DreamLake bucket
+    # (run `dreamlake login` once, or set DREAMLAKE_API_KEY):
+    python 09_robot_dataset.py --demo --platform my-first-dataset
+
+With `pip install "dreamlake[search]"` the demo also embeds the video and
+runs a natural-language search at the end.
+
+For a local dataset, look at the result in a browser:
 
     npx http-server /tmp/dreamlake-datasets/demo -p 8791 --cors
     open 'http://localhost:3000/dataset-debug?space=http://localhost:8791/refs/main'
@@ -123,16 +130,27 @@ def main() -> None:
     ap.add_argument("--subtasks", help="subtasks JSON file (optional)")
     ap.add_argument("--id", dest="video_id", help="stable video id (default: filename stem)")
     ap.add_argument("--backend", default=BACKEND, help=f"dataset location (default: {BACKEND})")
+    ap.add_argument("--platform", metavar="NAME",
+                    help="store the dataset in the DreamLake platform bucket under NAME "
+                         "(needs `dreamlake login` or DREAMLAKE_API_KEY)")
     args = ap.parse_args()
 
     # 1. Open the dataset, creating it on first use. One dataset = one task's
     #    worth of videos; all of them must share an aspect ratio.
-    try:
-        ds = Dataset.open(backend=args.backend)
-        print(f"opened dataset at {args.backend}")
-    except DatasetError:
-        ds = Dataset.create(backend=args.backend)
-        print(f"created dataset at {args.backend}")
+    if args.platform:
+        try:
+            ds = Dataset.open(args.platform)
+            print(f"opened platform dataset '{args.platform}'")
+        except DatasetError:
+            ds = Dataset.create(args.platform)
+            print(f"created platform dataset '{args.platform}'")
+    else:
+        try:
+            ds = Dataset.open(backend=args.backend)
+            print(f"opened dataset at {args.backend}")
+        except DatasetError:
+            ds = Dataset.create(backend=args.backend)
+            print(f"created dataset at {args.backend}")
 
     # 2. Produce (or load) the video and its annotations.
     tmpdir = None
@@ -182,7 +200,22 @@ def main() -> None:
     info = ds.info(video_id)
     print(f"\ninfo('{video_id}'): {json.dumps({k: v for k, v in info.items() if k != 'anchor'})}")
 
-    # 5. Visualize.
+    # 5. Make it searchable and search it — needs `pip install "dreamlake[search]"`.
+    #    embed_videos = sample frames -> CLIP + segment texts -> BGE + upload.
+    #    Vectors are searchable the moment they land; there is no build step.
+    try:
+        report = ds.embed_videos(video_id=video_id)
+        print(f"\nembedded: {report}")
+        for q in ("reach for the object", "release"):
+            hits = ds.search(q, top_k=3)
+            print(f"search({q!r}):")
+            for h in hits:
+                extra = f'  "{h["subtask"]}"' if "subtask" in h else ""
+                print(f'  {h["video_id"]} @ {h["time_sec"]:.1f}s  [{h["source"]}]{extra}')
+    except DatasetError as e:
+        print(f"\n(skipping search demo: {e})")
+
+    # 6. Visualize.
     local_dir = args.backend.removeprefix("file://")
     print(
         "\nTo see it in the browser:\n"
