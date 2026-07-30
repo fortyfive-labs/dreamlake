@@ -1,4 +1,4 @@
-"""Robot-training datasets on DreamDB — see :class:`Dataset`.
+"""Robot-training episode datasets on DreamDB — see :class:`Dataset`.
 
 Requires the ``dreamdb`` package (the DreamDB Python SDK) and ``ffmpeg`` on
 PATH. Neither is a hard dependency of ``dreamlake``; the import fails here,
@@ -14,30 +14,46 @@ except ImportError as e:  # pragma: no cover
     ) from e
 
 from ._core import Dataset, DatasetError
+from ._episode import Episode
 from ._ffmpeg import FfmpegError, ProbeResult, probe
 from ._schema import (
     DATASET_REF,
+    DEFAULT_CAMERA,
     DEFAULT_PREVIEW_FPS,
-    MAX_VIDEO_SECONDS,
-    VIDEO_STRIDE_NS,
-    VideoMeta,
+    EPISODE_STRIDE_NS,
+    MAX_EPISODE_SECONDS,
+    CameraMeta,
+    EpisodeMeta,
+    TrackInfo,
     base_anchor,
+    classify_track,
     frame_anchor,
     gid_of,
+    joints_track,
+    preview_track,
+    raw_track,
 )
 
 __all__ = [
     "Dataset",
+    "Episode",
     "DatasetError",
     "FfmpegError",
     "ProbeResult",
     "probe",
-    "VideoMeta",
+    "CameraMeta",
+    "EpisodeMeta",
+    "TrackInfo",
+    "classify_track",
     "DATASET_REF",
+    "DEFAULT_CAMERA",
     "DEFAULT_PREVIEW_FPS",
-    "MAX_VIDEO_SECONDS",
-    "VIDEO_STRIDE_NS",
+    "EPISODE_STRIDE_NS",
+    "MAX_EPISODE_SECONDS",
     "base_anchor",
     "frame_anchor",
     "gid_of",
+    "joints_track",
+    "preview_track",
+    "raw_track",
 ]

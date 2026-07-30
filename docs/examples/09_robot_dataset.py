@@ -1,14 +1,15 @@
-"""Upload an annotated robot-training video with dreamlake.dataset.
+"""Upload an annotated robot-training episode with dreamlake.dataset.
 
 The real workflow this mirrors: your labeling pipeline ingests raw footage,
-runs detection/segmentation, and ends up holding two Python dicts per video —
-per-frame joint positions and action segments. This script is the last step:
-hand the video file plus those two dicts to the SDK, which transcodes the
-video for browser playback and stores everything in one DreamDB dataset.
+runs detection/segmentation, and ends up holding two Python dicts per
+episode — per-frame joint positions and action segments. This script is the
+last step: hand the camera file(s) plus those two dicts to the SDK, which
+transcodes the video for browser playback and stores everything in one
+DreamDB dataset. An episode may carry several cameras; they share one clock.
 
 Run it three ways:
 
-    # Self-contained demo — synthesizes a test video and mock annotations:
+    # Self-contained demo — synthesizes a two-camera episode + mock annotations:
     python 09_robot_dataset.py --demo
 
     # Your own data:
@@ -19,7 +20,7 @@ Run it three ways:
     # (run `dreamlake login` once, or set DREAMLAKE_API_KEY):
     python 09_robot_dataset.py --demo --platform my-first-dataset
 
-With `pip install "dreamlake[search]"` the demo also embeds the video and
+With `pip install "dreamlake[search]"` the demo also embeds the episode and
 runs a natural-language search at the end.
 
 For a local dataset, look at the result in a browser:
@@ -46,15 +47,15 @@ BACKEND = "file:///tmp/dreamlake-datasets/demo"
 # ─── a stand-in for YOUR annotation pipeline ─────────────────────────────
 #
 # Everything in this section fakes the part you already have: something that
-# looks at a video and produces joint detections and action segments. The
+# looks at footage and produces joint detections and action segments. The
 # only thing the SDK cares about is the SHAPE of the two dicts it returns.
 
 
-def synthesize_video(path: str, seconds: float = 8.0) -> None:
+def synthesize_video(path: str, seconds: float = 8.0, size: str = "1280x720") -> None:
     """A test-pattern video, so the demo needs no input files."""
     subprocess.run(
         ["ffmpeg", "-v", "error", "-y",
-         "-f", "lavfi", "-i", f"testsrc2=duration={seconds}:size=1280x720:rate=30",
+         "-f", "lavfi", "-i", f"testsrc2=duration={seconds}:size={size}:rate=30",
          "-c:v", "libx264", "-pix_fmt", "yuv420p", path],
         check=True,
     )
@@ -63,11 +64,11 @@ def synthesize_video(path: str, seconds: float = 8.0) -> None:
 def fake_joint_detector(width: int, height: int, fps: float, seconds: float) -> dict:
     """Mock per-frame joint detections: a 5-joint 'hand' circling the frame.
 
-    The dict below is EXACTLY the shape `add_video(joints_pose=...)` expects —
-    wire-compatible with the web viewer's skeleton overlay:
+    The dict below is EXACTLY the shape `add_episode(joints_pose=...)`
+    expects — wire-compatible with the web viewer's skeleton overlay:
 
-      width/height  the pixel space the coordinates live in (the ORIGINAL
-                    video's size, upright orientation)
+      width/height  the pixel space the coordinates live in (the PRIMARY
+                    camera's original size, upright orientation)
       src_fps       the frame rate the detector saw — frame index k maps to
                     playback time k / src_fps, so this must be the true rate
       joint_order   names, index-aligned with each detection's keypoints_2d
@@ -101,9 +102,9 @@ def fake_joint_detector(width: int, height: int, fps: float, seconds: float) -> 
 
 
 def fake_segmenter(seconds: float) -> dict:
-    """Mock action segmentation — the shape `add_video(subtasks=...)` expects.
+    """Mock action segmentation — the shape `add_episode(subtasks=...)` expects.
 
-    start_sec/end_sec are seconds on the video's own clock; gaps between
+    start_sec/end_sec are seconds on the episode's own clock; gaps between
     segments are fine (nothing is rendered there).
     """
     labels = ["reach for object", "grasp object", "move to target", "release"]
@@ -124,11 +125,13 @@ def fake_segmenter(seconds: float) -> dict:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--demo", action="store_true", help="synthesize a video + mock annotations")
-    ap.add_argument("--video", help="source video (any codec)")
+    ap.add_argument("--demo", action="store_true",
+                    help="synthesize a two-camera episode + mock annotations")
+    ap.add_argument("--video", help="source video (any codec) — single camera")
     ap.add_argument("--joints", help="joints_pose JSON file (optional)")
     ap.add_argument("--subtasks", help="subtasks JSON file (optional)")
-    ap.add_argument("--id", dest="video_id", help="stable video id (default: filename stem)")
+    ap.add_argument("--id", dest="episode_id", help="stable episode id (default: filename stem)")
+    ap.add_argument("--task", help="task label for the episode meta (nothing is inferred)")
     ap.add_argument("--backend", default=BACKEND, help=f"dataset location (default: {BACKEND})")
     ap.add_argument("--platform", metavar="NAME",
                     help="store the dataset in the DreamLake platform bucket under NAME "
@@ -136,7 +139,8 @@ def main() -> None:
     args = ap.parse_args()
 
     # 1. Open the dataset, creating it on first use. One dataset = one task's
-    #    worth of videos; all of them must share an aspect ratio.
+    #    worth of episodes. Each camera track keeps one aspect ratio, but
+    #    different cameras can differ (head 16:9 + wrist 4:3 is fine).
     if args.platform:
         try:
             ds = Dataset.open(args.platform)
@@ -152,66 +156,95 @@ def main() -> None:
             ds = Dataset.create(backend=args.backend)
             print(f"created dataset at {args.backend}")
 
-    # 2. Produce (or load) the video and its annotations.
+    # 2. Produce (or load) the camera file(s) and annotations.
     tmpdir = None
     if args.demo:
         tmpdir = tempfile.mkdtemp(prefix="dreamlake-demo-")
-        video = str(Path(tmpdir) / "demo_episode.mp4")
         seconds = 8.0
-        print("synthesizing a test video …")
-        synthesize_video(video, seconds)
+        head = str(Path(tmpdir) / "head.mp4")
+        wrist = str(Path(tmpdir) / "wrist.mp4")
+        print("synthesizing a two-camera test episode …")
+        synthesize_video(head, seconds, size="1280x720")
+        synthesize_video(wrist, seconds, size="640x480")  # per-camera aspect is fine
+        videos = {"head": head, "wrist": wrist}
         # Here your real pipeline would run detection + segmentation. The SDK
         # takes their in-memory dicts directly — no intermediate files needed.
+        # A bare joints doc binds to the PRIMARY camera (first in the dict:
+        # "head"); pass {"head": doc1, "wrist": doc2} to annotate several —
+        # each lands in that camera's joints_pose__{camera} track, which is
+        # how the viewer knows which video to overlay it on.
         joints = fake_joint_detector(1280, 720, 30.0, seconds)
         subtasks = fake_segmenter(seconds)
-        video_id = args.video_id or f"demo-{len(ds.videos())}"
+        task = args.task or "demo pick-and-place"
+        episode_id = args.episode_id or f"demo-{len(ds.episodes())}"
     else:
         if not args.video:
             ap.error("--video is required (or use --demo)")
-        video = args.video
-        joints = args.joints        # a path also works — add_video reads it
+        videos = args.video               # a single path = one camera, "main"
+        joints = args.joints              # a path also works — add_episode reads it
         subtasks = args.subtasks
-        video_id = args.video_id or Path(video).stem
+        task = args.task
+        episode_id = args.episode_id or Path(args.video).stem
 
-    # 3. Upload. One call: transcodes for browser playback, stores the
-    #    lossless original alongside, and commits annotations + metadata.
-    print(f"adding '{video_id}' …")
-    result = ds.add_video(
-        video,
-        video_id=video_id,
+    # 3. Upload. One call: transcodes every camera for browser playback and
+    #    commits annotations + metadata (pass raw=True to also archive the
+    #    lossless originals). All cameras land on the episode's shared clock.
+    #    Labels are explicit — meta={"task": ...}; nothing is inferred.
+    #    The return is the episode's HANDLE; the ingest summary is on .report.
+    print(f"adding episode '{episode_id}' …")
+    epo = ds.add_episode(
+        videos,
+        episode_id=episode_id,
         joints_pose=joints,
         subtasks=subtasks,
+        meta={"task": task} if task else None,
     )
-    print(f"  slot {result['gid']}, "
-          f"{result['video_preview']['fragments']} playback fragments"
-          + (f", {result['joints_pose']['annotated_frames']} annotated frames"
-             if "joints_pose" in result else "")
-          + (f", {result['subtasks']['segments']} segments"
-             if "subtasks" in result else ""))
+    report = epo.report
+    frag_note = ", ".join(
+        f"{cam}: {rep['preview']['fragments']} fragments"
+        for cam, rep in report["cameras"].items()
+    )
+    annotated = sum(j["annotated_frames"] for j in report.get("joints_pose", {}).values())
+    print(f"  slot {epo.gid}  ({frag_note})"
+          + (f", {annotated} annotated frames" if annotated else "")
+          + (f", {report['subtasks']['segments']} segments"
+             if "subtasks" in report else ""))
+
+    # 3b. Episodes are extensible through their handle: late cameras via
+    #     epo.add_cameras (video is add-only), annotation/label revisions via
+    #     epo.revise — atomic, one committed row, history kept.
+    if args.demo:
+        epo.revise(meta={"scene": "demo-bench"})
+        print("  revised: scene='demo-bench' via epo.revise")
 
     # 4. Read back — the same calls a viewer or a training loader starts with.
-    print("\nvideos in this dataset:")
-    for row in ds.videos():
-        print(f"  [{row['gid']}] {row['video_id']}"
-              f"  {row.get('width')}x{row.get('height')}"
-              f"  {row.get('duration_s', 0):.1f}s"
-              f"  task={row.get('task')}")
+    #    ds.episodes() returns Episode handles; ds.episode(id) fetches one.
+    print("\nepisodes in this dataset:")
+    for e in ds.episodes():
+        cams = ", ".join(
+            f"{name} {c.get('width')}x{c.get('height')}"
+            for name, c in e.cameras.items()
+        )
+        print(f"  [{e.gid}] {e.episode_id}  ({cams})"
+              f"  {e.duration_s:.1f}s  task={e.task}")
 
-    info = ds.info(video_id)
-    print(f"\ninfo('{video_id}'): {json.dumps({k: v for k, v in info.items() if k != 'anchor'})}")
+    info = epo.info()
+    print(f"\ninfo('{episode_id}'): "
+          f"{json.dumps({k: v for k, v in info.items() if k not in ('anchor', '_rev', 'cameras')})}")
 
     # 5. Make it searchable and search it — needs `pip install "dreamlake[search]"`.
-    #    embed_videos = sample frames -> CLIP + segment texts -> BGE + upload.
-    #    Vectors are searchable the moment they land; there is no build step.
+    #    epo.embed() = sample this episode's primary-camera frames -> CLIP +
+    #    segment texts -> BGE + upload (ds.embed_episodes() is the all-episode
+    #    sweep). Vectors are searchable the moment they land; no build step.
     try:
-        report = ds.embed_videos(video_id=video_id)
-        print(f"\nembedded: {report}")
+        counts = epo.embed()
+        print(f"\nembedded: {counts}")
         for q in ("reach for the object", "release"):
             hits = ds.search(q, top_k=3)
             print(f"search({q!r}):")
             for h in hits:
                 extra = f'  "{h["subtask"]}"' if "subtask" in h else ""
-                print(f'  {h["video_id"]} @ {h["time_sec"]:.1f}s  [{h["source"]}]{extra}')
+                print(f'  {h["episode_id"]} @ {h["time_sec"]:.1f}s  [{h["source"]}]{extra}')
     except DatasetError as e:
         print(f"\n(skipping search demo: {e})")
 

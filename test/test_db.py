@@ -1,15 +1,21 @@
 """
-Tests for ``dreamlake.db`` — the DreamDB re-export plus platform plumbing.
+Tests for the storage layering:
+
+- ``dreamlake.db`` — the platform-FREE engine layer: dreamdb re-exported,
+  plus ``create``/``open`` against an explicit backend. Must never touch
+  the network.
+- ``dreamlake._platform`` — the internal platform plumbing presets use:
+  catalog registration, credential brokering, lease attachment.
 
 House style (see test_remote_stub.py): a real-socket stub HTTP server whose
 behavior is a per-test ``app(method, path, headers, body) -> (status,
 payload)`` callable. No mock libraries.
 
-The dreamdb half is injected through ``db._dreamdb`` — the module's single,
-documented import seam — because the platform stub brokers an s3:// backend
-URL that the real native package would actually try to reach. The
-direct-backend path (``backend="file://..."``) IS exercised against the real
-dreamdb package.
+The dreamdb half is injected through ``db._dreamdb`` — the single,
+documented import seam, which ``_platform`` also resolves at call time —
+because the platform stub brokers an s3:// backend URL that the real native
+package would actually try to reach. The direct-backend path
+(``backend="file://..."``) IS exercised against the real dreamdb package.
 """
 
 import json
@@ -22,7 +28,7 @@ from urllib.parse import parse_qs, urlparse
 import pytest
 
 import dreamlake.db as db
-from dreamlake import _session
+from dreamlake import _platform, _session
 from dreamlake.auth.exceptions import NotAuthenticatedError
 
 
@@ -93,7 +99,7 @@ def _clean_session(monkeypatch):
     _session._namespace_cache.clear()
     monkeypatch.setenv("DREAMLAKE_API_KEY", TOKEN)
     # Touch the AWS vars through monkeypatch so its teardown restores the
-    # developer's originals even though db.py writes os.environ directly.
+    # developer's originals even though _platform writes os.environ directly.
     for var in ("AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_REGION"):
         monkeypatch.setenv(var, "pre-test-stale")
     monkeypatch.setenv("AWS_SESSION_TOKEN", "pre-test-stale")
@@ -112,7 +118,8 @@ def platform(monkeypatch, stub_url):
 
 @pytest.fixture
 def fake_dreamdb(monkeypatch):
-    """Inject a fake dreamdb through db._dreamdb, recording create/open calls."""
+    """Inject a fake dreamdb through db._dreamdb — _platform resolves the
+    same seam at call time, so one patch covers both layers."""
     calls = {"create": [], "open": []}
 
     class FakeDataset:
@@ -194,7 +201,7 @@ def _make_app(seen, session_token="", dataset_exists=True):
     return app
 
 
-# ── db.create — platform flow end to end ────────────────────────────────────
+# ── _platform.create_dataset — platform flow end to end ─────────────────────
 
 class TestCreatePlatformFlow:
     def test_full_flow(self, stub_server, platform, fake_dreamdb):
@@ -202,7 +209,7 @@ class TestCreatePlatformFlow:
         stub_server.app = _make_app(seen, session_token="")
         schema = object()
 
-        ds = db.create(
+        ds = _platform.create_dataset(
             "robo-set", schema,
             schema_type="robot",
             schema_json='{"fields": []}',
@@ -253,10 +260,10 @@ class TestCreatePlatformFlow:
 
     def test_nonempty_session_token_is_set(self, stub_server, platform, fake_dreamdb):
         stub_server.app = _make_app([], session_token="STS-TOKEN")
-        db.create("robo-set", object())
+        _platform.create_dataset("robo-set", object(), schema_type="robot")
         assert os.environ["AWS_SESSION_TOKEN"] == "STS-TOKEN"
 
-    def test_conflict_409_says_use_open(self, stub_server, platform, fake_dreamdb):
+    def test_conflict_409_says_open_instead(self, stub_server, platform, fake_dreamdb):
         def app(method, path, headers, body):
             route = urlparse(path).path
             if route == "/auth/me":
@@ -266,8 +273,8 @@ class TestCreatePlatformFlow:
             return 404, {"error": "unhandled"}
 
         stub_server.app = app
-        with pytest.raises(db.DatasetExistsError, match="db.open"):
-            db.create("robo-set", object())
+        with pytest.raises(_platform.DatasetExistsError, match="open it instead"):
+            _platform.create_dataset("robo-set", object(), schema_type="robot")
         assert fake_dreamdb["create"] == []
 
     def test_server_500_carries_body_text(self, stub_server, platform, fake_dreamdb):
@@ -278,8 +285,8 @@ class TestCreatePlatformFlow:
             return 500, {"error": "kaboom-xyz"}
 
         stub_server.app = app
-        with pytest.raises(db.PlatformError, match="kaboom-xyz") as exc:
-            db.create("robo-set", object())
+        with pytest.raises(_platform.PlatformError, match="kaboom-xyz") as exc:
+            _platform.create_dataset("robo-set", object(), schema_type="robot")
         assert "500" in str(exc.value)
 
     def test_broker_500_is_platform_error(self, stub_server, platform, fake_dreamdb):
@@ -294,13 +301,9 @@ class TestCreatePlatformFlow:
             return 404, {"error": "unhandled"}
 
         stub_server.app = app
-        with pytest.raises(db.PlatformError, match="broker down"):
-            db.create("robo-set", object())
+        with pytest.raises(_platform.PlatformError, match="broker down"):
+            _platform.create_dataset("robo-set", object(), schema_type="robot")
         assert fake_dreamdb["create"] == []
-
-    def test_name_required_without_backend(self, fake_dreamdb):
-        with pytest.raises(ValueError, match="name is required"):
-            db.create(schema=object())
 
     def test_not_authenticated(self, monkeypatch, fake_dreamdb):
         monkeypatch.delenv("DREAMLAKE_API_KEY", raising=False)
@@ -314,10 +317,10 @@ class TestCreatePlatformFlow:
             lambda config_dir=None: NoToken(),
         )
         with pytest.raises(NotAuthenticatedError, match="dreamlake login"):
-            db.create("robo-set", object())
+            _platform.create_dataset("robo-set", object(), schema_type="robot")
 
 
-# ── db.open — platform flow ─────────────────────────────────────────────────
+# ── _platform.open_dataset ───────────────────────────────────────────────────
 
 class TestOpenPlatformFlow:
     def test_full_flow(self, stub_server, platform, fake_dreamdb):
@@ -325,7 +328,7 @@ class TestOpenPlatformFlow:
         stub_server.app = _make_app(seen, session_token="STS")
         schema = object()
 
-        ds = db.open("robo-set", schema=schema, duration_seconds=600)
+        ds = _platform.open_dataset("robo-set", schema=schema, duration_seconds=600)
 
         lookup = next(
             r for r in seen
@@ -344,21 +347,21 @@ class TestOpenPlatformFlow:
         assert ds.dreamlake_lease["backend_url"] == BACKEND_URL
         assert os.environ["AWS_SESSION_TOKEN"] == "STS"
 
-    def test_missing_404_says_use_create(self, stub_server, platform, fake_dreamdb):
+    def test_missing_404_says_create_first(self, stub_server, platform, fake_dreamdb):
         stub_server.app = _make_app([], dataset_exists=False)
-        with pytest.raises(db.DatasetNotFoundError, match="db.create"):
-            db.open("robo-set")
+        with pytest.raises(_platform.DatasetNotFoundError, match="create it first"):
+            _platform.open_dataset("robo-set")
         assert fake_dreamdb["open"] == []
 
 
-# ── db.list / db.delete — request shapes ─────────────────────────────────────
+# ── _platform.list_datasets / delete_dataset — request shapes ────────────────
 
 class TestListDelete:
     def test_list(self, stub_server, platform):
         seen = []
         stub_server.app = _make_app(seen)
 
-        result = db.list()
+        result = _platform.list_datasets()
 
         assert result == [{"name": "robo-set", "schemaType": "robot"}]
         req = next(
@@ -372,7 +375,7 @@ class TestListDelete:
         seen = []
         stub_server.app = _make_app(seen)
 
-        db.list(schema_type="robot")
+        _platform.list_datasets(schema_type="robot")
 
         req = next(
             r for r in seen
@@ -384,7 +387,7 @@ class TestListDelete:
         seen = []
         stub_server.app = _make_app(seen)
 
-        db.delete("robo-set")
+        _platform.delete_dataset("robo-set")
 
         req = next(r for r in seen if r["method"] == "DELETE")
         assert req["route"] == f"/namespaces/{NS}/datasets/robo-set"
@@ -393,7 +396,7 @@ class TestListDelete:
         seen = []
         stub_server.app = _make_app(seen)
 
-        db.delete("robo-set", purge=True)
+        _platform.delete_dataset("robo-set", purge=True)
 
         req = next(r for r in seen if r["method"] == "DELETE")
         assert req["route"] == f"/namespaces/{NS}/datasets/robo-set/purge"
@@ -406,8 +409,8 @@ class TestListDelete:
             return 404, {"error": "no such dataset"}
 
         stub_server.app = app
-        with pytest.raises(db.DatasetNotFoundError, match="not found"):
-            db.delete("ghost")
+        with pytest.raises(_platform.DatasetNotFoundError, match="not found"):
+            _platform.delete_dataset("ghost")
 
 
 # ── Re-export: dreamlake.db IS dreamdb ───────────────────────────────────────
@@ -437,9 +440,15 @@ class TestReExport:
         assert dreamlake.db is db
 
 
-# ── Direct backend (backend=...) — real dreamdb, no platform calls ──────────
+# ── dreamlake.db — the platform-free engine layer ────────────────────────────
 
-class TestDirectBackend:
+class TestEngineLayer:
+    def test_backend_is_required(self, fake_dreamdb):
+        with pytest.raises(TypeError):
+            db.create(object())  # no backend= → engine refuses, no fallback
+        with pytest.raises(TypeError):
+            db.open()
+
     def test_create_and_reopen_file_backend(self, tmp_path, stub_server, platform):
         """file:// backend round-trip with the REAL dreamdb package; the stub
         records every request so we can prove zero platform traffic."""
@@ -452,22 +461,19 @@ class TestDirectBackend:
         schema = dreamdb.Schema()
         schema.add_scalar_string("caption")
 
-        ds = db.create("named-set", schema, backend=backend, schema_type="robot")
+        ds = db.create(schema, backend=backend, schema_type="robot", title="named-set")
         assert isinstance(ds, dreamdb.Dataset)
 
-        reopened = db.open_backend(backend)
+        reopened = db.open(backend=backend)
         meta = reopened.meta()
         assert meta["dreamdb.schema_type"] == "robot"
         assert meta["dreamdb.title"] == "named-set"
 
-        also = db.open(backend=backend)
-        assert isinstance(also, dreamdb.Dataset)
+        assert seen == []  # the engine layer must never touch the platform
 
-        assert seen == []  # backend= must never touch the platform
-
-    def test_open_backend_uses_main_ref(self, fake_dreamdb):
+    def test_open_uses_main_ref(self, fake_dreamdb):
         schema = object()
-        db.open_backend("file:///tmp/whatever", schema=schema)
+        db.open("file:///tmp/whatever", schema=schema)
         assert fake_dreamdb["open"] == [
             {"ref": "main", "schema": schema, "backend": "file:///tmp/whatever"}
         ]

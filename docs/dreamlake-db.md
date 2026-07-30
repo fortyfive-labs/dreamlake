@@ -1,73 +1,58 @@
-# dreamlake.db — custom-schema data on the platform
+# dreamlake.db — the storage engine, platform-free
 
-`dreamlake.db` is the thin layer under the robot-dataset preset, exposed for
-everyone whose data does not fit a preset: **define your own schema, upload
-by your own structure**. It is deliberately not an abstraction — it
-re-exports the DreamDB SDK verbatim and adds exactly three things:
+`dreamlake.db` is the bottom layer of the stack: **DreamDB, re-exported
+verbatim, bound to nothing**. It never talks to the DreamLake platform — no
+login, no catalog, no credential brokering. You bring a backend URI and a
+schema; it gives you a bare `dreamdb.Dataset`.
 
-1. **authorization** — your `dreamlake login` / `DREAMLAKE_API_KEY` identity,
-2. **a default home** — the DreamLake platform bucket, one managed folder per
-   dataset, temporary scoped credentials minted per session,
-3. **a catalog entry** — name, schemaType and visibility in your namespace,
-   which is what the web UI lists and dispatches viewers on.
+The platform experience (managed bucket, catalog entry, web visualization)
+belongs to the **presets** built on top — `dreamlake.dataset` — which
+register the dataset in your namespace and broker short-lived scoped
+credentials internally, then operate on exactly the same kind of plain
+dreamdb handle this module hands out. The layering:
 
-You install and import only `dreamlake`. Everything storage-level
-(`db.Schema`, `db.Dataset`, queries, layers, snapshots) is the DreamDB API,
-forwarded unchanged — its own docs apply as-is.
+```
+dreamlake.dataset (presets)   fixed schemas + platform binding + viewers
+        │ uses
+dreamlake.db (this module)    dreamdb verbatim + create/open on a backend
+        │ is
+dreamdb                       the storage engine
+```
+
+Use `dreamlake.db` when your data does not fit a preset: define your own
+schema, upload by your own structure, host it on your own storage. Custom
+data is not visualizable in the DreamLake UI — that is what presets are for.
 
 ## Calling order
 
 ```
-$ dreamlake login                          once per machine (or DREAMLAKE_API_KEY)
+schema = db.Schema()....                    describe your structure
+ds = db.create(schema, backend="…")         once per dataset      ─┐
+ds = db.open(backend="…")                   every later session    ─┴─→ bare dreamdb.Dataset
 
-schema = db.Schema()....                   describe your structure
-ds = db.create("name", schema, ...)        once per dataset      ─┐
-ds = db.open("name")                       every later session    ─┴─→ bare dreamdb.Dataset
-ds = db.open_backend("file:///…")          escape hatch: any dreamdb backend
-
-ds.append_many([...])                      ─┐
-ds.ingest_video(...) / ingest_cmaf(...)     ├─ from here on: pure DreamDB API
-ds.iter_all_batches / iter_vector / ...    ─┘
-
-db.list() / db.delete("name")              catalog management
+ds.append_many([...])                       ─┐
+ds.ingest_video(...) / ingest_cmaf(...)      ├─ from here on: pure DreamDB API
+ds.iter_all_batches / iter_vector / ...     ─┘
 ```
 
 ## Function reference
 
-### `db.create(name=None, schema=None, *, backend=None, schema_type="custom", schema_json=None, visibility=None, duration_seconds=43200) -> dreamdb.Dataset`
+### `db.create(schema, *, backend, schema_type="custom", title=None) -> dreamdb.Dataset`
 
 | in | format | notes |
 | --- | --- | --- |
-| `name` | `[a-z0-9][a-z0-9._-]{0,63}` | required in platform mode |
-| `schema` | `db.Schema()` builder | required for create |
-| `backend` | dreamdb URI | given → skip the platform entirely |
-| `schema_type` | free string, e.g. `"my-lab.frames/v1"` | the dispatch key: stored in the catalog AND stamped into the space meta. Viewers select by it |
-| `visibility` | `"private"` (default) / `"public"` | catalog listing visibility |
-| `duration_seconds` | 900–43200 | credential lifetime for this handle |
+| `schema` | `db.Schema()` builder | required |
+| `backend` | `file:///abs/path` or `https://…` object-store URL | **required** — this layer has no default home |
+| `schema_type` | free string, e.g. `"my-lab.frames/v1"` | stamped into the space meta so readers can dispatch on it |
+| `title` | free string | optional human-readable name, stamped into meta |
 
-**Returns a bare `dreamdb.Dataset`** — not a wrapper. A `dreamlake_lease`
-attribute carries `{backend_url, expiration, namespace, name, prefix}`.
+The ref name is always `"main"` — a fixed contract shared with the
+TypeScript CLI and the web viewer.
 
-**Raises** `db.DatasetExistsError` (409 → use `db.open`),
-`NotAuthenticatedError` (run `dreamlake login`), `db.PlatformError` with the
-server's message on other failures.
+### `db.open(backend, *, schema=None) -> dreamdb.Dataset`
 
-### `db.open(name=None, *, backend=None, schema=None, duration_seconds=43200) -> dreamdb.Dataset`
-
-Opens by platform name (catalog lookup → credentials → open) or by backend
-URI. `schema=None` recovers the schema stored in the dataset itself.
-**Raises** `db.DatasetNotFoundError` (→ use `db.create`).
-
-### `db.open_backend(backend, schema=None)` — alias of `db.open(backend=...)`.
-
-### `db.list(schema_type=None) -> list[dict]`
-
-Your namespace's datasets: `[{name, schemaType, visibility, createdAt,
-updatedAt}]`, optionally filtered.
-
-### `db.delete(name, purge=False) -> None`
-
-Soft-deletes the catalog entry; `purge=True` also deletes the stored objects.
+Opens the space at `backend`. `schema=None` recovers the schema persisted
+in the dataset itself; an explicit schema must match the persisted one.
 
 ### Everything else: the DreamDB API, re-exported
 
@@ -93,8 +78,10 @@ schema = (db.Schema()
     .add_scalar_float("score", required=False)
     .add_embedding("vec", dim=512, required=False))
 
-# 2. One call: catalog row + managed folder + credentials + creation.
-ds = db.create("my-experiments", schema, schema_type="my-lab.frames/v1")
+# 2. Create on YOUR backend — a directory, or S3 with your credentials
+#    in the environment.
+ds = db.create(schema, backend="file:///data/my-experiments",
+               schema_type="my-lab.frames/v1")
 
 # 3. Upload rows in your own shape. `_anchor` is the primary key (int ns);
 #    omit it and one is assigned. All rows in ONE call must carry the same
@@ -116,35 +103,23 @@ image/audio/video, `str` for text/categorical/string scalars, `int`/`float`/
 `bool` for the numeric scalars, `list[float]` or numpy for embeddings
 (dimension checked against the schema).
 
-## How authorization works underneath
+## Where the platform flow lives now
 
-```
-dreamlake login ──(device code, browser)──► vuer-auth ──► POST /auth/exchange
-      └─► long-lived DreamLake token, stored in the OS keychain
-
-db.create("name") ──Bearer token──► dreamlake-server
-      ├── membership check on your namespace
-      ├── catalog row  (datasets/<namespace>/<name> is the managed folder)
-      └── temporary S3 credentials, scoped to that folder, ~12 h
-              └─► the SDK places them in the environment and opens the
-                  dataset directly against the bucket — data never flows
-                  through the API server
-```
-
-Resolution order for the token: `DREAMLAKE_API_KEY` env var, then the stored
-login. Server URL: `DREAMLAKE_REMOTE` env var, then the saved config, then
-the production default.
+Platform datasets are created through presets — `Dataset.create("name")` in
+`dreamlake.dataset` — which internally: authenticate with your
+`dreamlake login` / `DREAMLAKE_API_KEY` identity, register the catalog row
+in your namespace (what the web UI lists and dispatches viewers on), obtain
+temporary S3 credentials scoped to that dataset's folder (~12 h), and open
+the space directly against the bucket. Data never flows through the API
+server. See `docs/robot-datasets.md`.
 
 ## Constraints inherited from the engine
 
-- **Credentials are read once per handle.** A handle works for its lease
-  (~12 h); for longer jobs call `db.open` again and continue.
 - **Backend URIs** are `file:///abs/path` or `https://…` object-store URLs —
   there is no `s3://` scheme.
 - **One `append_many` call = one field shape.** Mixed-shape batches are
   rejected; make one call per shape.
 - **Embedding fields must be declared at create time**; text/BM25 indexes
   are built once over a full corpus. Plan the schema before the first row —
-  scalar/image/video fields, by contrast, can be added at any time.
-- `list_refs()`/`gc()` don't operate on platform datasets (prefix-scoped
-  folders); the platform's `db.delete(purge=True)` handles cleanup instead.
+  scalar/image/video fields, by contrast, can be added at any time
+  (evolution by addition).
