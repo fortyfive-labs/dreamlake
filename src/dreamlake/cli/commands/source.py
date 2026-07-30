@@ -37,8 +37,11 @@ RED = "\033[31m"; GREEN = "\033[32m"; CYAN = "\033[36m"
 NAME_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
 FIELD_RE = re.compile(r"^[a-z0-9][a-z0-9_]*$")
 VIDEO_EXTS = {".mp4", ".mov", ".mkv", ".webm", ".m4v", ".avi"}
-SCALAR_TYPES = {"scalar_string", "scalar_int", "scalar_float", "scalar_bool", "scalar_categorical"}
-SCHEMA_TYPES = {"video", "image", "embedding"} | SCALAR_TYPES
+SCALAR_TYPES = {"scalar_string", "scalar_int", "scalar_float", "scalar_bool", "scalar_categorical", "scalar_timestamp"}
+BLOB_TYPES = {"image"}            # non-video blobs ingestable via append_many (raw bytes)
+# audio is declarable in a schema but NOT yet ingestable by the dreamdb SDK's
+# append_many (planned "Phase 1.6"); we allow the field, reject audio *values* at push.
+SCHEMA_TYPES = {"video", "audio", "embedding"} | BLOB_TYPES | SCALAR_TYPES
 PRESET_VIDEO_FIELDS = [
     {"name": "video", "type": "video", "mime": "h264"},
     {"name": "path", "type": "scalar_string"},
@@ -170,6 +173,8 @@ def _build_schema(db, fields):
             s = s.add_video(n, mime=f.get("mime", "h264"), required=False)
         elif t == "image":
             s = s.add_image(n, mime=f.get("mime", "jpeg"), required=False)
+        elif t == "audio":
+            s = s.add_audio(n, mime=f.get("mime", "wav"), required=False)
         elif t == "scalar_string":
             s = s.add_scalar_string(n, required=False)
         elif t == "scalar_int":
@@ -180,9 +185,24 @@ def _build_schema(db, fields):
             s = s.add_scalar_bool(n, required=False)
         elif t == "scalar_categorical":
             s = s.add_scalar_categorical(n, required=False)
+        elif t == "scalar_timestamp":
+            s = s.add_scalar_timestamp(n, required=False)
         elif t == "embedding":
             s = s.add_embedding(n, dim=int(f["dim"]))
     return s
+
+
+def _load_vector(val, dim):
+    """Resolve an embedding value: an inline list, or a path to a .npy file →
+    a float32 numpy array. `dim` (if given) is checked."""
+    import numpy as np
+    if isinstance(val, str):
+        arr = np.load(val).astype(np.float32).reshape(-1)   # path already absolute
+    else:
+        arr = np.asarray(val, dtype=np.float32).reshape(-1)
+    if dim and arr.shape[0] != int(dim):
+        raise ValueError(f"embedding has {arr.shape[0]} dims, schema declares {dim}")
+    return arr
 
 
 # ── ffmpeg: normalise + fragment + deterministic init ─────────────────────────
@@ -328,33 +348,45 @@ def cmd_collection_create(args) -> int:
 
 # ── subcommand: push ──────────────────────────────────────────────────────────
 
+def _classify(fields):
+    """Split field names by how they're ingested."""
+    ftype = {f["name"]: f["type"] for f in fields}
+    return (
+        {n for n, t in ftype.items() if t == "video"},       # sliced
+        {n for n, t in ftype.items() if t in BLOB_TYPES},    # image/audio → file bytes
+        {n for n, t in ftype.items() if t == "embedding"},   # vector
+        {n for n, t in ftype.items() if t in SCALAR_TYPES},  # plain value
+    )
+
+
 def _records_from_dir(root: Path):
     vids = sorted(pp for pp in root.rglob("*") if pp.suffix.lower() in VIDEO_EXTS)
     records = [{"anchor": i * STRIDE_NS, "video": str(v), "path": str(v.relative_to(root))}
                for i, v in enumerate(vids)]
-    return PRESET_VIDEO_FIELDS, records, {"video"}, {"path"}
+    return PRESET_VIDEO_FIELDS, records
 
 
 def _records_from_manifest(path: Path):
-    """Return (fields, records, video_fields, scalar_fields, errors)."""
+    """Return (fields, records, errors). File-valued fields (video/image/audio,
+    and .npy embeddings) are validated to exist and rewritten to absolute paths."""
     try:
         man = json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError:
-        return None, None, None, None, [f"manifest not found: {path}"]
+        return None, None, [f"manifest not found: {path}"]
     except Exception as e:
-        return None, None, None, None, [f"manifest is not valid JSON: {e}"]
+        return None, None, [f"manifest is not valid JSON: {e}"]
 
     fields, errors = _validate_fields(man)
     records = man.get("records") if isinstance(man, dict) else None
     if not isinstance(records, list) or not records:
-        errors.append("manifest needs a non-empty 'records' array")
+        (errors or []).append("manifest needs a non-empty 'records' array")
     if errors:
-        return None, None, None, None, errors
+        return None, None, errors
 
     names = {f["name"] for f in fields}
-    video_fields = {f["name"] for f in fields if f["type"] == "video"}
-    scalar_fields = {f["name"] for f in fields if f["type"] in SCALAR_TYPES}
-    unsupported = {f["name"] for f in fields if f["type"] in ("image", "embedding")}
+    dims = {f["name"]: f.get("dim") for f in fields if f["type"] == "embedding"}
+    video_fields, blob_fields, emb_fields, _ = _classify(fields)
+    file_fields = video_fields | blob_fields
     base = path.resolve().parent
     for i, rec in enumerate(records):
         if not isinstance(rec, dict):
@@ -364,20 +396,32 @@ def _records_from_manifest(path: Path):
         for k in rec:
             if k != "anchor" and k not in names:
                 errors.append(f"record #{i}: '{k}' is not a declared field")
-            if k in unsupported:
-                errors.append(f"record #{i}: field '{k}' ({[f['type'] for f in fields if f['name']==k][0]}) "
-                              f"ingestion is not supported yet — use video + scalar fields")
-        for vf in video_fields:
-            if vf in rec and not (base / rec[vf]).is_file():
-                errors.append(f"record #{i}: video file not found: {rec[vf]}")
+        for ff in file_fields:
+            if ff in rec and not (base / rec[ff]).is_file():
+                errors.append(f"record #{i}: file not found for '{ff}': {rec[ff]}")
+        for ef in emb_fields:                       # embedding: inline list OR .npy path
+            if ef in rec:
+                v = rec[ef]
+                if isinstance(v, str):
+                    if not (base / v).is_file():
+                        errors.append(f"record #{i}: embedding .npy not found for '{ef}': {v}")
+                elif isinstance(v, list):
+                    d = dims.get(ef)
+                    if d and len(v) != int(d):
+                        errors.append(f"record #{i}: embedding '{ef}' has {len(v)} dims, schema declares {d}")
+                else:
+                    errors.append(f"record #{i}: embedding '{ef}' must be a number list or a .npy path")
     if errors:
-        return None, None, None, None, errors
-    # rewrite video paths to absolute (relative to the manifest)
+        return None, None, errors
+    # rewrite file-valued paths (video/image/audio, and .npy embeddings) to absolute
     for rec in records:
-        for vf in video_fields:
-            if vf in rec:
-                rec[vf] = str((base / rec[vf]).resolve())
-    return fields, records, video_fields, scalar_fields, []
+        for ff in file_fields:
+            if ff in rec:
+                rec[ff] = str((base / rec[ff]).resolve())
+        for ef in emb_fields:
+            if ef in rec and isinstance(rec[ef], str):
+                rec[ef] = str((base / rec[ef]).resolve())
+    return fields, records, []
 
 
 def cmd_push(args) -> int:
@@ -397,17 +441,23 @@ def cmd_push(args) -> int:
         _err("use either <dir> OR --manifest, not both"); return 1
 
     if a.manifest:
-        fields, records, video_fields, scalar_fields, errors = _records_from_manifest(Path(a.manifest))
+        fields, records, errors = _records_from_manifest(Path(a.manifest))
         if errors:
             _errs("manifest is invalid", errors); return 1
     else:
         root = Path(a.dir)
         if not root.is_dir():
             _err(f"not a directory: {a.dir}"); return 1
-        fields, records, video_fields, scalar_fields = _records_from_dir(root)
+        fields, records = _records_from_dir(root)
         if not records:
             _err(f"no video files under {root} (looked for {', '.join(sorted(VIDEO_EXTS))})"); return 1
 
+    video_fields, blob_fields, emb_fields, scalar_fields = _classify(fields)
+    audio_fields = {f["name"] for f in fields if f["type"] == "audio"}
+    if any(af in rec for rec in records for af in audio_fields):
+        _err("audio ingestion is not supported by the DreamDB SDK yet (planned Phase 1.6). "
+             "video / image / embedding / scalars work — drop audio values from your records for now.")
+        return 1
     if video_fields and not _has_ffmpeg():
         _err("ffmpeg/ffprobe not found in PATH. install: brew install ffmpeg (macOS) / apt install ffmpeg"); return 1
 
@@ -445,11 +495,18 @@ def cmd_push(args) -> int:
         with tempfile.TemporaryDirectory(prefix="dl-source-") as tmp:
             for i, rec in enumerate(records):
                 anchor = int(rec["anchor"])
+                # video → slice; everything else goes in one append_many row
                 for vf in video_fields:
                     if vf in rec:
                         total_frags += _ingest_clip(db, ds, vf, rec[vf], anchor, a.width, a.height, tmp)
                 row = {"_anchor": anchor}
-                for sf in scalar_fields:
+                for bf in blob_fields:                       # image / audio → raw file bytes
+                    if bf in rec:
+                        row[bf] = Path(rec[bf]).read_bytes()
+                for ef in emb_fields:                        # embedding → float32 vector
+                    if ef in rec:
+                        row[ef] = _load_vector(rec[ef], next((f.get("dim") for f in fields if f["name"] == ef), None))
+                for sf in scalar_fields:                     # scalars → plain value
                     if sf in rec:
                         row[sf] = rec[sf]
                 if len(row) > 1:
@@ -489,13 +546,19 @@ def _help() -> None:
             dreamlake source collection create trip --source my-videos --preset video
             dreamlake source push ./clips --source my-videos --collection trip
 
-        {BOLD}schema.json:{RESET}
+        {BOLD}schema.json / manifest:{RESET}
             {{ "fields": [
                  {{ "name": "video", "type": "video", "mime": "h264" }},
-                 {{ "name": "path",  "type": "scalar_string" }},
-                 {{ "name": "label", "type": "scalar_categorical" }} ] }}
-            types: video · image · scalar_string · scalar_int · scalar_float ·
-                   scalar_bool · scalar_categorical · embedding
+                 {{ "name": "thumb", "type": "image", "mime": "jpeg" }},
+                 {{ "name": "clip",  "type": "embedding", "dim": 512 }},
+                 {{ "name": "label", "type": "scalar_categorical" }} ],
+              "records": [ {{ "anchor": 0, "video": "a.mp4", "thumb": "a.jpg",
+                              "clip": "a.npy", "label": "cat" }} ] }}
+            types: video · image · audio · embedding · scalar_string · scalar_int ·
+                   scalar_float · scalar_bool · scalar_categorical · scalar_timestamp
+            push --manifest uses records; file fields (video/image/audio, .npy
+            embeddings) are paths relative to the manifest. embeddings may also
+            be an inline number list.
     """).rstrip())
 
 
