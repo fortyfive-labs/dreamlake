@@ -809,3 +809,24 @@ __all__ = [
     "text_track",
     "vec_index",
 ]
+
+
+def __getattr__(name):
+    # `Dataset` (robot-training datasets on DreamDB) is exported lazily:
+    # dreamlake.dataset needs the optional `dreamdb` package, and an eager
+    # import here would make it a hard dependency of every dreamlake user.
+    if name == "Dataset":
+        from .dataset import Dataset
+
+        return Dataset
+    # `db` (DreamDB re-export + platform plumbing) is lazy for the same
+    # reason: its dreamdb half is an optional dependency.
+    if name == "db":
+        # NOT `from . import db`: that goes through _handle_fromlist, which
+        # resolves the name via getattr on this package — i.e. right back
+        # into this function, recursing forever. import_module targets the
+        # submodule directly and sets the attribute as a side effect.
+        import importlib
+
+        return importlib.import_module(".db", __name__)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
