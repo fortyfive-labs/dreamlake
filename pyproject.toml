@@ -1,6 +1,6 @@
 [project]
 name = "dreamlake"
-version = "0.5.3"
+version = "0.5.4"
 description = "ML experiment tracking and data storage"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -41,6 +41,12 @@ auth = [
     "cryptography>=42.0.0",
     "rich>=13.0.0",
     "qrcode>=7.0.0",
+]
+# DreamDB source writer: video slicing (CMAF) + dataset ingest. The `source`
+# CLI depends on dreamdb's private ingest surface, so the upper bound guards
+# against a 0.1 that reshapes it. ffmpeg must be on PATH separately.
+dreamdb = [
+    "dreamdb>=0.0.5,<0.1.0",
 ]
 dev = [
     "pytest>=8.0.0",
