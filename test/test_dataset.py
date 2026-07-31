@@ -232,7 +232,7 @@ def test_encoding_profile_persists_and_open_verifies(tmp_path):
 
     reopened = Dataset.open(backend=backend)
     assert reopened.encoding == {"preview_height": 480, "preview_fps": 24.0,
-                                 "frag_seconds": 2.0}
+                                 "frag_seconds": 2.0, "cameras": {}}
     # verify-not-ignore: matching passes, mismatch errors.
     Dataset.open(backend=backend, preview_height=480)
     with pytest.raises(DatasetError, match="preview_height"):
@@ -345,7 +345,7 @@ def test_user_tracks_and_introspection(tmp_path):
 
 
 @pytestmark_e2e
-def test_slot_registry_count_and_paging(tmp_path):
+def test_camera_profiles_index_and_paging(tmp_path):
     from dreamlake.dataset import VideoAnnotationDataset as Dataset
 
     clip = _make_clip(tmp_path / "clip.mp4")
@@ -362,17 +362,16 @@ def test_slot_registry_count_and_paging(tmp_path):
     # id lookup goes index -> one slot-window read
     assert ds.episode("ep-1").gid == 1
 
-    # The registry stores only camera geometry — no per-write cursor (the
-    # next free slot derives from the index), so repeat adds with a known
-    # camera never rewrite it.
-    slots = json.loads(ds.db.meta()["dreamdb.dataset.slots"])
-    assert "next_gid" not in slots
-    assert set(slots["cameras"]) == {"main"}
+    # The camera's PLAYBACK profile is adopted from its first clip and lives
+    # in the encoding meta — written once per camera, after which every
+    # ingest validates against the handle's in-memory copy. No slots key.
+    meta = ds.db.meta()
+    assert "dreamdb.dataset.slots" not in meta
+    enc = json.loads(meta["dreamdb.dataset.encoding"])
+    assert set(enc["cameras"]) == {"main"}
+    assert enc["cameras"]["main"]["height"] == 720
 
-    # Legacy migration: wipe the registry (how an old-SDK dataset looks),
-    # reopen, and the first write must seed it and keep allocating slots
-    # correctly from a one-time scan.
-    ds.db.set_meta("dreamdb.dataset.slots", "")
+    # A fresh handle allocates the next slot from the index alone.
     ds2 = Dataset.open(backend=f"file://{tmp_path}/space")
     ds2.add_episode(clip, episode_id="ep-3")
     assert ds2.episode_count() == 4

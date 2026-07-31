@@ -134,7 +134,13 @@ SUBTASK_VEC_DIM = 384
 # The encoding profile is a DATASET-lifetime property (every clip on one
 # playback track must share one init segment, and the init encodes frame
 # geometry) — so it is chosen once at create and stored in the space meta,
-# not passed per call. Absent key = the defaults below (older spaces).
+# not passed per call. Besides the flat defaults, the value carries
+# "cameras": {name: {"width", "height", "fps"}} — each camera track's
+# PLAYBACK profile, ADOPTED from its first clip (height/fps from the
+# defaults, width from that clip's aspect ratio) and immutable after —
+# the init-segment constraint made visible. Later ingests validate
+# against it BEFORE transcoding, from the handle's in-memory copy (zero
+# IO); the profile is written exactly once per camera.
 ENCODING_META_KEY = "dreamdb.dataset.encoding"
 DEFAULT_ENCODING = {
     "preview_height": 720,
@@ -147,17 +153,6 @@ PUBLIC_META_KEY = "dreamdb.dataset.public"
 # JSON object {track_name: kind} of user tracks declared via add_track — the
 # preset's own registry, since the engine has no field-enumeration API.
 USER_TRACKS_META_KEY = "dreamdb.dataset.user_tracks"
-# The slot registry: {"v": 1, "cameras": {name: {"width": W, "height": H}}}.
-# Two jobs: per-camera reference geometry for the aspect-ratio pre-check
-# (episode_index holds ids, not geometry), and — by its very PRESENCE — the
-# migration marker separating "new empty dataset" from "written by an older
-# SDK" (the first write then migrates: one final scan + index backfill).
-# Deliberately nothing per-episode OR per-write in it: a registry write is
-# its own meta-commit, so it happens only when a camera first appears. The
-# next free slot is NOT stored — it derives from the episode index
-# (max gid + 1), which the write path loads anyway for the dup check.
-SLOTS_META_KEY = "dreamdb.dataset.slots"
-
 # The only keys `meta=` accepts on add_episode/revise. Everything else in the
 # episode_meta row is SDK-assembled (probe/derivation) — user data goes to
 # x_ tracks, not meta.

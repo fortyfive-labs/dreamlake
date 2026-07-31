@@ -311,6 +311,8 @@ db.py                    # 不动
 
 ## 14. 修订记录
 
+- **相机播放档取代 slots 注册表(2026-08-01,用户裁定,已实施)**。`dreamdb.dataset.slots` 整个删除(连同迁移标记与 legacy 全扫兜底——v2-only 契约下无使命)。取代它的概念:**camera profile**——每条相机轨的播放几何 `{width, height, fps}`,并入 `dreamdb.dataset.encoding` 的 `cameras` 子映射(全局扁平键保持不变,viewer 解析兼容)。确立方式为**采纳制**:首段片源确立(height/fps 取全局默认,width 由源宽高比推导),一经确立不可变(init-segment 硬约束的显式化),只在相机首现时写一次 meta;后续摄取用 handle 内存副本做转码前预检,零 IO。语义澄清存档:encoding 的全局键里**没有宽/宽高比**(`scale=-2:H` 下宽由每源比例推导),故参照几何无从由配置计算,必须是每相机的既成事实——这就是 profile 存在的原因;存的是**播放目标几何**而非源几何(源几何仍逐 episode 在 meta blob,供标注坐标映射)。
+
 - **`video.annotation/v2` 布局(2026-07-31,用户裁定弃兼容,已实施)**。episode_meta 从 scalar_string 列改为**每 episode 一个 json blob**,与 joints_pose/subtasks 同形态、按槽位窗口按需加载——写侧 O(1)/条,整列重写的写放大就此消除;schemaType bump 到 `video.annotation/v2`,v1 残留数据在 open 时被 `_check_schema_type` 干净拒绝(用户将删除全部旧数据,不做迁移)。episode_meta **不可删除**的结论存档:它是 task/scene 标签、primary_camera、每相机 fps/编码/源文件路径(embed 依赖)、src_fps 的唯一载体,且 SDK 自身的 revise/add_cameras/embed 都读它——UI 不显示不等于无消费者。接受的 trade:全量列表从 scalar 的"一列一次读"变为每页 K 次 GET(分页 API 缓解;引擎 Fragment 重打包落地后收敛)。TS CLI `schema.ts` 同步待办。
 - **episode_index 改为 scalar_string(2026-07-31,用户裁定,已实施)**。读 dreamdb 源码(spec/0011,`track.rs`)后修正认知:scalar track 是**按值倒排**的索引——Track Object 内联每个 distinct 值的字节并指向该值的 anchor 桶;物理分组按 value 而非 anchor。由此:(a) episode_meta 的 O(N) 写放大机制 = 全 distinct 的 1KB 值全部内联在 Track Object 里,追加即整体重写——它是倒排设计的最坏用例,v2 改 blob 的结论不变且更硬;(b) id 索引恰是倒排设计的**最佳用例**:30B distinct 小值内联 → 一次可缓存的 fetch 拿到完整 id→anchor 映射,写侧 O(N×30B) 平滑;(c) blob 索引被否:实测逐条提交下每条一个远端对象,`pack_items` 只在单批次内打包(design/0008),`compact()` 不重打包 Fragment track——全量读 id = N 次 GET。index 值为裸 id 字符串,无 JSON 包装;读侧容忍短暂存在过的 blob 中间格式。引擎需求追加:compact 扩展到 Fragment track 重打包(v2 meta blob 的读取收敛依赖它)。
 

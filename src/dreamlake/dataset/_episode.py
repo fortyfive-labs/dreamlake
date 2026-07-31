@@ -187,7 +187,7 @@ class Episode:
                                   FIELD_EPISODE_META: dumps_compact(meta).encode()}
         self._d._write_annotations(sample, joints_by_cam, None, out)
         self._d._append_and_invalidate([sample])
-        self._d._register_slot_use(row["gid"], self.episode_id, probes)
+        self._d._register_ingest(row["gid"], self.episode_id, probes)
         self._row = {**row, **meta, "_rev": rev}
         return out
 
