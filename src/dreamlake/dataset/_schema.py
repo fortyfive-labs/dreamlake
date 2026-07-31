@@ -26,7 +26,6 @@ two files agree. Change one, change both.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple, TypedDict
 
 # Anchor slot width per episode: one hour in nanoseconds. An episode's
@@ -230,19 +229,6 @@ def build_schema():
     return schema
 
 
-@dataclass(frozen=True)
-class TrackInfo:
-    """One track's descriptor — inert: no read or write methods. Reads go
-    through the named preset methods / Episode track methods."""
-
-    name: str                 # "joints_pose__head"
-    kind: str                 # "video" | "blob" | "scalar" | "embedding"
-    role: str                 # "video_preview" | "video_raw" | "joints_pose" |
-    #                           "subtasks" | "episode_meta" | "search" | "user" | "unknown"
-    camera: Optional[str]     # for camera-namespace tracks
-    preset: bool              # False for "user"/"unknown"
-
-
 def classify_track(name: str) -> Tuple[str, Optional[str], str]:
     """``(kind, camera, role)`` for a track name — the two-sided prefix
     taxonomy as one testable function, mirrored byte-for-byte in the
@@ -357,7 +343,6 @@ __all__: List[str] = [
     "build_schema",
     "CameraMeta",
     "EpisodeMeta",
-    "TrackInfo",
     "classify_track",
     "META_KEYS",
     "TRACK_KINDS",

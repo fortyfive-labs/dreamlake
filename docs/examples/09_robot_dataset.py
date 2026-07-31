@@ -39,7 +39,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from dreamlake.dataset import Dataset, DatasetError
+from dreamlake.dataset import VideoAnnotationDataset as Dataset, DatasetError
 
 BACKEND = "file:///tmp/dreamlake-datasets/demo"
 

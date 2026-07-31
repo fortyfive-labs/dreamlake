@@ -146,7 +146,7 @@ def main() -> int:
     args = ap.parse_args()
 
     _adopt_cli_login()
-    from dreamlake.dataset import Dataset, DatasetError
+    from dreamlake.dataset import VideoAnnotationDataset as Dataset, DatasetError
 
     # 1. Open or create the dataset.
     if args.local:

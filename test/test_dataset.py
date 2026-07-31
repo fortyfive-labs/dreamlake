@@ -173,7 +173,7 @@ def _make_clip(path, size="640x480", seconds=3):
 
 @pytestmark_e2e
 def test_end_to_end_write_then_read(tmp_path):
-    from dreamlake.dataset import Dataset, DatasetError, Episode
+    from dreamlake.dataset import VideoAnnotationDataset as Dataset, DatasetError, Episode
 
     video = _make_clip(tmp_path / "clip.mp4")
     backend = f"file://{tmp_path}/space"
@@ -224,7 +224,7 @@ def test_end_to_end_write_then_read(tmp_path):
 
 @pytestmark_e2e
 def test_encoding_profile_persists_and_open_verifies(tmp_path):
-    from dreamlake.dataset import Dataset, DatasetError
+    from dreamlake.dataset import VideoAnnotationDataset as Dataset, DatasetError
 
     backend = f"file://{tmp_path}/space"
     ds = Dataset.create(backend=backend, preview_height=480, preview_fps=24)
@@ -246,7 +246,7 @@ def test_encoding_profile_persists_and_open_verifies(tmp_path):
 
 @pytestmark_e2e
 def test_multi_camera_handle_lifecycle(tmp_path):
-    from dreamlake.dataset import Dataset, DatasetError
+    from dreamlake.dataset import VideoAnnotationDataset as Dataset, DatasetError
 
     head = _make_clip(tmp_path / "head.mp4", size="1280x720")
     wrist = _make_clip(tmp_path / "wrist.mp4", size="640x480")
@@ -298,7 +298,7 @@ def test_multi_camera_handle_lifecycle(tmp_path):
 
 @pytestmark_e2e
 def test_user_tracks_and_introspection(tmp_path):
-    from dreamlake.dataset import Dataset, DatasetError
+    from dreamlake.dataset import VideoAnnotationDataset as Dataset, DatasetError
 
     clip = _make_clip(tmp_path / "clip.mp4")
     ds = Dataset.create(backend=f"file://{tmp_path}/space")
@@ -342,3 +342,4 @@ def test_user_tracks_and_introspection(tmp_path):
     assert infos["x_quality"].kind == "image"
     assert infos["video_preview__main"].camera == "main"
     assert infos["episode_meta"].preset is True
+

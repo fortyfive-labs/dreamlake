@@ -1,8 +1,13 @@
-"""``dreamlake.dataset.Dataset`` — robot-training episode datasets on DreamDB.
+"""``VideoAnnotationDataset`` — robot-training episode datasets on DreamDB.
+
+The ``video.annotation/v1`` PRESET of the dataset family: it subclasses the
+generic :class:`dreamlake.dataset.Dataset` (``_base``), claims its
+schemaType in the dispatch registry (``Dataset.open`` on a dataset of this
+type returns this class), and adds the episode-shaped surface below.
 
 The write path a labeling pipeline calls once per processed episode::
 
-    from dreamlake.dataset import Dataset
+    from dreamlake.dataset import VideoAnnotationDataset as Dataset
 
     ds = Dataset.create("wash-the-dishes")          # platform bucket (default)
     epo = ds.add_episode(
@@ -47,10 +52,16 @@ import warnings
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
+from ._base import Dataset as _GenericDataset
 from ._episode import Episode
+from ._errors import DatasetError
+from ._fields import dumps_compact
 from ._ffmpeg import FfmpegError, FragmentedVideo, ProbeResult, fragment_video, probe
+from ._track import Track
 from ._schema import (
     DATASET_SCHEMA_TYPE,
+    FRAME_VEC_DIM,
+    SUBTASK_VEC_DIM,
     DEFAULT_CAMERA,
     DEFAULT_ENCODING,
     ENCODING_META_KEY,
@@ -65,7 +76,6 @@ from ._schema import (
     PUBLIC_META_KEY,
     REVISION_WINDOW_NS,
     TRACK_KINDS,
-    TrackInfo,
     USER_TRACK_RE,
     USER_TRACKS_META_KEY,
     base_anchor,
@@ -82,10 +92,6 @@ from ._schema import (
 
 Annotation = Union[Dict[str, Any], str, Path, None]
 Videos = Union[str, Path, Dict[str, Union[str, Path]]]
-
-
-class DatasetError(RuntimeError):
-    """A dataset operation that failed for a reason the caller can act on."""
 
 
 def _load_annotation(value: Annotation, what: str, validate) -> Optional[Dict[str, Any]]:
@@ -142,14 +148,17 @@ def _check_schema_type(inner, where: str) -> None:
         )
 
 
-class Dataset:
+class VideoAnnotationDataset(_GenericDataset):
     """One robot-training dataset: many episodes, each with one or more
     camera videos plus annotations."""
 
+    SCHEMA_TYPE = DATASET_SCHEMA_TYPE  # registers this preset for dispatch
+
     def __init__(self, inner, backend: str, name: Optional[str] = None):
-        self._ds = inner
+        lease = getattr(inner, "dreamlake_lease", None) or {}
+        super().__init__(inner, namespace=lease.get("namespace"), name=name,
+                         row={"schemaType": DATASET_SCHEMA_TYPE})
         self.backend = backend
-        self.name = name
         self._encoding = dict(DEFAULT_ENCODING)
         self._public = False
         self._row_cache: Optional[List[Dict[str, Any]]] = None
@@ -199,7 +208,7 @@ class Dataset:
         preview_height: int = 720,
         preview_fps: float = 30.0,
         frag_seconds: float = 2.0,
-    ) -> "Dataset":
+    ) -> "VideoAnnotationDataset":
         """Create an empty dataset.
 
         The encoding profile (``preview_height``/``preview_fps``/
@@ -210,7 +219,8 @@ class Dataset:
         """
         if backend is None and not name:
             raise DatasetError(
-                "Dataset.create needs a name (platform mode) or backend= (self-hosted)"
+                "VideoAnnotationDataset.create needs a name (platform mode) "
+                "or backend= (self-hosted)"
             )
         profile = {
             "preview_height": int(preview_height),
@@ -261,7 +271,7 @@ class Dataset:
         preview_height: Optional[int] = None,
         preview_fps: Optional[float] = None,
         frag_seconds: Optional[float] = None,
-    ) -> "Dataset":
+    ) -> "VideoAnnotationDataset":
         """Open an existing dataset by platform name or by backend URI.
 
         The optional encoding kwargs VERIFY, never set: pass the values your
@@ -271,7 +281,8 @@ class Dataset:
         """
         if backend is None and not name:
             raise DatasetError(
-                "Dataset.open needs a name (platform mode) or backend= (self-hosted)"
+                "VideoAnnotationDataset.open needs a name (platform mode) "
+                "or backend= (self-hosted)"
             )
 
         if backend is not None:
@@ -394,11 +405,13 @@ class Dataset:
             ordered.insert(0, DEFAULT_CAMERA)
         return ordered
 
-    def tracks(self) -> List[TrackInfo]:
-        """The dataset's track catalog as the preset knows it: the fixed
-        episode-level tracks, each camera's namespace triple, and user
-        tracks declared through :meth:`add_track`. (Columns added through
-        the bare ``ds.db`` handle are outside the contract and not listed.)
+    def tracks(self) -> List[Track]:
+        """The dataset's track catalog as the preset knows it, as
+        :class:`Track` handles — the generic vocabulary (name/kind/mime/dim)
+        plus the preset extras ``role``/``camera``: the fixed episode-level
+        tracks, each camera's namespace triple, and user tracks declared
+        through :meth:`add_track`. (Columns added through the bare ``ds.db``
+        handle are outside the contract and not listed.)
         """
         names: List[str] = [
             FIELD_EPISODE_META, FIELD_SUBTASKS,
@@ -406,15 +419,27 @@ class Dataset:
         ]
         for cam in self.cameras() or [DEFAULT_CAMERA]:
             names += [preview_track(cam), raw_track(cam), joints_track(cam)]
-        names += sorted(self._user_tracks().keys())
+        user = self._user_tracks()
+        names += sorted(user.keys())
 
-        out: List[TrackInfo] = []
+        out: List[Track] = []
         for n in names:
-            kind, camera, role = classify_track(n)
-            if role == "user":
-                kind = self._user_tracks().get(n, kind)
-            out.append(TrackInfo(name=n, kind=kind, role=role, camera=camera,
-                                 preset=role not in ("user", "unknown")))
+            _, camera, role = classify_track(n)
+            if role in ("video_preview", "video_raw"):
+                kind, mime, dim = "video", "h264", None
+            elif role in ("joints_pose", "subtasks"):
+                kind, mime, dim = "image", "json", None
+            elif n == FIELD_FRAME_VEC:
+                kind, mime, dim = "embedding", None, FRAME_VEC_DIM
+            elif n == FIELD_SUBTASK_VEC:
+                kind, mime, dim = "embedding", None, SUBTASK_VEC_DIM
+            elif role == "user":
+                kind = user.get(n, "scalar_string")
+                mime = "json" if kind == "image" else ("h264" if kind == "video" else None)
+                dim = None
+            else:  # episode_meta / subtask_label — one JSON/string row each
+                kind, mime, dim = "scalar_string", None, None
+            out.append(Track(self, n, kind, mime=mime, dim=dim, role=role, camera=camera))
         return out
 
     def _user_tracks(self) -> Dict[str, str]:
@@ -426,7 +451,7 @@ class Dataset:
 
     # ---- User tracks -----------------------------------------------------
 
-    def add_track(self, name: str, kind: str, *, mime: Optional[str] = None) -> None:
+    def add_track(self, name: str, kind: str, *, mime: Optional[str] = None) -> Track:
         """Declare a user track. ``kind`` is the dreamdb vocabulary,
         verbatim: ``"image"``/``"video"`` (with ``mime=``; JSON documents
         are ``kind="image", mime="json"`` — exactly how the preset's own
@@ -474,6 +499,9 @@ class Dataset:
         if declared.get(name) != kind:
             declared[name] = kind
             self._ds.set_meta(USER_TRACKS_META_KEY, json.dumps(declared))
+        resolved_mime = (mime or ("json" if kind == "image" else "h264")) \
+            if kind in ("image", "video") else None
+        return Track(self, name, kind, mime=resolved_mime, role="user")
 
     def _read_track_window(self, field: str, start_ns: int, end_ns: int):
         out = []
@@ -704,12 +732,12 @@ class Dataset:
         if joints_by_cam:
             for camera, joints in joints_by_cam.items():
                 self._ensure_joints_track(camera)
-                sample[joints_track(camera)] = json.dumps(joints).encode()
+                sample[joints_track(camera)] = dumps_compact(joints).encode()
             out["joints_pose"] = {
                 c: {"annotated_frames": len(j["frames"])} for c, j in joints_by_cam.items()
             }
         if segments is not None:
-            sample[FIELD_SUBTASKS] = json.dumps(segments).encode()
+            sample[FIELD_SUBTASKS] = dumps_compact(segments).encode()
             out["subtasks"] = {"segments": len(segments["labeled_subtasks"])}
 
     def add_episode(
@@ -830,7 +858,8 @@ class Dataset:
         }
         row_meta = {k: v for k, v in row_meta.items() if v is not None}
 
-        sample: Dict[str, Any] = {"_anchor": anchor, FIELD_EPISODE_META: json.dumps(row_meta)}
+        sample: Dict[str, Any] = {"_anchor": anchor,
+                                  FIELD_EPISODE_META: dumps_compact(row_meta)}
         self._write_annotations(sample, joints_by_cam, segments, report)
         self._append_and_invalidate([sample])
 
