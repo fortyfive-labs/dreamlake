@@ -362,6 +362,13 @@ def test_slot_registry_count_and_paging(tmp_path):
     # id lookup goes index -> one slot-window read
     assert ds.episode("ep-1").gid == 1
 
+    # The registry stores only camera geometry — no per-write cursor (the
+    # next free slot derives from the index), so repeat adds with a known
+    # camera never rewrite it.
+    slots = json.loads(ds.db.meta()["dreamdb.dataset.slots"])
+    assert "next_gid" not in slots
+    assert set(slots["cameras"]) == {"main"}
+
     # Legacy migration: wipe the registry (how an old-SDK dataset looks),
     # reopen, and the first write must seed it and keep allocating slots
     # correctly from a one-time scan.

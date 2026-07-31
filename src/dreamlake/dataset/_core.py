@@ -266,8 +266,7 @@ class VideoAnnotationDataset(_GenericDataset):
         inner.set_meta(ENCODING_META_KEY, json.dumps(profile))
         # Seed the slot registry at birth: its absence is the "written by an
         # older SDK" signal that triggers the one-time migration scan.
-        inner.set_meta(SLOTS_META_KEY,
-                       dumps_compact({"v": 1, "next_gid": 0, "cameras": {}}))
+        inner.set_meta(SLOTS_META_KEY, dumps_compact({"v": 1, "cameras": {}}))
         if visibility == "public":
             inner.set_meta(PUBLIC_META_KEY, "1")
         lease = getattr(inner, "dreamlake_lease", None)
@@ -457,17 +456,13 @@ class VideoAnnotationDataset(_GenericDataset):
         slots = self._load_slots()
         if slots is None:
             rows = self._rows()
-            slots = {
-                "v": 1,
-                "next_gid": (max(r["gid"] for r in rows) + 1) if rows else 0,
-                "cameras": {},
-            }
+            slots = {"v": 1, "cameras": {}}
             for r in rows:
                 for cam, m in (r.get("cameras") or {}).items():
                     if cam not in slots["cameras"] and m.get("width") and m.get("height"):
                         slots["cameras"][cam] = {"width": int(m["width"]),
                                                  "height": int(m["height"])}
-                self._ensure_index_track()
+            self._ensure_index_track()
             ids = self._episode_ids()
             missing = [r for r in rows
                        if r.get("episode_id") is not None
@@ -603,7 +598,7 @@ class VideoAnnotationDataset(_GenericDataset):
                 kind = user.get(n, "scalar_string")
                 mime = "json" if kind == "image" else ("h264" if kind == "video" else None)
                 dim = None
-            else:  # episode_meta / subtask_label — one JSON/string row each
+            else:  # episode_index / subtask_label — bare string rows
                 kind, mime, dim = "scalar_string", None, None
             out.append(Track(self, n, kind, mime=mime, dim=dim, role=role, camera=camera))
         return out
@@ -781,7 +776,7 @@ class VideoAnnotationDataset(_GenericDataset):
         cameras are different tracks, so mixed geometries coexist. The
         reference geometry comes from the slot registry — O(1), no meta
         column scan."""
-        ref = self._ensure_slots()["cameras"].get(camera)
+        ref = (self._ensure_slots().get("cameras") or {}).get(camera)
         if not ref or not ref.get("width") or not ref.get("height"):
             return
         height = int(self._encoding["preview_height"])
@@ -798,14 +793,20 @@ class VideoAnnotationDataset(_GenericDataset):
 
     def _register_slot_use(self, gid: int, eid: str,
                            probes: Dict[str, ProbeResult]) -> None:
-        """After a successful commit: advance the registry and the caches —
-        the O(1) bookkeeping that replaces re-scanning on the next write."""
+        """After a successful commit: update the caches, and persist the
+        registry ONLY when a camera appears for the first time — a registry
+        write is its own meta-commit (~2 requests), so the common path
+        (another episode, known cameras) must not pay it. The next free
+        slot needs no persistence: it derives from the episode index."""
         slots = self._ensure_slots()
-        slots["next_gid"] = max(int(slots.get("next_gid", 0)), gid + 1)
+        cameras = slots.setdefault("cameras", {})
+        changed = False
         for camera, p in probes.items():
-            slots["cameras"].setdefault(camera,
-                                        {"width": p.width, "height": p.height})
-        self._save_slots(slots)
+            if camera not in cameras:
+                cameras[camera] = {"width": p.width, "height": p.height}
+                changed = True
+        if changed:
+            self._save_slots(slots)
         self._episode_ids()[str(eid)] = gid
 
     def _source_fields(self, video: str) -> Dict[str, str]:
@@ -980,7 +981,7 @@ class VideoAnnotationDataset(_GenericDataset):
 
         # ---- pick the slot (registry + index: O(1), no meta column scan) ----
         self._invalidate()
-        slots = self._ensure_slots()
+        self._ensure_slots()
         ids = self._episode_ids()
 
         if gid is not None:
@@ -992,8 +993,10 @@ class VideoAnnotationDataset(_GenericDataset):
                     f"slot {gid} is already taken by '{clash}' — omit gid to append"
                 )
         else:
-            # Slots are never reused: a slot is an episode's identity.
-            gid = int(slots.get("next_gid", 0))
+            # Slots are never reused: a slot is an episode's identity. The
+            # next free one derives from the index (already loaded for the
+            # dup check) — nothing to persist per write.
+            gid = (max(ids.values()) + 1) if ids else 0
 
         if eid in ids:
             raise DatasetError(

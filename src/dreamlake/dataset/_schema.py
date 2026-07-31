@@ -147,11 +147,15 @@ PUBLIC_META_KEY = "dreamdb.dataset.public"
 # JSON object {track_name: kind} of user tracks declared via add_track — the
 # preset's own registry, since the engine has no field-enumeration API.
 USER_TRACKS_META_KEY = "dreamdb.dataset.user_tracks"
-# The O(1) slot registry: {"v": 1, "next_gid": int, "cameras": {name:
-# {"width": W, "height": H}}}. Deliberately WITHOUT per-episode entries —
-# space meta rides every manifest commit, so anything O(episodes) here
-# would be rewritten on every write. Absent key = a dataset written by an
-# older SDK; the first write migrates it (one full scan, then never again).
+# The slot registry: {"v": 1, "cameras": {name: {"width": W, "height": H}}}.
+# Two jobs: per-camera reference geometry for the aspect-ratio pre-check
+# (episode_index holds ids, not geometry), and — by its very PRESENCE — the
+# migration marker separating "new empty dataset" from "written by an older
+# SDK" (the first write then migrates: one final scan + index backfill).
+# Deliberately nothing per-episode OR per-write in it: a registry write is
+# its own meta-commit, so it happens only when a camera first appears. The
+# next free slot is NOT stored — it derives from the episode index
+# (max gid + 1), which the write path loads anyway for the dup check.
 SLOTS_META_KEY = "dreamdb.dataset.slots"
 
 # The only keys `meta=` accepts on add_episode/revise. Everything else in the
