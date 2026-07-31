@@ -37,22 +37,23 @@ pip install dreamlake==0.4.2
 </tr>
 </table>
 
-## CLI (deprecated)
+## CLI (deprecated — use the standalone DreamLake CLI)
 
-The `dreamlake` console script bundled with this package is **deprecated** —
-the CLI has been reimplemented in TypeScript as
-[`@dreamlake/cli`](https://www.npmjs.com/package/@dreamlake/cli), which
-installs the same `dreamlake` bin with the same commands, flags, and env
-vars (including `artifact push` and the `workflow` group):
+The Python CLI bundled in this package is **deprecated**, and this package
+no longer installs a `dreamlake` console script. Install the standalone
+[DreamLake CLI](https://github.com/dreamlake-ai/dreamlake-cli) instead —
+same commands, flags, and env vars (including `artifact push` and the
+`workflow` group), plus environment switching (`dreamlake env use`):
 
 ```shell
-npm i -g @dreamlake/cli
+curl -fsSL https://dl.dreamlake.ai/install.sh | bash
 ```
 
-The Python console script keeps working for now (it prints a pointer on
-stderr), but new features land in the TS CLI only. The internal
+The CLI *code* stays in this package for now. The internal
 `artifact|workflow append-local` writers are NOT deprecated — they remain
-the canonical DreamDB writers that dreamlake-server spawns.
+the canonical DreamDB writers that dreamlake-server spawns, reachable via
+`python -m dreamlake.cli` (point `WORKFLOWS_APPLY_BIN` at a wrapper that
+invokes it).
 
 ## Quick Start
 

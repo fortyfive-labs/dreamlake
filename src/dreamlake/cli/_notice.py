@@ -1,10 +1,12 @@
 """Deprecation pointer for the ``dreamlake`` console script.
 
-The CLI has been fully reimplemented in TypeScript as ``@dreamlake/cli``
-(npm), which installs the SAME ``dreamlake`` bin — every subcommand,
-including ``artifact push`` and the ``workflow`` group, lives there now.
-This Python console script is DEPRECATED: it keeps working, but new
-features land in the TS CLI only.
+The CLI has been replaced by the standalone DreamLake CLI
+(https://github.com/dreamlake-ai/dreamlake-cli), installed with
+``curl -fsSL https://dl.dreamlake.ai/install.sh | bash`` — every
+subcommand, including ``artifact push`` and the ``workflow`` group, lives
+there now, plus environment switching (``dreamlake env use``). This
+package no longer registers a console script; this pointer only fires for
+stale ``dreamlake`` bins left behind by older installs.
 
 Gating (same pattern as the earlier tranche notices):
   * argv[0]-gated — programmatic ``python -m dreamlake.cli`` invocations
@@ -66,10 +68,12 @@ def migration_notice(
         equivalent = "dreamlake"
 
     return (
-        "dreamlake: DEPRECATED — this Python CLI has moved to TypeScript:\n"
-        "    npm i -g @dreamlake/cli   (installs the same `dreamlake` bin)\n"
+        "dreamlake: DEPRECATED — this Python CLI has been replaced by the\n"
+        "standalone DreamLake CLI. Install the latest version with:\n"
+        "    curl -fsSL https://dl.dreamlake.ai/install.sh | bash\n"
         f"then run:  {equivalent} ...\n"
         "Same commands, flags, and env vars (DREAMLAKE_REMOTE / DREAMLAKE_API_KEY /\n"
-        "DREAMLAKE_BSS_URL), including `artifact push` and `workflow push`. This\n"
-        "console script keeps working for now, but new features land there."
+        "DREAMLAKE_BSS_URL), plus environment switching (`dreamlake env use`).\n"
+        "New releases of the `dreamlake` Python package no longer install this\n"
+        "console script."
     )

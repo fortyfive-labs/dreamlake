@@ -75,10 +75,10 @@ def print_help():
 
 def main():
     """Main CLI entry point."""
-    # Deprecation pointer: the CLI moved to TypeScript (npm
-    # `@dreamlake/cli`, same `dreamlake` bin). argv[0]-gated — `python
-    # -m dreamlake.cli` and the internal append-local writers stay
-    # silent.
+    # Deprecation pointer: the CLI moved to the standalone DreamLake CLI
+    # (curl -fsSL https://dl.dreamlake.ai/install.sh | bash). argv[0]-gated
+    # — `python -m dreamlake.cli` and the internal append-local writers
+    # stay silent.
     from dreamlake.cli._notice import migration_notice
 
     notice = migration_notice(

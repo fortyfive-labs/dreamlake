@@ -1,10 +1,11 @@
 """Tests for the ``dreamlake`` console-script deprecation pointer.
 
-The CLI moved to TypeScript (npm ``@dreamlake/cli``, same ``dreamlake``
-bin); every subcommand is ported, so every console-script invocation gets
-the pointer. The two exemptions: programmatic ``python -m dreamlake.cli``
-(argv[0] gating) and the internal ``append-local`` canonical-writer calls
-spawned by dreamlake-server.
+The CLI moved to the standalone DreamLake CLI (installed via
+``dl.dreamlake.ai/install.sh``, same ``dreamlake`` bin); every subcommand
+is ported, so every console-script invocation gets the pointer. The two
+exemptions: programmatic ``python -m dreamlake.cli`` (argv[0] gating) and
+the internal ``append-local`` canonical-writer calls spawned by
+dreamlake-server.
 """
 
 from dreamlake.cli._notice import migration_notice
@@ -18,7 +19,7 @@ def test_console_script_gets_the_pointer():
     assert notice is not None
     assert "DEPRECATED" in notice
     assert "dreamlake list" in notice
-    assert "@dreamlake/cli" in notice
+    assert "dl.dreamlake.ai/install.sh" in notice
 
 
 def test_module_invocation_stays_silent():
