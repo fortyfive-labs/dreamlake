@@ -68,7 +68,7 @@ def test_classify_track_covers_the_whole_taxonomy():
     assert classify_track("video_raw__wrist") == ("video", "wrist", "video_raw")
     assert classify_track("joints_pose__main") == ("blob", "main", "joints_pose")
     assert classify_track("subtasks") == ("blob", None, "subtasks")
-    assert classify_track("episode_meta") == ("scalar", None, "episode_meta")
+    assert classify_track("episode_meta") == ("blob", None, "episode_meta")  # v2: per-episode json blob
     assert classify_track("frame_vec") == ("embedding", None, "search")
     assert classify_track("subtask_vec") == ("embedding", None, "search")
     assert classify_track("subtask_label") == ("scalar", None, "search")
@@ -343,3 +343,31 @@ def test_user_tracks_and_introspection(tmp_path):
     assert infos["video_preview__main"].camera == "main"
     assert infos["episode_meta"].preset is True
 
+
+@pytestmark_e2e
+def test_slot_registry_count_and_paging(tmp_path):
+    from dreamlake.dataset import VideoAnnotationDataset as Dataset
+
+    clip = _make_clip(tmp_path / "clip.mp4")
+    ds = Dataset.create(backend=f"file://{tmp_path}/space")
+    for i in range(3):
+        ds.add_episode(clip, episode_id=f"ep-{i}")
+
+    # O(index) count + O(page) listing — never the full meta column.
+    assert ds.episode_count() == 3
+    page1 = ds.episodes(limit=2)
+    assert [e.episode_id for e in page1] == ["ep-0", "ep-1"]
+    page2 = ds.episodes(after_gid=page1[-1].gid, limit=2)
+    assert [e.episode_id for e in page2] == ["ep-2"]
+    # id lookup goes index -> one slot-window read
+    assert ds.episode("ep-1").gid == 1
+
+    # Legacy migration: wipe the registry (how an old-SDK dataset looks),
+    # reopen, and the first write must seed it and keep allocating slots
+    # correctly from a one-time scan.
+    ds.db.set_meta("dreamdb.dataset.slots", "")
+    ds2 = Dataset.open(backend=f"file://{tmp_path}/space")
+    ds2.add_episode(clip, episode_id="ep-3")
+    assert ds2.episode_count() == 4
+    assert ds2.episode("ep-3").gid == 3
+    assert [e.episode_id for e in ds2.episodes()] == ["ep-0", "ep-1", "ep-2", "ep-3"]

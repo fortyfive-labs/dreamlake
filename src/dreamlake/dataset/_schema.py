@@ -106,6 +106,18 @@ def validate_camera_name(camera: str) -> Optional[str]:
 # ---- Episode-level tracks. One field == one DreamDB track. -----------------
 FIELD_SUBTASKS = "subtasks"
 FIELD_EPISODE_META = "episode_meta"
+# The slim per-episode index: the episode_id STRING at each episode's base
+# anchor, on a scalar_string track — the one case where spec/0011's
+# inverted-by-value scalar layout is a perfect fit. Every distinct value
+# (= every id, ~30 B) lives inline in the Track Object, so ONE fetch of one
+# cacheable object yields the complete {episode_id -> anchor} map; the
+# rewrite-on-append cost is O(N × 30 B) — smooth at any realistic scale.
+# (A blob track was tried first: O(1) appends, but our one-item-per-commit
+# pattern makes every id its own remote object and neither pack_items nor
+# compact() repacks Fragment tracks, so reading all ids was N GETs.)
+# id→slot lookups and duplicate checks read THIS track; the fat
+# episode_meta column is only ranged-read for the slots actually shown.
+FIELD_EPISODE_INDEX = "episode_index"
 # Search fields (schema v2+). Declared at CREATE time because DreamDB only
 # accepts embedding fields there; retrofitting needs a pre-trained index.
 FIELD_FRAME_VEC = "frame_vec"          # CLIP ViT-B/32 frame vectors
@@ -135,6 +147,12 @@ PUBLIC_META_KEY = "dreamdb.dataset.public"
 # JSON object {track_name: kind} of user tracks declared via add_track — the
 # preset's own registry, since the engine has no field-enumeration API.
 USER_TRACKS_META_KEY = "dreamdb.dataset.user_tracks"
+# The O(1) slot registry: {"v": 1, "next_gid": int, "cameras": {name:
+# {"width": W, "height": H}}}. Deliberately WITHOUT per-episode entries —
+# space meta rides every manifest commit, so anything O(episodes) here
+# would be rewritten on every write. Absent key = a dataset written by an
+# older SDK; the first write migrates it (one full scan, then never again).
+SLOTS_META_KEY = "dreamdb.dataset.slots"
 
 # The only keys `meta=` accepts on add_episode/revise. Everything else in the
 # episode_meta row is SDK-assembled (probe/derivation) — user data goes to
@@ -162,7 +180,13 @@ TRACK_KINDS = (
 # signal); the type string bumps only when layout semantics change. The
 # earlier robot.video/v2 / robot.episode/v3 experiments are simply foreign
 # types now — open() steers them to dreamlake.db.
-DATASET_SCHEMA_TYPE = "video.annotation/v1"
+#
+# v1 → v2: episode_meta moved from a scalar_string column (spec/0011 inlines
+# every distinct value in the Track Object — appending one episode rewrote
+# ~1KB × N) to a per-episode json blob, loaded per slot window like
+# joints_pose/subtasks; episode_index (scalar_string of bare ids) became the
+# lookup path. v1 spaces are refused at open with an actionable message.
+DATASET_SCHEMA_TYPE = "video.annotation/v2"
 
 
 def base_anchor(gid: int) -> int:
@@ -214,9 +238,15 @@ def build_schema():
     # episode-level on purpose: segments live on the shared clock and are
     # camera-independent.
     schema.add_image(FIELD_SUBTASKS, mime="json", required=False)
-    # One JSON row per episode. One track rather than many scalar tracks:
-    # listing a dataset is then a single column read.
-    schema.add_scalar_string(FIELD_EPISODE_META, required=False)
+    # One JSON blob per episode (v2): cameras/labels/geometry, loaded per
+    # slot window like the annotation blobs. A blob on purpose — as a
+    # scalar column, spec/0011 inlined every (all-distinct, ~1KB) row in
+    # the Track Object, so each append rewrote the whole thing.
+    schema.add_image(FIELD_EPISODE_META, mime="json", required=False)
+    # The slim per-episode index (see the constant's comment): the lookup
+    # path that keeps id checks off the fat meta column — one cacheable
+    # fetch yields the whole id map.
+    schema.add_scalar_string(FIELD_EPISODE_INDEX, required=False)
     # Search vectors. LSH index: maintained on append, so vectors are
     # searchable the moment they land — no separate build step.
     # lsh_bits=14 targets the 10k-100k-vector regime a real dataset reaches
@@ -242,7 +272,9 @@ def classify_track(name: str) -> Tuple[str, Optional[str], str]:
     if name == FIELD_SUBTASKS:
         return "blob", None, "subtasks"
     if name == FIELD_EPISODE_META:
-        return "scalar", None, "episode_meta"
+        return "blob", None, "episode_meta"
+    if name == FIELD_EPISODE_INDEX:
+        return "scalar", None, "episode_index"
     if name in (FIELD_FRAME_VEC, FIELD_SUBTASK_VEC):
         return "embedding", None, "search"
     if name == FIELD_SUBTASK_LABEL:

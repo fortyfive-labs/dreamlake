@@ -1,6 +1,6 @@
 """``VideoAnnotationDataset`` — robot-training episode datasets on DreamDB.
 
-The ``video.annotation/v1`` PRESET of the dataset family: it subclasses the
+The ``video.annotation/v2`` PRESET of the dataset family: it subclasses the
 generic :class:`dreamlake.dataset.Dataset` (``_base``), claims its
 schemaType in the dispatch registry (``Dataset.open`` on a dataset of this
 type returns this class), and adds the episode-shaped surface below.
@@ -60,7 +60,9 @@ from ._ffmpeg import FfmpegError, FragmentedVideo, ProbeResult, fragment_video, 
 from ._track import Track
 from ._schema import (
     DATASET_SCHEMA_TYPE,
+    FIELD_EPISODE_INDEX,
     FRAME_VEC_DIM,
+    SLOTS_META_KEY,
     SUBTASK_VEC_DIM,
     DEFAULT_CAMERA,
     DEFAULT_ENCODING,
@@ -162,6 +164,11 @@ class VideoAnnotationDataset(_GenericDataset):
         self._encoding = dict(DEFAULT_ENCODING)
         self._public = False
         self._row_cache: Optional[List[Dict[str, Any]]] = None
+        # O(1) write-path state: the slot registry (space meta) and the
+        # episode_id -> gid map (the episode_index track), both loaded
+        # lazily and updated incrementally under the single-writer contract.
+        self._slots: Optional[Dict[str, Any]] = None
+        self._ids: Optional[Dict[str, int]] = None
         # Exact-scan matrices for search(), per vector field.
         self._vec_scan_cache: Dict[str, Any] = {}
         self._load_space_meta()
@@ -257,6 +264,10 @@ class VideoAnnotationDataset(_GenericDataset):
                 raise DatasetError(str(e)) from e
 
         inner.set_meta(ENCODING_META_KEY, json.dumps(profile))
+        # Seed the slot registry at birth: its absence is the "written by an
+        # older SDK" signal that triggers the one-time migration scan.
+        inner.set_meta(SLOTS_META_KEY,
+                       dumps_compact({"v": 1, "next_gid": 0, "cameras": {}}))
         if visibility == "public":
             inner.set_meta(PUBLIC_META_KEY, "1")
         lease = getattr(inner, "dreamlake_lease", None)
@@ -329,38 +340,45 @@ class VideoAnnotationDataset(_GenericDataset):
         self._ds.append_many(samples)
         self._invalidate()
 
-    def _rows(self) -> List[Dict[str, Any]]:
-        """Episode meta rows (cached until the next write through this
-        handle). One column read serves every listing and lookup."""
-        if self._row_cache is not None:
-            return self._row_cache
-        rows: List[Dict[str, Any]] = []
+    def _read_meta_window(self, start_gid: Optional[int],
+                          end_gid: Optional[int]) -> List[Dict[str, Any]]:
+        """Episode meta rows for a SLOT window ``[start_gid, end_gid)`` —
+        ``None`` bounds mean unbounded. The parse: revisions live at base+0,
+        base+1, ... and the HIGHEST anchor per slot is the current version
+        (engine same-anchor resolution is content-ordered, so revisions
+        never share an anchor; see REVISION_WINDOW_NS)."""
+        kwargs: Dict[str, Any] = {"fields": [FIELD_EPISODE_META]}
+        if start_gid is not None:
+            kwargs["start_ns"] = base_anchor(start_gid)
+        if end_gid is not None:
+            kwargs["end_ns"] = base_anchor(end_gid)
         try:
-            batches = list(self._ds.iter_all_batches(fields=[FIELD_EPISODE_META]))
+            batches = list(self._ds.iter_all_batches(**kwargs))
         except Exception as e:
+            # A declared-but-empty (or absent) meta track reads as no
+            # episodes. Foreign/older layouts are already refused at open
+            # by the schemaType check, so this is not a masking hazard.
             if "no FieldTrack" in str(e) or "not in schema" in str(e):
-                raise DatasetError(
-                    "this space has no 'episode_meta' track — it was written "
-                    "by a different (probably older) layout. Read it with "
-                    "dreamlake.db, or re-ingest into a new dataset."
-                ) from e
+                return []
             raise
-        # Revisions live at base+0, base+1, ... — the HIGHEST anchor per slot
-        # is the current version (engine same-anchor resolution is content-
-        # ordered, so revisions never share an anchor; see REVISION_WINDOW_NS).
         best: Dict[int, Tuple[int, Dict[str, Any]]] = {}
         for batch in batches:
             anchors = batch.get("_time_anchors") or []
             values = batch.get(FIELD_EPISODE_META) or []
             for anchor, value in zip(anchors, values):
+                if value is None:
+                    continue
                 a = int(anchor)
                 gid = gid_of(a)
+                if isinstance(value, (bytes, bytearray, memoryview)):
+                    value = bytes(value)
                 try:
                     meta = json.loads(value)
-                except (TypeError, json.JSONDecodeError):
+                except (TypeError, ValueError):
                     meta = {"episode_id": f"<unparseable @ {a}>"}
                 if gid not in best or a > best[gid][0]:
                     best[gid] = (a, meta)
+        rows: List[Dict[str, Any]] = []
         for gid in sorted(best):
             rev_anchor, meta = best[gid]
             rows.append({
@@ -369,22 +387,164 @@ class VideoAnnotationDataset(_GenericDataset):
                 "_rev": rev_anchor,           # highest meta anchor, for the next write
                 **meta,
             })
-        self._row_cache = rows
         return rows
 
-    def _require_row(self, episode_id: str) -> Dict[str, Any]:
-        # Fresh read: lookups that precede writes must not trust the cache.
-        self._invalidate()
-        for row in self._rows():
-            if row.get("episode_id") == episode_id or str(row["gid"]) == str(episode_id):
-                return row
-        have = ", ".join(str(r.get("episode_id")) for r in self._rows()) or "none"
-        raise DatasetError(f"no episode '{episode_id}' in this dataset (have: {have})")
+    def _rows(self) -> List[Dict[str, Any]]:
+        """EVERY episode meta row (cached until the next write through this
+        handle) — the full column read. Fine for listings; the write path and
+        id lookups use the slot registry + episode_index instead (O(1) /
+        O(index)), because this read is O(episodes × meta size)."""
+        if self._row_cache is None:
+            self._row_cache = self._read_meta_window(None, None)
+        return self._row_cache
 
-    def episodes(self) -> List[Episode]:
-        """Every episode, as handles, ordered by slot — one column read.
-        ``[e.meta for e in ds.episodes()]`` recovers plain dicts."""
-        return [Episode(self, row) for row in self._rows()]
+    # ---- slot registry + episode index (the scalable lookup path) --------
+    #
+    # Two structures replace the full meta-column scan the write path used
+    # to do per ingest:  the SLOT REGISTRY (space meta, O(1): next free
+    # slot + per-camera geometry) and the EPISODE INDEX (a blob track, one
+    # tiny {"episode_id"} object per episode at its base anchor — blob
+    # appends are O(1) per item where every scalar append rewrites the
+    # whole column). Datasets written by older SDKs have neither; the
+    # first write migrates them with one final full scan.
+
+    def _load_slots(self) -> Optional[Dict[str, Any]]:
+        try:
+            raw = (self._ds.meta() or {}).get(SLOTS_META_KEY)
+            slots = json.loads(raw) if raw else None
+            return slots if isinstance(slots, dict) else None
+        except Exception:
+            return None
+
+    def _save_slots(self, slots: Dict[str, Any]) -> None:
+        self._ds.set_meta(SLOTS_META_KEY, dumps_compact(slots))
+        self._slots = slots
+
+    def _ensure_index_track(self) -> None:
+        try:
+            self._ds.add_scalar_string(FIELD_EPISODE_INDEX, required=False)
+        except Exception as e:
+            if "already exists" not in str(e):
+                raise
+
+    def _episode_ids(self) -> Dict[str, int]:
+        """episode_id -> gid, from the episode_index track (cached; updated
+        incrementally on writes through this handle)."""
+        if self._ids is not None:
+            return self._ids
+        ids: Dict[str, int] = {}
+        try:
+            batches = list(self._ds.iter_all_batches(fields=[FIELD_EPISODE_INDEX]))
+        except Exception as e:
+            if "no FieldTrack" not in str(e) and "not in schema" not in str(e):
+                raise
+            batches = []
+        for batch in batches:
+            anchors = batch.get("_time_anchors") or []
+            values = batch.get(FIELD_EPISODE_INDEX) or []
+            for a, v in zip(anchors, values):
+                if v is not None:
+                    ids[str(v)] = gid_of(int(a))
+        self._ids = ids
+        return ids
+
+    def _ensure_slots(self) -> Dict[str, Any]:
+        """The slot registry — seeding it from a one-time full scan when the
+        dataset predates it (and backfilling the episode_index track), so
+        every later write is O(1)."""
+        if self._slots is not None:
+            return self._slots
+        slots = self._load_slots()
+        if slots is None:
+            rows = self._rows()
+            slots = {
+                "v": 1,
+                "next_gid": (max(r["gid"] for r in rows) + 1) if rows else 0,
+                "cameras": {},
+            }
+            for r in rows:
+                for cam, m in (r.get("cameras") or {}).items():
+                    if cam not in slots["cameras"] and m.get("width") and m.get("height"):
+                        slots["cameras"][cam] = {"width": int(m["width"]),
+                                                 "height": int(m["height"])}
+                self._ensure_index_track()
+            ids = self._episode_ids()
+            missing = [r for r in rows
+                       if r.get("episode_id") is not None
+                       and str(r["episode_id"]) not in ids]
+            if missing:
+                self._ds.append_many([
+                    {"_anchor": r["anchor"],
+                     FIELD_EPISODE_INDEX: str(r["episode_id"])}
+                    for r in missing
+                ])
+                for r in missing:
+                    ids[str(r["episode_id"])] = r["gid"]
+            self._save_slots(slots)
+        self._slots = slots
+        return slots
+
+    def _require_row(self, episode_id: str) -> Dict[str, Any]:
+        """The current meta row of one episode: index lookup + one slot-window
+        read — never the full column. Falls back to the full scan only on a
+        never-migrated dataset."""
+        ids = self._episode_ids()
+        gid = ids.get(str(episode_id))
+        if gid is None and str(episode_id).isdigit() and int(episode_id) in ids.values():
+            gid = int(episode_id)
+        if gid is None:
+            if not ids and self._load_slots() is None:
+                # legacy dataset, read-only path: the old full scan
+                self._invalidate()
+                for row in self._rows():
+                    if (row.get("episode_id") == episode_id
+                            or str(row["gid"]) == str(episode_id)):
+                        return row
+            have = ", ".join(sorted(ids)[:20]) or "none"
+            more = f", … +{len(ids) - 20} more" if len(ids) > 20 else ""
+            raise DatasetError(
+                f"no episode '{episode_id}' in this dataset (have: {have}{more})"
+            )
+        rows = self._read_meta_window(gid, gid + 1)
+        if not rows:
+            raise DatasetError(
+                f"episode '{episode_id}' is in the index at slot {gid} but has "
+                f"no meta row — the space was modified outside the SDK"
+            )
+        return rows[0]
+
+    def episode_count(self) -> int:
+        """How many episodes — from the episode index (O(index)), never the
+        meta column."""
+        ids = self._episode_ids()
+        if ids or self._load_slots() is not None:
+            return len(ids)
+        return len(self._rows())  # never-migrated dataset, read-only path
+
+    def episodes(self, *, after_gid: Optional[int] = None,
+                 limit: Optional[int] = None) -> List[Episode]:
+        """Episode handles, ordered by slot. With no arguments this is the
+        FULL listing (one whole-column read — fine up to a few thousand
+        episodes). Past that, page: ``episodes(limit=100)`` then
+        ``episodes(after_gid=page[-1].gid, limit=100)`` — each page is one
+        slot-window read, O(page). ``[e.meta for e in ...]`` recovers dicts."""
+        if after_gid is None and limit is None:
+            return [Episode(self, row) for row in self._rows()]
+        ids = self._episode_ids()
+        if not ids and self._load_slots() is None:
+            rows = self._rows()  # legacy dataset: page over the scan
+            if after_gid is not None:
+                rows = [r for r in rows if r["gid"] > after_gid]
+            return [Episode(self, r) for r in rows[:limit]]
+        start = 0 if after_gid is None else after_gid + 1
+        gids = sorted(g for g in set(ids.values()) if g >= start)
+        if limit is not None:
+            gids = gids[:limit]
+        if not gids:
+            return []
+        rows = self._read_meta_window(gids[0], gids[-1] + 1)
+        take = set(gids)
+        return [Episode(self, r) for r in rows if r["gid"] in take]
 
     def episode(self, episode_id: str) -> Episode:
         """The handle for one episode (by id, or by slot number as a string).
@@ -394,11 +554,17 @@ class VideoAnnotationDataset(_GenericDataset):
     # ---- Introspection ---------------------------------------------------
 
     def cameras(self) -> List[str]:
-        """The dataset's cameras — union over episodes, primary-style order
-        (``main`` first, then alphabetical; same order the viewer uses)."""
-        seen = set()
-        for row in self._rows():
-            seen.update((row.get("cameras") or {}).keys())
+        """The dataset's cameras — primary-style order (``main`` first, then
+        alphabetical; same order the viewer uses). From the slot registry
+        when present (O(1)); the full-scan union only on never-migrated
+        datasets."""
+        slots = self._slots or self._load_slots()
+        if slots is not None:
+            seen = set(slots.get("cameras") or {})
+        else:
+            seen = set()
+            for row in self._rows():
+                seen.update((row.get("cameras") or {}).keys())
         ordered = sorted(seen)
         if DEFAULT_CAMERA in seen:
             ordered.remove(DEFAULT_CAMERA)
@@ -414,7 +580,7 @@ class VideoAnnotationDataset(_GenericDataset):
         handle are outside the contract and not listed.)
         """
         names: List[str] = [
-            FIELD_EPISODE_META, FIELD_SUBTASKS,
+            FIELD_EPISODE_META, FIELD_EPISODE_INDEX, FIELD_SUBTASKS,
             FIELD_FRAME_VEC, FIELD_SUBTASK_VEC, FIELD_SUBTASK_LABEL,
         ]
         for cam in self.cameras() or [DEFAULT_CAMERA]:
@@ -427,7 +593,7 @@ class VideoAnnotationDataset(_GenericDataset):
             _, camera, role = classify_track(n)
             if role in ("video_preview", "video_raw"):
                 kind, mime, dim = "video", "h264", None
-            elif role in ("joints_pose", "subtasks"):
+            elif role in ("joints_pose", "subtasks", "episode_meta"):
                 kind, mime, dim = "image", "json", None
             elif n == FIELD_FRAME_VEC:
                 kind, mime, dim = "embedding", None, FRAME_VEC_DIM
@@ -609,21 +775,16 @@ class VideoAnnotationDataset(_GenericDataset):
             if "already exists" not in str(e):
                 raise
 
-    def _check_camera_geometry(
-        self, camera: str, src: ProbeResult, existing: List[Dict[str, Any]], video: str
-    ) -> None:
+    def _check_camera_geometry(self, camera: str, src: ProbeResult, video: str) -> None:
         """Aspect-ratio pre-check, per camera track, at the DATASET's profile
         height (never a per-call height — that was a latent bug). Different
-        cameras are different tracks, so mixed geometries coexist."""
-        height = int(self._encoding["preview_height"])
-        ref = None
-        for r in existing:
-            cam = (r.get("cameras") or {}).get(camera)
-            if cam and cam.get("width") and cam.get("height"):
-                ref = cam
-                break
-        if ref is None:
+        cameras are different tracks, so mixed geometries coexist. The
+        reference geometry comes from the slot registry — O(1), no meta
+        column scan."""
+        ref = self._ensure_slots()["cameras"].get(camera)
+        if not ref or not ref.get("width") or not ref.get("height"):
             return
+        height = int(self._encoding["preview_height"])
         have = _preview_width(int(ref["width"]), int(ref["height"]), height)
         want = _preview_width(src.width, src.height, height)
         if have != want:
@@ -634,6 +795,18 @@ class VideoAnnotationDataset(_GenericDataset):
                 f"{want}x{height}. All clips on one camera track must share an aspect "
                 f"ratio — use another camera name, or pad/crop the source first."
             )
+
+    def _register_slot_use(self, gid: int, eid: str,
+                           probes: Dict[str, ProbeResult]) -> None:
+        """After a successful commit: advance the registry and the caches —
+        the O(1) bookkeeping that replaces re-scanning on the next write."""
+        slots = self._ensure_slots()
+        slots["next_gid"] = max(int(slots.get("next_gid", 0)), gid + 1)
+        for camera, p in probes.items():
+            slots["cameras"].setdefault(camera,
+                                        {"width": p.width, "height": p.height})
+        self._save_slots(slots)
+        self._episode_ids()[str(eid)] = gid
 
     def _source_fields(self, video: str) -> Dict[str, str]:
         """The source-location fields for one camera's meta: ``source_rel``
@@ -805,32 +978,32 @@ class VideoAnnotationDataset(_GenericDataset):
                     stacklevel=2,
                 )
 
-        # ---- pick the slot ----
+        # ---- pick the slot (registry + index: O(1), no meta column scan) ----
         self._invalidate()
-        existing = self._rows()
+        slots = self._ensure_slots()
+        ids = self._episode_ids()
 
         if gid is not None:
             if gid < 0:
                 raise DatasetError(f"gid must be a non-negative integer, got {gid}")
-            clash = next((r for r in existing if r["gid"] == gid), None)
-            if clash:
+            clash = next((i for i, g in ids.items() if g == gid), None)
+            if clash is not None:
                 raise DatasetError(
-                    f"slot {gid} is already taken by '{clash.get('episode_id')}' — omit gid to append"
+                    f"slot {gid} is already taken by '{clash}' — omit gid to append"
                 )
         else:
             # Slots are never reused: a slot is an episode's identity.
-            gid = (max(r["gid"] for r in existing) + 1) if existing else 0
+            gid = int(slots.get("next_gid", 0))
 
-        dupe = next((r for r in existing if r.get("episode_id") == eid), None)
-        if dupe:
+        if eid in ids:
             raise DatasetError(
-                f"episode id '{eid}' is already in this dataset at slot {dupe['gid']} — "
+                f"episode id '{eid}' is already in this dataset at slot {ids[eid]} — "
                 f"use ds.episode({eid!r}).add_cameras()/revise() to extend it, or pass "
                 f"episode_id= to disambiguate"
             )
 
         for camera, video in cams.items():
-            self._check_camera_geometry(camera, probes[camera], existing, video)
+            self._check_camera_geometry(camera, probes[camera], video)
 
         anchor = base_anchor(gid)
         report: Dict[str, Any] = {"episode_id": eid, "gid": gid, "anchor": anchor, "cameras": {}}
@@ -858,10 +1031,17 @@ class VideoAnnotationDataset(_GenericDataset):
         }
         row_meta = {k: v for k, v in row_meta.items() if v is not None}
 
-        sample: Dict[str, Any] = {"_anchor": anchor,
-                                  FIELD_EPISODE_META: dumps_compact(row_meta)}
+        # The slim index entry (the bare id string) rides the SAME committed
+        # row as the meta — id lookups never pay for the fat column, and no
+        # extra commit.
+        sample: Dict[str, Any] = {
+            "_anchor": anchor,
+            FIELD_EPISODE_META: dumps_compact(row_meta).encode(),
+            FIELD_EPISODE_INDEX: eid,
+        }
         self._write_annotations(sample, joints_by_cam, segments, report)
         self._append_and_invalidate([sample])
+        self._register_slot_use(gid, eid, probes)
 
         report["meta"] = row_meta
         return Episode(self, {"gid": gid, "anchor": anchor, **row_meta}, report=report)
