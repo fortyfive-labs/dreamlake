@@ -1,6 +1,6 @@
 [project]
 name = "dreamlake"
-version = "0.5.4"
+version = "0.6.0"
 description = "ML experiment tracking and data storage"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -72,8 +72,11 @@ search = [
     "pillow>=10",
 ]
 
-[project.scripts]
-dreamlake = "dreamlake.cli:main"
+# No console script: the user-facing CLI is the standalone DreamLake CLI
+# (curl -fsSL https://dl.dreamlake.ai/install.sh | bash), which owns the
+# `dreamlake` bin. The Python CLI code remains importable — the canonical
+# `artifact|workflow append-local` DreamDB writers are reachable via
+# `python -m dreamlake.cli` (point WORKFLOWS_APPLY_BIN at a wrapper).
 
 [tool.uv]
 
