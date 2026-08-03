@@ -157,7 +157,13 @@ class VideoAnnotationDataset(_GenericDataset):
 
     def __init__(self, inner, backend: str, name: Optional[str] = None):
         lease = getattr(inner, "dreamlake_lease", None) or {}
-        super().__init__(inner, namespace=lease.get("namespace"), name=name,
+        # Platform mode: the lease carries the server-resolved (namespace,
+        # BARE name) pair — prefer its name over the caller's argument. A
+        # qualified "ns/name" stored verbatim would make _qualified() emit
+        # "ns/ns/name" and break set_visibility/delete on org datasets (#15).
+        # Self-hosted handles have no lease and keep the name as given.
+        super().__init__(inner, namespace=lease.get("namespace"),
+                         name=lease.get("name") or name,
                          row={"schemaType": DATASET_SCHEMA_TYPE})
         self.backend = backend
         self._encoding = {**DEFAULT_ENCODING, "cameras": {}}
