@@ -3,7 +3,7 @@
 Every DreamLake dataset is a catalog row plus a dreamdb space; what varies
 is the ``schemaType`` string the row carries. Known types get a preset
 subclass with rich methods (``VideoAnnotationDataset`` for
-``video.annotation/v1``); everything else — user-defined schemas above all
+``video.annotation/v2``); everything else — user-defined schemas above all
 — gets THIS class: declare tracks, append rows or ranges, read them back.
 ``Dataset.open`` dispatches on the catalog's schemaType and an unknown type
 NEVER refuses, it degrades to this generic handle — the same rule the web

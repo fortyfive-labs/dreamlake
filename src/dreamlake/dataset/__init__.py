@@ -3,7 +3,7 @@
 :class:`Dataset` is the generic member: platform datasets with a
 USER-DEFINED schema (declare tracks, append rows/ranges, read back — see
 ``_base``). Known schemaTypes get a preset subclass with rich methods:
-:class:`VideoAnnotationDataset` (``video.annotation/v1``) is the
+:class:`VideoAnnotationDataset` (``video.annotation/v2``) is the
 robot-training episode preset. ``Dataset.open(name)`` returns whichever
 class the catalog's schemaType names; unknown types degrade to the generic
 handle, never refuse.
