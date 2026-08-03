@@ -1,8 +1,17 @@
-"""Robot-training episode datasets on DreamDB — see :class:`Dataset`.
+"""DreamLake datasets — one family, dispatched by schemaType.
 
-Requires the ``dreamdb`` package (the DreamDB Python SDK) and ``ffmpeg`` on
-PATH. Neither is a hard dependency of ``dreamlake``; the import fails here,
-at first use, with an actionable message.
+:class:`Dataset` is the generic member: platform datasets with a
+USER-DEFINED schema (declare tracks, append rows/ranges, read back — see
+``_base``). Known schemaTypes get a preset subclass with rich methods:
+:class:`VideoAnnotationDataset` (``video.annotation/v2``) is the
+robot-training episode preset. ``Dataset.open(name)`` returns whichever
+class the catalog's schemaType names; unknown types degrade to the generic
+handle, never refuse.
+
+Requires the ``dreamdb`` package (the DreamDB Python SDK); the preset's
+video paths additionally need ``ffmpeg`` on PATH. Neither is a hard
+dependency of ``dreamlake``; the import fails here, at first use, with an
+actionable message.
 """
 
 try:
@@ -13,9 +22,13 @@ except ImportError as e:  # pragma: no cover
         "SDK). Install it with: pip install dreamdb"
     ) from e
 
-from ._core import Dataset, DatasetError
+from ._base import Dataset, DatasetInfo
+from ._core import VideoAnnotationDataset
 from ._episode import Episode
+from ._errors import DatasetError, SchemaError
 from ._ffmpeg import FfmpegError, ProbeResult, probe
+from ._fields import Schema, sequence_anchors
+from ._track import Track
 from ._schema import (
     DATASET_REF,
     DEFAULT_CAMERA,
@@ -24,7 +37,6 @@ from ._schema import (
     MAX_EPISODE_SECONDS,
     CameraMeta,
     EpisodeMeta,
-    TrackInfo,
     base_anchor,
     classify_track,
     frame_anchor,
@@ -35,15 +47,22 @@ from ._schema import (
 )
 
 __all__ = [
+    # the family
     "Dataset",
-    "Episode",
+    "DatasetInfo",
+    "Schema",
+    "Track",
+    "sequence_anchors",
     "DatasetError",
+    "SchemaError",
+    # the video-annotation preset
+    "VideoAnnotationDataset",
+    "Episode",
     "FfmpegError",
     "ProbeResult",
     "probe",
     "CameraMeta",
     "EpisodeMeta",
-    "TrackInfo",
     "classify_track",
     "DATASET_REF",
     "DEFAULT_CAMERA",

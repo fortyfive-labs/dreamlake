@@ -68,7 +68,7 @@ def test_classify_track_covers_the_whole_taxonomy():
     assert classify_track("video_raw__wrist") == ("video", "wrist", "video_raw")
     assert classify_track("joints_pose__main") == ("blob", "main", "joints_pose")
     assert classify_track("subtasks") == ("blob", None, "subtasks")
-    assert classify_track("episode_meta") == ("scalar", None, "episode_meta")
+    assert classify_track("episode_meta") == ("blob", None, "episode_meta")  # v2: per-episode json blob
     assert classify_track("frame_vec") == ("embedding", None, "search")
     assert classify_track("subtask_vec") == ("embedding", None, "search")
     assert classify_track("subtask_label") == ("scalar", None, "search")
@@ -173,7 +173,7 @@ def _make_clip(path, size="640x480", seconds=3):
 
 @pytestmark_e2e
 def test_end_to_end_write_then_read(tmp_path):
-    from dreamlake.dataset import Dataset, DatasetError, Episode
+    from dreamlake.dataset import VideoAnnotationDataset as Dataset, DatasetError, Episode
 
     video = _make_clip(tmp_path / "clip.mp4")
     backend = f"file://{tmp_path}/space"
@@ -224,7 +224,7 @@ def test_end_to_end_write_then_read(tmp_path):
 
 @pytestmark_e2e
 def test_encoding_profile_persists_and_open_verifies(tmp_path):
-    from dreamlake.dataset import Dataset, DatasetError
+    from dreamlake.dataset import VideoAnnotationDataset as Dataset, DatasetError
 
     backend = f"file://{tmp_path}/space"
     ds = Dataset.create(backend=backend, preview_height=480, preview_fps=24)
@@ -232,7 +232,7 @@ def test_encoding_profile_persists_and_open_verifies(tmp_path):
 
     reopened = Dataset.open(backend=backend)
     assert reopened.encoding == {"preview_height": 480, "preview_fps": 24.0,
-                                 "frag_seconds": 2.0}
+                                 "frag_seconds": 2.0, "cameras": {}}
     # verify-not-ignore: matching passes, mismatch errors.
     Dataset.open(backend=backend, preview_height=480)
     with pytest.raises(DatasetError, match="preview_height"):
@@ -246,7 +246,7 @@ def test_encoding_profile_persists_and_open_verifies(tmp_path):
 
 @pytestmark_e2e
 def test_multi_camera_handle_lifecycle(tmp_path):
-    from dreamlake.dataset import Dataset, DatasetError
+    from dreamlake.dataset import VideoAnnotationDataset as Dataset, DatasetError
 
     head = _make_clip(tmp_path / "head.mp4", size="1280x720")
     wrist = _make_clip(tmp_path / "wrist.mp4", size="640x480")
@@ -298,7 +298,7 @@ def test_multi_camera_handle_lifecycle(tmp_path):
 
 @pytestmark_e2e
 def test_user_tracks_and_introspection(tmp_path):
-    from dreamlake.dataset import Dataset, DatasetError
+    from dreamlake.dataset import VideoAnnotationDataset as Dataset, DatasetError
 
     clip = _make_clip(tmp_path / "clip.mp4")
     ds = Dataset.create(backend=f"file://{tmp_path}/space")
@@ -342,3 +342,38 @@ def test_user_tracks_and_introspection(tmp_path):
     assert infos["x_quality"].kind == "image"
     assert infos["video_preview__main"].camera == "main"
     assert infos["episode_meta"].preset is True
+
+
+@pytestmark_e2e
+def test_camera_profiles_index_and_paging(tmp_path):
+    from dreamlake.dataset import VideoAnnotationDataset as Dataset
+
+    clip = _make_clip(tmp_path / "clip.mp4")
+    ds = Dataset.create(backend=f"file://{tmp_path}/space")
+    for i in range(3):
+        ds.add_episode(clip, episode_id=f"ep-{i}")
+
+    # O(index) count + O(page) listing — never the full meta column.
+    assert ds.episode_count() == 3
+    page1 = ds.episodes(limit=2)
+    assert [e.episode_id for e in page1] == ["ep-0", "ep-1"]
+    page2 = ds.episodes(after_gid=page1[-1].gid, limit=2)
+    assert [e.episode_id for e in page2] == ["ep-2"]
+    # id lookup goes index -> one slot-window read
+    assert ds.episode("ep-1").gid == 1
+
+    # The camera's PLAYBACK profile is adopted from its first clip and lives
+    # in the encoding meta — written once per camera, after which every
+    # ingest validates against the handle's in-memory copy. No slots key.
+    meta = ds.db.meta()
+    assert "dreamdb.dataset.slots" not in meta
+    enc = json.loads(meta["dreamdb.dataset.encoding"])
+    assert set(enc["cameras"]) == {"main"}
+    assert enc["cameras"]["main"]["height"] == 720
+
+    # A fresh handle allocates the next slot from the index alone.
+    ds2 = Dataset.open(backend=f"file://{tmp_path}/space")
+    ds2.add_episode(clip, episode_id="ep-3")
+    assert ds2.episode_count() == 4
+    assert ds2.episode("ep-3").gid == 3
+    assert [e.episode_id for e in ds2.episodes()] == ["ep-0", "ep-1", "ep-2", "ep-3"]

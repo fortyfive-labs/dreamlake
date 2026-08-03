@@ -1,8 +1,13 @@
-"""``dreamlake.dataset.Dataset`` — robot-training episode datasets on DreamDB.
+"""``VideoAnnotationDataset`` — robot-training episode datasets on DreamDB.
+
+The ``video.annotation/v2`` PRESET of the dataset family: it subclasses the
+generic :class:`dreamlake.dataset.Dataset` (``_base``), claims its
+schemaType in the dispatch registry (``Dataset.open`` on a dataset of this
+type returns this class), and adds the episode-shaped surface below.
 
 The write path a labeling pipeline calls once per processed episode::
 
-    from dreamlake.dataset import Dataset
+    from dreamlake.dataset import VideoAnnotationDataset as Dataset
 
     ds = Dataset.create("wash-the-dishes")          # platform bucket (default)
     epo = ds.add_episode(
@@ -47,10 +52,17 @@ import warnings
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
+from ._base import Dataset as _GenericDataset
 from ._episode import Episode
+from ._errors import DatasetError
+from ._fields import dumps_compact
 from ._ffmpeg import FfmpegError, FragmentedVideo, ProbeResult, fragment_video, probe
+from ._track import Track
 from ._schema import (
     DATASET_SCHEMA_TYPE,
+    FIELD_EPISODE_INDEX,
+    FRAME_VEC_DIM,
+    SUBTASK_VEC_DIM,
     DEFAULT_CAMERA,
     DEFAULT_ENCODING,
     ENCODING_META_KEY,
@@ -65,7 +77,6 @@ from ._schema import (
     PUBLIC_META_KEY,
     REVISION_WINDOW_NS,
     TRACK_KINDS,
-    TrackInfo,
     USER_TRACK_RE,
     USER_TRACKS_META_KEY,
     base_anchor,
@@ -82,10 +93,6 @@ from ._schema import (
 
 Annotation = Union[Dict[str, Any], str, Path, None]
 Videos = Union[str, Path, Dict[str, Union[str, Path]]]
-
-
-class DatasetError(RuntimeError):
-    """A dataset operation that failed for a reason the caller can act on."""
 
 
 def _load_annotation(value: Annotation, what: str, validate) -> Optional[Dict[str, Any]]:
@@ -142,17 +149,23 @@ def _check_schema_type(inner, where: str) -> None:
         )
 
 
-class Dataset:
+class VideoAnnotationDataset(_GenericDataset):
     """One robot-training dataset: many episodes, each with one or more
     camera videos plus annotations."""
 
+    SCHEMA_TYPE = DATASET_SCHEMA_TYPE  # registers this preset for dispatch
+
     def __init__(self, inner, backend: str, name: Optional[str] = None):
-        self._ds = inner
+        lease = getattr(inner, "dreamlake_lease", None) or {}
+        super().__init__(inner, namespace=lease.get("namespace"), name=name,
+                         row={"schemaType": DATASET_SCHEMA_TYPE})
         self.backend = backend
-        self.name = name
-        self._encoding = dict(DEFAULT_ENCODING)
+        self._encoding = {**DEFAULT_ENCODING, "cameras": {}}
         self._public = False
         self._row_cache: Optional[List[Dict[str, Any]]] = None
+        # episode_id -> gid map (the episode_index track): loaded lazily,
+        # updated incrementally under the single-writer contract.
+        self._ids: Optional[Dict[str, int]] = None
         # Exact-scan matrices for search(), per vector field.
         self._vec_scan_cache: Dict[str, Any] = {}
         self._load_space_meta()
@@ -168,6 +181,7 @@ class Dataset:
                 self._encoding.update(json.loads(raw))
             except (TypeError, json.JSONDecodeError):
                 pass
+        self._encoding.setdefault("cameras", {})
         self._public = meta.get(PUBLIC_META_KEY) == "1"
 
     @property
@@ -180,8 +194,11 @@ class Dataset:
 
     @property
     def encoding(self) -> Dict[str, Any]:
-        """The dataset's playback encoding profile (read-only view)."""
-        return dict(self._encoding)
+        """The dataset's playback encoding profile (read-only view): the
+        flat defaults plus ``cameras`` — each camera track's adopted
+        playback geometry (``{width, height, fps}``, fixed by its first
+        clip)."""
+        return {**self._encoding, "cameras": dict(self._encoding.get("cameras") or {})}
 
     # ---- Construction --------------------------------------------------
     #
@@ -199,7 +216,7 @@ class Dataset:
         preview_height: int = 720,
         preview_fps: float = 30.0,
         frag_seconds: float = 2.0,
-    ) -> "Dataset":
+    ) -> "VideoAnnotationDataset":
         """Create an empty dataset.
 
         The encoding profile (``preview_height``/``preview_fps``/
@@ -210,7 +227,8 @@ class Dataset:
         """
         if backend is None and not name:
             raise DatasetError(
-                "Dataset.create needs a name (platform mode) or backend= (self-hosted)"
+                "VideoAnnotationDataset.create needs a name (platform mode) "
+                "or backend= (self-hosted)"
             )
         profile = {
             "preview_height": int(preview_height),
@@ -261,7 +279,7 @@ class Dataset:
         preview_height: Optional[int] = None,
         preview_fps: Optional[float] = None,
         frag_seconds: Optional[float] = None,
-    ) -> "Dataset":
+    ) -> "VideoAnnotationDataset":
         """Open an existing dataset by platform name or by backend URI.
 
         The optional encoding kwargs VERIFY, never set: pass the values your
@@ -271,7 +289,8 @@ class Dataset:
         """
         if backend is None and not name:
             raise DatasetError(
-                "Dataset.open needs a name (platform mode) or backend= (self-hosted)"
+                "VideoAnnotationDataset.open needs a name (platform mode) "
+                "or backend= (self-hosted)"
             )
 
         if backend is not None:
@@ -318,38 +337,45 @@ class Dataset:
         self._ds.append_many(samples)
         self._invalidate()
 
-    def _rows(self) -> List[Dict[str, Any]]:
-        """Episode meta rows (cached until the next write through this
-        handle). One column read serves every listing and lookup."""
-        if self._row_cache is not None:
-            return self._row_cache
-        rows: List[Dict[str, Any]] = []
+    def _read_meta_window(self, start_gid: Optional[int],
+                          end_gid: Optional[int]) -> List[Dict[str, Any]]:
+        """Episode meta rows for a SLOT window ``[start_gid, end_gid)`` —
+        ``None`` bounds mean unbounded. The parse: revisions live at base+0,
+        base+1, ... and the HIGHEST anchor per slot is the current version
+        (engine same-anchor resolution is content-ordered, so revisions
+        never share an anchor; see REVISION_WINDOW_NS)."""
+        kwargs: Dict[str, Any] = {"fields": [FIELD_EPISODE_META]}
+        if start_gid is not None:
+            kwargs["start_ns"] = base_anchor(start_gid)
+        if end_gid is not None:
+            kwargs["end_ns"] = base_anchor(end_gid)
         try:
-            batches = list(self._ds.iter_all_batches(fields=[FIELD_EPISODE_META]))
+            batches = list(self._ds.iter_all_batches(**kwargs))
         except Exception as e:
+            # A declared-but-empty (or absent) meta track reads as no
+            # episodes. Foreign/older layouts are already refused at open
+            # by the schemaType check, so this is not a masking hazard.
             if "no FieldTrack" in str(e) or "not in schema" in str(e):
-                raise DatasetError(
-                    "this space has no 'episode_meta' track — it was written "
-                    "by a different (probably older) layout. Read it with "
-                    "dreamlake.db, or re-ingest into a new dataset."
-                ) from e
+                return []
             raise
-        # Revisions live at base+0, base+1, ... — the HIGHEST anchor per slot
-        # is the current version (engine same-anchor resolution is content-
-        # ordered, so revisions never share an anchor; see REVISION_WINDOW_NS).
         best: Dict[int, Tuple[int, Dict[str, Any]]] = {}
         for batch in batches:
             anchors = batch.get("_time_anchors") or []
             values = batch.get(FIELD_EPISODE_META) or []
             for anchor, value in zip(anchors, values):
+                if value is None:
+                    continue
                 a = int(anchor)
                 gid = gid_of(a)
+                if isinstance(value, (bytes, bytearray, memoryview)):
+                    value = bytes(value)
                 try:
                     meta = json.loads(value)
-                except (TypeError, json.JSONDecodeError):
+                except (TypeError, ValueError):
                     meta = {"episode_id": f"<unparseable @ {a}>"}
                 if gid not in best or a > best[gid][0]:
                     best[gid] = (a, meta)
+        rows: List[Dict[str, Any]] = []
         for gid in sorted(best):
             rev_anchor, meta = best[gid]
             rows.append({
@@ -358,22 +384,90 @@ class Dataset:
                 "_rev": rev_anchor,           # highest meta anchor, for the next write
                 **meta,
             })
-        self._row_cache = rows
         return rows
 
-    def _require_row(self, episode_id: str) -> Dict[str, Any]:
-        # Fresh read: lookups that precede writes must not trust the cache.
-        self._invalidate()
-        for row in self._rows():
-            if row.get("episode_id") == episode_id or str(row["gid"]) == str(episode_id):
-                return row
-        have = ", ".join(str(r.get("episode_id")) for r in self._rows()) or "none"
-        raise DatasetError(f"no episode '{episode_id}' in this dataset (have: {have})")
+    def _rows(self) -> List[Dict[str, Any]]:
+        """EVERY episode meta row (cached until the next write through this
+        handle) — the full column read. Fine for listings; the write path and
+        id lookups use the slot registry + episode_index instead (O(1) /
+        O(index)), because this read is O(episodes × meta size)."""
+        if self._row_cache is None:
+            self._row_cache = self._read_meta_window(None, None)
+        return self._row_cache
 
-    def episodes(self) -> List[Episode]:
-        """Every episode, as handles, ordered by slot — one column read.
-        ``[e.meta for e in ds.episodes()]`` recovers plain dicts."""
-        return [Episode(self, row) for row in self._rows()]
+    # ---- episode index (the scalable lookup path) ------------------------
+    #
+    # The episode_index track replaces the full meta-column scan the write
+    # path used to do per ingest: every episode's bare id at its base
+    # anchor. One cacheable read yields the whole id -> slot map; the next
+    # free slot derives from it (max gid + 1).
+
+    def _episode_ids(self) -> Dict[str, int]:
+        """episode_id -> gid, from the episode_index track (cached; updated
+        incrementally on writes through this handle)."""
+        if self._ids is not None:
+            return self._ids
+        ids: Dict[str, int] = {}
+        try:
+            batches = list(self._ds.iter_all_batches(fields=[FIELD_EPISODE_INDEX]))
+        except Exception as e:
+            if "no FieldTrack" not in str(e) and "not in schema" not in str(e):
+                raise
+            batches = []
+        for batch in batches:
+            anchors = batch.get("_time_anchors") or []
+            values = batch.get(FIELD_EPISODE_INDEX) or []
+            for a, v in zip(anchors, values):
+                if v is not None:
+                    ids[str(v)] = gid_of(int(a))
+        self._ids = ids
+        return ids
+
+    def _require_row(self, episode_id: str) -> Dict[str, Any]:
+        """The current meta row of one episode: index lookup + one slot-window
+        read — never the full column."""
+        ids = self._episode_ids()
+        gid = ids.get(str(episode_id))
+        if gid is None and str(episode_id).isdigit() and int(episode_id) in ids.values():
+            gid = int(episode_id)
+        if gid is None:
+            have = ", ".join(sorted(ids)[:20]) or "none"
+            more = f", … +{len(ids) - 20} more" if len(ids) > 20 else ""
+            raise DatasetError(
+                f"no episode '{episode_id}' in this dataset (have: {have}{more})"
+            )
+        rows = self._read_meta_window(gid, gid + 1)
+        if not rows:
+            raise DatasetError(
+                f"episode '{episode_id}' is in the index at slot {gid} but has "
+                f"no meta row — the space was modified outside the SDK"
+            )
+        return rows[0]
+
+    def episode_count(self) -> int:
+        """How many episodes — from the episode index (O(index)), never the
+        meta column."""
+        return len(self._episode_ids())
+
+    def episodes(self, *, after_gid: Optional[int] = None,
+                 limit: Optional[int] = None) -> List[Episode]:
+        """Episode handles, ordered by slot. With no arguments this is the
+        FULL listing (one whole-column read — fine up to a few thousand
+        episodes). Past that, page: ``episodes(limit=100)`` then
+        ``episodes(after_gid=page[-1].gid, limit=100)`` — each page is one
+        slot-window read, O(page). ``[e.meta for e in ...]`` recovers dicts."""
+        if after_gid is None and limit is None:
+            return [Episode(self, row) for row in self._rows()]
+        ids = self._episode_ids()
+        start = 0 if after_gid is None else after_gid + 1
+        gids = sorted(g for g in set(ids.values()) if g >= start)
+        if limit is not None:
+            gids = gids[:limit]
+        if not gids:
+            return []
+        rows = self._read_meta_window(gids[0], gids[-1] + 1)
+        take = set(gids)
+        return [Episode(self, r) for r in rows if r["gid"] in take]
 
     def episode(self, episode_id: str) -> Episode:
         """The handle for one episode (by id, or by slot number as a string).
@@ -383,38 +477,51 @@ class Dataset:
     # ---- Introspection ---------------------------------------------------
 
     def cameras(self) -> List[str]:
-        """The dataset's cameras — union over episodes, primary-style order
-        (``main`` first, then alphabetical; same order the viewer uses)."""
-        seen = set()
-        for row in self._rows():
-            seen.update((row.get("cameras") or {}).keys())
+        """The dataset's cameras — primary-style order (``main`` first, then
+        alphabetical; same order the viewer uses). From the adopted camera
+        profiles in the encoding meta: O(1), no reads."""
+        seen = set(self._encoding.get("cameras") or {})
         ordered = sorted(seen)
         if DEFAULT_CAMERA in seen:
             ordered.remove(DEFAULT_CAMERA)
             ordered.insert(0, DEFAULT_CAMERA)
         return ordered
 
-    def tracks(self) -> List[TrackInfo]:
-        """The dataset's track catalog as the preset knows it: the fixed
-        episode-level tracks, each camera's namespace triple, and user
-        tracks declared through :meth:`add_track`. (Columns added through
-        the bare ``ds.db`` handle are outside the contract and not listed.)
+    def tracks(self) -> List[Track]:
+        """The dataset's track catalog as the preset knows it, as
+        :class:`Track` handles — the generic vocabulary (name/kind/mime/dim)
+        plus the preset extras ``role``/``camera``: the fixed episode-level
+        tracks, each camera's namespace triple, and user tracks declared
+        through :meth:`add_track`. (Columns added through the bare ``ds.db``
+        handle are outside the contract and not listed.)
         """
         names: List[str] = [
-            FIELD_EPISODE_META, FIELD_SUBTASKS,
+            FIELD_EPISODE_META, FIELD_EPISODE_INDEX, FIELD_SUBTASKS,
             FIELD_FRAME_VEC, FIELD_SUBTASK_VEC, FIELD_SUBTASK_LABEL,
         ]
         for cam in self.cameras() or [DEFAULT_CAMERA]:
             names += [preview_track(cam), raw_track(cam), joints_track(cam)]
-        names += sorted(self._user_tracks().keys())
+        user = self._user_tracks()
+        names += sorted(user.keys())
 
-        out: List[TrackInfo] = []
+        out: List[Track] = []
         for n in names:
-            kind, camera, role = classify_track(n)
-            if role == "user":
-                kind = self._user_tracks().get(n, kind)
-            out.append(TrackInfo(name=n, kind=kind, role=role, camera=camera,
-                                 preset=role not in ("user", "unknown")))
+            _, camera, role = classify_track(n)
+            if role in ("video_preview", "video_raw"):
+                kind, mime, dim = "video", "h264", None
+            elif role in ("joints_pose", "subtasks", "episode_meta"):
+                kind, mime, dim = "image", "json", None
+            elif n == FIELD_FRAME_VEC:
+                kind, mime, dim = "embedding", None, FRAME_VEC_DIM
+            elif n == FIELD_SUBTASK_VEC:
+                kind, mime, dim = "embedding", None, SUBTASK_VEC_DIM
+            elif role == "user":
+                kind = user.get(n, "scalar_string")
+                mime = "json" if kind == "image" else ("h264" if kind == "video" else None)
+                dim = None
+            else:  # episode_index / subtask_label — bare string rows
+                kind, mime, dim = "scalar_string", None, None
+            out.append(Track(self, n, kind, mime=mime, dim=dim, role=role, camera=camera))
         return out
 
     def _user_tracks(self) -> Dict[str, str]:
@@ -426,7 +533,7 @@ class Dataset:
 
     # ---- User tracks -----------------------------------------------------
 
-    def add_track(self, name: str, kind: str, *, mime: Optional[str] = None) -> None:
+    def add_track(self, name: str, kind: str, *, mime: Optional[str] = None) -> Track:
         """Declare a user track. ``kind`` is the dreamdb vocabulary,
         verbatim: ``"image"``/``"video"`` (with ``mime=``; JSON documents
         are ``kind="image", mime="json"`` — exactly how the preset's own
@@ -474,6 +581,9 @@ class Dataset:
         if declared.get(name) != kind:
             declared[name] = kind
             self._ds.set_meta(USER_TRACKS_META_KEY, json.dumps(declared))
+        resolved_mime = (mime or ("json" if kind == "image" else "h264")) \
+            if kind in ("image", "video") else None
+        return Track(self, name, kind, mime=resolved_mime, role="user")
 
     def _read_track_window(self, field: str, start_ns: int, end_ns: int):
         out = []
@@ -581,31 +691,46 @@ class Dataset:
             if "already exists" not in str(e):
                 raise
 
-    def _check_camera_geometry(
-        self, camera: str, src: ProbeResult, existing: List[Dict[str, Any]], video: str
-    ) -> None:
-        """Aspect-ratio pre-check, per camera track, at the DATASET's profile
-        height (never a per-call height — that was a latent bug). Different
-        cameras are different tracks, so mixed geometries coexist."""
-        height = int(self._encoding["preview_height"])
-        ref = None
-        for r in existing:
-            cam = (r.get("cameras") or {}).get(camera)
-            if cam and cam.get("width") and cam.get("height"):
-                ref = cam
-                break
-        if ref is None:
+    def _check_camera_geometry(self, camera: str, src: ProbeResult, video: str) -> None:
+        """Aspect-ratio pre-check against the camera's ADOPTED playback
+        profile, from the handle's in-memory encoding copy — zero IO, and
+        it runs BEFORE any transcoding (ffmpeg on a long episode is minutes
+        of work). A camera with no profile yet is its own first clip: it
+        adopts one after the commit instead of being checked."""
+        profile = (self._encoding.get("cameras") or {}).get(camera)
+        if not profile or not profile.get("width") or not profile.get("height"):
             return
-        have = _preview_width(int(ref["width"]), int(ref["height"]), height)
-        want = _preview_width(src.width, src.height, height)
-        if have != want:
+        want = _preview_width(src.width, src.height, int(profile["height"]))
+        if want != int(profile["width"]):
             raise DatasetError(
                 f"aspect ratio mismatch on camera '{camera}': its playback track is "
-                f"{have}x{height} (from {ref['width']}x{ref['height']} sources), but "
+                f"{profile['width']}x{profile['height']}, but "
                 f"{os.path.basename(video)} ({src.width}x{src.height}) would encode to "
-                f"{want}x{height}. All clips on one camera track must share an aspect "
-                f"ratio — use another camera name, or pad/crop the source first."
+                f"{want}x{profile['height']}. All clips on one camera track must share "
+                f"an aspect ratio — use another camera name, or pad/crop the source first."
             )
+
+    def _register_ingest(self, gid: int, eid: str,
+                         probes: Dict[str, ProbeResult]) -> None:
+        """After a successful commit: update the id cache, and ADOPT a
+        playback profile for any first-seen camera — height/fps from the
+        dataset defaults, width from the clip's aspect ratio. Persisted
+        (one meta-commit) exactly once per camera; routine appends with
+        known cameras write nothing."""
+        cameras = self._encoding.setdefault("cameras", {})
+        height = int(self._encoding["preview_height"])
+        changed = False
+        for camera, p in probes.items():
+            if camera not in cameras:
+                cameras[camera] = {
+                    "width": _preview_width(p.width, p.height, height),
+                    "height": height,
+                    "fps": float(self._encoding["preview_fps"]),
+                }
+                changed = True
+        if changed:
+            self._ds.set_meta(ENCODING_META_KEY, dumps_compact(self._encoding))
+        self._episode_ids()[str(eid)] = gid
 
     def _source_fields(self, video: str) -> Dict[str, str]:
         """The source-location fields for one camera's meta: ``source_rel``
@@ -704,12 +829,12 @@ class Dataset:
         if joints_by_cam:
             for camera, joints in joints_by_cam.items():
                 self._ensure_joints_track(camera)
-                sample[joints_track(camera)] = json.dumps(joints).encode()
+                sample[joints_track(camera)] = dumps_compact(joints).encode()
             out["joints_pose"] = {
                 c: {"annotated_frames": len(j["frames"])} for c, j in joints_by_cam.items()
             }
         if segments is not None:
-            sample[FIELD_SUBTASKS] = json.dumps(segments).encode()
+            sample[FIELD_SUBTASKS] = dumps_compact(segments).encode()
             out["subtasks"] = {"segments": len(segments["labeled_subtasks"])}
 
     def add_episode(
@@ -777,32 +902,33 @@ class Dataset:
                     stacklevel=2,
                 )
 
-        # ---- pick the slot ----
+        # ---- pick the slot (the index is the only lookup: O(1) amortized) ----
         self._invalidate()
-        existing = self._rows()
+        ids = self._episode_ids()
 
         if gid is not None:
             if gid < 0:
                 raise DatasetError(f"gid must be a non-negative integer, got {gid}")
-            clash = next((r for r in existing if r["gid"] == gid), None)
-            if clash:
+            clash = next((i for i, g in ids.items() if g == gid), None)
+            if clash is not None:
                 raise DatasetError(
-                    f"slot {gid} is already taken by '{clash.get('episode_id')}' — omit gid to append"
+                    f"slot {gid} is already taken by '{clash}' — omit gid to append"
                 )
         else:
-            # Slots are never reused: a slot is an episode's identity.
-            gid = (max(r["gid"] for r in existing) + 1) if existing else 0
+            # Slots are never reused: a slot is an episode's identity. The
+            # next free one derives from the index (already loaded for the
+            # dup check) — nothing to persist per write.
+            gid = (max(ids.values()) + 1) if ids else 0
 
-        dupe = next((r for r in existing if r.get("episode_id") == eid), None)
-        if dupe:
+        if eid in ids:
             raise DatasetError(
-                f"episode id '{eid}' is already in this dataset at slot {dupe['gid']} — "
+                f"episode id '{eid}' is already in this dataset at slot {ids[eid]} — "
                 f"use ds.episode({eid!r}).add_cameras()/revise() to extend it, or pass "
                 f"episode_id= to disambiguate"
             )
 
         for camera, video in cams.items():
-            self._check_camera_geometry(camera, probes[camera], existing, video)
+            self._check_camera_geometry(camera, probes[camera], video)
 
         anchor = base_anchor(gid)
         report: Dict[str, Any] = {"episode_id": eid, "gid": gid, "anchor": anchor, "cameras": {}}
@@ -830,9 +956,17 @@ class Dataset:
         }
         row_meta = {k: v for k, v in row_meta.items() if v is not None}
 
-        sample: Dict[str, Any] = {"_anchor": anchor, FIELD_EPISODE_META: json.dumps(row_meta)}
+        # The slim index entry (the bare id string) rides the SAME committed
+        # row as the meta — id lookups never pay for the fat column, and no
+        # extra commit.
+        sample: Dict[str, Any] = {
+            "_anchor": anchor,
+            FIELD_EPISODE_META: dumps_compact(row_meta).encode(),
+            FIELD_EPISODE_INDEX: eid,
+        }
         self._write_annotations(sample, joints_by_cam, segments, report)
         self._append_and_invalidate([sample])
+        self._register_ingest(gid, eid, probes)
 
         report["meta"] = row_meta
         return Episode(self, {"gid": gid, "anchor": anchor, **row_meta}, report=report)

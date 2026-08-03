@@ -26,7 +26,6 @@ two files agree. Change one, change both.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple, TypedDict
 
 # Anchor slot width per episode: one hour in nanoseconds. An episode's
@@ -107,6 +106,18 @@ def validate_camera_name(camera: str) -> Optional[str]:
 # ---- Episode-level tracks. One field == one DreamDB track. -----------------
 FIELD_SUBTASKS = "subtasks"
 FIELD_EPISODE_META = "episode_meta"
+# The slim per-episode index: the episode_id STRING at each episode's base
+# anchor, on a scalar_string track — the one case where spec/0011's
+# inverted-by-value scalar layout is a perfect fit. Every distinct value
+# (= every id, ~30 B) lives inline in the Track Object, so ONE fetch of one
+# cacheable object yields the complete {episode_id -> anchor} map; the
+# rewrite-on-append cost is O(N × 30 B) — smooth at any realistic scale.
+# (A blob track was tried first: O(1) appends, but our one-item-per-commit
+# pattern makes every id its own remote object and neither pack_items nor
+# compact() repacks Fragment tracks, so reading all ids was N GETs.)
+# id→slot lookups and duplicate checks read THIS track; the fat
+# episode_meta column is only ranged-read for the slots actually shown.
+FIELD_EPISODE_INDEX = "episode_index"
 # Search fields (schema v2+). Declared at CREATE time because DreamDB only
 # accepts embedding fields there; retrofitting needs a pre-trained index.
 FIELD_FRAME_VEC = "frame_vec"          # CLIP ViT-B/32 frame vectors
@@ -123,7 +134,13 @@ SUBTASK_VEC_DIM = 384
 # The encoding profile is a DATASET-lifetime property (every clip on one
 # playback track must share one init segment, and the init encodes frame
 # geometry) — so it is chosen once at create and stored in the space meta,
-# not passed per call. Absent key = the defaults below (older spaces).
+# not passed per call. Besides the flat defaults, the value carries
+# "cameras": {name: {"width", "height", "fps"}} — each camera track's
+# PLAYBACK profile, ADOPTED from its first clip (height/fps from the
+# defaults, width from that clip's aspect ratio) and immutable after —
+# the init-segment constraint made visible. Later ingests validate
+# against it BEFORE transcoding, from the handle's in-memory copy (zero
+# IO); the profile is written exactly once per camera.
 ENCODING_META_KEY = "dreamdb.dataset.encoding"
 DEFAULT_ENCODING = {
     "preview_height": 720,
@@ -136,7 +153,6 @@ PUBLIC_META_KEY = "dreamdb.dataset.public"
 # JSON object {track_name: kind} of user tracks declared via add_track — the
 # preset's own registry, since the engine has no field-enumeration API.
 USER_TRACKS_META_KEY = "dreamdb.dataset.user_tracks"
-
 # The only keys `meta=` accepts on add_episode/revise. Everything else in the
 # episode_meta row is SDK-assembled (probe/derivation) — user data goes to
 # x_ tracks, not meta.
@@ -163,7 +179,13 @@ TRACK_KINDS = (
 # signal); the type string bumps only when layout semantics change. The
 # earlier robot.video/v2 / robot.episode/v3 experiments are simply foreign
 # types now — open() steers them to dreamlake.db.
-DATASET_SCHEMA_TYPE = "video.annotation/v1"
+#
+# v1 → v2: episode_meta moved from a scalar_string column (spec/0011 inlines
+# every distinct value in the Track Object — appending one episode rewrote
+# ~1KB × N) to a per-episode json blob, loaded per slot window like
+# joints_pose/subtasks; episode_index (scalar_string of bare ids) became the
+# lookup path. v1 spaces are refused at open with an actionable message.
+DATASET_SCHEMA_TYPE = "video.annotation/v2"
 
 
 def base_anchor(gid: int) -> int:
@@ -215,9 +237,15 @@ def build_schema():
     # episode-level on purpose: segments live on the shared clock and are
     # camera-independent.
     schema.add_image(FIELD_SUBTASKS, mime="json", required=False)
-    # One JSON row per episode. One track rather than many scalar tracks:
-    # listing a dataset is then a single column read.
-    schema.add_scalar_string(FIELD_EPISODE_META, required=False)
+    # One JSON blob per episode (v2): cameras/labels/geometry, loaded per
+    # slot window like the annotation blobs. A blob on purpose — as a
+    # scalar column, spec/0011 inlined every (all-distinct, ~1KB) row in
+    # the Track Object, so each append rewrote the whole thing.
+    schema.add_image(FIELD_EPISODE_META, mime="json", required=False)
+    # The slim per-episode index (see the constant's comment): the lookup
+    # path that keeps id checks off the fat meta column — one cacheable
+    # fetch yields the whole id map.
+    schema.add_scalar_string(FIELD_EPISODE_INDEX, required=False)
     # Search vectors. LSH index: maintained on append, so vectors are
     # searchable the moment they land — no separate build step.
     # lsh_bits=14 targets the 10k-100k-vector regime a real dataset reaches
@@ -228,19 +256,6 @@ def build_schema():
     schema.add_embedding(FIELD_SUBTASK_VEC, dim=SUBTASK_VEC_DIM, required=False, lsh_bits=14)
     schema.add_scalar_string(FIELD_SUBTASK_LABEL, required=False)
     return schema
-
-
-@dataclass(frozen=True)
-class TrackInfo:
-    """One track's descriptor — inert: no read or write methods. Reads go
-    through the named preset methods / Episode track methods."""
-
-    name: str                 # "joints_pose__head"
-    kind: str                 # "video" | "blob" | "scalar" | "embedding"
-    role: str                 # "video_preview" | "video_raw" | "joints_pose" |
-    #                           "subtasks" | "episode_meta" | "search" | "user" | "unknown"
-    camera: Optional[str]     # for camera-namespace tracks
-    preset: bool              # False for "user"/"unknown"
 
 
 def classify_track(name: str) -> Tuple[str, Optional[str], str]:
@@ -256,7 +271,9 @@ def classify_track(name: str) -> Tuple[str, Optional[str], str]:
     if name == FIELD_SUBTASKS:
         return "blob", None, "subtasks"
     if name == FIELD_EPISODE_META:
-        return "scalar", None, "episode_meta"
+        return "blob", None, "episode_meta"
+    if name == FIELD_EPISODE_INDEX:
+        return "scalar", None, "episode_index"
     if name in (FIELD_FRAME_VEC, FIELD_SUBTASK_VEC):
         return "embedding", None, "search"
     if name == FIELD_SUBTASK_LABEL:
@@ -357,7 +374,6 @@ __all__: List[str] = [
     "build_schema",
     "CameraMeta",
     "EpisodeMeta",
-    "TrackInfo",
     "classify_track",
     "META_KEYS",
     "TRACK_KINDS",

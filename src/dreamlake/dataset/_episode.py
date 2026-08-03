@@ -16,6 +16,7 @@ import warnings
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from ._ffmpeg import probe
+from ._fields import dumps_compact
 from ._schema import (
     DEFAULT_CAMERA,
     EPISODE_STRIDE_NS,
@@ -163,9 +164,8 @@ class Episode:
                 )
 
         probes = self._d._probe_cameras(cams)
-        existing = self._d._rows()
         for camera, video in cams.items():
-            self._d._check_camera_geometry(camera, probes[camera], existing, video)
+            self._d._check_camera_geometry(camera, probes[camera], video)
 
         out: Dict[str, Any] = {"episode_id": self.episode_id, "cameras": {}}
         for camera, video in cams.items():
@@ -183,9 +183,11 @@ class Episode:
 
         wrote_fields = [joints_track(c) for c in joints_by_cam]
         rev = self._d._next_revision_anchor(row, wrote_fields)
-        sample: Dict[str, Any] = {"_anchor": rev, FIELD_EPISODE_META: json.dumps(meta)}
+        sample: Dict[str, Any] = {"_anchor": rev,
+                                  FIELD_EPISODE_META: dumps_compact(meta).encode()}
         self._d._write_annotations(sample, joints_by_cam, None, out)
         self._d._append_and_invalidate([sample])
+        self._d._register_ingest(row["gid"], self.episode_id, probes)
         self._row = {**row, **meta, "_rev": rev}
         return out
 
@@ -240,7 +242,7 @@ class Episode:
         # append rewrites the whole episode_meta track engine-side.
         old_meta = {k: v for k, v in row.items() if k not in ("gid", "anchor", "_rev")}
         if json.dumps(new_meta, sort_keys=True) != json.dumps(old_meta, sort_keys=True):
-            sample[FIELD_EPISODE_META] = json.dumps(new_meta)
+            sample[FIELD_EPISODE_META] = dumps_compact(new_meta).encode()
 
         out: Dict[str, Any] = {"episode_id": self.episode_id}
         self._d._write_annotations(sample, joints_by_cam, segments, out)
@@ -283,7 +285,7 @@ class Episode:
     @staticmethod
     def _encode_value(value: Any) -> Any:
         if isinstance(value, (dict, list)):
-            return json.dumps(value).encode()
+            return dumps_compact(value).encode()
         return value
 
     @staticmethod

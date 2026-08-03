@@ -36,6 +36,35 @@ class DatasetNotFoundError(PlatformError):
     """open/delete on a name the server does not know."""
 
 
+# ── Qualified names ──────────────────────────────────────────────────────────
+
+def split_qualified(name) -> "tuple[str | None, str]":
+    """``(namespace | None, bare_name)`` from a dataset name.
+
+    No ``/`` means the caller's own namespace (resolved from the login) —
+    the fully backward-compatible form. Exactly one ``/`` means
+    ``namespace/name``, e.g. an org the caller is a member of; the server
+    is the authority on whether they may touch it (403/404). The namespace
+    segment tolerates a leading ``@`` — the frontend's display form leaks
+    into CLI/API calls constantly, and the server strips it too.
+
+    Unambiguous by construction: dataset names cannot contain ``/``.
+    """
+    if not isinstance(name, str) or not name.strip():
+        raise PlatformError(f"dataset name must be a non-empty string, got {name!r}")
+    s = name.strip()
+    if "/" not in s:
+        return None, s
+    parts = s.split("/")
+    ns = parts[0].removeprefix("@") if len(parts) == 2 else ""
+    if len(parts) != 2 or not ns or not parts[1]:
+        raise PlatformError(
+            f"invalid dataset name '{name}' — expected 'name' or "
+            f"'namespace/name' (at most one '/', no empty segments)"
+        )
+    return ns, parts[1]
+
+
 # ── HTTP plumbing ────────────────────────────────────────────────────────────
 
 def _request(method: str, url: str, token: str, *, json_body: dict | None = None):
@@ -115,12 +144,31 @@ def _attach_lease(ds, broker: dict, namespace: str, name: str):
     return ds
 
 
-def _platform_context() -> tuple[str, str, str]:
-    """Resolve (token, namespace, remote) for a platform call."""
+def _platform_context(namespace: "str | None" = None) -> tuple[str, str, str]:
+    """Resolve (token, namespace, remote) for a platform call. An explicit
+    ``namespace`` (from a qualified name) skips the /auth/me resolution —
+    the server authorizes it per request."""
     token = _session.get_token()
     remote = _session.remote_url()
-    namespace = _session.get_namespace(token=token, remote=remote)
+    if not namespace:
+        namespace = _session.get_namespace(token=token, remote=remote)
     return token, namespace, remote
+
+
+def resolve_namespace(namespace: "str | None" = None) -> str:
+    """The namespace a bare (unqualified) name would land in — the login's
+    own — or ``namespace`` verbatim when given."""
+    _, ns, _ = _platform_context(namespace)
+    return ns
+
+
+def _forbidden(r, namespace: str, doing: str) -> "PlatformError | None":
+    if r.status_code == 403:
+        return PlatformError(
+            f"not allowed to {doing} in namespace '{namespace}' — you must be "
+            f"its owner or a member of the organisation.{_server_said(r)}"
+        )
+    return None
 
 
 # ── Catalog + brokered dataset handles ──────────────────────────────────────
@@ -129,11 +177,13 @@ def create_dataset(name: str, schema, *, schema_type: str,
                    schema_json: str | None = None,
                    visibility: str | None = None,
                    duration_seconds: int = DEFAULT_DURATION_SECONDS):
-    """Register ``name`` in the caller's namespace catalog, broker a
-    credential lease, and create the dreamdb space on the brokered backend.
-    Returns a live ``dreamdb.Dataset`` with ``dreamlake_lease`` attached."""
+    """Register ``name`` (bare, or qualified ``namespace/name``) in the
+    catalog, broker a credential lease, and create the dreamdb space on the
+    brokered backend. Returns a live ``dreamdb.Dataset`` with
+    ``dreamlake_lease`` attached."""
     dreamdb = _db._dreamdb()
-    token, namespace, remote = _platform_context()
+    ns_arg, name = split_qualified(name)
+    token, namespace, remote = _platform_context(ns_arg)
 
     body: dict = {"name": name, "schemaType": schema_type}
     if schema_json is not None:
@@ -149,7 +199,7 @@ def create_dataset(name: str, schema, *, schema_type: str,
             f"open it instead of creating, or delete it first."
         )
     if r.status_code >= 400:
-        raise PlatformError(
+        raise _forbidden(r, namespace, "create a dataset") or PlatformError(
             f"could not create dataset '{name}' ({r.status_code}).{_server_said(r)}"
         )
 
@@ -161,12 +211,13 @@ def create_dataset(name: str, schema, *, schema_type: str,
     return _attach_lease(ds, broker, namespace, name)
 
 
-def open_dataset(name: str, *, schema=None,
-                 duration_seconds: int = DEFAULT_DURATION_SECONDS):
-    """Look ``name`` up in the caller's namespace catalog, broker a
-    credential lease, and open the dreamdb space on the brokered backend."""
-    dreamdb = _db._dreamdb()
-    token, namespace, remote = _platform_context()
+def get_dataset(name: str) -> dict:
+    """The catalog row for ``name`` (bare or ``namespace/name``) — one GET,
+    no credential brokering. The row carries ``schemaType`` (the SDK's class
+    dispatch key) plus visibility etc.; ``namespace`` and ``name`` are
+    stamped in so callers need no second resolution."""
+    ns_arg, name = split_qualified(name)
+    token, namespace, remote = _platform_context(ns_arg)
 
     r = _request("GET", f"{remote}/namespaces/{namespace}/datasets/{name}", token)
     if r.status_code == 404:
@@ -178,6 +229,25 @@ def open_dataset(name: str, *, schema=None,
         raise PlatformError(
             f"could not look up dataset '{name}' ({r.status_code}).{_server_said(r)}"
         )
+    row = r.json()
+    if not isinstance(row, dict):
+        row = {}
+    row.setdefault("name", name)
+    row["namespace"] = namespace
+    return row
+
+
+def open_dataset(name: str, *, schema=None, row: dict | None = None,
+                 duration_seconds: int = DEFAULT_DURATION_SECONDS):
+    """Look ``name`` (bare or ``namespace/name``) up in the catalog, broker
+    a credential lease, and open the dreamdb space on the brokered backend.
+    Pass ``row=`` (a prior :func:`get_dataset` result) to skip the catalog
+    GET — the dispatch path already holds it."""
+    dreamdb = _db._dreamdb()
+    if row is None:
+        row = get_dataset(name)
+    namespace, name = row["namespace"], row["name"]
+    token, namespace, remote = _platform_context(namespace)
 
     broker = _broker_credentials(remote, namespace, name, token, duration_seconds)
     ds = dreamdb.Dataset.open(broker.get("refName", _db.REF_NAME), schema,
@@ -185,10 +255,30 @@ def open_dataset(name: str, *, schema=None,
     return _attach_lease(ds, broker, namespace, name)
 
 
-def list_datasets(schema_type: str | None = None) -> list[dict]:
-    """The namespace's dataset catalog, optionally filtered by schemaType."""
-    token, namespace, remote = _platform_context()
-    url = f"{remote}/namespaces/{namespace}/datasets"
+def patch_dataset(name: str, *, visibility: str) -> None:
+    """Update the catalog row. The server's PATCH accepts visibility only."""
+    ns_arg, name = split_qualified(name)
+    token, namespace, remote = _platform_context(ns_arg)
+    r = _request("PATCH", f"{remote}/namespaces/{namespace}/datasets/{name}",
+                 token, json_body={"visibility": visibility})
+    if r.status_code == 404:
+        raise DatasetNotFoundError(
+            f"dataset '{name}' not found in namespace '{namespace}'."
+        )
+    if r.status_code >= 400:
+        raise _forbidden(r, namespace, "update a dataset") or PlatformError(
+            f"could not update dataset '{name}' ({r.status_code}).{_server_said(r)}"
+        )
+
+
+def list_datasets(schema_type: str | None = None, *,
+                  namespace: str | None = None) -> list[dict]:
+    """A namespace's dataset catalog (the login's own unless ``namespace=``),
+    optionally filtered by schemaType."""
+    token, ns, remote = _platform_context(
+        namespace.removeprefix("@") if namespace else None
+    )
+    url = f"{remote}/namespaces/{ns}/datasets"
     if schema_type:
         url += f"?schemaType={schema_type}"
     r = _request("GET", url, token)
@@ -200,9 +290,11 @@ def list_datasets(schema_type: str | None = None) -> list[dict]:
 
 
 def delete_dataset(name: str, purge: bool = False) -> None:
-    """Delete a dataset from the catalog. ``purge=True`` also deletes the
-    backing storage; otherwise only the catalog entry is removed."""
-    token, namespace, remote = _platform_context()
+    """Delete a dataset (bare or ``namespace/name``) from the catalog.
+    ``purge=True`` also deletes the backing storage; otherwise only the
+    catalog entry is removed."""
+    ns_arg, name = split_qualified(name)
+    token, namespace, remote = _platform_context(ns_arg)
     url = f"{remote}/namespaces/{namespace}/datasets/{name}"
     if purge:
         url += "/purge"
@@ -212,6 +304,6 @@ def delete_dataset(name: str, purge: bool = False) -> None:
             f"dataset '{name}' not found in namespace '{namespace}'."
         )
     if r.status_code >= 400:
-        raise PlatformError(
+        raise _forbidden(r, namespace, "delete a dataset") or PlatformError(
             f"could not delete dataset '{name}' ({r.status_code}).{_server_said(r)}"
         )
