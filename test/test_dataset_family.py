@@ -210,6 +210,52 @@ class TestSplitQualified:
             split_qualified(bad)
 
 
+# ── Qualified-name handles (#15) ─────────────────────────────────────────────
+# open("ns/name") stored the FULL qualified string as .name while .namespace
+# came from the lease, so _qualified() emitted "ns/ns/name" and every caller
+# (set_visibility, delete, presign) died on the platform's name validation.
+# The lease's server-resolved bare name is authoritative.
+
+class _LeasedInner:
+    """The minimum a platform-brokered dreamdb handle exposes to __init__."""
+
+    def __init__(self, namespace, name):
+        self.dreamlake_lease = {
+            "backend_url": "s3://bucket/prefix",
+            "namespace": namespace,
+            "name": name,
+            "prefix": None,
+            "expiration": None,
+        }
+
+    def meta(self):
+        return {}
+
+
+class TestQualifiedNameHandles:
+    def test_preset_handle_stores_bare_name_from_lease(self):
+        from dreamlake.dataset._core import VideoAnnotationDataset
+
+        ds = VideoAnnotationDataset(
+            _LeasedInner("fortyfive", "micro1"), "s3://bucket/prefix",
+            name="fortyfive/micro1",  # the qualified string open() receives
+        )
+        assert ds.name == "micro1"
+        assert ds.namespace == "fortyfive"
+        assert ds._qualified() == "fortyfive/micro1"
+
+    def test_self_hosted_handle_keeps_given_name(self):
+        from dreamlake.dataset._core import VideoAnnotationDataset
+
+        class _BareInner:
+            def meta(self):
+                return {}
+
+        ds = VideoAnnotationDataset(_BareInner(), "file:///tmp/space", name="my-title")
+        assert ds.name == "my-title"
+        assert ds.namespace is None
+
+
 # ── Schema — pure declaration + wire format ─────────────────────────────────
 
 class TestSchema:
