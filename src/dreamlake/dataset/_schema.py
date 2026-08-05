@@ -91,6 +91,41 @@ def joints_track(camera: str) -> str:
     return JOINTS_POSE_PREFIX + camera
 
 
+# ---- Reconstruction tracks (3D hand-object reconstruction extension) --------
+#
+# A third annotation modality on a video.annotation episode, sibling to
+# joints_pose/subtasks. ``recon_mesh`` is camera-independent object geometry;
+# the per-frame data (pose/hands/gravity) and the intrinsics live in ONE
+# camera's OpenCV frame, so they ride the same ``__<camera>`` namespace as
+# joints_pose. Presence is binding (a viewer renders 3D iff these exist),
+# exactly like joints_pose. See docs/reconstruction-schema.md.
+FIELD_RECON_MESH = "recon_mesh"
+RECON_POSE_PREFIX = "recon_pose__"
+RECON_HANDS_PREFIX = "recon_hands__"
+RECON_GRAVITY_PREFIX = "recon_gravity__"
+RECON_CAMERA_PREFIX = "recon_camera__"
+
+
+def recon_pose_track(camera: str) -> str:
+    """Per-frame 6-DoF object poses in one camera's frame, e.g. ``recon_pose__main``."""
+    return RECON_POSE_PREFIX + camera
+
+
+def recon_hands_track(camera: str) -> str:
+    """Per-frame MANO hands in one camera's frame, e.g. ``recon_hands__main``."""
+    return RECON_HANDS_PREFIX + camera
+
+
+def recon_gravity_track(camera: str) -> str:
+    """Camera-frame gravity up-vector, e.g. ``recon_gravity__main``."""
+    return RECON_GRAVITY_PREFIX + camera
+
+
+def recon_camera_track(camera: str) -> str:
+    """Pinhole intrinsics for mesh projection, e.g. ``recon_camera__main``."""
+    return RECON_CAMERA_PREFIX + camera
+
+
 def validate_camera_name(camera: str) -> Optional[str]:
     """Error string when ``camera`` cannot name a track, else None."""
     if not isinstance(camera, str) or not _CAMERA_NAME_RE.match(camera):
@@ -153,6 +188,11 @@ PUBLIC_META_KEY = "dreamdb.dataset.public"
 # JSON object {track_name: kind} of user tracks declared via add_track — the
 # preset's own registry, since the engine has no field-enumeration API.
 USER_TRACKS_META_KEY = "dreamdb.dataset.user_tracks"
+# Present ("v1") once any episode carries the reconstruction extension
+# (recon_* fields). A version tag for the recon payload layout, additive to
+# and independent of the dataset schemaType. See docs/reconstruction-schema.md.
+RECON_SCHEMA_META_KEY = "dreamdb.dataset.recon"
+RECON_SCHEMA_VERSION = "v1"
 # The only keys `meta=` accepts on add_episode/revise. Everything else in the
 # episode_meta row is SDK-assembled (probe/derivation) — user data goes to
 # x_ tracks, not meta.
@@ -255,6 +295,15 @@ def build_schema():
     schema.add_embedding(FIELD_FRAME_VEC, dim=FRAME_VEC_DIM, required=False, lsh_bits=14)
     schema.add_embedding(FIELD_SUBTASK_VEC, dim=SUBTASK_VEC_DIM, required=False, lsh_bits=14)
     schema.add_scalar_string(FIELD_SUBTASK_LABEL, required=False)
+    # Reconstruction extension (optional, additive). One JSON blob per episode
+    # each — object geometry is episode-level; pose/hands/gravity/intrinsics are
+    # camera-scoped like joints_pose. Further cameras' recon tracks are declared
+    # on first use (see _ensure_recon_tracks).
+    schema.add_image(FIELD_RECON_MESH, mime="json", required=False)
+    schema.add_image(recon_pose_track(DEFAULT_CAMERA), mime="json", required=False)
+    schema.add_image(recon_hands_track(DEFAULT_CAMERA), mime="json", required=False)
+    schema.add_image(recon_gravity_track(DEFAULT_CAMERA), mime="json", required=False)
+    schema.add_image(recon_camera_track(DEFAULT_CAMERA), mime="json", required=False)
     return schema
 
 
@@ -272,6 +321,16 @@ def classify_track(name: str) -> Tuple[str, Optional[str], str]:
         return "blob", None, "subtasks"
     if name == FIELD_EPISODE_META:
         return "blob", None, "episode_meta"
+    if name == FIELD_RECON_MESH:
+        return "blob", None, "recon_mesh"
+    if name.startswith(RECON_POSE_PREFIX):
+        return "blob", name[len(RECON_POSE_PREFIX):], "recon_pose"
+    if name.startswith(RECON_HANDS_PREFIX):
+        return "blob", name[len(RECON_HANDS_PREFIX):], "recon_hands"
+    if name.startswith(RECON_GRAVITY_PREFIX):
+        return "blob", name[len(RECON_GRAVITY_PREFIX):], "recon_gravity"
+    if name.startswith(RECON_CAMERA_PREFIX):
+        return "blob", name[len(RECON_CAMERA_PREFIX):], "recon_camera"
     if name == FIELD_EPISODE_INDEX:
         return "scalar", None, "episode_index"
     if name in (FIELD_FRAME_VEC, FIELD_SUBTASK_VEC):

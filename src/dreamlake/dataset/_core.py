@@ -72,9 +72,12 @@ from ._schema import (
     FIELD_SUBTASK_LABEL,
     FIELD_SUBTASK_VEC,
     FIELD_SUBTASKS,
+    FIELD_RECON_MESH,
     MAX_EPISODE_SECONDS,
     META_KEYS,
     PUBLIC_META_KEY,
+    RECON_SCHEMA_META_KEY,
+    RECON_SCHEMA_VERSION,
     REVISION_WINDOW_NS,
     TRACK_KINDS,
     USER_TRACK_RE,
@@ -86,6 +89,10 @@ from ._schema import (
     joints_track,
     preview_track,
     raw_track,
+    recon_camera_track,
+    recon_gravity_track,
+    recon_hands_track,
+    recon_pose_track,
     validate_camera_name,
     validate_joints_pose,
     validate_subtasks,
@@ -502,11 +509,15 @@ class VideoAnnotationDataset(_GenericDataset):
         handle are outside the contract and not listed.)
         """
         names: List[str] = [
-            FIELD_EPISODE_META, FIELD_EPISODE_INDEX, FIELD_SUBTASKS,
+            FIELD_EPISODE_META, FIELD_EPISODE_INDEX, FIELD_SUBTASKS, FIELD_RECON_MESH,
             FIELD_FRAME_VEC, FIELD_SUBTASK_VEC, FIELD_SUBTASK_LABEL,
         ]
         for cam in self.cameras() or [DEFAULT_CAMERA]:
-            names += [preview_track(cam), raw_track(cam), joints_track(cam)]
+            names += [
+                preview_track(cam), raw_track(cam), joints_track(cam),
+                recon_pose_track(cam), recon_hands_track(cam),
+                recon_gravity_track(cam), recon_camera_track(cam),
+            ]
         user = self._user_tracks()
         names += sorted(user.keys())
 
@@ -515,7 +526,9 @@ class VideoAnnotationDataset(_GenericDataset):
             _, camera, role = classify_track(n)
             if role in ("video_preview", "video_raw"):
                 kind, mime, dim = "video", "h264", None
-            elif role in ("joints_pose", "subtasks", "episode_meta"):
+            elif role in ("joints_pose", "subtasks", "episode_meta",
+                          "recon_mesh", "recon_pose", "recon_hands",
+                          "recon_gravity", "recon_camera"):
                 kind, mime, dim = "image", "json", None
             elif n == FIELD_FRAME_VEC:
                 kind, mime, dim = "embedding", None, FRAME_VEC_DIM
@@ -696,6 +709,24 @@ class VideoAnnotationDataset(_GenericDataset):
         except Exception as e:
             if "already exists" not in str(e):
                 raise
+
+    def _ensure_recon_tracks(self, camera: str) -> None:
+        """Declare the reconstruction tracks (episode-level mesh + this camera's
+        pose/hands/gravity/intrinsics). Idempotent, and works on datasets created
+        before the recon extension existed (the fields are all optional)."""
+        fields = (
+            FIELD_RECON_MESH,
+            recon_pose_track(camera),
+            recon_hands_track(camera),
+            recon_gravity_track(camera),
+            recon_camera_track(camera),
+        )
+        for field in fields:
+            try:
+                self._ds.add_image(field, mime="json", required=False)
+            except Exception as e:
+                if "already exists" not in str(e):
+                    raise
 
     def _check_camera_geometry(self, camera: str, src: ProbeResult, video: str) -> None:
         """Aspect-ratio pre-check against the camera's ADOPTED playback

@@ -21,13 +21,128 @@ from ._schema import (
     DEFAULT_CAMERA,
     EPISODE_STRIDE_NS,
     FIELD_EPISODE_META,
+    FIELD_RECON_MESH,
     FIELD_SUBTASKS,
     MAX_EPISODE_SECONDS,
     META_KEYS,
+    RECON_SCHEMA_META_KEY,
+    RECON_SCHEMA_VERSION,
     USER_TRACK_RE,
     joints_track,
+    recon_camera_track,
+    recon_gravity_track,
+    recon_hands_track,
+    recon_pose_track,
     validate_subtasks,
 )
+
+
+# ---- reconstruction modality: normalize+validate to the stored JSON docs ----
+# (see docs/reconstruction-schema.md — the contract these produce)
+
+def _recon_meshes_doc(meshes: Any) -> Dict[str, Any]:
+    from ._core import DatasetError
+
+    if not isinstance(meshes, dict) or not meshes:
+        raise DatasetError(
+            "set_reconstruction: meshes must be a non-empty {object: mesh} dict"
+        )
+    out: Dict[str, Any] = {}
+    for name, m in meshes.items():
+        if isinstance(m, str):
+            out[str(name)] = {"obj": m, "scale": 1.0}
+        elif isinstance(m, dict) and "obj" in m:
+            out[str(name)] = {"obj": str(m["obj"]), "scale": float(m.get("scale", 1.0))}
+        else:
+            raise DatasetError(
+                f"set_reconstruction: mesh '{name}' must be an .obj string or "
+                f"{{'obj': <text>, 'scale': <float>}}"
+            )
+    return out
+
+
+def _recon_poses_doc(poses: Any) -> Dict[str, Any]:
+    from ._core import DatasetError
+
+    # accept {frame: {object: {t,q}}} or an already-wrapped {"frames": {...}}
+    frames = poses.get("frames") if isinstance(poses, dict) and "frames" in poses else poses
+    if not isinstance(frames, dict) or not frames:
+        raise DatasetError(
+            "set_reconstruction: poses must be {frame: {object: {'t':[x,y,z], "
+            "'q':[w,x,y,z]}}}"
+        )
+    out: Dict[str, Any] = {}
+    for f, objs in frames.items():
+        if not isinstance(objs, dict):
+            raise DatasetError(f"set_reconstruction: poses[{f}] must be {{object: {{t,q}}}}")
+        row: Dict[str, Any] = {}
+        for name, p in objs.items():
+            t = [float(x) for x in p["t"]]
+            q = [float(x) for x in p["q"]]
+            if len(t) != 3 or len(q) != 4:
+                raise DatasetError(
+                    f"set_reconstruction: pose {name}@{f} needs t[3] and q[4 wxyz]"
+                )
+            row[str(name)] = {"t": t, "q": q}
+        out[str(int(f))] = row
+    return {"frames": out}
+
+
+def _recon_camera_doc(intrinsics: Any) -> Dict[str, Any]:
+    from ._core import DatasetError
+
+    if not isinstance(intrinsics, dict):
+        raise DatasetError("set_reconstruction: intrinsics must be a dict")
+    try:
+        fx, fy = float(intrinsics["fx"]), float(intrinsics["fy"])
+        cx, cy = float(intrinsics["cx"]), float(intrinsics["cy"])
+    except KeyError as e:
+        raise DatasetError(f"set_reconstruction: intrinsics missing {e}") from e
+    return {
+        "fx": fx, "fy": fy, "cx": cx, "cy": cy,
+        "width": int(intrinsics.get("width", round(2 * cx))),
+        "height": int(intrinsics.get("height", round(2 * cy))),
+    }
+
+
+def _recon_hands_doc(hands: Any) -> Dict[str, Any]:
+    from ._core import DatasetError
+
+    if not isinstance(hands, dict) or "frames" not in hands:
+        raise DatasetError(
+            "set_reconstruction: hands must be {'faces': {'left','right'}, "
+            "'frames': {frame: {side: {'verts','joints'}}}}"
+        )
+    faces_in = hands.get("faces") or {}
+    faces = {
+        side: [[int(i) for i in tri] for tri in tris]
+        for side, tris in faces_in.items()
+    }
+    out_frames: Dict[str, Any] = {}
+    for f, sides in hands["frames"].items():
+        if not isinstance(sides, dict):
+            continue
+        row: Dict[str, Any] = {}
+        for side in ("left", "right"):
+            hd = sides.get(side)
+            if not hd:
+                continue
+            row[side] = {
+                "verts": [[float(x) for x in v] for v in hd["verts"]],
+                "joints": [[float(x) for x in j] for j in hd.get("joints", [])],
+            }
+        if row:
+            out_frames[str(int(f))] = row
+    return {"faces": faces, "frames": out_frames}
+
+
+def _recon_gravity_doc(gravity: Any) -> Dict[str, Any]:
+    from ._core import DatasetError
+
+    v = list(gravity)
+    if len(v) != 3:
+        raise DatasetError("set_reconstruction: gravity must be a 3-vector [x,y,z]")
+    return {"vec3d": [float(x) for x in v]}
 
 
 class Episode:
@@ -125,6 +240,32 @@ class Episode:
         """The episode's subtasks document, or None."""
         blob = self._d._read_blob(FIELD_SUBTASKS, self.gid)
         return json.loads(blob) if blob else None
+
+    def read_reconstruction(self, camera: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """The 3D reconstruction modality for one camera (default: primary):
+        ``{"camera", "meshes", "poses", "camera_intrinsics", "hands"?, "gravity"?}``,
+        or None when this episode carries no reconstruction on that camera.
+        Every field is one JSON blob, read in one fetch each (never per-frame)."""
+        cam = camera or self._row.get("primary_camera") or DEFAULT_CAMERA
+        mesh_blob = self._d._read_blob(FIELD_RECON_MESH, self.gid)
+        pose_blob = self._d._read_blob(recon_pose_track(cam), self.gid)
+        if not mesh_blob and not pose_blob:
+            return None
+        out: Dict[str, Any] = {"camera": cam}
+        if mesh_blob:
+            out["meshes"] = json.loads(mesh_blob)
+        if pose_blob:
+            out["poses"] = json.loads(pose_blob)
+        cam_blob = self._d._read_blob(recon_camera_track(cam), self.gid)
+        if cam_blob:
+            out["camera_intrinsics"] = json.loads(cam_blob)
+        hands_blob = self._d._read_blob(recon_hands_track(cam), self.gid)
+        if hands_blob:
+            out["hands"] = json.loads(hands_blob)
+        grav_blob = self._d._read_blob(recon_gravity_track(cam), self.gid)
+        if grav_blob:
+            out["gravity"] = json.loads(grav_blob)
+        return out
 
     # ---- writes (each re-reads meta at call time) ------------------------
 
@@ -251,6 +392,82 @@ class Episode:
         self._d._append_and_invalidate([sample])
         self._row = {"gid": row["gid"], "anchor": row["anchor"], "_rev": rev, **new_meta}
         return out
+
+    def set_reconstruction(
+        self,
+        *,
+        meshes: Dict[str, Any],
+        poses: Dict[Any, Any],
+        intrinsics: Dict[str, float],
+        camera: Optional[str] = None,
+        hands: Optional[Dict[str, Any]] = None,
+        gravity: Optional[Sequence[float]] = None,
+    ) -> Dict[str, Any]:
+        """Write the 3D hand–object reconstruction modality onto this episode —
+        a third modality alongside ``joints_pose`` and ``subtasks`` (see
+        docs/reconstruction-schema.md). Additive and optional; existing episodes
+        are unaffected. All geometry is in the ``camera`` frame (OpenCV
+        x-right/y-down/z-forward), metres, frame ``f`` ↔ time ``f/fps``.
+
+        - ``meshes`` — ``{object: <.obj text>}`` or ``{object: {"obj", "scale"}}``
+          → ``recon_mesh`` (episode-level; colour is not stored).
+        - ``poses`` — ``{frame: {object: {"t":[x,y,z], "q":[w,x,y,z]}}}``
+          (or an already-wrapped ``{"frames": {...}}``) → ``recon_pose__<cam>``.
+        - ``intrinsics`` — ``{"fx","fy","cx","cy"[,"width","height"]}``
+          → ``recon_camera__<cam>`` (width/height default to 2·cx / 2·cy).
+        - ``hands`` — ``{"faces": {"left","right"}, "frames": {frame: {side:
+          {"verts","joints"}}}}`` → ``recon_hands__<cam>`` (optional; sparse).
+        - ``gravity`` — up direction as a 3-vector → ``recon_gravity__<cam>``.
+
+        Re-calling revises (newest wins; history kept). Also stamps the space
+        meta ``recon.schema = "v1"``.
+        """
+        from ._core import DatasetError
+
+        row = self._d._require_row(self.episode_id)  # write-time re-read
+        cam = camera or row.get("primary_camera") or DEFAULT_CAMERA
+        have = row.get("cameras") or {}
+        if cam not in have:
+            raise DatasetError(
+                f"reconstruction names camera '{cam}', but this episode has "
+                f"cameras {sorted(have)} — reconstruction binds to the camera "
+                f"frame it was solved in"
+            )
+
+        mesh_doc = _recon_meshes_doc(meshes)
+        pose_doc = _recon_poses_doc(poses)
+        cam_doc = _recon_camera_doc(intrinsics)
+        hands_doc = _recon_hands_doc(hands) if hands is not None else None
+        grav_doc = _recon_gravity_doc(gravity) if gravity is not None else None
+
+        self._d._ensure_recon_tracks(cam)
+
+        wrote_fields = [FIELD_RECON_MESH, recon_pose_track(cam), recon_camera_track(cam)]
+        if hands_doc is not None:
+            wrote_fields.append(recon_hands_track(cam))
+        if grav_doc is not None:
+            wrote_fields.append(recon_gravity_track(cam))
+
+        rev = self._d._next_revision_anchor(row, wrote_fields)
+        sample: Dict[str, Any] = {"_anchor": rev}
+        sample[FIELD_RECON_MESH] = dumps_compact(mesh_doc).encode()
+        sample[recon_pose_track(cam)] = dumps_compact(pose_doc).encode()
+        sample[recon_camera_track(cam)] = dumps_compact(cam_doc).encode()
+        if hands_doc is not None:
+            sample[recon_hands_track(cam)] = dumps_compact(hands_doc).encode()
+        if grav_doc is not None:
+            sample[recon_gravity_track(cam)] = dumps_compact(grav_doc).encode()
+
+        self._d._append_and_invalidate([sample])
+        self._d._ds.set_meta(RECON_SCHEMA_META_KEY, RECON_SCHEMA_VERSION)
+        return {
+            "episode_id": self.episode_id,
+            "camera": cam,
+            "objects": sorted(mesh_doc.keys()),
+            "frames": len(pose_doc.get("frames", {})),
+            "hands": hands_doc is not None,
+            "gravity": grav_doc is not None,
+        }
 
     # ---- user tracks (x_ namespace; declare with ds.add_track) -----------
 
