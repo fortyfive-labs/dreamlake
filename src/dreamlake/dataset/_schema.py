@@ -28,6 +28,8 @@ from __future__ import annotations
 import re
 from typing import Any, Dict, List, Optional, Tuple, TypedDict
 
+from ._errors import DatasetError
+
 # Anchor slot width per episode: one hour in nanoseconds. An episode's
 # identity is a property of its anchor; a camera clip longer than the slot
 # would bleed into the next episode's slot and corrupt both, so
@@ -89,6 +91,41 @@ def joints_track(camera: str) -> str:
     viewer overlays ``joints_pose__X`` on camera ``X``; presence is binding.
     """
     return JOINTS_POSE_PREFIX + camera
+
+
+# ---- Reconstruction tracks (3D hand-object reconstruction extension) --------
+#
+# A third annotation modality on a video.annotation episode, sibling to
+# joints_pose/subtasks. ``recon_mesh`` is camera-independent object geometry;
+# the per-frame data (pose/hands/gravity) and the intrinsics live in ONE
+# camera's OpenCV frame, so they ride the same ``__<camera>`` namespace as
+# joints_pose. Presence is binding (a viewer renders 3D iff these exist),
+# exactly like joints_pose. See docs/reconstruction-schema.md.
+FIELD_RECON_MESH = "recon_mesh"
+RECON_POSE_PREFIX = "recon_pose__"
+RECON_HANDS_PREFIX = "recon_hands__"
+RECON_GRAVITY_PREFIX = "recon_gravity__"
+RECON_CAMERA_PREFIX = "recon_camera__"
+
+
+def recon_pose_track(camera: str) -> str:
+    """Per-frame 6-DoF object poses in one camera's frame, e.g. ``recon_pose__main``."""
+    return RECON_POSE_PREFIX + camera
+
+
+def recon_hands_track(camera: str) -> str:
+    """Per-frame MANO hands in one camera's frame, e.g. ``recon_hands__main``."""
+    return RECON_HANDS_PREFIX + camera
+
+
+def recon_gravity_track(camera: str) -> str:
+    """Camera-frame gravity up-vector, e.g. ``recon_gravity__main``."""
+    return RECON_GRAVITY_PREFIX + camera
+
+
+def recon_camera_track(camera: str) -> str:
+    """Pinhole intrinsics for mesh projection, e.g. ``recon_camera__main``."""
+    return RECON_CAMERA_PREFIX + camera
 
 
 def validate_camera_name(camera: str) -> Optional[str]:
@@ -153,6 +190,11 @@ PUBLIC_META_KEY = "dreamdb.dataset.public"
 # JSON object {track_name: kind} of user tracks declared via add_track — the
 # preset's own registry, since the engine has no field-enumeration API.
 USER_TRACKS_META_KEY = "dreamdb.dataset.user_tracks"
+# Present ("v1") once any episode carries the reconstruction extension
+# (recon_* fields). A version tag for the recon payload layout, additive to
+# and independent of the dataset schemaType. See docs/reconstruction-schema.md.
+RECON_SCHEMA_META_KEY = "dreamdb.dataset.recon"
+RECON_SCHEMA_VERSION = "v1"
 # The only keys `meta=` accepts on add_episode/revise. Everything else in the
 # episode_meta row is SDK-assembled (probe/derivation) — user data goes to
 # x_ tracks, not meta.
@@ -255,6 +297,15 @@ def build_schema():
     schema.add_embedding(FIELD_FRAME_VEC, dim=FRAME_VEC_DIM, required=False, lsh_bits=14)
     schema.add_embedding(FIELD_SUBTASK_VEC, dim=SUBTASK_VEC_DIM, required=False, lsh_bits=14)
     schema.add_scalar_string(FIELD_SUBTASK_LABEL, required=False)
+    # Reconstruction extension (optional, additive). One JSON blob per episode
+    # each — object geometry is episode-level; pose/hands/gravity/intrinsics are
+    # camera-scoped like joints_pose. Further cameras' recon tracks are declared
+    # on first use (see _ensure_recon_tracks).
+    schema.add_image(FIELD_RECON_MESH, mime="json", required=False)
+    schema.add_image(recon_pose_track(DEFAULT_CAMERA), mime="json", required=False)
+    schema.add_image(recon_hands_track(DEFAULT_CAMERA), mime="json", required=False)
+    schema.add_image(recon_gravity_track(DEFAULT_CAMERA), mime="json", required=False)
+    schema.add_image(recon_camera_track(DEFAULT_CAMERA), mime="json", required=False)
     return schema
 
 
@@ -272,6 +323,16 @@ def classify_track(name: str) -> Tuple[str, Optional[str], str]:
         return "blob", None, "subtasks"
     if name == FIELD_EPISODE_META:
         return "blob", None, "episode_meta"
+    if name == FIELD_RECON_MESH:
+        return "blob", None, "recon_mesh"
+    if name.startswith(RECON_POSE_PREFIX):
+        return "blob", name[len(RECON_POSE_PREFIX):], "recon_pose"
+    if name.startswith(RECON_HANDS_PREFIX):
+        return "blob", name[len(RECON_HANDS_PREFIX):], "recon_hands"
+    if name.startswith(RECON_GRAVITY_PREFIX):
+        return "blob", name[len(RECON_GRAVITY_PREFIX):], "recon_gravity"
+    if name.startswith(RECON_CAMERA_PREFIX):
+        return "blob", name[len(RECON_CAMERA_PREFIX):], "recon_camera"
     if name == FIELD_EPISODE_INDEX:
         return "scalar", None, "episode_index"
     if name in (FIELD_FRAME_VEC, FIELD_SUBTASK_VEC):
@@ -355,6 +416,186 @@ def validate_subtasks(doc: Dict[str, Any]) -> Optional[str]:
         ):
             return f"labeled_subtasks[{i}] needs start_sec, end_sec and subtask"
     return None
+
+
+# ---- reconstruction modality: normalize+validate to the stored JSON docs ----
+# (see docs/reconstruction-schema.md — the contract these produce). Lives here
+# beside validate_subtasks/validate_joints_pose so the whole field contract —
+# names, schema, classification AND payload validation — is in one module.
+
+def _recon_meshes_doc(meshes: Any) -> Dict[str, Any]:
+    if not isinstance(meshes, dict) or not meshes:
+        raise DatasetError(
+            "reconstruction: meshes must be a non-empty {object: mesh} dict"
+        )
+    out: Dict[str, Any] = {}
+    for name, m in meshes.items():
+        if isinstance(m, str):
+            out[str(name)] = {"obj": m, "scale": 1.0}
+        elif isinstance(m, dict) and "obj" in m:
+            out[str(name)] = {"obj": str(m["obj"]), "scale": float(m.get("scale", 1.0))}
+        else:
+            raise DatasetError(
+                f"reconstruction: mesh '{name}' must be an .obj string or "
+                f"{{'obj': <text>, 'scale': <float>}}"
+            )
+    return out
+
+
+def _recon_poses_doc(poses: Any) -> Dict[str, Any]:
+    # accept {frame: {object: {t,q}}} or an already-wrapped {"frames": {...}}
+    frames = poses.get("frames") if isinstance(poses, dict) and "frames" in poses else poses
+    if not isinstance(frames, dict) or not frames:
+        raise DatasetError(
+            "reconstruction: poses must be {frame: {object: {'t':[x,y,z], "
+            "'q':[w,x,y,z]}}}"
+        )
+    out: Dict[str, Any] = {}
+    for f, objs in frames.items():
+        if not isinstance(objs, dict):
+            raise DatasetError(f"reconstruction: poses[{f}] must be {{object: {{t,q}}}}")
+        row: Dict[str, Any] = {}
+        for name, p in objs.items():
+            t = [float(x) for x in p["t"]]
+            q = [float(x) for x in p["q"]]
+            if len(t) != 3 or len(q) != 4:
+                raise DatasetError(
+                    f"reconstruction: pose {name}@{f} needs t[3] and q[4 wxyz]"
+                )
+            row[str(name)] = {"t": t, "q": q}
+        out[str(int(f))] = row
+    return {"frames": out}
+
+
+def _recon_camera_doc(intrinsics: Any) -> Dict[str, Any]:
+    if not isinstance(intrinsics, dict):
+        raise DatasetError("reconstruction: intrinsics must be a dict")
+    try:
+        fx, fy = float(intrinsics["fx"]), float(intrinsics["fy"])
+        cx, cy = float(intrinsics["cx"]), float(intrinsics["cy"])
+    except KeyError as e:
+        raise DatasetError(f"reconstruction: intrinsics missing {e}") from e
+    return {
+        "fx": fx, "fy": fy, "cx": cx, "cy": cy,
+        "width": int(intrinsics.get("width", round(2 * cx))),
+        "height": int(intrinsics.get("height", round(2 * cy))),
+    }
+
+
+def _recon_hands_doc(hands: Any) -> Dict[str, Any]:
+    if not isinstance(hands, dict) or "frames" not in hands:
+        raise DatasetError(
+            "reconstruction: hands must be {'faces': {'left','right'}, "
+            "'frames': {frame: {side: {'verts','joints'}}}}"
+        )
+    faces_in = hands.get("faces") or {}
+    faces = {
+        side: [[int(i) for i in tri] for tri in tris]
+        for side, tris in faces_in.items()
+    }
+    out_frames: Dict[str, Any] = {}
+    for f, sides in hands["frames"].items():
+        if not isinstance(sides, dict):
+            continue
+        row: Dict[str, Any] = {}
+        for side in ("left", "right"):
+            hd = sides.get(side)
+            if not hd:
+                continue
+            row[side] = {
+                "verts": [[float(x) for x in v] for v in hd["verts"]],
+                "joints": [[float(x) for x in j] for j in hd.get("joints", [])],
+            }
+        if row:
+            out_frames[str(int(f))] = row
+    return {"faces": faces, "frames": out_frames}
+
+
+def _recon_gravity_doc(gravity: Any) -> Dict[str, Any]:
+    v = list(gravity)
+    if len(v) != 3:
+        raise DatasetError("reconstruction: gravity must be a 3-vector [x,y,z]")
+    return {"vec3d": [float(x) for x in v]}
+
+
+def _recon_camlike(k: Any) -> bool:
+    """Whether a dict key looks like a CAMERA NAME rather than a frame index —
+    the discriminator that tells a bare per-frame doc from a ``{camera: doc}``
+    map for ``recon_pose`` (frame keys are numeric; camera names are not).
+    Consequence: don't name a camera a bare number."""
+    return isinstance(k, str) and not k.isdigit() and bool(_CAMERA_NAME_RE.match(k))
+
+
+# Per-camera recon fields: bundle key → (track fn, normalizer, is-bare predicate).
+# ``is_bare`` decides "one doc bound to the primary camera" vs "{camera: doc}",
+# each via a sentinel the doc has and a camera map never does — mirroring how
+# _normalize_joints keys off ``frames``.
+_RECON_PER_CAMERA = {
+    "pose":    (recon_pose_track, _recon_poses_doc,
+                lambda v: not (isinstance(v, dict) and v and all(_recon_camlike(k) for k in v))),
+    "camera":  (recon_camera_track, _recon_camera_doc,
+                lambda v: isinstance(v, dict) and "fx" in v),
+    "hands":   (recon_hands_track, _recon_hands_doc,
+                lambda v: isinstance(v, dict) and ("frames" in v or "faces" in v)),
+    "gravity": (recon_gravity_track, _recon_gravity_doc,
+                lambda v: not isinstance(v, dict)),
+}
+
+
+def _recon_by_camera(value: Any, primary: str, is_bare) -> Dict[str, Any]:
+    """A per-camera recon argument → ``{camera: doc}``: a bare doc binds to
+    ``primary``; otherwise ``value`` is a ``{camera: doc}`` map (names validated).
+    Same bare-doc / camera-map split as ``_normalize_joints``."""
+    if is_bare(value):
+        return {primary: value}
+    out: Dict[str, Any] = {}
+    for cam, doc in value.items():
+        err = validate_camera_name(cam)
+        if err:
+            raise DatasetError(err)
+        out[cam] = doc
+    return out
+
+
+def reconstruction_fields(
+    *, primary: str, mesh: Any = None, pose: Any = None, camera: Any = None,
+    hands: Any = None, gravity: Any = None,
+) -> Tuple[Dict[str, Any], set]:
+    """The five flat recon arguments → ``({track_name: doc}, {cameras})`` —
+    normalized+validated blobs ready to encode. Backs the ``recon_*`` arguments
+    on ``add_episode`` / ``revise``.
+
+    ``mesh`` is episode-level (``{object: mesh}``). The other four are per-camera:
+    a bare doc binds to ``primary``, or pass ``{camera: doc}`` for named cameras.
+    Every argument is independent and optional; at least one must be present."""
+    fields: Dict[str, Any] = {}
+    cameras: set = set()
+    if mesh is not None:
+        fields[FIELD_RECON_MESH] = _recon_meshes_doc(mesh)
+    for key, value in (("pose", pose), ("camera", camera),
+                       ("hands", hands), ("gravity", gravity)):
+        if value is None:
+            continue
+        track_fn, normalize, is_bare = _RECON_PER_CAMERA[key]
+        for cam, doc in _recon_by_camera(value, primary, is_bare).items():
+            fields[track_fn(cam)] = normalize(doc)
+            cameras.add(cam)
+    if not fields:
+        raise DatasetError(
+            "no reconstruction data — pass at least one of "
+            "recon_mesh / recon_pose / recon_camera / recon_hands / recon_gravity"
+        )
+    return fields, cameras
+
+
+def reconstruction_summary(fields: Dict[str, Any]) -> Dict[str, Any]:
+    """A compact report of what ``reconstruction_fields`` produced: the track
+    names written, plus object names when the mesh is among them."""
+    out: Dict[str, Any] = {"wrote": sorted(fields)}
+    mesh = fields.get(FIELD_RECON_MESH)
+    if isinstance(mesh, dict):
+        out["objects"] = sorted(mesh.keys())
+    return out
 
 
 __all__: List[str] = [
