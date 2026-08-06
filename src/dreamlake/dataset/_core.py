@@ -53,7 +53,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
 from ._base import Dataset as _GenericDataset
-from ._episode import Episode, reconstruction_fields, reconstruction_summary
+from ._episode import Episode
 from ._errors import DatasetError
 from ._fields import dumps_compact
 from ._ffmpeg import FfmpegError, FragmentedVideo, ProbeResult, fragment_video, probe
@@ -93,6 +93,8 @@ from ._schema import (
     recon_gravity_track,
     recon_hands_track,
     recon_pose_track,
+    reconstruction_fields,
+    reconstruction_summary,
     validate_camera_name,
     validate_joints_pose,
     validate_subtasks,
