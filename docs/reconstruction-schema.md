@@ -70,20 +70,32 @@ expressed in one camera's frame, so its per-frame data is camera-scoped.
 
 ## SDK
 
+Reconstruction is a peer modality to `subtasks` / `joints_pose`, so it rides the
+same two entry points — a `reconstruction=` **bundle** on `add_episode` (at
+creation) and on `revise` (added/updated later). There is no dedicated method.
+
 ```python
-epo.set_reconstruction(
-    meshes={name: obj_text},                          # → recon_mesh (episode-level)
+recon = {
+    "meshes": {name: obj_text},                       # → recon_mesh (episode-level)
     #   or {name: {"obj": obj_text, "scale": <float>}}   (bare string ⇒ scale 1.0)
-    poses={frame: {name: {"t": [...], "q": [...]}}},   # → recon_pose__<cam>
-    intrinsics={"fx","fy","cx","cy"},                  # → recon_camera__<cam>
+    "poses": {frame: {name: {"t": [...], "q": [...]}}}, # → recon_pose__<cam>
+    "intrinsics": {"fx","fy","cx","cy"},              # → recon_camera__<cam>
     #   width/height optional — default to round(2*cx) / round(2*cy)
-    hands={"faces": {...}, "frames": {...}},           # → recon_hands__<cam> (optional)
-    gravity=[x, y, z],                                 # → recon_gravity__<cam> (optional)
-    camera="main",                                     # camera NAME (default: primary)
-)
+    "hands": {"faces": {...}, "frames": {...}},        # → recon_hands__<cam> (optional)
+    "gravity": [x, y, z],                              # → recon_gravity__<cam> (optional)
+    # "camera": "main",                                # optional camera NAME (default: primary)
+}
+
+# ① together with the episode (one atomic row: video + subtasks + joints + recon)
+epo = ds.add_episode(video, subtasks=..., joints_pose=..., reconstruction=recon)
+
+# ② or add/revise it later on an existing episode
+ds.episode(id).revise(reconstruction=recon)
+
+# meshes/poses/intrinsics are required in the bundle; hands/gravity optional.
 # read back: epo.read_reconstruction(camera=None)
 #   → {"camera", "meshes", "poses", "camera_intrinsics", "hands"?, "gravity"?} | None
-# also stamps the space meta `dreamdb.dataset.recon = "v1"`.
+# either write also stamps the space meta `dreamdb.dataset.recon = "v1"`.
 ```
 
 ## Frontend

@@ -53,7 +53,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
 from ._base import Dataset as _GenericDataset
-from ._episode import Episode
+from ._episode import Episode, reconstruction_fields, reconstruction_summary
 from ._errors import DatasetError
 from ._fields import dumps_compact
 from ._ffmpeg import FfmpegError, FragmentedVideo, ProbeResult, fragment_video, probe
@@ -881,6 +881,7 @@ class VideoAnnotationDataset(_GenericDataset):
         episode_id: Optional[str] = None,
         joints_pose: Union[Annotation, Dict[str, Annotation]] = None,
         subtasks: Annotation = None,
+        reconstruction: Optional[Dict[str, Any]] = None,
         meta: Optional[Dict[str, Any]] = None,
         gid: Optional[int] = None,
         raw: bool = False,
@@ -893,7 +894,11 @@ class VideoAnnotationDataset(_GenericDataset):
         of camera name → path; all cameras share the episode's slot, so
         multi-view playback is time-aligned by construction. ``joints_pose``
         binds per camera (bare doc → primary camera; dict → named cameras);
-        ``subtasks`` is episode-level. ``meta`` takes the contract labels
+        ``subtasks`` is episode-level. ``reconstruction`` is the 3D-modality
+        bundle (``{meshes, poses, intrinsics, hands?, gravity?}``, optional
+        ``camera`` key → default primary), folded into this atomic row (and
+        also revisable later via :meth:`Episode.revise`).
+        ``meta`` takes the contract labels
         (``task``, ``scene``) — nothing is inferred. ``raw=True``
         additionally archives a lossless remux (roughly doubles the upload;
         best-effort on mixed sources).
@@ -1002,6 +1007,19 @@ class VideoAnnotationDataset(_GenericDataset):
             FIELD_EPISODE_INDEX: eid,
         }
         self._write_annotations(sample, joints_by_cam, segments, report)
+        if reconstruction is not None:
+            recon_cam = reconstruction.get("camera") or primary
+            if recon_cam not in cameras_meta:
+                raise DatasetError(
+                    f"reconstruction names camera '{recon_cam}', but this episode's "
+                    f"cameras are {sorted(cameras_meta)}"
+                )
+            recon_flds = reconstruction_fields(reconstruction, recon_cam)
+            self._ensure_recon_tracks(recon_cam)
+            for name, doc in recon_flds.items():
+                sample[name] = dumps_compact(doc).encode()
+            self._ds.set_meta(RECON_SCHEMA_META_KEY, RECON_SCHEMA_VERSION)
+            report["reconstruction"] = reconstruction_summary(recon_flds, recon_cam)
         self._append_and_invalidate([sample])
         self._register_ingest(gid, eid, probes)
 
