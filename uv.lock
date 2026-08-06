@@ -494,8 +494,18 @@ wheels = [
 ]
 
 [[package]]
+name = "dreamdb"
+version = "0.0.6"
+source = { registry = "https://pypi.org/simple" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/68/e2/c65f76fdc5dd143f620ff4b3d3a302f0708fc7882003d92840873612b2eb/dreamdb-0.0.6-cp38-abi3-macosx_11_0_arm64.whl", hash = "sha256:409f35a9a2fb4101a4b193738ff4ac3d652628380097b1ac3d2b8a8b7b6e4581", size = 3600838, upload-time = "2026-07-31T05:32:21.281Z" },
+    { url = "https://files.pythonhosted.org/packages/4a/3c/18197c907f80815e159bbe38e11b13661b061ffab565c1b3dc3998d45eeb/dreamdb-0.0.6-cp38-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:5001642bdaa9a1d977641aba3838128780aece65fdc035877929bd7feb3bde3e", size = 3802054, upload-time = "2026-07-31T05:31:52.174Z" },
+    { url = "https://files.pythonhosted.org/packages/a6/04/2aee66d91c757142a2e4fb01e534a472851b2fc73f9ec37be8ad3e56612f/dreamdb-0.0.6-cp38-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:0011cce2ba3f81226ee298cb573132e4bf55c7cac17153118fc55396461d9d0a", size = 4079108, upload-time = "2026-07-31T05:32:06.568Z" },
+]
+
+[[package]]
 name = "dreamlake"
-version = "0.5.1"
+version = "0.7.1"
 source = { editable = "." }
 dependencies = [
     { name = "httpx" },
@@ -538,6 +548,9 @@ dev = [
     { name = "sphinxcontrib-mermaid" },
     { name = "sphinxext-opengraph" },
 ]
+dreamdb = [
+    { name = "dreamdb" },
+]
 search = [
     { name = "pillow" },
     { name = "torch" },
@@ -552,6 +565,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "cryptography", marker = "extra == 'auth'", specifier = ">=42.0.0" },
+    { name = "dreamdb", marker = "extra == 'dreamdb'", specifier = ">=0.0.5,<0.1.0" },
     { name = "furo", marker = "extra == 'dev'", specifier = ">=2024.0.0" },
     { name = "httpx", specifier = ">=0.27.0" },
     { name = "jsonschema", specifier = ">=4.21.0" },
@@ -584,7 +598,7 @@ requires-dist = [
     { name = "torch", marker = "extra == 'search'", specifier = ">=2.0" },
     { name = "transformers", marker = "extra == 'search'", specifier = ">=4.40" },
 ]
-provides-extras = ["auth", "dev", "search"]
+provides-extras = ["auth", "dreamdb", "dev", "search"]
 
 [package.metadata.requires-dev]
 dev = [{ name = "pytest", specifier = ">=8.4.2" }]

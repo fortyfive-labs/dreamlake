@@ -42,18 +42,58 @@ pip install dreamlake==0.7.1
 The Python CLI bundled in this package is **deprecated**, and this package
 no longer installs a `dreamlake` console script. Install the standalone
 [DreamLake CLI](https://github.com/dreamlake-ai/dreamlake-cli) instead —
-same commands, flags, and env vars (including `artifact push` and the
-`workflow` group), plus environment switching (`dreamlake env use`):
+same commands, flags, and env vars, plus environment switching
+(`dreamlake env use`):
 
 ```shell
 curl -fsSL https://dl.dreamlake.ai/install.sh | bash
 ```
 
-The CLI *code* stays in this package for now. The internal
-`artifact|workflow append-local` writers are NOT deprecated — they remain
-the canonical DreamDB writers that dreamlake-server spawns, reachable via
-`python -m dreamlake.cli` (point `WORKFLOWS_APPLY_BIN` at a wrapper that
-invokes it).
+`upload`, `download`, `list`, `create`, `delete`, `update` and `vectorize`
+have been **removed** from this package; they live in the standalone CLI.
+What is still here, reachable through `python -m dreamlake.cli`:
+
+| Command | Status |
+| --- | --- |
+| `artifact append-local`, `workflow append-local` | **not deprecated** — see below |
+| `artifact push\|list\|delete\|restore` | deprecated; the standalone CLI has these |
+| `workflow push\|list` | deprecated; the standalone CLI has these |
+| `source create\|collection create\|push` | kept — no standalone-CLI equivalent yet |
+| `video upload\|download\|list` | deprecated; the standalone CLI has these |
+| `login`, `logout`, `profile` | kept — `login` is the only writer of the token store `artifact push` / `workflow push` read |
+
+### The `append-local` writers are not deprecated
+
+`artifact append-local` and `workflow append-local` are the canonical
+DreamDB writers, and **dreamlake-server spawns them as a subprocess** —
+`routes/workflows.ts` for workflow apply, `routes/artifacts.ts` for
+artifact apply. Their stdout is a machine contract: exactly one JSON line,
+which the server parses as the last non-empty line of stdout. Errors go to
+stdout too, as JSON. Do not reformat either.
+
+```
+workflow append-local  →  {"version": N, "meta": {description, stageCount, nodeCount, edgeCount}}
+artifact append-local  →  {"version": N}            # no "meta" key — the two are not symmetric
+error (either)         →  {"error": "...", "message": "..."}   # exit 1
+```
+
+### The wrapper bin
+
+The server spawns `${WORKFLOWS_APPLY_BIN:-dreamlake} workflow append-local …`
+and `${ARTIFACTS_APPLY_BIN:-…} artifact append-local …`. The `dreamlake` on
+`PATH` is the standalone TS CLI, which has no DreamDB writer, and
+`pip install dreamlake` deliberately installs no bin of its own. So point
+both env vars at the wrapper shipped in this repo:
+
+```shell
+export WORKFLOWS_APPLY_BIN=/path/to/dreamlake-py/bin/dreamlake-append-local
+export ARTIFACTS_APPLY_BIN=/path/to/dreamlake-py/bin/dreamlake-append-local
+```
+
+It is a one-line `exec python3 -m dreamlake.cli "$@"` and must stay one —
+anything the wrapper prints would corrupt the JSON contract above. It is
+not registered in `[project.scripts]`, on purpose: the `dreamlake` name on
+`PATH` belongs to the standalone CLI.
 
 ## Quick Start
 

@@ -1,0 +1,17 @@
+#!/bin/sh
+# The canonical DreamDB writer, as a bin.
+#
+# dreamlake-server spawns `${WORKFLOWS_APPLY_BIN:-dreamlake} workflow append-local …`
+# (routes/workflows.ts:1370) and `${ARTIFACTS_APPLY_BIN:-…} artifact append-local …`
+# (routes/artifacts.ts:137). The default `dreamlake` on PATH is the standalone TS
+# CLI, which has no DreamDB writer and answers {"error":"no_writer"}. `pip install
+# dreamlake` installs no bin at all — see pyproject.toml:75-79, which is deliberate
+# and which tells you to point the apply bin at a wrapper. This is that wrapper.
+#
+#   WORKFLOWS_APPLY_BIN=/path/to/dreamlake-py/bin/dreamlake-append-local
+#   ARTIFACTS_APPLY_BIN=/path/to/dreamlake-py/bin/dreamlake-append-local
+#
+# It must stay a pure exec: the child's stdout is a machine contract (one JSON
+# line, parsed as the LAST non-empty line by workflows.ts:1388-1398). Anything
+# this script prints would corrupt it.
+exec python3 -m dreamlake.cli "$@"

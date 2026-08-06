@@ -29,40 +29,26 @@ def print_help():
             {CYAN}login{RESET}       Authenticate with DreamLake (device auth flow)
             {CYAN}logout{RESET}      Remove stored credentials
             {CYAN}profile{RESET}     Show current user
-            {CYAN}upload{RESET}      Upload a file (type auto-detected)
-            {CYAN}download{RESET}    Download a file
-            {CYAN}list{RESET}        List assets or bindrs
-            {CYAN}create{RESET}      Create a bindr
-            {CYAN}delete{RESET}      Delete a bindr
-            {CYAN}update{RESET}      Update a bindr (add/remove episodes)
-            {CYAN}vectorize{RESET}   Run CLIP + LLaVA on video chunks for semantic search
             {CYAN}video{RESET}       Video commands (upload/download/list via BSS)
             {CYAN}artifact{RESET}    Upload/list renderable artifacts (HTML/React/Markdown/SVG/code)
             {CYAN}workflow{RESET}    Push/list workflow specs (WorkflowSpec v1 JSON)
             {CYAN}source{RESET}      Managed DreamDB video sources (create/collection/push)
 
-        {BOLD}Target syntax:{RESET}
-            --episode space[@namespace][:episode]
-            --project   space[@namespace]
+        {BOLD}Moved:{RESET}
+            {YELLOW}upload, download, list, create, delete, update and vectorize now live in{RESET}
+            {YELLOW}the standalone `dreamlake` CLI:{RESET}
+                curl -fsSL https://dl.dreamlake.ai/install.sh | bash
 
         {BOLD}Examples:{RESET}
-            {DIM}# Upload (type auto-detected from extension){RESET}
-            dreamlake upload ./mic.wav --episode robotics@alice:2026/q1/run-042 --to /microphone/front
-
-            {DIM}# Download{RESET}
-            dreamlake download --episode robotics@alice:2026/q1/run-042 --from /microphone/front -o ./mic.wav
-
-            {DIM}# List assets{RESET}
-            dreamlake list --episode robotics@alice:2026/q1/run-042
-            dreamlake list --episode robotics@alice:2026/q1/run-042 --type audio
-
-            {DIM}# List bindrs{RESET}
-            dreamlake list bindr --project robotics@alice
-
             {DIM}# Video commands{RESET}
             dreamlake video upload ./video.mp4 --user alice --project robotics
             dreamlake video download <id> --output ./video.mp4
             dreamlake video list --user alice --project robotics
+
+            {DIM}# The canonical DreamDB writers (spawned by dreamlake-server){RESET}
+            {DIM}# — read the payload on stdin, print one JSON line on stdout{RESET}
+            python -m dreamlake.cli workflow append-local --backend <url> --name <workflow>
+            python -m dreamlake.cli artifact append-local --backend <url> --id <artifactId>
 
         {BOLD}Environment Variables:{RESET}
             {YELLOW}DREAMLAKE_REMOTE{RESET}      Default server URL
@@ -131,34 +117,19 @@ def main():
         from .commands import video
         return video.main(sys.argv[2:])
 
-    # Asset commands
-    elif command == "upload":
-        from .commands import upload
-        return upload.main(sys.argv[2:])
-
-    elif command == "download":
-        from .commands import download
-        return download.main(sys.argv[2:])
-
-    elif command == "list":
-        from .commands import list as list_mod
-        return list_mod.main(sys.argv[2:])
-
-    elif command == "create":
-        from .commands import create
-        return create.main(sys.argv[2:])
-
-    elif command == "delete":
-        from .commands import delete
-        return delete.main(sys.argv[2:])
-
-    elif command == "update":
-        from .commands import update
-        return update.main(sys.argv[2:])
-
-    elif command == "vectorize":
-        from .commands import vectorize
-        return vectorize.main(sys.argv[2:])
+    # Asset commands (upload / download / list / create / delete / update /
+    # vectorize) were removed — they live in the standalone DreamLake CLI now.
+    # `_notice._KNOWN_COMMANDS` still names them on purpose, so a stale
+    # `dreamlake` bin left by an old install prints the right pointer.
+    elif command in ("upload", "download", "list", "create", "delete", "update", "vectorize"):
+        print(
+            f"{RED}removed:{RESET} `dreamlake {command}` now lives in the standalone "
+            f"DreamLake CLI.\n"
+            f"    curl -fsSL https://dl.dreamlake.ai/install.sh | bash\n"
+            f"then run:  dreamlake {command} ...",
+            file=sys.stderr,
+        )
+        return 1
 
     elif command == "artifact":
         from .commands import artifact
