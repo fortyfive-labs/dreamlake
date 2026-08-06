@@ -25,16 +25,12 @@ from ._schema import (
     FIELD_SUBTASKS,
     MAX_EPISODE_SECONDS,
     META_KEYS,
-    RECON_SCHEMA_META_KEY,
-    RECON_SCHEMA_VERSION,
     USER_TRACK_RE,
     joints_track,
     recon_camera_track,
     recon_gravity_track,
     recon_hands_track,
     recon_pose_track,
-    reconstruction_fields,
-    reconstruction_summary,
     validate_subtasks,
 )
 
@@ -135,31 +131,36 @@ class Episode:
         blob = self._d._read_blob(FIELD_SUBTASKS, self.gid)
         return json.loads(blob) if blob else None
 
-    def read_reconstruction(self, camera: Optional[str] = None) -> Optional[Dict[str, Any]]:
-        """The 3D reconstruction modality for one camera (default: primary):
-        ``{"camera", "meshes", "poses", "camera_intrinsics", "hands"?, "gravity"?}``,
-        or None when this episode carries no reconstruction on that camera.
-        Every field is one JSON blob, read in one fetch each (never per-frame)."""
+    def read_recon_mesh(self) -> Optional[Dict[str, Any]]:
+        """The episode's ``recon_mesh`` document (``{object: {obj, scale}}``),
+        or None. Camera-independent — object geometry does not vary by camera."""
+        blob = self._d._read_blob(FIELD_RECON_MESH, self.gid)
+        return json.loads(blob) if blob else None
+
+    def read_recon_pose(self, camera: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """One camera's per-frame object poses (default: primary), or None."""
         cam = camera or self._row.get("primary_camera") or DEFAULT_CAMERA
-        mesh_blob = self._d._read_blob(FIELD_RECON_MESH, self.gid)
-        pose_blob = self._d._read_blob(recon_pose_track(cam), self.gid)
-        if not mesh_blob and not pose_blob:
-            return None
-        out: Dict[str, Any] = {"camera": cam}
-        if mesh_blob:
-            out["meshes"] = json.loads(mesh_blob)
-        if pose_blob:
-            out["poses"] = json.loads(pose_blob)
-        cam_blob = self._d._read_blob(recon_camera_track(cam), self.gid)
-        if cam_blob:
-            out["camera_intrinsics"] = json.loads(cam_blob)
-        hands_blob = self._d._read_blob(recon_hands_track(cam), self.gid)
-        if hands_blob:
-            out["hands"] = json.loads(hands_blob)
-        grav_blob = self._d._read_blob(recon_gravity_track(cam), self.gid)
-        if grav_blob:
-            out["gravity"] = json.loads(grav_blob)
-        return out
+        blob = self._d._read_blob(recon_pose_track(cam), self.gid)
+        return json.loads(blob) if blob else None
+
+    def read_recon_camera(self, camera: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """One camera's pinhole intrinsics ``{fx,fy,cx,cy,width,height}`` (default:
+        primary), or None."""
+        cam = camera or self._row.get("primary_camera") or DEFAULT_CAMERA
+        blob = self._d._read_blob(recon_camera_track(cam), self.gid)
+        return json.loads(blob) if blob else None
+
+    def read_recon_hands(self, camera: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """One camera's per-frame MANO hands (default: primary), or None."""
+        cam = camera or self._row.get("primary_camera") or DEFAULT_CAMERA
+        blob = self._d._read_blob(recon_hands_track(cam), self.gid)
+        return json.loads(blob) if blob else None
+
+    def read_recon_gravity(self, camera: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """One camera's gravity up-vector ``{vec3d}`` (default: primary), or None."""
+        cam = camera or self._row.get("primary_camera") or DEFAULT_CAMERA
+        blob = self._d._read_blob(recon_gravity_track(cam), self.gid)
+        return json.loads(blob) if blob else None
 
     # ---- writes (each re-reads meta at call time) ------------------------
 
@@ -231,7 +232,11 @@ class Episode:
         *,
         joints_pose=None,
         subtasks=None,
-        reconstruction: Optional[Dict[str, Any]] = None,
+        recon_mesh: Any = None,
+        recon_pose: Any = None,
+        recon_camera: Any = None,
+        recon_hands: Any = None,
+        recon_gravity: Any = None,
         meta: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """Revise annotations and/or meta labels — ONE committed row for
@@ -239,11 +244,11 @@ class Episode:
         new version at the same anchor; readers resolve to the newest and
         the DreamDB timeline keeps history.
 
-        ``reconstruction`` is the 3D-modality bundle — any subset of
-        ``{meshes, poses, intrinsics, hands, gravity}`` (each independent and
-        optional; optional ``camera`` key → default primary) — folded into the
-        same atomic row, so the 3D modality revises piece-by-piece like
-        ``subtasks``/``joints_pose`` do.
+        The ``recon_*`` arguments revise the 3D-reconstruction modality
+        piece-by-piece: ``recon_mesh`` (episode-level) and per-camera
+        ``recon_pose`` / ``recon_camera`` / ``recon_hands`` / ``recon_gravity``
+        (bare doc → primary, or ``{camera: doc}``) — pass any subset, each folded
+        into the same atomic row, exactly like ``subtasks``/``joints_pose``.
 
         ``meta`` accepts only the contract keys (``task``, ``scene``).
         There is no inference — a label exists iff you wrote it.
@@ -255,24 +260,24 @@ class Episode:
         joints_by_cam = self._d._normalize_joints(joints_pose, primary)
         segments = _load_annotation(subtasks, "subtasks", validate_subtasks)
         labels = self._d._validate_meta_arg(meta)
-        recon_cam = (reconstruction.get("camera") or primary) if reconstruction is not None else None
-        recon_fields = reconstruction_fields(reconstruction, recon_cam) if reconstruction is not None else {}
-        if not joints_by_cam and segments is None and labels is None and not recon_fields:
-            raise DatasetError(
-                "nothing to revise — pass joints_pose=, subtasks=, reconstruction= or meta="
-            )
         have = row.get("cameras") or {}
+        # recon: normalize + validate cameras + ensure tracks + stamp meta;
+        # returns {track: encoded_bytes} to fold into this row (or None).
+        recon_enc, recon_summary = self._d._prepare_reconstruction(
+            primary=primary, cameras_have=have,
+            recon_mesh=recon_mesh, recon_pose=recon_pose, recon_camera=recon_camera,
+            recon_hands=recon_hands, recon_gravity=recon_gravity,
+        )
+        if not joints_by_cam and segments is None and labels is None and not recon_enc:
+            raise DatasetError(
+                "nothing to revise — pass joints_pose=, subtasks=, recon_* or meta="
+            )
         for camera in joints_by_cam:
             if camera not in have:
                 raise DatasetError(
                     f"joints_pose names camera '{camera}', but this episode has "
                     f"cameras {sorted(have)}"
                 )
-        if recon_cam is not None and recon_cam not in have:
-            raise DatasetError(
-                f"reconstruction names camera '{recon_cam}', but this episode has "
-                f"cameras {sorted(have)}"
-            )
 
         new_meta = {k: v for k, v in row.items() if k not in ("gid", "anchor", "_rev")}
         if labels:
@@ -285,7 +290,8 @@ class Episode:
         wrote_fields = [joints_track(c) for c in joints_by_cam]
         if segments is not None:
             wrote_fields.append(FIELD_SUBTASKS)
-        wrote_fields += list(recon_fields)
+        if recon_enc:
+            wrote_fields += list(recon_enc)
         rev = self._d._next_revision_anchor(row, wrote_fields)
         sample: Dict[str, Any] = {"_anchor": rev}
         # Skip the meta rewrite when nothing meta-visible changed — a scalar
@@ -296,12 +302,9 @@ class Episode:
 
         out: Dict[str, Any] = {"episode_id": self.episode_id}
         self._d._write_annotations(sample, joints_by_cam, segments, out)
-        if recon_fields:
-            self._d._ensure_recon_tracks(recon_cam)
-            for name, doc in recon_fields.items():
-                sample[name] = dumps_compact(doc).encode()
-            self._d._ds.set_meta(RECON_SCHEMA_META_KEY, RECON_SCHEMA_VERSION)
-            out["reconstruction"] = reconstruction_summary(recon_fields, recon_cam)
+        if recon_enc:
+            sample.update(recon_enc)
+            out["reconstruction"] = recon_summary
         if len(sample) == 1:
             raise DatasetError("nothing to revise — the passed values match what is stored")
         self._d._append_and_invalidate([sample])

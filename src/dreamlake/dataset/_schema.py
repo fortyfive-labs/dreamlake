@@ -518,53 +518,84 @@ def _recon_gravity_doc(gravity: Any) -> Dict[str, Any]:
     return {"vec3d": [float(x) for x in v]}
 
 
-def _recon_field_map(camera: str) -> Dict[str, Any]:
-    """bundle key → (track name, normalizer) for ``camera``. The single source
-    of truth for which of the five recon pieces exist and how they map."""
-    return {
-        "meshes": (FIELD_RECON_MESH, _recon_meshes_doc),
-        "poses": (recon_pose_track(camera), _recon_poses_doc),
-        "intrinsics": (recon_camera_track(camera), _recon_camera_doc),
-        "hands": (recon_hands_track(camera), _recon_hands_doc),
-        "gravity": (recon_gravity_track(camera), _recon_gravity_doc),
-    }
+def _recon_camlike(k: Any) -> bool:
+    """Whether a dict key looks like a CAMERA NAME rather than a frame index —
+    the discriminator that tells a bare per-frame doc from a ``{camera: doc}``
+    map for ``recon_pose`` (frame keys are numeric; camera names are not).
+    Consequence: don't name a camera a bare number."""
+    return isinstance(k, str) and not k.isdigit() and bool(_CAMERA_NAME_RE.match(k))
 
 
-def reconstruction_fields(bundle: Dict[str, Any], camera: str) -> Dict[str, Any]:
-    """A reconstruction bundle → ``{track_name: doc}`` for ``camera``, the
-    normalized+validated blobs ready to encode. Backs the ``reconstruction=``
-    argument on ``add_episode`` / ``revise``.
+# Per-camera recon fields: bundle key → (track fn, normalizer, is-bare predicate).
+# ``is_bare`` decides "one doc bound to the primary camera" vs "{camera: doc}",
+# each via a sentinel the doc has and a camera map never does — mirroring how
+# _normalize_joints keys off ``frames``.
+_RECON_PER_CAMERA = {
+    "pose":    (recon_pose_track, _recon_poses_doc,
+                lambda v: not (isinstance(v, dict) and v and all(_recon_camlike(k) for k in v))),
+    "camera":  (recon_camera_track, _recon_camera_doc,
+                lambda v: isinstance(v, dict) and "fx" in v),
+    "hands":   (recon_hands_track, _recon_hands_doc,
+                lambda v: isinstance(v, dict) and ("frames" in v or "faces" in v)),
+    "gravity": (recon_gravity_track, _recon_gravity_doc,
+                lambda v: not isinstance(v, dict)),
+}
 
-    Every piece is INDEPENDENT and OPTIONAL: pass any subset of ``meshes``,
-    ``poses``, ``intrinsics``, ``hands``, ``gravity`` — only the keys present are
-    written, so the five recon fields can be filled all at once or one at a
-    time across calls (each is its own blob). At least one must be present.
-    An extra ``camera`` key, if any, is ignored — the caller passes the name in."""
-    fmap = _recon_field_map(camera)
+
+def _recon_by_camera(value: Any, primary: str, is_bare) -> Dict[str, Any]:
+    """A per-camera recon argument → ``{camera: doc}``: a bare doc binds to
+    ``primary``; otherwise ``value`` is a ``{camera: doc}`` map (names validated).
+    Same bare-doc / camera-map split as ``_normalize_joints``."""
+    if is_bare(value):
+        return {primary: value}
+    out: Dict[str, Any] = {}
+    for cam, doc in value.items():
+        err = validate_camera_name(cam)
+        if err:
+            raise DatasetError(err)
+        out[cam] = doc
+    return out
+
+
+def reconstruction_fields(
+    *, primary: str, mesh: Any = None, pose: Any = None, camera: Any = None,
+    hands: Any = None, gravity: Any = None,
+) -> Tuple[Dict[str, Any], set]:
+    """The five flat recon arguments → ``({track_name: doc}, {cameras})`` —
+    normalized+validated blobs ready to encode. Backs the ``recon_*`` arguments
+    on ``add_episode`` / ``revise``.
+
+    ``mesh`` is episode-level (``{object: mesh}``). The other four are per-camera:
+    a bare doc binds to ``primary``, or pass ``{camera: doc}`` for named cameras.
+    Every argument is independent and optional; at least one must be present."""
     fields: Dict[str, Any] = {}
-    for key, (track, normalize) in fmap.items():
-        if bundle.get(key) is not None:
-            fields[track] = normalize(bundle[key])
+    cameras: set = set()
+    if mesh is not None:
+        fields[FIELD_RECON_MESH] = _recon_meshes_doc(mesh)
+    for key, value in (("pose", pose), ("camera", camera),
+                       ("hands", hands), ("gravity", gravity)):
+        if value is None:
+            continue
+        track_fn, normalize, is_bare = _RECON_PER_CAMERA[key]
+        for cam, doc in _recon_by_camera(value, primary, is_bare).items():
+            fields[track_fn(cam)] = normalize(doc)
+            cameras.add(cam)
     if not fields:
         raise DatasetError(
-            "reconstruction bundle is empty — pass at least one of "
-            "meshes / poses / intrinsics / hands / gravity"
+            "no reconstruction data — pass at least one of "
+            "recon_mesh / recon_pose / recon_camera / recon_hands / recon_gravity"
         )
-    return fields
+    return fields, cameras
 
 
-def reconstruction_summary(fields: Dict[str, Any], camera: str) -> Dict[str, Any]:
-    """A compact report of what ``reconstruction_fields`` produced — which
-    pieces were written, plus object/frame counts when those pieces are present."""
-    track_to_key = {track: key for key, (track, _) in _recon_field_map(camera).items()}
-    mesh = fields.get(FIELD_RECON_MESH, {})
-    pose = fields.get(recon_pose_track(camera), {})
-    return {
-        "camera": camera,
-        "wrote": [track_to_key[t] for t in fields if t in track_to_key],
-        "objects": sorted(mesh.keys()),
-        "frames": len(pose.get("frames", {})),
-    }
+def reconstruction_summary(fields: Dict[str, Any]) -> Dict[str, Any]:
+    """A compact report of what ``reconstruction_fields`` produced: the track
+    names written, plus object names when the mesh is among them."""
+    out: Dict[str, Any] = {"wrote": sorted(fields)}
+    mesh = fields.get(FIELD_RECON_MESH)
+    if isinstance(mesh, dict):
+        out["objects"] = sorted(mesh.keys())
+    return out
 
 
 __all__: List[str] = [

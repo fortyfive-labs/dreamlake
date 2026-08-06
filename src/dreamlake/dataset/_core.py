@@ -730,6 +730,36 @@ class VideoAnnotationDataset(_GenericDataset):
                 if "already exists" not in str(e):
                     raise
 
+    def _prepare_reconstruction(
+        self, *, primary: str, cameras_have,
+        recon_mesh=None, recon_pose=None, recon_camera=None,
+        recon_hands=None, recon_gravity=None,
+    ):
+        """Normalize the flat ``recon_*`` arguments, validate their cameras
+        exist on the episode, ensure the tracks, stamp the recon space meta —
+        and return ``({track: encoded_bytes}, summary)``, or ``(None, None)``
+        when no recon argument was passed. The caller folds the bytes into its
+        committed sample (so recon rides the same atomic row)."""
+        if all(x is None for x in (recon_mesh, recon_pose, recon_camera,
+                                   recon_hands, recon_gravity)):
+            return None, None
+        fields, cameras = reconstruction_fields(
+            primary=primary, mesh=recon_mesh, pose=recon_pose,
+            camera=recon_camera, hands=recon_hands, gravity=recon_gravity,
+        )
+        for cam in cameras:
+            if cam not in cameras_have:
+                raise DatasetError(
+                    f"reconstruction names camera '{cam}', but this episode has "
+                    f"cameras {sorted(cameras_have)} — reconstruction binds to a "
+                    f"camera the episode already has"
+                )
+        for cam in (cameras or {primary}):  # mesh-only still needs the mesh track
+            self._ensure_recon_tracks(cam)
+        self._ds.set_meta(RECON_SCHEMA_META_KEY, RECON_SCHEMA_VERSION)
+        encoded = {name: dumps_compact(doc).encode() for name, doc in fields.items()}
+        return encoded, reconstruction_summary(fields)
+
     def _check_camera_geometry(self, camera: str, src: ProbeResult, video: str) -> None:
         """Aspect-ratio pre-check against the camera's ADOPTED playback
         profile, from the handle's in-memory encoding copy — zero IO, and
@@ -883,7 +913,11 @@ class VideoAnnotationDataset(_GenericDataset):
         episode_id: Optional[str] = None,
         joints_pose: Union[Annotation, Dict[str, Annotation]] = None,
         subtasks: Annotation = None,
-        reconstruction: Optional[Dict[str, Any]] = None,
+        recon_mesh: Any = None,
+        recon_pose: Any = None,
+        recon_camera: Any = None,
+        recon_hands: Any = None,
+        recon_gravity: Any = None,
         meta: Optional[Dict[str, Any]] = None,
         gid: Optional[int] = None,
         raw: bool = False,
@@ -896,11 +930,12 @@ class VideoAnnotationDataset(_GenericDataset):
         of camera name → path; all cameras share the episode's slot, so
         multi-view playback is time-aligned by construction. ``joints_pose``
         binds per camera (bare doc → primary camera; dict → named cameras);
-        ``subtasks`` is episode-level. ``reconstruction`` is the 3D-modality
-        bundle — any subset of ``{meshes, poses, intrinsics, hands, gravity}``
-        (each optional; optional ``camera`` key → default primary) — folded
-        into this atomic row (and further revisable via :meth:`Episode.revise`).
-        ``meta`` takes the contract labels
+        ``subtasks`` is episode-level. The five ``recon_*`` arguments carry the
+        3D-reconstruction modality — ``recon_mesh`` (episode-level ``{object:
+        mesh}``) plus per-camera ``recon_pose`` / ``recon_camera`` (intrinsics)
+        / ``recon_hands`` / ``recon_gravity`` (bare doc → primary, or ``{camera:
+        doc}``). Each is optional, folded into this atomic row (and further
+        revisable via :meth:`Episode.revise`). ``meta`` takes the contract labels
         (``task``, ``scene``) — nothing is inferred. ``raw=True``
         additionally archives a lossless remux (roughly doubles the upload;
         best-effort on mixed sources).
@@ -1009,19 +1044,14 @@ class VideoAnnotationDataset(_GenericDataset):
             FIELD_EPISODE_INDEX: eid,
         }
         self._write_annotations(sample, joints_by_cam, segments, report)
-        if reconstruction is not None:
-            recon_cam = reconstruction.get("camera") or primary
-            if recon_cam not in cameras_meta:
-                raise DatasetError(
-                    f"reconstruction names camera '{recon_cam}', but this episode's "
-                    f"cameras are {sorted(cameras_meta)}"
-                )
-            recon_flds = reconstruction_fields(reconstruction, recon_cam)
-            self._ensure_recon_tracks(recon_cam)
-            for name, doc in recon_flds.items():
-                sample[name] = dumps_compact(doc).encode()
-            self._ds.set_meta(RECON_SCHEMA_META_KEY, RECON_SCHEMA_VERSION)
-            report["reconstruction"] = reconstruction_summary(recon_flds, recon_cam)
+        recon_enc, recon_summary = self._prepare_reconstruction(
+            primary=primary, cameras_have=cameras_meta,
+            recon_mesh=recon_mesh, recon_pose=recon_pose, recon_camera=recon_camera,
+            recon_hands=recon_hands, recon_gravity=recon_gravity,
+        )
+        if recon_enc:
+            sample.update(recon_enc)
+            report["reconstruction"] = recon_summary
         self._append_and_invalidate([sample])
         self._register_ingest(gid, eid, probes)
 

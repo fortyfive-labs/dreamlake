@@ -70,37 +70,42 @@ expressed in one camera's frame, so its per-frame data is camera-scoped.
 
 ## SDK
 
-Reconstruction is a peer modality to `subtasks` / `joints_pose`, so it rides the
-same two entry points — a `reconstruction=` **bundle** on `add_episode` (at
-creation) and on `revise` (added/updated later). There is no dedicated method.
+Reconstruction is a peer modality to `subtasks` / `joints_pose`: five flat
+`recon_*` arguments on `add_episode` (at creation) and `revise` (later), one per
+stored track. `recon_mesh` is episode-level; the other four are per-camera and
+follow the `joints_pose` rule — a bare doc binds to the primary camera, or pass
+`{camera: doc}`. Each is independent and optional; at least one must be present.
 
 ```python
-recon = {
-    "meshes": {name: obj_text},                       # → recon_mesh (episode-level)
-    #   or {name: {"obj": obj_text, "scale": <float>}}   (bare string ⇒ scale 1.0)
-    "poses": {frame: {name: {"t": [...], "q": [...]}}}, # → recon_pose__<cam>
-    "intrinsics": {"fx","fy","cx","cy"},              # → recon_camera__<cam>
-    #   width/height optional — default to round(2*cx) / round(2*cy)
-    "hands": {"faces": {...}, "frames": {...}},        # → recon_hands__<cam> (optional)
-    "gravity": [x, y, z],                              # → recon_gravity__<cam> (optional)
-    # "camera": "main",                                # optional camera NAME (default: primary)
-}
-
 # ① together with the episode (one atomic row: video + subtasks + joints + recon)
-epo = ds.add_episode(video, subtasks=..., joints_pose=..., reconstruction=recon)
+epo = ds.add_episode(
+    video, subtasks=..., joints_pose=...,
+    recon_mesh={name: obj_text},                       # → recon_mesh (episode-level)
+    #   or {name: {"obj": obj_text, "scale": <float>}}   (bare string ⇒ scale 1.0)
+    recon_pose={frame: {name: {"t": [...], "q": [...]}}},  # → recon_pose__<cam>
+    recon_camera={"fx","fy","cx","cy"},                # → recon_camera__<cam> (intrinsics)
+    #   width/height optional — default to round(2*cx) / round(2*cy)
+    recon_hands={"faces": {...}, "frames": {...}},     # → recon_hands__<cam> (optional)
+    recon_gravity=[x, y, z],                           # → recon_gravity__<cam> (optional)
+)
 
-# ② or add/revise it later on an existing episode
-ds.episode(id).revise(reconstruction=recon)
+# ② or add/revise pieces later; {camera: doc} targets a named camera
+ds.episode(id).revise(recon_mesh={...})                          # only mesh now
+ds.episode(id).revise(recon_pose={"left": ...}, recon_camera={"left": ...})  # a camera later
 
-# Every piece is independent and optional — pass the whole bundle at once, or
-# just a subset and fill the rest in later calls (each recon field is its own
-# blob). At least one of meshes/poses/intrinsics/hands/gravity must be present.
-#   ds.episode(id).revise(reconstruction={"meshes": ...})              # only mesh now
-#   ds.episode(id).revise(reconstruction={"poses": ..., "intrinsics": ...})  # rest later
-# read back: epo.read_reconstruction(camera=None)
-#   → {"camera", "meshes", "poses", "camera_intrinsics", "hands"?, "gravity"?} | None
-# either write also stamps the space meta `dreamdb.dataset.recon = "v1"`.
+# read back — one method per piece (default = primary camera):
+#   epo.read_recon_mesh()                 → {object: {obj, scale}} | None
+#   epo.read_recon_pose(camera=None)      → {"frames": {...}} | None
+#   epo.read_recon_camera(camera=None)    → {"fx","fy","cx","cy","width","height"} | None
+#   epo.read_recon_hands(camera=None)     → {"faces","frames"} | None
+#   epo.read_recon_gravity(camera=None)   → {"vec3d": [...]} | None
+# any recon write also stamps the space meta `dreamdb.dataset.recon = "v1"`.
 ```
+
+`recon_camera` is the pinhole **intrinsics** (its track is `recon_camera__<cam>`).
+`recon_pose` distinguishes a bare per-frame doc from a `{camera: doc}` map by
+whether the top-level keys are frame indices or camera names — so don't name a
+camera a bare number.
 
 ## Frontend
 

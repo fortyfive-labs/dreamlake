@@ -147,7 +147,7 @@ when the target space carries a *different* schemaType (including layouts
 from older SDK iterations — read those with `dreamlake.db`, or re-ingest
 the sources).
 
-### `ds.add_episode(videos, *, episode_id=None, joints_pose=None, subtasks=None, reconstruction=None, meta=None, gid=None, raw=False) -> Episode`
+### `ds.add_episode(videos, *, episode_id=None, joints_pose=None, subtasks=None, recon_mesh=None, recon_pose=None, recon_camera=None, recon_hands=None, recon_gravity=None, meta=None, gid=None, raw=False) -> Episode`
 
 `videos` is one path (a single camera, stored under the default name
 `main`) or a dict of camera name → path. Camera names are `[a-z0-9_-]`, no
@@ -293,7 +293,7 @@ time — a stale handle can never clobber a newer revision.
 fresh meta plus annotation summaries (joint counts per camera, segment
 count) — enough to verify an ingest without opening a browser.
 
-### `epo.read_joints_pose(camera=None)` / `epo.read_subtasks()` / `epo.read_reconstruction(camera=None)`
+### `epo.read_joints_pose(camera=None)` / `epo.read_subtasks()` / `epo.read_recon_{mesh,pose,camera,hands,gravity}(...)`
 
 Byte-exact annotation read-back. `read_joints_pose` defaults to the primary
 camera; name another `camera=` to read its document. Both return `None`
@@ -306,7 +306,7 @@ and cannot be replaced (a camera the episode already has is refused — use a
 new camera name or a new episode). The dict form adds N cameras with one
 meta rewrite; `joints_pose` binds like in `add_episode`.
 
-### `epo.revise(*, joints_pose=None, subtasks=None, reconstruction=None, meta=None) -> dict`
+### `epo.revise(*, joints_pose=None, subtasks=None, recon_mesh=None, recon_pose=None, recon_camera=None, recon_hands=None, recon_gravity=None, meta=None) -> dict`
 
 Revise annotations and/or the `task`/`scene` labels — ONE committed row for
 everything passed (atomic). Storage is append-only: a revision is a new
@@ -543,30 +543,39 @@ full body, or a manipulator arm all fit.
 ### `reconstruction`
 
 A third, optional modality alongside `subtasks`/`joints_pose`: 3D hand–object
-reconstruction. Passed as a **bundle** — any subset of the five pieces below —
-to `add_episode(reconstruction=...)` (at creation) or `epo.revise(reconstruction=...)`
-(added/updated later, piece by piece). All geometry is in the **camera's OpenCV
-frame** (x-right / y-down / z-forward), metres, quaternion **wxyz**, frame `f` ↔
-time `f/fps`; colour is not stored. Each piece is its own per-episode blob:
-`recon_mesh` (episode-level) + `recon_pose/hands/gravity/camera__{camera}`.
+reconstruction. Carried by **five flat arguments** on `add_episode` (at creation)
+and `epo.revise` (added/updated later, piece by piece) — each independent and
+optional, at least one present. All geometry is in the **camera's OpenCV frame**
+(x-right / y-down / z-forward), metres, quaternion **wxyz**, frame `f` ↔ time
+`f/fps`; colour is not stored. `recon_mesh` is episode-level; the other four are
+per-camera and follow the `joints_pose` rule — a **bare doc binds to the primary
+camera**, or pass `{camera: doc}` for named cameras.
 
 ```python
-recon = {
-    "meshes":     {name: obj_text},                       # or {name: {"obj", "scale"}}
-    "poses":      {frame: {name: {"t": [x,y,z], "q": [w,x,y,z]}}},
-    "intrinsics": {"fx": .., "fy": .., "cx": .., "cy": ..},  # width/height ⇒ 2·cx/2·cy
-    "hands":      {"faces": {"left": [[a,b,c]...], "right": [...]},   # optional
-                   "frames": {frame: {"left": {"verts": [[x,y,z]...], "joints": [[x,y,z]...]}, "right": {...}}}},
-    "gravity":    [x, y, z],                              # optional; up direction
-    # "camera":   "main",                                 # optional; default = primary
-}
-ds.add_episode(video, reconstruction=recon)               # all at once, one atomic row
-epo.revise(reconstruction={"poses": ..., "intrinsics": ...})  # or fill in later
-r = epo.read_reconstruction(camera=None)  # {"camera","meshes","poses","camera_intrinsics","hands"?,"gravity"?} | None
+ds.add_episode(
+    video, subtasks=..., joints_pose=...,
+    recon_mesh={name: obj_text},                            # or {name: {"obj","scale"}}; episode-level
+    recon_pose={frame: {name: {"t": [x,y,z], "q": [w,x,y,z]}}},   # per-camera
+    recon_camera={"fx": .., "fy": .., "cx": .., "cy": ..},  # pinhole intrinsics; width/height ⇒ 2·cx/2·cy
+    recon_hands={"faces": {"left": [[a,b,c]...], "right": [...]},  # optional
+                 "frames": {frame: {"left": {"verts": [[x,y,z]...], "joints": [[x,y,z]...]}, "right": {...}}}},
+    recon_gravity=[x, y, z],                                # optional; up direction
+)
+# fill in / revise a piece later; {camera: doc} targets a named camera
+epo.revise(recon_pose={"left": ...}, recon_camera={"left": ...})
+
+# read back, one method per piece (default = primary camera):
+epo.read_recon_mesh()                 # {object: {obj, scale}} | None
+epo.read_recon_pose(camera=None)      # {"frames": {...}} | None
+epo.read_recon_camera(camera=None)    # {"fx","fy","cx","cy","width","height"} | None
+epo.read_recon_hands(camera=None)     # {"faces","frames"} | None
+epo.read_recon_gravity(camera=None)   # {"vec3d": [...]} | None
 ```
 
-`meshes`/`poses`/`intrinsics`/`hands`/`gravity` are each optional; at least one
-must be present. Re-passing a piece revises it (newest wins). The full contract,
+Re-passing a piece revises it (newest wins). `recon_camera` is the pinhole
+**intrinsics** (its stored track is `recon_camera__{camera}`). Don't name a camera
+a bare number — `recon_pose` tells a bare per-frame doc from a `{camera: doc}` map
+by whether the keys are frame indices or camera names. The full contract,
 including per-field storage shapes, is in `docs/reconstruction-schema.md`.
 
 ## Visualizing
