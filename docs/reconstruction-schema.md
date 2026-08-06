@@ -92,7 +92,11 @@ epo = ds.add_episode(video, subtasks=..., joints_pose=..., reconstruction=recon)
 # ② or add/revise it later on an existing episode
 ds.episode(id).revise(reconstruction=recon)
 
-# meshes/poses/intrinsics are required in the bundle; hands/gravity optional.
+# Every piece is independent and optional — pass the whole bundle at once, or
+# just a subset and fill the rest in later calls (each recon field is its own
+# blob). At least one of meshes/poses/intrinsics/hands/gravity must be present.
+#   ds.episode(id).revise(reconstruction={"meshes": ...})              # only mesh now
+#   ds.episode(id).revise(reconstruction={"poses": ..., "intrinsics": ...})  # rest later
 # read back: epo.read_reconstruction(camera=None)
 #   → {"camera", "meshes", "poses", "camera_intrinsics", "hands"?, "gravity"?} | None
 # either write also stamps the space meta `dreamdb.dataset.recon = "v1"`.

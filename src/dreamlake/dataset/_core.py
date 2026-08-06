@@ -895,9 +895,9 @@ class VideoAnnotationDataset(_GenericDataset):
         multi-view playback is time-aligned by construction. ``joints_pose``
         binds per camera (bare doc → primary camera; dict → named cameras);
         ``subtasks`` is episode-level. ``reconstruction`` is the 3D-modality
-        bundle (``{meshes, poses, intrinsics, hands?, gravity?}``, optional
-        ``camera`` key → default primary), folded into this atomic row (and
-        also revisable later via :meth:`Episode.revise`).
+        bundle — any subset of ``{meshes, poses, intrinsics, hands, gravity}``
+        (each optional; optional ``camera`` key → default primary) — folded
+        into this atomic row (and further revisable via :meth:`Episode.revise`).
         ``meta`` takes the contract labels
         (``task``, ``scene``) — nothing is inferred. ``raw=True``
         additionally archives a lossless remux (roughly doubles the upload;

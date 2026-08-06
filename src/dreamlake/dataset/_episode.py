@@ -145,46 +145,54 @@ def _recon_gravity_doc(gravity: Any) -> Dict[str, Any]:
     return {"vec3d": [float(x) for x in v]}
 
 
+def _recon_field_map(camera: str) -> Dict[str, Any]:
+    """bundle key → (track name, normalizer) for ``camera``. The single source
+    of truth for which of the five recon pieces exist and how they map."""
+    return {
+        "meshes": (FIELD_RECON_MESH, _recon_meshes_doc),
+        "poses": (recon_pose_track(camera), _recon_poses_doc),
+        "intrinsics": (recon_camera_track(camera), _recon_camera_doc),
+        "hands": (recon_hands_track(camera), _recon_hands_doc),
+        "gravity": (recon_gravity_track(camera), _recon_gravity_doc),
+    }
+
+
 def reconstruction_fields(bundle: Dict[str, Any], camera: str) -> Dict[str, Any]:
     """A reconstruction bundle → ``{track_name: doc}`` for ``camera``, the
     normalized+validated blobs ready to encode. Backs the ``reconstruction=``
     argument on ``add_episode`` / ``revise``.
 
-    ``bundle`` keys: ``meshes``, ``poses``, ``intrinsics`` (required together),
-    ``hands``, ``gravity`` (optional). An extra ``camera`` key, if present, is
-    ignored here — the caller resolves the camera name and passes it in."""
+    Every piece is INDEPENDENT and OPTIONAL: pass any subset of ``meshes``,
+    ``poses``, ``intrinsics``, ``hands``, ``gravity`` — only the keys present are
+    written, so the five recon fields can be filled all at once or one at a
+    time across calls (each is its own blob). At least one must be present.
+    An extra ``camera`` key, if any, is ignored — the caller passes the name in."""
     from ._core import DatasetError
 
-    meshes = bundle.get("meshes")
-    poses = bundle.get("poses")
-    intrinsics = bundle.get("intrinsics")
-    if meshes is None or poses is None or intrinsics is None:
+    fmap = _recon_field_map(camera)
+    fields: Dict[str, Any] = {}
+    for key, (track, normalize) in fmap.items():
+        if bundle.get(key) is not None:
+            fields[track] = normalize(bundle[key])
+    if not fields:
         raise DatasetError(
-            "reconstruction needs meshes, poses and intrinsics together "
-            "(hands and gravity are optional)"
+            "reconstruction bundle is empty — pass at least one of "
+            "meshes / poses / intrinsics / hands / gravity"
         )
-    fields: Dict[str, Any] = {
-        FIELD_RECON_MESH: _recon_meshes_doc(meshes),
-        recon_pose_track(camera): _recon_poses_doc(poses),
-        recon_camera_track(camera): _recon_camera_doc(intrinsics),
-    }
-    if bundle.get("hands") is not None:
-        fields[recon_hands_track(camera)] = _recon_hands_doc(bundle["hands"])
-    if bundle.get("gravity") is not None:
-        fields[recon_gravity_track(camera)] = _recon_gravity_doc(bundle["gravity"])
     return fields
 
 
 def reconstruction_summary(fields: Dict[str, Any], camera: str) -> Dict[str, Any]:
-    """A compact report of what ``reconstruction_fields`` produced."""
+    """A compact report of what ``reconstruction_fields`` produced — which
+    pieces were written, plus object/frame counts when those pieces are present."""
+    track_to_key = {track: key for key, (track, _) in _recon_field_map(camera).items()}
     mesh = fields.get(FIELD_RECON_MESH, {})
     pose = fields.get(recon_pose_track(camera), {})
     return {
         "camera": camera,
+        "wrote": [track_to_key[t] for t in fields if t in track_to_key],
         "objects": sorted(mesh.keys()),
         "frames": len(pose.get("frames", {})),
-        "hands": recon_hands_track(camera) in fields,
-        "gravity": recon_gravity_track(camera) in fields,
     }
 
 
@@ -388,10 +396,11 @@ class Episode:
         new version at the same anchor; readers resolve to the newest and
         the DreamDB timeline keeps history.
 
-        ``reconstruction`` is the 3D-modality bundle
-        (``{meshes, poses, intrinsics, hands?, gravity?}``, optional ``camera``
-        key → default primary), folded into the same atomic row — so the 3D
-        modality revises like ``subtasks``/``joints_pose`` do.
+        ``reconstruction`` is the 3D-modality bundle — any subset of
+        ``{meshes, poses, intrinsics, hands, gravity}`` (each independent and
+        optional; optional ``camera`` key → default primary) — folded into the
+        same atomic row, so the 3D modality revises piece-by-piece like
+        ``subtasks``/``joints_pose`` do.
 
         ``meta`` accepts only the contract keys (``task``, ``scene``).
         There is no inference — a label exists iff you wrote it.
