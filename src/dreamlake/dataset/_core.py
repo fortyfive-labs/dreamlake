@@ -76,6 +76,7 @@ from ._schema import (
     MAX_EPISODE_SECONDS,
     META_KEYS,
     PUBLIC_META_KEY,
+    RECON_HANDS_PREFIX,
     RECON_SCHEMA_META_KEY,
     RECON_SCHEMA_VERSION,
     REVISION_WINDOW_NS,
@@ -85,6 +86,7 @@ from ._schema import (
     base_anchor,
     build_schema,
     classify_track,
+    encode_hands_binary,
     gid_of,
     joints_track,
     preview_track,
@@ -528,8 +530,11 @@ class VideoAnnotationDataset(_GenericDataset):
             _, camera, role = classify_track(n)
             if role in ("video_preview", "video_raw"):
                 kind, mime, dim = "video", "h264", None
+            elif role == "recon_hands":
+                # binary (RHB1) blob, not JSON — see encode_hands_binary
+                kind, mime, dim = "image", "bin", None
             elif role in ("joints_pose", "subtasks", "episode_meta",
-                          "recon_mesh", "recon_pose", "recon_hands",
+                          "recon_mesh", "recon_pose",
                           "recon_gravity", "recon_camera"):
                 kind, mime, dim = "image", "json", None
             elif n == FIELD_FRAME_VEC:
@@ -716,16 +721,19 @@ class VideoAnnotationDataset(_GenericDataset):
         """Declare the reconstruction tracks (episode-level mesh + this camera's
         pose/hands/gravity/intrinsics). Idempotent, and works on datasets created
         before the recon extension existed (the fields are all optional)."""
-        fields = (
+        json_fields = (
             FIELD_RECON_MESH,
             recon_pose_track(camera),
-            recon_hands_track(camera),
             recon_gravity_track(camera),
             recon_camera_track(camera),
         )
-        for field in fields:
+        # recon_hands is a binary (RHB1) blob, not JSON — see encode_hands_binary.
+        # mime is a dreamdb modality segment ([a-z0-9_]); "bin" tags raw bytes.
+        binary_fields = ((recon_hands_track(camera), "bin"),)
+        declarations = [(f, "json") for f in json_fields] + list(binary_fields)
+        for field, mime in declarations:
             try:
-                self._ds.add_image(field, mime="json", required=False)
+                self._ds.add_image(field, mime=mime, required=False)
             except Exception as e:
                 if "already exists" not in str(e):
                     raise
@@ -757,7 +765,16 @@ class VideoAnnotationDataset(_GenericDataset):
         for cam in (cameras or {primary}):  # mesh-only still needs the mesh track
             self._ensure_recon_tracks(cam)
         self._ds.set_meta(RECON_SCHEMA_META_KEY, RECON_SCHEMA_VERSION)
-        encoded = {name: dumps_compact(doc).encode() for name, doc in fields.items()}
+        # recon_hands tracks store a binary (RHB1) blob, not JSON; everything
+        # else is compact JSON. Pack hands to bytes here, then serialize the
+        # rest — bytes values pass through untouched.
+        for name in list(fields):
+            if name.startswith(RECON_HANDS_PREFIX):
+                fields[name] = encode_hands_binary(fields[name])
+        encoded = {
+            name: (doc if isinstance(doc, (bytes, bytearray)) else dumps_compact(doc).encode())
+            for name, doc in fields.items()
+        }
         return encoded, reconstruction_summary(fields)
 
     def _check_camera_geometry(self, camera: str, src: ProbeResult, video: str) -> None:

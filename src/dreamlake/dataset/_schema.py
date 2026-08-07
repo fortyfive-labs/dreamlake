@@ -26,6 +26,7 @@ two files agree. Change one, change both.
 from __future__ import annotations
 
 import re
+import struct
 from typing import Any, Dict, List, Optional, Tuple, TypedDict
 
 from ._errors import DatasetError
@@ -303,7 +304,10 @@ def build_schema():
     # on first use (see _ensure_recon_tracks).
     schema.add_image(FIELD_RECON_MESH, mime="json", required=False)
     schema.add_image(recon_pose_track(DEFAULT_CAMERA), mime="json", required=False)
-    schema.add_image(recon_hands_track(DEFAULT_CAMERA), mime="json", required=False)
+    # recon_hands is a binary blob (RHB1), not JSON: per-frame MANO verts as
+    # uint16-quantized bytes (~10x smaller than JSON text, no JSON.parse of ~1e6
+    # numbers on the reader). See encode_hands_binary / decode_hands_binary.
+    schema.add_image(recon_hands_track(DEFAULT_CAMERA), mime="bin", required=False)
     schema.add_image(recon_gravity_track(DEFAULT_CAMERA), mime="json", required=False)
     schema.add_image(recon_camera_track(DEFAULT_CAMERA), mime="json", required=False)
     return schema
@@ -509,6 +513,134 @@ def _recon_hands_doc(hands: Any) -> Dict[str, Any]:
         if row:
             out_frames[str(int(f))] = row
     return {"faces": faces, "frames": out_frames}
+
+
+# ---- recon_hands binary encoding (RHB1) ------------------------------------
+#
+# The hands doc's per-frame vertex arrays dominate the payload (hundreds of
+# frames × ~778 verts × 3), and as JSON decimal text they are ~10x their
+# packed size AND cost a JSON.parse of ~1e6 numbers on the reader. So the
+# recon_hands__<cam> track stores a compact self-describing binary blob
+# instead of JSON: constant topology once, then per-frame uint16-quantized
+# verts (per-axis over the clip's bounding box, sub-mm) and f32 joints. The
+# reader (SDK read_recon_hands / the web viewer) reconstructs the identical
+# hands doc. Little-endian throughout. Byte layout:
+#
+#   magic "RHB1" | version u8 | quant u8 (1=uint16) | nSides u8
+#   bbox_min f32[3] | bbox_max f32[3]
+#   per side:  sideId u8 (0=left,1=right) | nverts u16 | nFaces u32
+#              faces u32[nFaces*3]
+#              nFrames u32
+#              per frame:  frameIdx u32 | verts u16[nverts*3]
+#                          njoints u16 | joints f32[njoints*3]
+_RHB_MAGIC = b"RHB1"
+_RHB_SIDE_ID = {"left": 0, "right": 1}
+_RHB_SIDE_NAME = {0: "left", 1: "right"}
+
+
+def encode_hands_binary(doc: Dict[str, Any]) -> bytes:
+    """Pack a normalized hands doc (``{faces, frames}`` from ``_recon_hands_doc``)
+    into the RHB1 binary blob. Verts are uint16-quantized per-axis over the
+    clip-wide bounding box (sub-mm); joints stay f32. Requires numpy."""
+    import numpy as np
+
+    faces = doc.get("faces") or {}
+    frames = doc.get("frames") or {}
+    sides = [s for s in ("left", "right") if s in faces]
+
+    per_side: Dict[str, list] = {}
+    all_verts: list = []
+    for side in sides:
+        rows = []
+        for f_str, row in frames.items():
+            hd = row.get(side)
+            if not hd or not hd.get("verts"):
+                continue
+            v = np.asarray(hd["verts"], dtype=np.float64)
+            jl = hd.get("joints") or []
+            j = np.asarray(jl, dtype=np.float32).reshape(-1, 3) if jl else np.zeros((0, 3), np.float32)
+            rows.append((int(f_str), v, j))
+            all_verts.append(v)
+        rows.sort(key=lambda t: t[0])
+        per_side[side] = rows
+
+    if all_verts:
+        allv = np.concatenate(all_verts, axis=0)
+        bbox_min = allv.min(axis=0).astype(np.float64)
+        bbox_max = allv.max(axis=0).astype(np.float64)
+    else:
+        bbox_min = np.zeros(3, np.float64)
+        bbox_max = np.zeros(3, np.float64)
+    span = bbox_max - bbox_min
+    span[span == 0] = 1.0  # degenerate axis → all-zero quant, exact on decode
+
+    out = bytearray()
+    out += _RHB_MAGIC
+    out += struct.pack("<BBB", 1, 1, len(sides))          # version, quant, nSides
+    out += bbox_min.astype("<f4").tobytes()
+    out += bbox_max.astype("<f4").tobytes()
+    for side in sides:
+        rows = per_side[side]
+        tris = np.asarray(faces[side], dtype=np.uint32).reshape(-1, 3)
+        nverts = int(rows[0][1].shape[0]) if rows else 0
+        out += struct.pack("<BHI", _RHB_SIDE_ID[side], nverts, int(tris.shape[0]))
+        out += tris.astype("<u4").ravel().tobytes()
+        out += struct.pack("<I", len(rows))
+        for fi, v, j in rows:
+            q = np.clip(np.round((v - bbox_min) / span * 65535.0), 0, 65535).astype("<u2")
+            out += struct.pack("<I", int(fi))
+            out += q.ravel().tobytes()
+            out += struct.pack("<H", int(j.shape[0]))
+            out += j.astype("<f4").ravel().tobytes()
+    return bytes(out)
+
+
+def decode_hands_binary(blob: bytes) -> Dict[str, Any]:
+    """Inverse of ``encode_hands_binary``: RHB1 bytes → the same
+    ``{faces, frames}`` doc shape ``_recon_hands_doc`` produces."""
+    import numpy as np
+
+    mv = memoryview(blob)
+    if bytes(mv[:4]) != _RHB_MAGIC:
+        raise DatasetError("recon_hands: blob is not an RHB1 binary payload")
+    off = 4
+    version, quant, n_sides = struct.unpack_from("<BBB", mv, off)
+    off += 3
+    if quant != 1:
+        raise DatasetError(f"recon_hands: unsupported quant mode {quant}")
+    bbox_min = np.frombuffer(mv, dtype="<f4", count=3, offset=off).astype(np.float64)
+    off += 12
+    bbox_max = np.frombuffer(mv, dtype="<f4", count=3, offset=off).astype(np.float64)
+    off += 12
+    span = bbox_max - bbox_min
+    span[span == 0] = 1.0
+
+    faces: Dict[str, Any] = {}
+    frames: Dict[str, Any] = {}
+    for _ in range(n_sides):
+        side_id, nverts, n_faces = struct.unpack_from("<BHI", mv, off)
+        off += 7
+        side = _RHB_SIDE_NAME[side_id]
+        tris = np.frombuffer(mv, dtype="<u4", count=n_faces * 3, offset=off).reshape(-1, 3)
+        off += n_faces * 3 * 4
+        faces[side] = tris.astype(int).tolist()
+        (n_frames,) = struct.unpack_from("<I", mv, off)
+        off += 4
+        for _f in range(n_frames):
+            (fi,) = struct.unpack_from("<I", mv, off)
+            off += 4
+            q = np.frombuffer(mv, dtype="<u2", count=nverts * 3, offset=off).reshape(-1, 3).astype(np.float64)
+            off += nverts * 3 * 2
+            v = bbox_min + q / 65535.0 * span
+            (n_joints,) = struct.unpack_from("<H", mv, off)
+            off += 2
+            j = np.frombuffer(mv, dtype="<f4", count=n_joints * 3, offset=off).reshape(-1, 3)
+            off += n_joints * 3 * 4
+            frames.setdefault(str(fi), {})[side] = {
+                "verts": v.tolist(),
+                "joints": j.astype(float).tolist(),
+            }
+    return {"faces": faces, "frames": frames}
 
 
 def _recon_gravity_doc(gravity: Any) -> Dict[str, Any]:
