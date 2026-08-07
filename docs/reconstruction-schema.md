@@ -30,8 +30,15 @@ episode
 
 ## Fields
 
-All JSON blobs (`kind=image, mime=json`), one blob per episode — every field is
-read in a single fetch and indexed by frame in memory (never per-frame items).
+One blob per episode — every field is read in a single fetch and indexed by
+frame in memory (never per-frame items). All fields are JSON blobs
+(`kind=image, mime=json`) **except `recon_hands__<cam>`**, which is a compact
+**binary** blob (`kind=image, mime=bin` — magic `RHB1`): its per-frame vertex
+arrays dominate the payload, so storing them as JSON decimal text was ~10x
+larger and forced a `JSON.parse` of ~10^6 numbers on the reader. The SDK
+encodes/decodes it transparently — the `payload` column below is the doc shape
+`add_episode` accepts and `read_recon_hands` returns, not the on-disk bytes.
+See **Binary encoding** below.
 
 **Camera-independent (episode-level)**
 
@@ -67,6 +74,35 @@ expressed in one camera's frame, so its per-frame data is camera-scoped.
 - Frame indices are **0-based** and aligned with the video (frame `f` ↔ time
   `f / fps`).
 - **Colour is not stored** — the viewer assigns a palette by object order.
+
+## Binary encoding (`recon_hands__<cam>`)
+
+`recon_hands` is stored as a self-describing little-endian binary blob, not
+JSON. The doc shape in **Fields** is what the SDK accepts and returns;
+`encode_hands_binary` / `decode_hands_binary` (in `_schema.py`) convert to and
+from these bytes on write / read. Layout:
+
+```
+magic "RHB1" | version u8 | quant u8 (1=uint16) | nSides u8
+bbox_min f32[3] | bbox_max f32[3]                 # clip-wide, per-axis
+per side:  sideId u8 (0=left,1=right) | nverts u16 | nFaces u32
+           faces u32[nFaces*3]                    # topology, once
+           nFrames u32
+           per frame:  frameIdx u32
+                       verts  u16[nverts*3]        # quantized (see below)
+                       njoints u16 | joints f32[njoints*3]
+```
+
+- **Verts** are quantized to `uint16` per axis over the clip's bounding box:
+  `u = round((v - bbox_min) / (bbox_max - bbox_min) * 65535)`; decode inverts
+  it. Step ≈ `bbox_span / 65535` — sub-mm for a hand, visually lossless.
+- **Joints** stay `f32` (only ~21 per hand — no size pressure). **Faces** are
+  the constant MANO topology, stored once per side.
+- Sparsity is carried by `frameIdx` (only annotated frames appear), matching
+  the JSON form's absent-key convention.
+- Result: ~10x smaller than the JSON text (e.g. 15 MB → ~1.5 MB per episode)
+  and no `JSON.parse` of ~10^6 numbers on the reader — it fills typed arrays
+  directly. Web viewer decoder mirrors this in `reconAnnotationSource.ts`.
 
 ## SDK
 
