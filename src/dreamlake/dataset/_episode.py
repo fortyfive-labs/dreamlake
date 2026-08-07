@@ -26,6 +26,7 @@ from ._schema import (
     MAX_EPISODE_SECONDS,
     META_KEYS,
     USER_TRACK_RE,
+    decode_hands_binary,
     joints_track,
     recon_camera_track,
     recon_gravity_track,
@@ -151,10 +152,13 @@ class Episode:
         return json.loads(blob) if blob else None
 
     def read_recon_hands(self, camera: Optional[str] = None) -> Optional[Dict[str, Any]]:
-        """One camera's per-frame MANO hands (default: primary), or None."""
+        """One camera's per-frame MANO hands (default: primary), or None.
+
+        The track stores a binary (RHB1) blob; ``decode_hands_binary`` returns
+        the same ``{faces, frames}`` doc shape the writer accepted."""
         cam = camera or self._row.get("primary_camera") or DEFAULT_CAMERA
         blob = self._d._read_blob(recon_hands_track(cam), self.gid)
-        return json.loads(blob) if blob else None
+        return decode_hands_binary(blob) if blob else None
 
     def read_recon_gravity(self, camera: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """One camera's gravity up-vector ``{vec3d}`` (default: primary), or None."""
