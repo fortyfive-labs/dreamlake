@@ -166,7 +166,7 @@ def _broker_payload(session_token=""):
     }
 
 
-def _make_app(seen, session_token="", dataset_exists=True):
+def _make_app(seen, session_token="", annotation_exists=True):
     """Handle the whole platform surface: /auth/me, catalog CRUD, broker."""
 
     def app(method, path, headers, body):
@@ -181,19 +181,19 @@ def _make_app(seen, session_token="", dataset_exists=True):
         })
         if method == "GET" and route == "/auth/me":
             return 200, {"id": "u-1", "namespace": {"id": "n-1", "slug": NS}}
-        if method == "POST" and route == f"/namespaces/{NS}/datasets":
+        if method == "POST" and route == f"/namespaces/{NS}/annotations":
             return 201, {"name": body and json.loads(body).get("name")}
-        if method == "GET" and route == f"/namespaces/{NS}/datasets":
-            return 200, {"datasets": [{"name": "robo-set", "schemaType": "robot"}]}
-        if method == "GET" and route == f"/namespaces/{NS}/datasets/robo-set":
-            if dataset_exists:
+        if method == "GET" and route == f"/namespaces/{NS}/annotations":
+            return 200, {"annotations": [{"name": "robo-set", "schemaType": "robot"}]}
+        if method == "GET" and route == f"/namespaces/{NS}/annotations/robo-set":
+            if annotation_exists:
                 return 200, {"name": "robo-set", "schemaType": "robot"}
-            return 404, {"error": "dataset not found"}
-        if method == "POST" and route == f"/namespaces/{NS}/datasets/robo-set/upload-credentials":
+            return 404, {"error": "annotation not found"}
+        if method == "POST" and route == f"/namespaces/{NS}/annotations/robo-set/upload-credentials":
             return 200, _broker_payload(session_token)
         if method == "DELETE" and route in (
-            f"/namespaces/{NS}/datasets/robo-set",
-            f"/namespaces/{NS}/datasets/robo-set/purge",
+            f"/namespaces/{NS}/annotations/robo-set",
+            f"/namespaces/{NS}/annotations/robo-set/purge",
         ):
             return 200, {"deleted": True}
         return 404, {"error": f"unhandled {method} {route}"}
@@ -201,7 +201,7 @@ def _make_app(seen, session_token="", dataset_exists=True):
     return app
 
 
-# ── _platform.create_dataset — platform flow end to end ─────────────────────
+# ── _platform.create_annotation — platform flow end to end ─────────────────────
 
 class TestCreatePlatformFlow:
     def test_full_flow(self, stub_server, platform, fake_dreamdb):
@@ -209,7 +209,7 @@ class TestCreatePlatformFlow:
         stub_server.app = _make_app(seen, session_token="")
         schema = object()
 
-        ds = _platform.create_dataset(
+        ds = _platform.create_annotation(
             "robo-set", schema,
             schema_type="robot",
             schema_json='{"fields": []}',
@@ -219,7 +219,7 @@ class TestCreatePlatformFlow:
         # 1) catalog registration — exact body + Bearer token
         create_req = next(
             r for r in seen
-            if r["method"] == "POST" and r["route"] == f"/namespaces/{NS}/datasets"
+            if r["method"] == "POST" and r["route"] == f"/namespaces/{NS}/annotations"
         )
         assert create_req["body"] == {
             "name": "robo-set",
@@ -260,7 +260,7 @@ class TestCreatePlatformFlow:
 
     def test_nonempty_session_token_is_set(self, stub_server, platform, fake_dreamdb):
         stub_server.app = _make_app([], session_token="STS-TOKEN")
-        _platform.create_dataset("robo-set", object(), schema_type="robot")
+        _platform.create_annotation("robo-set", object(), schema_type="robot")
         assert os.environ["AWS_SESSION_TOKEN"] == "STS-TOKEN"
 
     def test_conflict_409_says_open_instead(self, stub_server, platform, fake_dreamdb):
@@ -268,13 +268,13 @@ class TestCreatePlatformFlow:
             route = urlparse(path).path
             if route == "/auth/me":
                 return 200, {"namespace": {"slug": NS}}
-            if method == "POST" and route == f"/namespaces/{NS}/datasets":
+            if method == "POST" and route == f"/namespaces/{NS}/annotations":
                 return 409, {"error": "already exists"}
             return 404, {"error": "unhandled"}
 
         stub_server.app = app
-        with pytest.raises(_platform.DatasetExistsError, match="open it instead"):
-            _platform.create_dataset("robo-set", object(), schema_type="robot")
+        with pytest.raises(_platform.AnnotationExistsError, match="open it instead"):
+            _platform.create_annotation("robo-set", object(), schema_type="robot")
         assert fake_dreamdb["create"] == []
 
     def test_server_500_carries_body_text(self, stub_server, platform, fake_dreamdb):
@@ -286,7 +286,7 @@ class TestCreatePlatformFlow:
 
         stub_server.app = app
         with pytest.raises(_platform.PlatformError, match="kaboom-xyz") as exc:
-            _platform.create_dataset("robo-set", object(), schema_type="robot")
+            _platform.create_annotation("robo-set", object(), schema_type="robot")
         assert "500" in str(exc.value)
 
     def test_broker_500_is_platform_error(self, stub_server, platform, fake_dreamdb):
@@ -294,7 +294,7 @@ class TestCreatePlatformFlow:
             route = urlparse(path).path
             if route == "/auth/me":
                 return 200, {"namespace": {"slug": NS}}
-            if method == "POST" and route == f"/namespaces/{NS}/datasets":
+            if method == "POST" and route == f"/namespaces/{NS}/annotations":
                 return 201, {"name": "robo-set"}
             if route.endswith("/upload-credentials"):
                 return 500, {"error": "broker down"}
@@ -302,7 +302,7 @@ class TestCreatePlatformFlow:
 
         stub_server.app = app
         with pytest.raises(_platform.PlatformError, match="broker down"):
-            _platform.create_dataset("robo-set", object(), schema_type="robot")
+            _platform.create_annotation("robo-set", object(), schema_type="robot")
         assert fake_dreamdb["create"] == []
 
     def test_not_authenticated(self, monkeypatch, fake_dreamdb):
@@ -317,10 +317,10 @@ class TestCreatePlatformFlow:
             lambda config_dir=None: NoToken(),
         )
         with pytest.raises(NotAuthenticatedError, match="dreamlake login"):
-            _platform.create_dataset("robo-set", object(), schema_type="robot")
+            _platform.create_annotation("robo-set", object(), schema_type="robot")
 
 
-# ── _platform.open_dataset ───────────────────────────────────────────────────
+# ── _platform.open_annotation ───────────────────────────────────────────────────
 
 class TestOpenPlatformFlow:
     def test_full_flow(self, stub_server, platform, fake_dreamdb):
@@ -328,11 +328,11 @@ class TestOpenPlatformFlow:
         stub_server.app = _make_app(seen, session_token="STS")
         schema = object()
 
-        ds = _platform.open_dataset("robo-set", schema=schema, duration_seconds=600)
+        ds = _platform.open_annotation("robo-set", schema=schema, duration_seconds=600)
 
         lookup = next(
             r for r in seen
-            if r["method"] == "GET" and r["route"] == f"/namespaces/{NS}/datasets/robo-set"
+            if r["method"] == "GET" and r["route"] == f"/namespaces/{NS}/annotations/robo-set"
         )
         assert lookup["auth"] == f"Bearer {TOKEN}"
 
@@ -348,25 +348,25 @@ class TestOpenPlatformFlow:
         assert os.environ["AWS_SESSION_TOKEN"] == "STS"
 
     def test_missing_404_says_create_first(self, stub_server, platform, fake_dreamdb):
-        stub_server.app = _make_app([], dataset_exists=False)
-        with pytest.raises(_platform.DatasetNotFoundError, match="create it first"):
-            _platform.open_dataset("robo-set")
+        stub_server.app = _make_app([], annotation_exists=False)
+        with pytest.raises(_platform.AnnotationNotFoundError, match="create it first"):
+            _platform.open_annotation("robo-set")
         assert fake_dreamdb["open"] == []
 
 
-# ── _platform.list_datasets / delete_dataset — request shapes ────────────────
+# ── _platform.list_annotations / delete_annotation — request shapes ────────────────
 
 class TestListDelete:
     def test_list(self, stub_server, platform):
         seen = []
         stub_server.app = _make_app(seen)
 
-        result = _platform.list_datasets()
+        result = _platform.list_annotations()
 
         assert result == [{"name": "robo-set", "schemaType": "robot"}]
         req = next(
             r for r in seen
-            if r["method"] == "GET" and r["route"] == f"/namespaces/{NS}/datasets"
+            if r["method"] == "GET" and r["route"] == f"/namespaces/{NS}/annotations"
         )
         assert req["auth"] == f"Bearer {TOKEN}"
         assert req["query"] == {}
@@ -375,11 +375,11 @@ class TestListDelete:
         seen = []
         stub_server.app = _make_app(seen)
 
-        _platform.list_datasets(schema_type="robot")
+        _platform.list_annotations(schema_type="robot")
 
         req = next(
             r for r in seen
-            if r["method"] == "GET" and r["route"] == f"/namespaces/{NS}/datasets"
+            if r["method"] == "GET" and r["route"] == f"/namespaces/{NS}/annotations"
         )
         assert req["query"] == {"schemaType": ["robot"]}
 
@@ -387,30 +387,30 @@ class TestListDelete:
         seen = []
         stub_server.app = _make_app(seen)
 
-        _platform.delete_dataset("robo-set")
+        _platform.delete_annotation("robo-set")
 
         req = next(r for r in seen if r["method"] == "DELETE")
-        assert req["route"] == f"/namespaces/{NS}/datasets/robo-set"
+        assert req["route"] == f"/namespaces/{NS}/annotations/robo-set"
 
     def test_delete_purge(self, stub_server, platform):
         seen = []
         stub_server.app = _make_app(seen)
 
-        _platform.delete_dataset("robo-set", purge=True)
+        _platform.delete_annotation("robo-set", purge=True)
 
         req = next(r for r in seen if r["method"] == "DELETE")
-        assert req["route"] == f"/namespaces/{NS}/datasets/robo-set/purge"
+        assert req["route"] == f"/namespaces/{NS}/annotations/robo-set/purge"
 
     def test_delete_missing_404(self, stub_server, platform):
         def app(method, path, headers, body):
             route = urlparse(path).path
             if route == "/auth/me":
                 return 200, {"namespace": {"slug": NS}}
-            return 404, {"error": "no such dataset"}
+            return 404, {"error": "no such annotation"}
 
         stub_server.app = app
-        with pytest.raises(_platform.DatasetNotFoundError, match="not found"):
-            _platform.delete_dataset("ghost")
+        with pytest.raises(_platform.AnnotationNotFoundError, match="not found"):
+            _platform.delete_annotation("ghost")
 
 
 # ── Re-export: dreamlake.db IS dreamdb ───────────────────────────────────────

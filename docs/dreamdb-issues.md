@@ -2,7 +2,7 @@
 
 Two storage-engine behaviors discovered empirically (dreamdb from this
 repo's `.venv`, July 2026). Both have SDK-side mitigations in
-`dreamlake.dataset`; both deserve engine fixes. File these upstream.
+`dreamlake.annotation`; both deserve engine fixes. File these upstream.
 
 ## 1. Same-anchor duplicate resolution is content-ordered, not last-writer-wins
 

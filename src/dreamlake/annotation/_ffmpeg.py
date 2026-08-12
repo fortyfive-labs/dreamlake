@@ -1,7 +1,7 @@
 """Fragmenting a source video into CMAF for DreamDB ingest.
 
 A direct port of dreamlake-cli's ``src/cli/dataset/ffmpeg.ts`` — the two must
-produce interchangeable output, because a dataset may be written by both tools
+produce interchangeable output, because an annotation may be written by both tools
 and every clip on one video field must share ONE init segment. The ffmpeg
 argument list below is therefore not a style choice; it is a compatibility
 contract. Change it in both places or not at all.

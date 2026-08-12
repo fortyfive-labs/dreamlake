@@ -1,4 +1,4 @@
-"""Upload an annotated robot-training episode with dreamlake.dataset.
+"""Upload an annotated robot-training episode with dreamlake.annotation.
 
 The real workflow this mirrors: your labeling pipeline ingests raw footage,
 runs detection/segmentation, and ends up holding two Python dicts per
@@ -10,23 +10,23 @@ DreamDB dataset. An episode may carry several cameras; they share one clock.
 Run it three ways:
 
     # Self-contained demo — synthesizes a two-camera episode + mock annotations:
-    python 09_robot_dataset.py --demo
+    python 09_robot_annotation.py --demo
 
     # Your own data:
-    python 09_robot_dataset.py --video Ceramics.mov \
+    python 09_robot_annotation.py --video Ceramics.mov \
         --joints Ceramics.joints.json --subtasks Ceramics.subtasks.json
 
-    # Platform mode — the dataset lives in the DreamLake bucket
+    # Platform mode — the annotation lives in the DreamLake bucket
     # (run `dreamlake login` once, or set DREAMLAKE_API_KEY):
-    python 09_robot_dataset.py --demo --platform my-first-dataset
+    python 09_robot_annotation.py --demo --platform my-first-annotation
 
 With `pip install "dreamlake[search]"` the demo also embeds the episode and
 runs a natural-language search at the end.
 
-For a local dataset, look at the result in a browser:
+For a local annotation, look at the result in a browser:
 
-    npx http-server /tmp/dreamlake-datasets/demo -p 8791 --cors
-    open 'http://localhost:3000/dataset-debug?space=http://localhost:8791/refs/main'
+    npx http-server /tmp/dreamlake-annotations/demo -p 8791 --cors
+    open 'http://localhost:3000/annotation-debug?space=http://localhost:8791/refs/main'
 
 Requires: pip install dreamdb; ffmpeg on PATH.
 """
@@ -39,9 +39,9 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from dreamlake.dataset import VideoAnnotationDataset as Dataset, DatasetError
+from dreamlake.annotation import VideoAnnotation, AnnotationError
 
-BACKEND = "file:///tmp/dreamlake-datasets/demo"
+BACKEND = "file:///tmp/dreamlake-annotations/demo"
 
 
 # ─── a stand-in for YOUR annotation pipeline ─────────────────────────────
@@ -132,29 +132,29 @@ def main() -> None:
     ap.add_argument("--subtasks", help="subtasks JSON file (optional)")
     ap.add_argument("--id", dest="episode_id", help="stable episode id (default: filename stem)")
     ap.add_argument("--task", help="task label for the episode meta (nothing is inferred)")
-    ap.add_argument("--backend", default=BACKEND, help=f"dataset location (default: {BACKEND})")
+    ap.add_argument("--backend", default=BACKEND, help=f"annotation location (default: {BACKEND})")
     ap.add_argument("--platform", metavar="NAME",
-                    help="store the dataset in the DreamLake platform bucket under NAME "
+                    help="store the annotation in the DreamLake platform bucket under NAME "
                          "(needs `dreamlake login` or DREAMLAKE_API_KEY)")
     args = ap.parse_args()
 
-    # 1. Open the dataset, creating it on first use. One dataset = one task's
+    # 1. Open the annotation, creating it on first use. One annotation = one task's
     #    worth of episodes. Each camera track keeps one aspect ratio, but
     #    different cameras can differ (head 16:9 + wrist 4:3 is fine).
     if args.platform:
         try:
-            ds = Dataset.open(args.platform)
-            print(f"opened platform dataset '{args.platform}'")
-        except DatasetError:
-            ds = Dataset.create(args.platform)
-            print(f"created platform dataset '{args.platform}'")
+            ds = VideoAnnotation.open(args.platform)
+            print(f"opened platform annotation '{args.platform}'")
+        except AnnotationError:
+            ds = VideoAnnotation.create(args.platform)
+            print(f"created platform annotation '{args.platform}'")
     else:
         try:
-            ds = Dataset.open(backend=args.backend)
-            print(f"opened dataset at {args.backend}")
-        except DatasetError:
-            ds = Dataset.create(backend=args.backend)
-            print(f"created dataset at {args.backend}")
+            ds = VideoAnnotation.open(backend=args.backend)
+            print(f"opened annotation at {args.backend}")
+        except AnnotationError:
+            ds = VideoAnnotation.create(backend=args.backend)
+            print(f"created annotation at {args.backend}")
 
     # 2. Produce (or load) the camera file(s) and annotations.
     tmpdir = None
@@ -219,7 +219,7 @@ def main() -> None:
 
     # 4. Read back — the same calls a viewer or a training loader starts with.
     #    ds.episodes() returns Episode handles; ds.episode(id) fetches one.
-    print("\nepisodes in this dataset:")
+    print("\nepisodes in this annotation:")
     for e in ds.episodes():
         cams = ", ".join(
             f"{name} {c.get('width')}x{c.get('height')}"
@@ -245,7 +245,7 @@ def main() -> None:
             for h in hits:
                 extra = f'  "{h["subtask"]}"' if "subtask" in h else ""
                 print(f'  {h["episode_id"]} @ {h["time_sec"]:.1f}s  [{h["source"]}]{extra}')
-    except DatasetError as e:
+    except AnnotationError as e:
         print(f"\n(skipping search demo: {e})")
 
     # 6. Visualize.
@@ -253,7 +253,7 @@ def main() -> None:
     print(
         "\nTo see it in the browser:\n"
         f"  npx http-server {local_dir} -p 8791 --cors\n"
-        "  open 'http://localhost:3000/dataset-debug"
+        "  open 'http://localhost:3000/annotation-debug"
         "?space=http://localhost:8791/refs/main'\n"
         "(run `pnpm dev` in dreamlake-ai for the viewer at :3000)"
     )

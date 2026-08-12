@@ -1,10 +1,10 @@
-"""DreamLake datasets — one family, dispatched by schemaType.
+"""DreamLake annotations — one family, dispatched by schemaType.
 
-:class:`Dataset` is the generic member: platform datasets with a
+:class:`Annotation` is the generic member: platform annotations with a
 USER-DEFINED schema (declare tracks, append rows/ranges, read back — see
 ``_base``). Known schemaTypes get a preset subclass with rich methods:
-:class:`VideoAnnotationDataset` (``video.annotation/v2``) is the
-robot-training episode preset. ``Dataset.open(name)`` returns whichever
+:class:`VideoAnnotation` (``video.annotation/v2``) is the
+robot-training episode preset. ``Annotation.open(name)`` returns whichever
 class the catalog's schemaType names; unknown types degrade to the generic
 handle, never refuse.
 
@@ -18,19 +18,19 @@ try:
     import dreamdb  # noqa: F401
 except ImportError as e:  # pragma: no cover
     raise ImportError(
-        "dreamlake.dataset needs the 'dreamdb' package (the DreamDB Python "
+        "dreamlake.annotation needs the 'dreamdb' package (the DreamDB Python "
         "SDK). Install it with: pip install dreamdb"
     ) from e
 
-from ._base import Dataset, DatasetInfo
-from ._core import VideoAnnotationDataset
+from ._base import Annotation, AnnotationInfo
+from ._core import VideoAnnotation
 from ._episode import Episode
-from ._errors import DatasetError, SchemaError
+from ._errors import AnnotationError, SchemaError
 from ._ffmpeg import FfmpegError, ProbeResult, probe
 from ._fields import Schema, sequence_anchors
 from ._track import Track
 from ._schema import (
-    DATASET_REF,
+    ANNOTATION_REF,
     DEFAULT_CAMERA,
     DEFAULT_PREVIEW_FPS,
     EPISODE_STRIDE_NS,
@@ -48,15 +48,15 @@ from ._schema import (
 
 __all__ = [
     # the family
-    "Dataset",
-    "DatasetInfo",
+    "Annotation",
+    "AnnotationInfo",
     "Schema",
     "Track",
     "sequence_anchors",
-    "DatasetError",
+    "AnnotationError",
     "SchemaError",
     # the video-annotation preset
-    "VideoAnnotationDataset",
+    "VideoAnnotation",
     "Episode",
     "FfmpegError",
     "ProbeResult",
@@ -64,7 +64,7 @@ __all__ = [
     "CameraMeta",
     "EpisodeMeta",
     "classify_track",
-    "DATASET_REF",
+    "ANNOTATION_REF",
     "DEFAULT_CAMERA",
     "DEFAULT_PREVIEW_FPS",
     "EPISODE_STRIDE_NS",

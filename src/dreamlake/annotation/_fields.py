@@ -1,4 +1,4 @@
-"""Declarative schemas for custom datasets — the ``fields`` wire format.
+"""Declarative schemas for custom annotations — the ``fields`` wire format.
 
 :class:`Schema` mirrors ``dreamdb.Schema`` one-to-one — same method names,
 same parameters, zero translation layer — with exactly two twists it exists
@@ -7,7 +7,7 @@ for:
 1. ``dreamdb.Schema`` cannot be introspected once built (declarations go in,
    nothing comes back out), so this Schema RECORDS every declaration as a
    serializable ``fields`` list. That list is the wire format shared with
-   manifests and the catalog's ``schemaJson``, and it is what the dataset
+   manifests and the catalog's ``schemaJson``, and it is what the annotation
    stamps into its space meta (:data:`FIELDS_META_KEY`) so ``ds.tracks()``
    can answer without an engine introspection API.
 2. Every field is pinned ``required=False``. A required field can never be
@@ -27,7 +27,7 @@ import re
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
-from ._errors import DatasetError, SchemaError
+from ._errors import AnnotationError, SchemaError
 
 # Track/field names: one flat, lowercase vocabulary. The reserved names are
 # load-bearing: "anchor" is the row key of the SDK's row-wise API, and
@@ -56,7 +56,7 @@ EVOLVABLE_KINDS = tuple(k for k in TRACK_KINDS if k != "embedding")
 # add_track is invisible until ``ds.reload()``.
 FIELDS_META_KEY = "dreamdb.dataset.fields"
 
-# The default schemaType stamped on custom datasets. It has no special
+# The default schemaType stamped on custom annotations. It has no special
 # status anywhere — the UI rule is "unknown schemaType → raw view" — it is
 # just the value used when the user does not name their own.
 CUSTOM_SCHEMA_TYPE = "custom/v1"
@@ -79,21 +79,21 @@ def to_anchor_ns(value: Any, *, what: str = "anchor") -> int:
     ``datetime``; everything else — naive datetimes above all — is refused
     rather than guessed (a wrong timezone assumption corrupts silently)."""
     if isinstance(value, bool):
-        raise DatasetError(f"{what} must be int nanoseconds or a tz-aware datetime, got bool")
+        raise AnnotationError(f"{what} must be int nanoseconds or a tz-aware datetime, got bool")
     if isinstance(value, int):
         if value < 0:
-            raise DatasetError(f"{what} must be >= 0 nanoseconds, got {value}")
+            raise AnnotationError(f"{what} must be >= 0 nanoseconds, got {value}")
         return value
     if isinstance(value, datetime):
         if value.tzinfo is None:
-            raise DatasetError(
+            raise AnnotationError(
                 f"{what} datetime is naive — pass a tz-aware datetime "
                 f"(e.g. datetime(..., tzinfo=timezone.utc)) or int nanoseconds"
             )
         delta = value - _EPOCH
         # Integer math end to end: float .timestamp() loses ns precision.
         return (delta.days * 86_400 + delta.seconds) * 1_000_000_000 + delta.microseconds * 1_000
-    raise DatasetError(
+    raise AnnotationError(
         f"{what} must be int nanoseconds or a tz-aware datetime, got {type(value).__name__}"
     )
 
@@ -101,12 +101,12 @@ def to_anchor_ns(value: Any, *, what: str = "anchor") -> int:
 def sequence_anchors(n: int, *, start: int = 0, step: int = 1) -> List[int]:
     """Deterministic anchors for sequential data with no timestamps of its
     own: anchor == row index (``start + i*step``). To continue an existing
-    dataset: ``start=ds.anchors()[-1] + 1``. Explicit on purpose — the SDK
+    annotation: ``start=ds.anchors()[-1] + 1``. Explicit on purpose — the SDK
     never infers anchors from arrival order (not stable across re-runs)."""
     if not isinstance(n, int) or isinstance(n, bool) or n < 0:
-        raise DatasetError(f"sequence_anchors needs a non-negative int count, got {n!r}")
+        raise AnnotationError(f"sequence_anchors needs a non-negative int count, got {n!r}")
     if not isinstance(step, int) or isinstance(step, bool) or step <= 0:
-        raise DatasetError(f"sequence_anchors step must be a positive int, got {step!r}")
+        raise AnnotationError(f"sequence_anchors step must be a positive int, got {step!r}")
     base = to_anchor_ns(start, what="sequence_anchors start")
     return [base + i * step for i in range(n)]
 

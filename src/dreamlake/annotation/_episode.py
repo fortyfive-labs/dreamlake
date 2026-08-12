@@ -1,4 +1,4 @@
-"""``Episode`` — the identity cursor over one episode of a dataset.
+"""``Episode`` — the identity cursor over one episode of an annotation.
 
 An episode's identity triple ``(episode_id, gid, anchor)`` is immutable
 forever (slots are never reused, episodes never deleted), so a handle that
@@ -37,12 +37,12 @@ from ._schema import (
 
 
 class Episode:
-    """One episode of a :class:`Dataset`: identity + meta snapshot + the
+    """One episode of a :class:`Annotation`: identity + meta snapshot + the
     episode-scoped verbs. Obtained from ``ds.add_episode(...)``,
     ``ds.episode(id)`` or ``ds.episodes()`` — never constructed directly."""
 
-    def __init__(self, dataset, row: Dict[str, Any], report: Optional[Dict[str, Any]] = None):
-        self._d = dataset
+    def __init__(self, annotation, row: Dict[str, Any], report: Optional[Dict[str, Any]] = None):
+        self._d = annotation
         self._row = row
         #: Ingest report — populated only on the handle add_episode returns.
         self.report = report
@@ -50,7 +50,7 @@ class Episode:
     # ---- identity (immutable) -------------------------------------------
 
     @property
-    def dataset(self):
+    def annotation(self):
         return self._d
 
     @property
@@ -178,26 +178,26 @@ class Episode:
         """Add late-arriving cameras. Add-only: a camera's fragments occupy
         its slot and cannot be replaced. Dict form adds N cameras with one
         meta rewrite. ``joints_pose`` binds like in ``add_episode``."""
-        from ._core import DatasetError
+        from ._core import AnnotationError
 
         row = self._d._require_row(self.episode_id)  # write-time re-read
         cams = self._d._normalize_videos(videos)
         if not cams:
-            raise DatasetError("add_cameras needs at least one camera video")
+            raise AnnotationError("add_cameras needs at least one camera video")
         primary = row.get("primary_camera") or DEFAULT_CAMERA
         joints_by_cam = self._d._normalize_joints(joints_pose, primary)
 
         have: Dict[str, Any] = dict(row.get("cameras") or {})
         for camera in cams:
             if camera in have:
-                raise DatasetError(
+                raise AnnotationError(
                     f"camera '{camera}' already has video for episode "
                     f"'{self.episode_id}' — fragments cannot be replaced. "
                     f"Use a new camera name, or a new episode."
                 )
         for camera in joints_by_cam:
             if camera not in cams and camera not in have:
-                raise DatasetError(
+                raise AnnotationError(
                     f"joints_pose names camera '{camera}', but this episode has "
                     f"cameras {sorted(have)} — joints bind to the camera whose "
                     f"pixel space they live in"
@@ -257,7 +257,7 @@ class Episode:
         ``meta`` accepts only the contract keys (``task``, ``scene``).
         There is no inference — a label exists iff you wrote it.
         """
-        from ._core import DatasetError, _load_annotation
+        from ._core import AnnotationError, _load_annotation
 
         row = self._d._require_row(self.episode_id)  # write-time re-read
         primary = row.get("primary_camera") or DEFAULT_CAMERA
@@ -273,12 +273,12 @@ class Episode:
             recon_hands=recon_hands, recon_gravity=recon_gravity,
         )
         if not joints_by_cam and segments is None and labels is None and not recon_enc:
-            raise DatasetError(
+            raise AnnotationError(
                 "nothing to revise — pass joints_pose=, subtasks=, recon_* or meta="
             )
         for camera in joints_by_cam:
             if camera not in have:
-                raise DatasetError(
+                raise AnnotationError(
                     f"joints_pose names camera '{camera}', but this episode has "
                     f"cameras {sorted(have)}"
                 )
@@ -310,7 +310,7 @@ class Episode:
             sample.update(recon_enc)
             out["reconstruction"] = recon_summary
         if len(sample) == 1:
-            raise DatasetError("nothing to revise — the passed values match what is stored")
+            raise AnnotationError("nothing to revise — the passed values match what is stored")
         self._d._append_and_invalidate([sample])
         self._row = {"gid": row["gid"], "anchor": row["anchor"], "_rev": rev, **new_meta}
         return out
@@ -318,10 +318,10 @@ class Episode:
     # ---- user tracks (x_ namespace; declare with ds.add_track) -----------
 
     def _user_track(self, name: str) -> str:
-        from ._core import DatasetError
+        from ._core import AnnotationError
 
         if not USER_TRACK_RE.match(name) or "__" in name:
-            raise DatasetError(
+            raise AnnotationError(
                 f"'{name}' is not a user track — user tracks match ^x_[a-z0-9_]+$ "
                 f"(no '__'). Preset tracks are written through add_episode/"
                 f"add_cameras/revise and read through the named methods."
@@ -329,11 +329,11 @@ class Episode:
         return name
 
     def _t_anchor(self, t_sec: float) -> int:
-        from ._core import DatasetError
+        from ._core import AnnotationError
 
         t = float(t_sec)
         if not (0 <= t * 1e9 < EPISODE_STRIDE_NS - 1024):
-            raise DatasetError(
+            raise AnnotationError(
                 f"t_sec {t} is outside the episode's slot (0..{MAX_EPISODE_SECONDS}s) — "
                 f"timestamps are seconds on the episode's own clock"
             )
@@ -374,7 +374,7 @@ class Episode:
         return self._append_track_rows(name, items)
 
     def _append_track_rows(self, name: str, items) -> Dict[str, int]:
-        from ._core import DatasetError
+        from ._core import AnnotationError
 
         field = self._user_track(name)
         samples = []
@@ -386,7 +386,7 @@ class Episode:
             last, _ = self._d._latest_in_window(field, a0)
             a = max(last + 1, a0, used.get(a0, a0 - 1) + 1)
             if a - a0 >= 1024:
-                raise DatasetError(
+                raise AnnotationError(
                     f"track '{name}' at t_sec {t} has exhausted its 1024 revisions"
                 )
             used[a0] = a
@@ -397,8 +397,8 @@ class Episode:
             self._d._append_and_invalidate(samples)
         except Exception as e:
             if "not in schema" in str(e) or "no FieldTrack" in str(e):
-                raise DatasetError(
-                    f"no track '{name}' in this dataset — declare it first with "
+                raise AnnotationError(
+                    f"no track '{name}' in this annotation — declare it first with "
                     f"ds.add_track({name!r}, kind=...)"
                 ) from e
             raise
@@ -466,17 +466,17 @@ class Episode:
         ``video_path`` → ``source_dir``/``source_rel`` → recorded
         ``source_uri``; a file whose duration disagrees with the recorded
         camera duration is refused (wrong file). Needs ``dreamlake[search]``."""
-        from ._core import DatasetError
+        from ._core import AnnotationError
 
         try:
             from dreamlake.encoders import iter_video_frames
         except ImportError as e:
-            raise DatasetError(str(e)) from e
+            raise AnnotationError(str(e)) from e
 
         row = self._d._require_row(self.episode_id)
         cameras = row.get("cameras") or {}
         if camera is not None and camera not in cameras:
-            raise DatasetError(
+            raise AnnotationError(
                 f"no camera '{camera}' on episode '{self.episode_id}' "
                 f"(have: {sorted(cameras)})"
             )
@@ -493,7 +493,7 @@ class Episode:
             probed = probe(src)
             # An explicit video_path IS the override — only guard resolved paths.
             if recorded and not video_path and abs(probed.duration_sec - float(recorded)) > 2 * frag:
-                raise DatasetError(
+                raise AnnotationError(
                     f"'{src}' runs {probed.duration_sec:.1f}s but camera '{cam}' of "
                     f"episode '{self.episode_id}' was ingested at {recorded:.1f}s — "
                     f"this looks like the wrong file. Pass video_path= to override."

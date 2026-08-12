@@ -266,3 +266,44 @@ Use **Option 2** for v0.3.x, make it required in v1.0.0.
 4. Document flush behavior and buffering
 5. Add export format documentation
 6. Add migration guide for existing users
+
+---
+
+## 0.8.0 — Dataset → Annotation rename (Breaking)
+
+The "dataset" feature family is renamed to **annotation**, SDK and server on
+the same day. Old names are removed outright — no aliases, no deprecation
+shims.
+
+**Module**: `dreamlake.dataset` → `dreamlake.annotation`.
+
+```python
+from dreamlake.annotation import Annotation, VideoAnnotation, Schema, Track
+```
+
+**Classes / exceptions**: `Dataset` → `Annotation`, `DatasetInfo` →
+`AnnotationInfo`, `VideoAnnotationDataset` → `VideoAnnotation`,
+`DatasetError` → `AnnotationError` (`SchemaError` keeps its name and still
+subclasses it), `_platform.DatasetExistsError` → `AnnotationExistsError`,
+`_platform.DatasetNotFoundError` → `AnnotationNotFoundError`. Lazy
+top-level exports follow: `dreamlake.Annotation`, `dreamlake.VideoAnnotation`.
+
+**Internal platform API**: `_platform.create_dataset/get_dataset/
+open_dataset/patch_dataset/list_datasets/delete_dataset` →
+`create_annotation/get_annotation/open_annotation/patch_annotation/
+list_annotations/delete_annotation`.
+
+**Wire**: all catalog routes moved from `/namespaces/{ns}/datasets…` to
+`/namespaces/{ns}/annotations…` (the server renamed the same day; 0.8.0
+only talks to a renamed server).
+
+**Unchanged on purpose** (they address data already stored):
+- schemaType VALUES: `video.annotation/v2` (and the historical `/v1`),
+  `custom/v1`.
+- The dreamdb space-meta keys: `dreamdb.schema_type`, `dreamdb.dataset.*`
+  (`encoding`, `public`, `user_tracks`, `recon`, `fields`).
+- The publish ref value `"main"` (constant now spelled `ANNOTATION_REF`,
+  formerly `DATASET_REF`; `ANNOTATION_SCHEMA_TYPE` was `DATASET_SCHEMA_TYPE`).
+- Everything from the third-party `dreamdb` package (`dreamdb.Dataset`,
+  the `dreamlake.db` forwarding of it, and the dreamdb-backed CLI plumbing
+  in `artifact`/`workflow`).

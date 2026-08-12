@@ -6,17 +6,17 @@ login, no catalog, no credential brokering. You bring a backend URI and a
 schema; it gives you a bare `dreamdb.Dataset`.
 
 The platform experience (managed bucket, catalog entry, web visualization)
-belongs to the **presets** built on top — `dreamlake.dataset` — which
-register the dataset in your namespace and broker short-lived scoped
+belongs to the **presets** built on top — `dreamlake.annotation` — which
+register the annotation in your namespace and broker short-lived scoped
 credentials internally, then operate on exactly the same kind of plain
 dreamdb handle this module hands out. The layering:
 
 ```
-dreamlake.dataset (presets)   fixed schemas + platform binding + viewers
+dreamlake.annotation (presets)   fixed schemas + platform binding + viewers
         │ uses
-dreamlake.db (this module)    dreamdb verbatim + create/open on a backend
+dreamlake.db (this module)       dreamdb verbatim + create/open on a backend
         │ is
-dreamdb                       the storage engine
+dreamdb                          the storage engine
 ```
 
 Use `dreamlake.db` when your data does not fit a preset: define your own
@@ -105,13 +105,13 @@ image/audio/video, `str` for text/categorical/string scalars, `int`/`float`/
 
 ## Where the platform flow lives now
 
-Platform datasets are created through presets — `Dataset.create("name")` in
-`dreamlake.dataset` — which internally: authenticate with your
+Platform annotations are created through presets — `Annotation.create("name")`
+in `dreamlake.annotation` — which internally: authenticate with your
 `dreamlake login` / `DREAMLAKE_API_KEY` identity, register the catalog row
 in your namespace (what the web UI lists and dispatches viewers on), obtain
-temporary S3 credentials scoped to that dataset's folder (~12 h), and open
+temporary S3 credentials scoped to that annotation's folder (~12 h), and open
 the space directly against the bucket. Data never flows through the API
-server. See `docs/robot-datasets.md`.
+server. See `docs/robot-annotations.md`.
 
 ## Constraints inherited from the engine
 

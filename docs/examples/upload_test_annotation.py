@@ -1,18 +1,18 @@
 #!/usr/bin/env python
-"""Create a DreamLake dataset and upload a short test clip with annotations.
+"""Create a DreamLake annotation and upload a short test clip with annotations.
 
 Uses a real annotated capture if you have one in ~/Downloads (trimmed to a few
 seconds so the upload stays tiny), and otherwise synthesizes a stand-in. Then
-it creates a platform dataset and uploads the clip + joint-pose + subtask
+it creates a platform annotation and uploads the clip + joint-pose + subtask
 annotations, so you can open it in the web app.
 
     # from the dreamlake-py checkout, using its venv (which has the SDK):
-    .venv/bin/python docs/examples/upload_test_dataset.py
+    .venv/bin/python docs/examples/upload_test_annotation.py
 
     # options:
-    .venv/bin/python docs/examples/upload_test_dataset.py --name my-dataset --seconds 5
-    .venv/bin/python docs/examples/upload_test_dataset.py --local /tmp/ds   # no login
-    .venv/bin/python docs/examples/upload_test_dataset.py --search          # + embed/search
+    .venv/bin/python docs/examples/upload_test_annotation.py --name my-annotation --seconds 5
+    .venv/bin/python docs/examples/upload_test_annotation.py --local /tmp/ds   # no login
+    .venv/bin/python docs/examples/upload_test_annotation.py --search          # + embed/search
 
 Kept short on purpose: only the first --seconds of the source are trimmed and
 uploaded, so there's no large-file CPU/bandwidth cost. Auth uses your
@@ -137,7 +137,7 @@ def prepare_synth(tmp: str, seconds: float):
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--name", default="test-dataset", help="dataset name (default: test-dataset)")
+    ap.add_argument("--name", default="test-annotation", help="annotation name (default: test-annotation)")
     ap.add_argument("--episode-id", default=None, help="id for this episode (default: auto)")
     ap.add_argument("--seconds", type=float, default=5.0, help="how much to trim + upload (default: 5)")
     ap.add_argument("--local", metavar="DIR", default=None,
@@ -146,30 +146,30 @@ def main() -> int:
     args = ap.parse_args()
 
     _adopt_cli_login()
-    from dreamlake.dataset import VideoAnnotationDataset as Dataset, DatasetError
+    from dreamlake.annotation import VideoAnnotation, AnnotationError
 
-    # 1. Open or create the dataset.
+    # 1. Open or create the annotation.
     if args.local:
         backend = f"file://{Path(args.local).resolve()}"
         try:
-            ds = Dataset.open(backend=backend)
-            print(f"opened local dataset at {backend}")
-        except DatasetError:
-            ds = Dataset.create(backend=backend)
-            print(f"created local dataset at {backend}")
+            ds = VideoAnnotation.open(backend=backend)
+            print(f"opened local annotation at {backend}")
+        except AnnotationError:
+            ds = VideoAnnotation.create(backend=backend)
+            print(f"created local annotation at {backend}")
     else:
         try:
-            ds = Dataset.open(args.name)
-            print(f"opened dataset '{args.name}' on the platform")
-        except DatasetError:
+            ds = VideoAnnotation.open(args.name)
+            print(f"opened annotation '{args.name}' on the platform")
+        except AnnotationError:
             try:
-                ds = Dataset.create(args.name)
-            except DatasetError as e:
+                ds = VideoAnnotation.create(args.name)
+            except AnnotationError as e:
                 print(f"error: {e}", file=sys.stderr)
                 if "auth" in str(e).lower() or "login" in str(e).lower():
                     print("→ run `dreamlake login` first, or set DREAMLAKE_API_KEY.", file=sys.stderr)
                 return 1
-            print(f"created dataset '{args.name}' on the platform")
+            print(f"created annotation '{args.name}' on the platform")
 
     # 2. Get a short clip + its annotations (real if available, else synthetic).
     tmp = tempfile.mkdtemp(prefix="dl-test-")
@@ -209,7 +209,7 @@ def main() -> int:
                   ", ".join(f"{h['episode_id']}@{h['time_sec']:.0f}s" for h in hits))
 
     # 5. Recap — ds.episodes() returns Episode handles.
-    print("\ndataset now holds:")
+    print("\nannotation now holds:")
     for e in ds.episodes():
         cams = ", ".join(f"{n} {c.get('width')}x{c.get('height')}"
                          for n, c in e.cameras.items())
@@ -217,9 +217,9 @@ def main() -> int:
 
     if args.local:
         print(f"\nserve it:  npx http-server {args.local} -p 8791 --cors")
-        print("view it:   http://localhost:3000/dataset-debug?space=http://localhost:8791/refs/main")
+        print("view it:   http://localhost:3000/annotation-debug?space=http://localhost:8791/refs/main")
     else:
-        print(f"\nOpen the web app → Datasets → '{args.name}' to view it.")
+        print(f"\nOpen the web app → Annotations → '{args.name}' to view it.")
 
     import shutil
     shutil.rmtree(tmp, ignore_errors=True)

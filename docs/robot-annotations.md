@@ -1,9 +1,9 @@
-# Robot Datasets
+# Robot Annotations
 
-`dreamlake.dataset` stores annotated robot-training episodes: each episode's
+`dreamlake.annotation` stores annotated robot-training episodes: each episode's
 camera footage goes in once, gets transcoded so any browser can stream and
 scrub it, and lives next to your pipeline's per-frame joint annotations and
-action segments in one versioned dataset. An episode holds one or more
+action segments in one versioned annotation. An episode holds one or more
 cameras (head, wrist, …) on a shared clock, so multi-view playback is
 time-aligned by construction. On top of that, episodes can be embedded and
 searched with natural language ("hands shaping clay on a pottery wheel" →
@@ -35,12 +35,12 @@ credentials — you never handle bucket keys.
 ## Quickstart
 
 ```python
-from dreamlake.dataset import Dataset
+from dreamlake.annotation import VideoAnnotation
 
-ds = Dataset.create("wash-the-dishes")     # lives in the DreamLake bucket
-# ds = Dataset.create(backend="file:///data/x")   # or anywhere dreamdb writes
+ds = VideoAnnotation.create("wash-the-dishes")   # lives in the DreamLake bucket
+# ds = VideoAnnotation.create(backend="file:///data/x")   # or anywhere dreamdb writes
 # The playback encoding profile (preview_height=720, preview_fps=30,
-# frag_seconds=2.0) is chosen HERE, once, for the dataset's lifetime.
+# frag_seconds=2.0) is chosen HERE, once, for the annotation's lifetime.
 
 # ... your pipeline produces `joints` and `segments` dicts per episode ...
 epo = ds.add_episode("captures/Ceramics.mov", episode_id="Ceramics",
@@ -63,13 +63,13 @@ scoped (reads, `revise`, `add_cameras`, user tracks, single-episode `embed`)
 lives on it.
 
 Runnable version with a self-contained demo mode:
-`docs/examples/09_robot_dataset.py` (`--demo`, `--platform NAME`).
+`docs/examples/09_robot_annotation.py` (`--demo`, `--platform NAME`).
 
 ## Calling order
 
 ```
-Dataset.create("name")               once per dataset; fixes the encoding  ─┐
-Dataset.open("name")                 every later session                    ─┴─→  ds
+VideoAnnotation.create("name")       once per annotation; fixes the encoding  ─┐
+VideoAnnotation.open("name")         every later session                      ─┴─→  ds
         (or backend="file:///…" / "https://…" on both)
 
 ds.add_episode(...)                  once per episode      ──→  epo (Episode)
@@ -89,10 +89,10 @@ epo.read_joints_pose() / epo.read_subtasks() ─┘
 
 Rules the order implies:
 
-- `create` refuses an existing dataset/name (409 on the platform) and `open`
+- `create` refuses an existing annotation/name (409 on the platform) and `open`
   refuses a missing one — no silent get-or-create. Want it? `try open /
   except create` (the example does).
-- **The encoding profile is a dataset-lifetime property.**
+- **The encoding profile is an annotation-lifetime property.**
   `preview_height`/`preview_fps`/`frag_seconds` are chosen at `create`, once,
   and stored in the space meta — every clip on one camera track must share
   one init segment, so they cannot vary per episode and `add_episode` takes
@@ -109,11 +109,11 @@ Rules the order implies:
   `search()` works the moment `embed`/`add_search_vectors` returns, and
   finds whatever exists so far.
 - Platform credentials live ~12 h per handle; for longer sessions call
-  `Dataset.open(name)` again.
+  `VideoAnnotation.open(name)` again.
 
 ## Function reference
 
-### `Dataset.create(name=None, *, backend=None, visibility=None, preview_height=720, preview_fps=30.0, frag_seconds=2.0) -> Dataset`
+### `VideoAnnotation.create(name=None, *, backend=None, visibility=None, preview_height=720, preview_fps=30.0, frag_seconds=2.0) -> VideoAnnotation`
 
 | in | format | notes |
 | --- | --- | --- |
@@ -124,25 +124,25 @@ Rules the order implies:
 | `preview_fps` | float, default 30.0 | playback frame rate (sources are resampled) |
 | `frag_seconds` | 1.0–30.0, default 2.0 | CMAF fragment length |
 
-The three encoding kwargs form the dataset's **encoding profile** — chosen
-here, once, for the dataset's lifetime, and stored in the space meta under
+The three encoding kwargs form the annotation's **encoding profile** — chosen
+here, once, for the annotation's lifetime, and stored in the space meta under
 `dreamdb.dataset.encoding`. Every ingest reads it; no per-episode call takes
 encoding parameters. `ds.encoding` returns it (read-only).
 
-**Raises** `DatasetError`: name and backend both missing; name already exists
+**Raises** `AnnotationError`: name and backend both missing; name already exists
 (→ use `open`); a space already exists at `backend`; `frag_seconds` out of
 range.
 
-The dataset's schemaType (`video.annotation/v1`) is written to the platform
+The annotation's schemaType (`video.annotation/v1`) is written to the platform
 catalog **and** into the space itself, so viewers and `open()` can dispatch
 on it even over a bare `file://` backend.
 
-### `Dataset.open(name=None, *, backend=None, preview_height=None, preview_fps=None, frag_seconds=None) -> Dataset`
+### `VideoAnnotation.open(name=None, *, backend=None, preview_height=None, preview_fps=None, frag_seconds=None) -> VideoAnnotation`
 
 Same addressing arguments. The optional encoding kwargs **verify, never
 set**: pass the values your script assumes and `open` raises on mismatch
 with the stored profile; omitted kwargs are not checked. **Raises**
-`DatasetError` when the dataset is missing, on an encoding mismatch, and
+`AnnotationError` when the annotation is missing, on an encoding mismatch, and
 when the target space carries a *different* schemaType (including layouts
 from older SDK iterations — read those with `dreamlake.db`, or re-ingest
 the sources).
@@ -176,7 +176,7 @@ belongs on an `x_` user track, not in meta.
 raw: {...}|None}}, joints_pose?: {camera: {annotated_frames}},
 subtasks?: {segments}, meta}`.
 
-Pre-transcode refusals (all `DatasetError`, all before any encoding time is
+Pre-transcode refusals (all `AnnotationError`, all before any encoding time is
 spent): any camera ≥ 3600 s; duplicate `episode_id` (→
 `ds.episode(id).add_cameras()`/`revise()`); occupied `gid`; invalid camera
 name; unknown `meta` key; annotation `src_fps` disagreeing with its camera
@@ -191,12 +191,12 @@ doubles the upload).
 
 Every episode as a handle, ordered by slot — one cheap column read
 (`[e.meta for e in ds.episodes()]` recovers plain dicts) — and the lookup
-for one (by id, or by slot number as a string; `DatasetError` when absent).
+for one (by id, or by slot number as a string; `AnnotationError` when absent).
 All per-episode verbs live on the handle; see the Episode reference below.
 
 ### `ds.cameras() -> list[str]` / `ds.tracks() -> list[TrackInfo]`
 
-The dataset's cameras (union over episodes, `main` first, then
+The annotation's cameras (union over episodes, `main` first, then
 alphabetical — the viewer's order) and its track catalog: the fixed
 episode-level tracks, each camera's namespace triple, and user tracks
 declared through `add_track`. Each `TrackInfo` carries
@@ -234,7 +234,7 @@ camera's recorded `source_rel`.
 | `batch_size` | frames per CLIP batch |
 
 **Returns** `{episode_id: {"frame_vecs": N, "subtask_vecs": M}}`. **Raises**
-`DatasetError` when the `[search]` extra is missing. Warns and skips frame
+`AnnotationError` when the `[search]` extra is missing. Warns and skips frame
 vectors when an episode's source file cannot be found (subtask vectors
 still upload).
 
@@ -256,7 +256,7 @@ still upload).
 
 First call loads the encoder models (a few seconds); warm queries are
 sub-second. Recall is exact at small scale (an automatic exact-scan fallback
-kicks in when the ANN index under-returns) and ANN-served as the dataset
+kicks in when the ANN index under-returns) and ANN-served as the annotation
 grows.
 
 ### `ds.db` / `ds.encoding`
@@ -264,7 +264,7 @@ grows.
 `ds.db` is the live `dreamdb.Dataset` handle under the preset — the escape
 hatch for anything the preset does not wrap (absolute-anchor appends,
 columnar bulk reads, branching); the preset's layout invariants are yours
-to respect on it. `ds.encoding` is the dataset's playback encoding profile,
+to respect on it. `ds.encoding` is the annotation's playback encoding profile,
 read-only.
 
 ## Episode reference
@@ -408,7 +408,7 @@ CLI's `schema.ts`):
 ### The `episode_meta` row
 
 One JSON row per episode (one track rather than many scalars, so listing a
-dataset is a single column read):
+annotation is a single column read):
 
 ```jsonc
 {
@@ -423,7 +423,7 @@ dataset is a single column read):
       "width": 1920, "height": 1080, "fps": 29.987,
       "duration_s": 214.6, "codec": "hevc",
       "source_rel": "captures/Ceramics.mov",  // last two source path components — joins with embed's source_dir=
-      "source_uri": "/data/captures/Ceramics.mov"  // absolute; omitted on public datasets
+      "source_uri": "/data/captures/Ceramics.mov"  // absolute; omitted on public annotations
     }
   }
 }
@@ -443,7 +443,7 @@ class-per-schemaType:
   on their preset's classes — the class boundary, not a naming prefix, is
   what tells you which methods belong to which schema. `epo.read_joints_pose`
   needs no qualifier because the episode already belongs to a
-  video-annotation dataset.
+  video annotation.
 - **Method names are verb + the schema's own nouns, and the nouns are its
   track names**: `read_joints_pose` ↔ `joints_pose__*`, `read_subtasks` ↔
   `subtasks`, `add_episode` ↔ the layout's row unit. A future preset brings
@@ -453,7 +453,7 @@ class-per-schemaType:
   a shared base (create/open/`.db` + schemaType dispatch), an episode-slot
   layer (slot math, camera namespace, `episodes()`/`info()`) for
   video-shaped presets, and the per-schema leaf class — with modules under
-  `dreamlake.datasets.<preset>` and today's `dreamlake.dataset.Dataset`
+  `dreamlake.annotations.<preset>` and today's `dreamlake.annotation.Annotation`
   kept as an alias.
 - **No string-driven generic accessors** (`read_annotation("joints_pose")`)
   — named methods carry the validation, docs and discoverability that make
@@ -580,16 +580,16 @@ including per-field storage shapes, is in `docs/reconstruction-schema.md`.
 
 ## Visualizing
 
-Platform datasets appear in your namespace's catalog (the web dataset list
-dispatches its viewer on schemaType). For a local dataset, serve the
+Platform annotations appear in your namespace's catalog (the web annotation list
+dispatches its viewer on schemaType). For a local annotation, serve the
 directory and open the debug viewer:
 
 ```bash
-npx http-server /data/datasets/wash-the-dishes -p 8791 --cors
-open 'http://localhost:3000/dataset-debug?space=http://localhost:8791/refs/main'
+npx http-server /data/annotations/wash-the-dishes -p 8791 --cors
+open 'http://localhost:3000/annotation-debug?space=http://localhost:8791/refs/main'
 ```
 
-The TypeScript CLI reads and writes the same datasets
+The TypeScript CLI reads and writes the same annotations
 (`dreamlake dataset ls|info`) — same schema contract
 (`dreamlake-cli src/cli/dataset/schema.ts`; change one, change both).
 
@@ -598,10 +598,10 @@ The TypeScript CLI reads and writes the same datasets
 - **≤ 3600 s per camera clip** (one-hour timeline slot per episode; every
   camera shares it).
 - **The encoding profile is fixed at `create`** — `preview_height`/
-  `preview_fps`/`frag_seconds` live in the space meta for the dataset's
+  `preview_fps`/`frag_seconds` live in the space meta for the annotation's
   lifetime; `open`'s encoding kwargs verify against it, and no per-episode
   call takes encoding parameters.
-- **One aspect ratio per camera track** — not per dataset. Each camera's
+- **One aspect ratio per camera track** — not per annotation. Each camera's
   playback track shares one init segment; different cameras are different
   tracks, so mixed geometries coexist as long as each camera stays
   consistent with itself.
@@ -615,7 +615,7 @@ The TypeScript CLI reads and writes the same datasets
   (lossless copies keep their codec config; each camera track holds exactly
   one).
 - **Search fields are declared at creation.** Embedding tracks cannot be
-  retrofitted — datasets from older layouts must be re-created to become
+  retrofitted — annotations from older layouts must be re-created to become
   searchable.
 - **Append-only.** Nothing is rewritten; every published state stays
   addressable.

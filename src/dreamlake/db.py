@@ -18,7 +18,7 @@ This layer never talks to the DreamLake platform: no login, no catalog, no
 credential brokering. ``backend`` is required — ``file:///abs/path`` for a
 directory, or an ``https://…`` object-store URL with your own credentials in
 the environment. The platform experience (managed bucket, catalog row, web
-visualization) belongs to the presets built on top — ``dreamlake.dataset``
+visualization) belongs to the presets built on top — ``dreamlake.annotation``
 — which broker credentials internally and then use plain dreamdb handles
 just like this module hands out.
 """

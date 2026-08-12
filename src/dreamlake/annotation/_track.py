@@ -1,7 +1,7 @@
-"""``Track`` — the handle for one declared track of a dataset.
+"""``Track`` — the handle for one declared track of an annotation.
 
 Column-wise reads and writes live here; row-wise (cross-track) reads and
-writes live on the Dataset. The write vocabulary is one verb, ``append``
+writes live on the Annotation. The write vocabulary is one verb, ``append``
 (storage is append-only), with the shape in the suffix: ``append(anchor,
 value)`` puts one data point at a specific anchor, ``append_range(items)``
 appends a stretch of timeline. Reads pair up: ``get(anchor)`` ↔ ``append``,
@@ -26,7 +26,7 @@ import json
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
-from ._errors import DatasetError
+from ._errors import AnnotationError
 from ._fields import dumps_compact, to_anchor_ns
 
 
@@ -35,15 +35,15 @@ class Track:
     ``ds.track(name)`` / ``ds.add_track(...)`` / ``ds.tracks()``, never
     constructed directly."""
 
-    def __init__(self, dataset, name: str, kind: str, *,
+    def __init__(self, annotation, name: str, kind: str, *,
                  mime: Optional[str] = None, dim: Optional[int] = None,
                  role: Optional[str] = None, camera: Optional[str] = None):
-        self._d = dataset
+        self._d = annotation
         self.name = name
         self.kind = kind
         self.mime = mime
         self.dim = dim
-        # Preset-only extras (None on custom datasets): which structural role
+        # Preset-only extras (None on custom annotations): which structural role
         # a video-annotation track plays, and which camera owns it.
         self.role = role
         self.camera = camera
@@ -51,7 +51,7 @@ class Track:
     @property
     def preset(self) -> bool:
         """True when a preset owns this track (it has a structural role);
-        False for user tracks and for every track of a custom dataset."""
+        False for user tracks and for every track of a custom annotation."""
         return self.role not in (None, "user", "unknown")
 
     def __repr__(self) -> str:
@@ -77,7 +77,7 @@ class Track:
             try:
                 anchor, value = item
             except (TypeError, ValueError):
-                raise DatasetError(
+                raise AnnotationError(
                     f"track '{self.name}': append_range items are (anchor, value) "
                     f"pairs, got {item!r}"
                 ) from None
@@ -88,7 +88,7 @@ class Track:
         encoded.sort(key=lambda av: av[0])
         for (a, _), (b, _) in zip(encoded, encoded[1:]):
             if a == b:
-                raise DatasetError(
+                raise AnnotationError(
                     f"track '{self.name}': anchor {a} appears twice in this batch — "
                     f"writes are write-once (the engine resolves same-anchor "
                     f"duplicates by content, not write order)"
@@ -111,9 +111,9 @@ class Track:
     def read(self, *, start: Any = None, end: Any = None) -> List[Tuple[int, Any]]:
         """All ``(anchor, value)`` in ``[start, end)``, sorted by anchor.
         Defaults to the whole track; a declared-but-never-written track reads
-        as ``[]``. Pass a range on large datasets — the return is one list."""
+        as ``[]``. Pass a range on large annotations — the return is one list."""
         if self.kind == "video":
-            raise DatasetError(
+            raise AnnotationError(
                 f"track '{self.name}' is a video track — there is no ranged video "
                 f"read in v1. Playback goes through the platform; raw fragment "
                 f"bytes are reachable via ds.db."
@@ -137,12 +137,12 @@ class Track:
         uniform profile (h264, 30 fps, N px tall) so mixed sources can share
         the track. Returns the ingest summary."""
         if self.kind != "video":
-            raise DatasetError(
+            raise AnnotationError(
                 f"track '{self.name}' is kind '{self.kind}' — ingest is for video "
                 f"tracks. Write this track with append/append_range."
             )
         if not (1.0 <= float(frag_seconds) <= 30.0):
-            raise DatasetError("frag_seconds must be between 1 and 30 seconds")
+            raise AnnotationError("frag_seconds must be between 1 and 30 seconds")
         src = str(src)
         a = to_anchor_ns(anchor, what=f"track '{self.name}' anchor")
 
@@ -159,7 +159,7 @@ class Track:
         window_start = max(0, a - 30 * 1_000_000_000)
         existing = self._d._read_field_window(self.name, window_start, a + dur_ns)
         if any(v is not None for _, v in existing):
-            raise DatasetError(
+            raise AnnotationError(
                 f"track '{self.name}': [{a}, {a + dur_ns}) overlaps footage already "
                 f"on this track — each clip needs its own anchor span "
                 f"(ds.anchors() shows what is taken)"
@@ -173,7 +173,7 @@ class Track:
                 )
             except Exception as e:
                 if "init segment" in str(e):
-                    raise DatasetError(
+                    raise AnnotationError(
                         f"track '{self.name}': this clip's codec configuration "
                         f"differs from the one already on the track — a lossless "
                         f"track holds identically encoded clips only. Re-encode "
@@ -196,19 +196,19 @@ class Track:
         return {"mode": "reencode", "anchor": a, "duration_s": info.duration_sec,
                 "fragments": n, "ingest": result}
 
-    # ---- value codec (shared with the row-wise API on Dataset) -----------
+    # ---- value codec (shared with the row-wise API on Annotation) -----------
 
     def _encode_value(self, value: Any) -> Any:
         """``value`` as the engine representation, or an actionable error.
         Native representations pass through untouched."""
         name, kind = self.name, self.kind
         if value is None:
-            raise DatasetError(
+            raise AnnotationError(
                 f"track '{name}': None is not a value — omit the field instead "
                 f"(sparse rows are how absence is expressed; append_many rejects None)"
             )
         if kind == "video":
-            raise DatasetError(
+            raise AnnotationError(
                 f"track '{name}' is a video track — use ds.track({name!r}).ingest(...) "
                 f"instead of append"
             )
@@ -220,12 +220,12 @@ class Track:
             if isinstance(value, (str, Path)):
                 p = Path(value)
                 if not p.is_file():
-                    raise DatasetError(
+                    raise AnnotationError(
                         f"track '{name}': file '{value}' does not exist — image "
                         f"values are bytes, or a path to a readable file"
                     )
                 return p.read_bytes()
-            raise DatasetError(
+            raise AnnotationError(
                 f"track '{name}' (image/{self.mime}): value must be bytes or a file "
                 f"path{' — or a dict/list (stored as JSON)' if self.mime == 'json' else ''}, "
                 f"got {type(value).__name__}"
@@ -247,8 +247,8 @@ class Track:
             if isinstance(value, str):
                 return value
         else:
-            raise DatasetError(f"track '{name}' has unknown kind '{kind}'")
-        raise DatasetError(
+            raise AnnotationError(f"track '{name}' has unknown kind '{kind}'")
+        raise AnnotationError(
             f"track '{name}' is {kind} — got {type(value).__name__} {value!r}. "
             f"Strict on purpose: a lossy coercion here would corrupt silently."
         )
@@ -257,33 +257,33 @@ class Track:
         name = self.name
         if isinstance(value, (str, Path)):
             if not str(value).endswith(".npy"):
-                raise DatasetError(
+                raise AnnotationError(
                     f"track '{name}': embedding paths must be .npy files, got '{value}'"
                 )
             try:
                 import numpy as np
             except ImportError as e:
-                raise DatasetError(
+                raise AnnotationError(
                     f"track '{name}': reading .npy embeddings needs numpy — "
                     f"pip install numpy, or pass the vector as a list of floats"
                 ) from e
             try:
                 value = np.load(str(value))
             except Exception as e:
-                raise DatasetError(f"track '{name}': could not read '{value}': {e}") from e
+                raise AnnotationError(f"track '{name}': could not read '{value}': {e}") from e
         if hasattr(value, "astype") and hasattr(value, "tolist"):  # np.ndarray, no hard dep
             value = value.astype("float32").reshape(-1).tolist()
         if not isinstance(value, (list, tuple)):
-            raise DatasetError(
+            raise AnnotationError(
                 f"track '{name}': embedding values are a list of floats, an "
                 f"ndarray, or a .npy path — got {type(value).__name__}"
             )
         try:
             vec = [float(x) for x in value]
         except (TypeError, ValueError) as e:
-            raise DatasetError(f"track '{name}': embedding has non-numeric entries") from e
+            raise AnnotationError(f"track '{name}': embedding has non-numeric entries") from e
         if self.dim is not None and len(vec) != self.dim:
-            raise DatasetError(
+            raise AnnotationError(
                 f"track '{name}' is dim={self.dim}, got a {len(vec)}-vector"
             )
         return vec

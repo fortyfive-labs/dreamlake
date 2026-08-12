@@ -1,15 +1,15 @@
-"""DreamLake platform plumbing for dataset presets — INTERNAL.
+"""DreamLake platform plumbing for annotation presets — INTERNAL.
 
 The public ``dreamlake.db`` layer is deliberately platform-free (it is just
-dreamdb against an explicit backend). Presets like ``dreamlake.dataset``
+dreamdb against an explicit backend). Presets like ``dreamlake.annotation``
 are what bind data to the DreamLake platform, and this module is the
-machinery they share: resolve the login, register/look up the dataset in
+machinery they share: resolve the login, register/look up the annotation in
 the namespace catalog, broker short-lived prefix-scoped S3 credentials, and
 hand back a plain ``dreamdb.Dataset`` against the brokered backend — the
 flow modeled on the proven artifact-push path (``cli/commands/artifact.py``).
 
 Nothing here is public API. User code reaches the platform through a
-preset (``Dataset.create("name")``); custom-schema data lives on the
+preset (``Annotation.create("name")``); custom-schema data lives on the
 user's own backend via ``dreamlake.db``.
 """
 
@@ -28,18 +28,18 @@ class PlatformError(RuntimeError):
     """A DreamLake platform call failed for a reason the caller can act on."""
 
 
-class DatasetExistsError(PlatformError):
+class AnnotationExistsError(PlatformError):
     """create on a name that is already registered — open it instead."""
 
 
-class DatasetNotFoundError(PlatformError):
+class AnnotationNotFoundError(PlatformError):
     """open/delete on a name the server does not know."""
 
 
 # ── Qualified names ──────────────────────────────────────────────────────────
 
 def split_qualified(name) -> "tuple[str | None, str]":
-    """``(namespace | None, bare_name)`` from a dataset name.
+    """``(namespace | None, bare_name)`` from an annotation name.
 
     No ``/`` means the caller's own namespace (resolved from the login) —
     the fully backward-compatible form. Exactly one ``/`` means
@@ -48,10 +48,10 @@ def split_qualified(name) -> "tuple[str | None, str]":
     segment tolerates a leading ``@`` — the frontend's display form leaks
     into CLI/API calls constantly, and the server strips it too.
 
-    Unambiguous by construction: dataset names cannot contain ``/``.
+    Unambiguous by construction: annotation names cannot contain ``/``.
     """
     if not isinstance(name, str) or not name.strip():
-        raise PlatformError(f"dataset name must be a non-empty string, got {name!r}")
+        raise PlatformError(f"annotation name must be a non-empty string, got {name!r}")
     s = name.strip()
     if "/" not in s:
         return None, s
@@ -59,7 +59,7 @@ def split_qualified(name) -> "tuple[str | None, str]":
     ns = parts[0].removeprefix("@") if len(parts) == 2 else ""
     if len(parts) != 2 or not ns or not parts[1]:
         raise PlatformError(
-            f"invalid dataset name '{name}' — expected 'name' or "
+            f"invalid annotation name '{name}' — expected 'name' or "
             f"'namespace/name' (at most one '/', no empty segments)"
         )
     return ns, parts[1]
@@ -99,13 +99,13 @@ def _broker_credentials(remote: str, namespace: str, name: str, token: str,
     backendUrl, refName)."""
     r = _request(
         "POST",
-        f"{remote}/namespaces/{namespace}/datasets/{name}/upload-credentials",
+        f"{remote}/namespaces/{namespace}/annotations/{name}/upload-credentials",
         token,
         json_body={"durationSeconds": duration_seconds},
     )
     if r.status_code >= 400:
         raise PlatformError(
-            f"could not get access credentials for dataset '{name}' "
+            f"could not get access credentials for annotation '{name}' "
             f"({r.status_code}).{_server_said(r)}"
         )
     broker = r.json()
@@ -171,12 +171,12 @@ def _forbidden(r, namespace: str, doing: str) -> "PlatformError | None":
     return None
 
 
-# ── Catalog + brokered dataset handles ──────────────────────────────────────
+# ── Catalog + brokered annotation handles ──────────────────────────────────────
 
-def create_dataset(name: str, schema, *, schema_type: str,
-                   schema_json: str | None = None,
-                   visibility: str | None = None,
-                   duration_seconds: int = DEFAULT_DURATION_SECONDS):
+def create_annotation(name: str, schema, *, schema_type: str,
+                      schema_json: str | None = None,
+                      visibility: str | None = None,
+                      duration_seconds: int = DEFAULT_DURATION_SECONDS):
     """Register ``name`` (bare, or qualified ``namespace/name``) in the
     catalog, broker a credential lease, and create the dreamdb space on the
     brokered backend. Returns a live ``dreamdb.Dataset`` with
@@ -191,16 +191,16 @@ def create_dataset(name: str, schema, *, schema_type: str,
     if visibility is not None:
         body["visibility"] = visibility
 
-    r = _request("POST", f"{remote}/namespaces/{namespace}/datasets", token,
+    r = _request("POST", f"{remote}/namespaces/{namespace}/annotations", token,
                  json_body=body)
     if r.status_code == 409:
-        raise DatasetExistsError(
-            f"dataset '{name}' already exists in namespace '{namespace}' — "
+        raise AnnotationExistsError(
+            f"annotation '{name}' already exists in namespace '{namespace}' — "
             f"open it instead of creating, or delete it first."
         )
     if r.status_code >= 400:
-        raise _forbidden(r, namespace, "create a dataset") or PlatformError(
-            f"could not create dataset '{name}' ({r.status_code}).{_server_said(r)}"
+        raise _forbidden(r, namespace, "create an annotation") or PlatformError(
+            f"could not create annotation '{name}' ({r.status_code}).{_server_said(r)}"
         )
 
     broker = _broker_credentials(remote, namespace, name, token, duration_seconds)
@@ -211,7 +211,7 @@ def create_dataset(name: str, schema, *, schema_type: str,
     return _attach_lease(ds, broker, namespace, name)
 
 
-def get_dataset(name: str) -> dict:
+def get_annotation(name: str) -> dict:
     """The catalog row for ``name`` (bare or ``namespace/name``) — one GET,
     no credential brokering. The row carries ``schemaType`` (the SDK's class
     dispatch key) plus visibility etc.; ``namespace`` and ``name`` are
@@ -219,15 +219,15 @@ def get_dataset(name: str) -> dict:
     ns_arg, name = split_qualified(name)
     token, namespace, remote = _platform_context(ns_arg)
 
-    r = _request("GET", f"{remote}/namespaces/{namespace}/datasets/{name}", token)
+    r = _request("GET", f"{remote}/namespaces/{namespace}/annotations/{name}", token)
     if r.status_code == 404:
-        raise DatasetNotFoundError(
-            f"dataset '{name}' not found in namespace '{namespace}' — "
+        raise AnnotationNotFoundError(
+            f"annotation '{name}' not found in namespace '{namespace}' — "
             f"create it first."
         )
     if r.status_code >= 400:
         raise PlatformError(
-            f"could not look up dataset '{name}' ({r.status_code}).{_server_said(r)}"
+            f"could not look up annotation '{name}' ({r.status_code}).{_server_said(r)}"
         )
     row = r.json()
     if not isinstance(row, dict):
@@ -237,15 +237,15 @@ def get_dataset(name: str) -> dict:
     return row
 
 
-def open_dataset(name: str, *, schema=None, row: dict | None = None,
-                 duration_seconds: int = DEFAULT_DURATION_SECONDS):
+def open_annotation(name: str, *, schema=None, row: dict | None = None,
+                    duration_seconds: int = DEFAULT_DURATION_SECONDS):
     """Look ``name`` (bare or ``namespace/name``) up in the catalog, broker
     a credential lease, and open the dreamdb space on the brokered backend.
-    Pass ``row=`` (a prior :func:`get_dataset` result) to skip the catalog
+    Pass ``row=`` (a prior :func:`get_annotation` result) to skip the catalog
     GET — the dispatch path already holds it."""
     dreamdb = _db._dreamdb()
     if row is None:
-        row = get_dataset(name)
+        row = get_annotation(name)
     namespace, name = row["namespace"], row["name"]
     token, namespace, remote = _platform_context(namespace)
 
@@ -255,55 +255,57 @@ def open_dataset(name: str, *, schema=None, row: dict | None = None,
     return _attach_lease(ds, broker, namespace, name)
 
 
-def patch_dataset(name: str, *, visibility: str) -> None:
+def patch_annotation(name: str, *, visibility: str) -> None:
     """Update the catalog row. The server's PATCH accepts visibility only."""
     ns_arg, name = split_qualified(name)
     token, namespace, remote = _platform_context(ns_arg)
-    r = _request("PATCH", f"{remote}/namespaces/{namespace}/datasets/{name}",
+    r = _request("PATCH", f"{remote}/namespaces/{namespace}/annotations/{name}",
                  token, json_body={"visibility": visibility})
     if r.status_code == 404:
-        raise DatasetNotFoundError(
-            f"dataset '{name}' not found in namespace '{namespace}'."
+        raise AnnotationNotFoundError(
+            f"annotation '{name}' not found in namespace '{namespace}'."
         )
     if r.status_code >= 400:
-        raise _forbidden(r, namespace, "update a dataset") or PlatformError(
-            f"could not update dataset '{name}' ({r.status_code}).{_server_said(r)}"
+        raise _forbidden(r, namespace, "update an annotation") or PlatformError(
+            f"could not update annotation '{name}' ({r.status_code}).{_server_said(r)}"
         )
 
 
-def list_datasets(schema_type: str | None = None, *,
-                  namespace: str | None = None) -> list[dict]:
-    """A namespace's dataset catalog (the login's own unless ``namespace=``),
+def list_annotations(schema_type: str | None = None, *,
+                     namespace: str | None = None) -> list[dict]:
+    """A namespace's annotation catalog (the login's own unless ``namespace=``),
     optionally filtered by schemaType."""
     token, ns, remote = _platform_context(
         namespace.removeprefix("@") if namespace else None
     )
-    url = f"{remote}/namespaces/{ns}/datasets"
+    url = f"{remote}/namespaces/{ns}/annotations"
     if schema_type:
         url += f"?schemaType={schema_type}"
     r = _request("GET", url, token)
     if r.status_code >= 400:
         raise PlatformError(
-            f"could not list datasets ({r.status_code}).{_server_said(r)}"
+            f"could not list annotations ({r.status_code}).{_server_said(r)}"
         )
-    return r.json().get("datasets", [])
+    data = r.json()
+    # "annotations" is the renamed catalog key; a server still sending the
+    return data.get("annotations", [])
 
 
-def delete_dataset(name: str, purge: bool = False) -> None:
-    """Delete a dataset (bare or ``namespace/name``) from the catalog.
+def delete_annotation(name: str, purge: bool = False) -> None:
+    """Delete an annotation (bare or ``namespace/name``) from the catalog.
     ``purge=True`` also deletes the backing storage; otherwise only the
     catalog entry is removed."""
     ns_arg, name = split_qualified(name)
     token, namespace, remote = _platform_context(ns_arg)
-    url = f"{remote}/namespaces/{namespace}/datasets/{name}"
+    url = f"{remote}/namespaces/{namespace}/annotations/{name}"
     if purge:
         url += "/purge"
     r = _request("DELETE", url, token)
     if r.status_code == 404:
-        raise DatasetNotFoundError(
-            f"dataset '{name}' not found in namespace '{namespace}'."
+        raise AnnotationNotFoundError(
+            f"annotation '{name}' not found in namespace '{namespace}'."
         )
     if r.status_code >= 400:
-        raise _forbidden(r, namespace, "delete a dataset") or PlatformError(
-            f"could not delete dataset '{name}' ({r.status_code}).{_server_said(r)}"
+        raise _forbidden(r, namespace, "delete an annotation") or PlatformError(
+            f"could not delete annotation '{name}' ({r.status_code}).{_server_said(r)}"
         )

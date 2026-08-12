@@ -1,11 +1,11 @@
-"""The generic ``Dataset`` — DreamLake platform datasets of ANY schema.
+"""The generic ``Annotation`` — DreamLake platform annotations of ANY schema.
 
-Every DreamLake dataset is a catalog row plus a dreamdb space; what varies
+Every DreamLake annotation is a catalog row plus a dreamdb space; what varies
 is the ``schemaType`` string the row carries. Known types get a preset
-subclass with rich methods (``VideoAnnotationDataset`` for
+subclass with rich methods (``VideoAnnotation`` for
 ``video.annotation/v2``); everything else — user-defined schemas above all
 — gets THIS class: declare tracks, append rows or ranges, read them back.
-``Dataset.open`` dispatches on the catalog's schemaType and an unknown type
+``Annotation.open`` dispatches on the catalog's schemaType and an unknown type
 NEVER refuses, it degrades to this generic handle — the same rule the web
 viewer applies (unknown → raw view).
 
@@ -13,7 +13,7 @@ Names are ``"name"`` (the login's own namespace) or ``"namespace/name"``
 (an org the caller belongs to); the server authorizes per request.
 
 Write semantics are append-only and write-once per (anchor, track) — see
-``_track``. Concurrency: one writer per dataset (every append advances the
+``_track``. Concurrency: one writer per annotation (every append advances the
 ``main`` ref; concurrent writers lose updates). Credentials are a 12h lease
 brokered at open; a stale handle raises with ``ds.reload()`` as the fix.
 """
@@ -25,7 +25,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, ClassVar, Dict, Iterable, List, Optional, Sequence, Type
 
-from ._errors import DatasetError, SchemaError
+from ._errors import AnnotationError, SchemaError
 from ._fields import (
     CUSTOM_SCHEMA_TYPE,
     EVOLVABLE_KINDS,
@@ -38,11 +38,11 @@ from ._track import Track
 
 # schemaType → preset subclass. Populated by __init_subclass__; private —
 # no public for_type until a real consumer exists.
-_REGISTRY: Dict[str, Type["Dataset"]] = {}
+_REGISTRY: Dict[str, Type["Annotation"]] = {}
 
 
 @dataclass(frozen=True)
-class DatasetInfo:
+class AnnotationInfo:
     """One catalog listing — the server's summary shape plus the namespace
     it was listed from. (schemaJson/bucket exist only on the detail GET.)"""
 
@@ -52,15 +52,15 @@ class DatasetInfo:
     visibility: str
 
 
-class Dataset:
-    """A DreamLake platform dataset with a user-defined schema.
+class Annotation:
+    """A DreamLake platform annotation with a user-defined schema.
 
     Obtain instances through the classmethods, never the constructor::
 
-        ds = Dataset.create("sensor-logs")              # empty, add tracks as you go
-        ds = Dataset.create("clips", schema=sch, schema_type="acme.clips/v1")
-        ds = Dataset.ensure("sensor-logs")              # open-or-create
-        ds = Dataset.open("acme/sensor-logs")           # org namespace; dispatches by schemaType
+        ds = Annotation.create("sensor-logs")              # empty, add tracks as you go
+        ds = Annotation.create("clips", schema=sch, schema_type="acme.clips/v1")
+        ds = Annotation.ensure("sensor-logs")              # open-or-create
+        ds = Annotation.open("acme/sensor-logs")           # org namespace; dispatches by schemaType
     """
 
     # The dispatch key a preset subclass claims. None on this generic base.
@@ -87,44 +87,44 @@ class Dataset:
     @classmethod
     def create(cls, name: str, *, schema: Optional[Schema] = None,
                schema_type: Optional[str] = None,
-               visibility: str = "private") -> "Dataset":
-        """Create a custom-schema dataset. ``schema=None`` starts empty —
+               visibility: str = "private") -> "Annotation":
+        """Create a custom-schema annotation. ``schema=None`` starts empty —
         declare tracks as you go with :meth:`add_track` (embeddings are the
         exception: they exist only if declared here, in ``schema=``).
         ``schema_type`` is your own dispatch label for the catalog/UI;
         defaults to ``"custom/v1"``. Presets are created through their own
-        class (e.g. ``VideoAnnotationDataset.create``), not here."""
+        class (e.g. ``VideoAnnotation.create``), not here."""
         from dreamlake import _platform
 
         if cls.SCHEMA_TYPE is not None:
-            raise DatasetError(
+            raise AnnotationError(
                 f"{cls.__name__}.create has its own signature — this generic "
-                f"create is for custom-schema datasets only"
+                f"create is for custom-schema annotations only"
             )
         st = schema_type or CUSTOM_SCHEMA_TYPE
         target = _REGISTRY.get(st)
         if target is not None:
-            raise DatasetError(
+            raise AnnotationError(
                 f"schema_type '{st}' is the {target.__name__} preset — create it "
                 f"with {target.__name__}.create(...), which owns its schema"
             )
         if schema is None:
             schema = Schema()
         if not isinstance(schema, Schema):
-            raise DatasetError(
-                f"schema must be a dreamlake.dataset.Schema (got "
+            raise AnnotationError(
+                f"schema must be a dreamlake.annotation.Schema (got "
                 f"{type(schema).__name__}) — build one with Schema() or "
                 f"Schema.from_fields([...])"
             )
         fields = schema.to_fields()
         try:
-            inner = _platform.create_dataset(
+            inner = _platform.create_annotation(
                 name, schema._compile(), schema_type=st,
                 schema_json=json.dumps({"fields": fields}),
                 visibility=visibility,
             )
-        except _platform.DatasetExistsError as e:
-            raise DatasetError(str(e)) from e
+        except _platform.AnnotationExistsError as e:
+            raise AnnotationError(str(e)) from e
         inner.set_meta(FIELDS_META_KEY, json.dumps(fields))
         lease = getattr(inner, "dreamlake_lease", {}) or {}
         row = {"name": lease.get("name"), "namespace": lease.get("namespace"),
@@ -133,7 +133,7 @@ class Dataset:
                    name=lease.get("name"), row=row)
 
     @classmethod
-    def open(cls, name: str) -> "Dataset":
+    def open(cls, name: str) -> "Annotation":
         """Open by name. Called on this base class, the catalog's schemaType
         picks the class: a registered preset type returns that preset
         (strict, typed); anything else returns a generic handle. Unknown
@@ -141,26 +141,26 @@ class Dataset:
         from dreamlake import _platform
 
         try:
-            row = _platform.get_dataset(name)
-        except _platform.DatasetNotFoundError as e:
-            raise DatasetError(str(e)) from e
-        if cls is Dataset:
+            row = _platform.get_annotation(name)
+        except _platform.AnnotationNotFoundError as e:
+            raise AnnotationError(str(e)) from e
+        if cls is Annotation:
             target = _REGISTRY.get(row.get("schemaType"))
             if target is not None:
                 return target.open(name)
         return cls._open_with_row(row)
 
     @classmethod
-    def _open_with_row(cls, row: Dict[str, Any]) -> "Dataset":
+    def _open_with_row(cls, row: Dict[str, Any]) -> "Annotation":
         from dreamlake import _platform
 
-        inner = _platform.open_dataset(f"{row['namespace']}/{row['name']}", row=row)
+        inner = _platform.open_annotation(f"{row['namespace']}/{row['name']}", row=row)
         return cls(inner, namespace=row["namespace"], name=row["name"], row=row)
 
     @classmethod
     def ensure(cls, name: str, *, schema: Optional[Schema] = None,
                schema_type: Optional[str] = None,
-               visibility: str = "private") -> "Dataset":
+               visibility: str = "private") -> "Annotation":
         """Open-or-create — the shape every re-runnable upload script wants.
         Missing → created with these arguments. Existing → opened, then
         VERIFIED: an explicitly expected schema_type errors on mismatch, and
@@ -173,26 +173,26 @@ class Dataset:
         if cls.SCHEMA_TYPE is not None and (
             schema is not None or schema_type not in (None, cls.SCHEMA_TYPE)
         ):
-            raise DatasetError(
+            raise AnnotationError(
                 f"{cls.__name__}.ensure does not take schema=/schema_type= — "
                 f"the preset owns its schema"
             )
         try:
-            row = _platform.get_dataset(name)
-        except _platform.DatasetNotFoundError:
+            row = _platform.get_annotation(name)
+        except _platform.AnnotationNotFoundError:
             if cls.SCHEMA_TYPE is not None:
                 return cls.create(name, visibility=visibility)
             return cls.create(name, schema=schema, schema_type=schema_type,
                               visibility=visibility)
         # Expected type: explicit on the base; implicit on a preset subclass.
-        # A bare Dataset.ensure(name) expects nothing — like open, it takes
+        # A bare Annotation.ensure(name) expects nothing — like open, it takes
         # whatever schemaType is there (dispatched).
-        want = schema_type if cls is Dataset else cls.SCHEMA_TYPE
+        want = schema_type if cls is Annotation else cls.SCHEMA_TYPE
         have = row.get("schemaType")
         if want and have and want != have:
-            raise DatasetError(
-                f"dataset '{row['name']}' holds schemaType '{have}', but ensure "
-                f"was told to expect '{want}' — same name, different dataset. "
+            raise AnnotationError(
+                f"annotation '{row['name']}' holds schemaType '{have}', but ensure "
+                f"was told to expect '{want}' — same name, different annotation. "
                 f"Pick another name or open it explicitly."
             )
         ds = cls.open(name)
@@ -201,13 +201,13 @@ class Dataset:
             for f in schema.to_fields():
                 got = declared.get(f["name"])
                 if got is None:
-                    raise DatasetError(
-                        f"dataset '{row['name']}' has no track '{f['name']}' from "
+                    raise AnnotationError(
+                        f"annotation '{row['name']}' has no track '{f['name']}' from "
                         f"the passed schema — ensure verifies, it never widens an "
                         f"existing schema. Declare it with ds.add_track(...)"
                     )
                 if got.get("type") != f.get("type"):
-                    raise DatasetError(
+                    raise AnnotationError(
                         f"track '{f['name']}' is declared as {got.get('type')}, "
                         f"but the passed schema says {f.get('type')} — a track's "
                         f"kind cannot change"
@@ -216,18 +216,18 @@ class Dataset:
 
     @classmethod
     def list(cls, namespace: Optional[str] = None,
-             schema_type: Optional[str] = None) -> List[DatasetInfo]:
+             schema_type: Optional[str] = None) -> List[AnnotationInfo]:
         """The catalog of a namespace (the login's own unless ``namespace=``),
         optionally filtered by schemaType."""
         from dreamlake import _platform
 
-        st = schema_type or (cls.SCHEMA_TYPE if cls is not Dataset else None)
+        st = schema_type or (cls.SCHEMA_TYPE if cls is not Annotation else None)
         ns = _platform.resolve_namespace(
             namespace.removeprefix("@") if namespace else None
         )
-        rows = _platform.list_datasets(st, namespace=ns)
+        rows = _platform.list_annotations(st, namespace=ns)
         return [
-            DatasetInfo(
+            AnnotationInfo(
                 name=r.get("name", ""), namespace=ns,
                 schema_type=r.get("schemaType", ""),
                 visibility=r.get("visibility", "private"),
@@ -244,9 +244,9 @@ class Dataset:
         from dreamlake import _platform
 
         try:
-            _platform.delete_dataset(name, purge=purge)
-        except _platform.DatasetNotFoundError as e:
-            raise DatasetError(str(e)) from e
+            _platform.delete_annotation(name, purge=purge)
+        except _platform.AnnotationNotFoundError as e:
+            raise AnnotationError(str(e)) from e
 
     # ---- identity / metadata --------------------------------------------
 
@@ -259,13 +259,13 @@ class Dataset:
         return self._row.get("visibility", "private")
 
     def set_visibility(self, visibility: str) -> None:
-        """``"private"`` or ``"public"`` — public datasets get anonymous
+        """``"private"`` or ``"public"`` — public annotations get anonymous
         presigned reads on the platform."""
         from dreamlake import _platform
 
         if visibility not in ("private", "public"):
-            raise DatasetError(f'visibility must be "private" or "public", got {visibility!r}')
-        _platform.patch_dataset(self._qualified(), visibility=visibility)
+            raise AnnotationError(f'visibility must be "private" or "public", got {visibility!r}')
+        _platform.patch_annotation(self._qualified(), visibility=visibility)
         self._row["visibility"] = visibility
 
     @property
@@ -280,7 +280,7 @@ class Dataset:
 
     def _qualified(self) -> str:
         if not self.namespace or not self.name:
-            raise DatasetError("this handle is not bound to a platform dataset")
+            raise AnnotationError("this handle is not bound to a platform annotation")
         return f"{self.namespace}/{self.name}"
 
     def __repr__(self) -> str:
@@ -305,7 +305,7 @@ class Dataset:
                      mime=spec.get("mime"), dim=spec.get("dim"))
 
     def tracks(self) -> List[Track]:
-        """Every declared track, as handles. This IS the dataset's schema in
+        """Every declared track, as handles. This IS the annotation's schema in
         its live form — each Track carries name/kind/mime/dim."""
         return [self._track_from_spec(f) for f in self._fields]
 
@@ -315,8 +315,8 @@ class Dataset:
         for f in self._fields:
             if f["name"] == name:
                 return self._track_from_spec(f)
-        raise DatasetError(
-            f"no track '{name}' in this dataset — declare it first with "
+        raise AnnotationError(
+            f"no track '{name}' in this annotation — declare it first with "
             f"ds.add_track({name!r}, kind=...)"
         )
 
@@ -330,20 +330,20 @@ class Dataset:
         try:
             validate_field_name(name)
         except SchemaError as e:
-            raise DatasetError(str(e)) from e
+            raise AnnotationError(str(e)) from e
         if kind == "embedding":
-            raise DatasetError(
-                "embedding tracks can only be declared when a dataset is created "
+            raise AnnotationError(
+                "embedding tracks can only be declared when an annotation is created "
                 "(the LSH index is part of the schema — a DreamDB constraint). "
-                "Declare it in Schema() and pass schema= to Dataset.create."
+                "Declare it in Schema() and pass schema= to Annotation.create."
             )
         if kind == "audio":
-            raise DatasetError(
+            raise AnnotationError(
                 "audio is not supported yet — dreamdb's append_many cannot "
                 "ingest it (see Schema.add_audio)"
             )
         if kind not in EVOLVABLE_KINDS:
-            raise DatasetError(f"unknown track kind '{kind}' — one of {list(EVOLVABLE_KINDS)}")
+            raise AnnotationError(f"unknown track kind '{kind}' — one of {list(EVOLVABLE_KINDS)}")
 
         resolved_mime = mime or ("h264" if kind == "video" else "jpeg") \
             if kind in ("image", "video") else None
@@ -351,12 +351,12 @@ class Dataset:
             if f["name"] != name:
                 continue
             if f["type"] != kind:
-                raise DatasetError(
+                raise AnnotationError(
                     f"track '{name}' is already declared as kind '{f['type']}' — "
                     f"a track's kind cannot change"
                 )
             if mime is not None and f.get("mime") != mime:
-                raise DatasetError(
+                raise AnnotationError(
                     f"track '{name}' is already declared with mime "
                     f"'{f.get('mime')}', not '{mime}' — mime cannot change"
                 )
@@ -391,9 +391,9 @@ class Dataset:
         seen: set = set()
         for i, row in enumerate(rows):
             if not isinstance(row, dict):
-                raise DatasetError(f"rows[{i}] must be a dict, got {type(row).__name__}")
+                raise AnnotationError(f"rows[{i}] must be a dict, got {type(row).__name__}")
             if "anchor" not in row:
-                raise DatasetError(f"rows[{i}] has no 'anchor' key — every row needs one")
+                raise AnnotationError(f"rows[{i}] has no 'anchor' key — every row needs one")
             a = to_anchor_ns(row["anchor"], what=f"rows[{i}] anchor")
             sample: Dict[str, Any] = {"_anchor": a}
             for key, value in row.items():
@@ -401,19 +401,19 @@ class Dataset:
                     continue
                 tr = tracks_by_name.get(key)
                 if tr is None:
-                    raise DatasetError(
+                    raise AnnotationError(
                         f"rows[{i}] names unknown track '{key}' — declare it first "
                         f"with ds.add_track({key!r}, kind=...)"
                     )
                 if (a, key) in seen:
-                    raise DatasetError(
+                    raise AnnotationError(
                         f"rows[{i}]: ({key}, anchor {a}) appears twice in this "
                         f"batch — writes are write-once"
                     )
                 seen.add((a, key))
                 sample[key] = tr._encode_value(value)
             if len(sample) == 1:
-                raise DatasetError(f"rows[{i}] carries no track values — nothing to write")
+                raise AnnotationError(f"rows[{i}] carries no track values — nothing to write")
             samples.append(sample)
         if not samples:
             return {"rows": 0}
@@ -432,7 +432,7 @@ class Dataset:
             handles = [self.track(n) for n in tracks]
             for t in handles:
                 if t.kind == "video":
-                    raise DatasetError(
+                    raise AnnotationError(
                         f"track '{t.name}' is a video track — it has no row values. "
                         f"Playback goes through the platform; raw bytes via ds.db."
                     )
@@ -467,20 +467,20 @@ class Dataset:
             out = [a for a in out if a < e]
         return out
 
-    def reload(self) -> "Dataset":
+    def reload(self) -> "Annotation":
         """Refresh this handle in place: re-read the catalog row and the
         fields mirror, and re-broker the credential lease (HTTP token auth —
         works after the S3 lease expired). Track handles reference this
-        dataset, so they all survive. The fix for the two documented
+        annotation, so they all survive. The fix for the two documented
         stalenesses: another process's add_track, and the 12h lease."""
         from dreamlake import _platform
 
         qualified = self._qualified()
         try:
-            row = _platform.get_dataset(qualified)
-        except _platform.DatasetNotFoundError as e:
-            raise DatasetError(str(e)) from e
-        self._ds = _platform.open_dataset(qualified, row=row)
+            row = _platform.get_annotation(qualified)
+        except _platform.AnnotationNotFoundError as e:
+            raise AnnotationError(str(e)) from e
+        self._ds = _platform.open_annotation(qualified, row=row)
         self._row = row
         self._fields = self._load_fields_mirror()
         return self
@@ -499,8 +499,8 @@ class Dataset:
         if when.tzinfo is None:
             when = when.replace(tzinfo=timezone.utc)
         if datetime.now(timezone.utc) >= when:
-            raise DatasetError(
-                "this dataset's credential lease has expired — call ds.reload() "
+            raise AnnotationError(
+                "this annotation's credential lease has expired — call ann.reload() "
                 "to re-broker and continue"
             )
 
@@ -511,8 +511,8 @@ class Dataset:
         except Exception as e:
             msg = str(e)
             if "not in schema" in msg or "no FieldTrack" in msg:
-                raise DatasetError(
-                    f"a track in this batch is not in the dataset's schema — "
+                raise AnnotationError(
+                    f"a track in this batch is not in the annotation's schema — "
                     f"declare it first with ds.add_track(...). Engine said: {msg}"
                 ) from e
             raise

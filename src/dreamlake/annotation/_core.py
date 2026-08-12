@@ -1,15 +1,15 @@
-"""``VideoAnnotationDataset`` — robot-training episode datasets on DreamDB.
+"""``VideoAnnotation`` — robot-training episode annotations on DreamDB.
 
-The ``video.annotation/v2`` PRESET of the dataset family: it subclasses the
-generic :class:`dreamlake.dataset.Dataset` (``_base``), claims its
-schemaType in the dispatch registry (``Dataset.open`` on a dataset of this
+The ``video.annotation/v2`` PRESET of the annotation family: it subclasses the
+generic :class:`dreamlake.annotation.Annotation` (``_base``), claims its
+schemaType in the dispatch registry (``Annotation.open`` on an annotation of this
 type returns this class), and adds the episode-shaped surface below.
 
 The write path a labeling pipeline calls once per processed episode::
 
-    from dreamlake.dataset import VideoAnnotationDataset as Dataset
+    from dreamlake.annotation import VideoAnnotation
 
-    ds = Dataset.create("wash-the-dishes")          # platform bucket (default)
+    ds = VideoAnnotation.create("wash-the-dishes")          # platform bucket (default)
     epo = ds.add_episode(
         {"head": "head.mov", "wrist": "wrist.mov"}, # or a single path
         episode_id="ep-001",
@@ -20,18 +20,18 @@ The write path a labeling pipeline calls once per processed episode::
     epo.embed()                                     # make it searchable
     ds.search("hands rinsing a bowl")
 
-Storage: one DreamDB Space per dataset, one timeline. Episodes occupy
+Storage: one DreamDB Space per annotation, one timeline. Episodes occupy
 disjoint one-hour anchor slots (see ``_schema``); every camera of an episode
 shares its slot, which is what makes multi-camera time alignment free. One
 camera == one set of tracks (``video_preview__{camera}`` /
 ``video_raw__{camera}`` / ``joints_pose__{camera}``); tracks for new cameras
 are added on first use. The playback encoding profile (height/fps/fragment
-length) is a DATASET-lifetime property chosen at ``create`` and stored in
+length) is an ANNOTATION-lifetime property chosen at ``create`` and stored in
 the space meta — per-episode calls never pass it. The layout is shared
 byte-for-byte with the TypeScript CLI.
 
-Backends: by default the dataset lives in the DreamLake platform bucket
-(``Dataset.create("name")`` — the preset registers the catalog row and
+Backends: by default the annotation lives in the DreamLake platform bucket
+(``VideoAnnotation.create("name")`` — the preset registers the catalog row and
 brokers scoped credentials internally; requires ``dreamlake login`` or
 ``DREAMLAKE_API_KEY``). Pass ``backend=`` to write anywhere dreamdb can
 reach instead, with no platform involvement.
@@ -52,14 +52,14 @@ import warnings
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
-from ._base import Dataset as _GenericDataset
+from ._base import Annotation as _GenericAnnotation
 from ._episode import Episode
-from ._errors import DatasetError
+from ._errors import AnnotationError
 from ._fields import dumps_compact
 from ._ffmpeg import FfmpegError, FragmentedVideo, ProbeResult, fragment_video, probe
 from ._track import Track
 from ._schema import (
-    DATASET_SCHEMA_TYPE,
+    ANNOTATION_SCHEMA_TYPE,
     FIELD_EPISODE_INDEX,
     FRAME_VEC_DIM,
     SUBTASK_VEC_DIM,
@@ -102,11 +102,11 @@ from ._schema import (
     validate_subtasks,
 )
 
-Annotation = Union[Dict[str, Any], str, Path, None]
+AnnotationDoc = Union[Dict[str, Any], str, Path, None]
 Videos = Union[str, Path, Dict[str, Union[str, Path]]]
 
 
-def _load_annotation(value: Annotation, what: str, validate) -> Optional[Dict[str, Any]]:
+def _load_annotation(value: AnnotationDoc, what: str, validate) -> Optional[Dict[str, Any]]:
     """Accept a dict (the pipeline's in-memory output) or a JSON file path."""
     if value is None:
         return None
@@ -115,17 +115,17 @@ def _load_annotation(value: Annotation, what: str, validate) -> Optional[Dict[st
             with open(value) as f:
                 doc = json.load(f)
         except OSError as e:
-            raise DatasetError(f"could not read {what} '{value}': {e}") from e
+            raise AnnotationError(f"could not read {what} '{value}': {e}") from e
         except json.JSONDecodeError as e:
-            raise DatasetError(f"{what} '{value}' is not valid JSON: {e}") from e
+            raise AnnotationError(f"{what} '{value}' is not valid JSON: {e}") from e
     elif isinstance(value, dict):
         doc = value
     else:
-        raise DatasetError(f"{what} must be a dict or a path to a JSON file, got {type(value).__name__}")
+        raise AnnotationError(f"{what} must be a dict or a path to a JSON file, got {type(value).__name__}")
 
     err = validate(doc)
     if err:
-        raise DatasetError(f"{what}: {err}")
+        raise AnnotationError(f"{what}: {err}")
     return doc
 
 
@@ -146,36 +146,36 @@ _ENCODER_CACHE: Dict[str, Any] = {}
 
 def _check_schema_type(inner, where: str) -> None:
     """Refuse to interpret a space written under a DIFFERENT schemaType as an
-    episode dataset. A space with no stamp at all is accepted: the field
+    episode annotation. A space with no stamp at all is accepted: the field
     layout check happens naturally on first read."""
     try:
         meta = inner.meta() or {}
     except Exception:
         return
     stamped = meta.get("dreamdb.schema_type")
-    if stamped and stamped != DATASET_SCHEMA_TYPE:
-        raise DatasetError(
-            f"{where} holds schemaType '{stamped}', not '{DATASET_SCHEMA_TYPE}' — "
+    if stamped and stamped != ANNOTATION_SCHEMA_TYPE:
+        raise AnnotationError(
+            f"{where} holds schemaType '{stamped}', not '{ANNOTATION_SCHEMA_TYPE}' — "
             f"open it with dreamlake.db instead of this preset"
         )
 
 
-class VideoAnnotationDataset(_GenericDataset):
-    """One robot-training dataset: many episodes, each with one or more
+class VideoAnnotation(_GenericAnnotation):
+    """One robot-training annotation: many episodes, each with one or more
     camera videos plus annotations."""
 
-    SCHEMA_TYPE = DATASET_SCHEMA_TYPE  # registers this preset for dispatch
+    SCHEMA_TYPE = ANNOTATION_SCHEMA_TYPE  # registers this preset for dispatch
 
     def __init__(self, inner, backend: str, name: Optional[str] = None):
         lease = getattr(inner, "dreamlake_lease", None) or {}
         # Platform mode: the lease carries the server-resolved (namespace,
         # BARE name) pair — prefer its name over the caller's argument. A
         # qualified "ns/name" stored verbatim would make _qualified() emit
-        # "ns/ns/name" and break set_visibility/delete on org datasets (#15).
+        # "ns/ns/name" and break set_visibility/delete on org annotations (#15).
         # Self-hosted handles have no lease and keep the name as given.
         super().__init__(inner, namespace=lease.get("namespace"),
                          name=lease.get("name") or name,
-                         row={"schemaType": DATASET_SCHEMA_TYPE})
+                         row={"schemaType": ANNOTATION_SCHEMA_TYPE})
         self.backend = backend
         self._encoding = {**DEFAULT_ENCODING, "cameras": {}}
         self._public = False
@@ -211,7 +211,7 @@ class VideoAnnotationDataset(_GenericDataset):
 
     @property
     def encoding(self) -> Dict[str, Any]:
-        """The dataset's playback encoding profile (read-only view): the
+        """The annotation's playback encoding profile (read-only view): the
         flat defaults plus ``cameras`` — each camera track's adopted
         playback geometry (``{width, height, fps}``, fixed by its first
         clip)."""
@@ -219,7 +219,7 @@ class VideoAnnotationDataset(_GenericDataset):
 
     # ---- Construction --------------------------------------------------
     #
-    # `dreamlake.db` is the platform-free engine; the PRESET binds a dataset
+    # `dreamlake.db` is the platform-free engine; the PRESET binds an annotation
     # to the DreamLake platform (catalog row + brokered credentials via
     # `dreamlake._platform`). Creation is deliberately not idempotent.
 
@@ -233,18 +233,18 @@ class VideoAnnotationDataset(_GenericDataset):
         preview_height: int = 720,
         preview_fps: float = 30.0,
         frag_seconds: float = 2.0,
-    ) -> "VideoAnnotationDataset":
-        """Create an empty dataset.
+    ) -> "VideoAnnotation":
+        """Create an empty annotation.
 
         The encoding profile (``preview_height``/``preview_fps``/
-        ``frag_seconds``) is chosen HERE, once, for the dataset's lifetime —
+        ``frag_seconds``) is chosen HERE, once, for the annotation's lifetime —
         every clip on one camera track must share one init segment, so these
         cannot vary per episode. Stored in the space meta; every ingest
         reads it.
         """
         if backend is None and not name:
-            raise DatasetError(
-                "VideoAnnotationDataset.create needs a name (platform mode) "
+            raise AnnotationError(
+                "VideoAnnotation.create needs a name (platform mode) "
                 "or backend= (self-hosted)"
             )
         profile = {
@@ -253,7 +253,7 @@ class VideoAnnotationDataset(_GenericDataset):
             "frag_seconds": float(frag_seconds),
         }
         if not (1.0 <= profile["frag_seconds"] <= 30.0):
-            raise DatasetError("frag_seconds must be between 1 and 30 seconds")
+            raise AnnotationError("frag_seconds must be between 1 and 30 seconds")
 
         if backend is not None:
             from dreamlake import db
@@ -263,23 +263,23 @@ class VideoAnnotationDataset(_GenericDataset):
             except Exception:
                 pass  # nothing there — the good case
             else:
-                raise DatasetError(
-                    f"a dataset already exists at {backend} — use Dataset.open() to add to it"
+                raise AnnotationError(
+                    f"an annotation already exists at {backend} — use VideoAnnotation.open() to add to it"
                 )
             inner = db.create(
                 build_schema(), backend=backend,
-                schema_type=DATASET_SCHEMA_TYPE, title=name,
+                schema_type=ANNOTATION_SCHEMA_TYPE, title=name,
             )
         else:
             from dreamlake import _platform
 
             try:
-                inner = _platform.create_dataset(
+                inner = _platform.create_annotation(
                     name, build_schema(),
-                    schema_type=DATASET_SCHEMA_TYPE, visibility=visibility,
+                    schema_type=ANNOTATION_SCHEMA_TYPE, visibility=visibility,
                 )
-            except _platform.DatasetExistsError as e:
-                raise DatasetError(str(e)) from e
+            except _platform.AnnotationExistsError as e:
+                raise AnnotationError(str(e)) from e
 
         inner.set_meta(ENCODING_META_KEY, json.dumps(profile))
         if visibility == "public":
@@ -296,8 +296,8 @@ class VideoAnnotationDataset(_GenericDataset):
         preview_height: Optional[int] = None,
         preview_fps: Optional[float] = None,
         frag_seconds: Optional[float] = None,
-    ) -> "VideoAnnotationDataset":
-        """Open an existing dataset by platform name or by backend URI.
+    ) -> "VideoAnnotation":
+        """Open an existing annotation by platform name or by backend URI.
 
         The optional encoding kwargs VERIFY, never set: pass the values your
         script assumes and open() errors on mismatch with the stored profile
@@ -305,8 +305,8 @@ class VideoAnnotationDataset(_GenericDataset):
         config edit). Omitted kwargs are not checked.
         """
         if backend is None and not name:
-            raise DatasetError(
-                "VideoAnnotationDataset.open needs a name (platform mode) "
+            raise AnnotationError(
+                "VideoAnnotation.open needs a name (platform mode) "
                 "or backend= (self-hosted)"
             )
 
@@ -316,8 +316,8 @@ class VideoAnnotationDataset(_GenericDataset):
             try:
                 inner = db.open(backend=backend)
             except Exception as e:
-                raise DatasetError(
-                    f"no dataset at {backend} — create one with Dataset.create() ({e})"
+                raise AnnotationError(
+                    f"no annotation at {backend} — create one with VideoAnnotation.create() ({e})"
                 ) from e
             _check_schema_type(inner, backend)
             ds = cls(inner, backend, name)
@@ -325,10 +325,10 @@ class VideoAnnotationDataset(_GenericDataset):
             from dreamlake import _platform
 
             try:
-                inner = _platform.open_dataset(name)
-            except _platform.DatasetNotFoundError as e:
-                raise DatasetError(str(e)) from e
-            _check_schema_type(inner, f"dataset '{name}'")
+                inner = _platform.open_annotation(name)
+            except _platform.AnnotationNotFoundError as e:
+                raise AnnotationError(str(e)) from e
+            _check_schema_type(inner, f"annotation '{name}'")
             lease = getattr(inner, "dreamlake_lease", None)
             ds = cls(inner, (lease or {}).get("backend_url", ""), name)
 
@@ -338,8 +338,8 @@ class VideoAnnotationDataset(_GenericDataset):
             ("frag_seconds", frag_seconds),
         ):
             if want is not None and float(ds._encoding[key]) != float(want):
-                raise DatasetError(
-                    f"this dataset's encoding profile has {key}={ds._encoding[key]}, "
+                raise AnnotationError(
+                    f"this annotation's encoding profile has {key}={ds._encoding[key]}, "
                     f"but open() was told to expect {want} — the profile is fixed at "
                     f"create time and cannot be changed"
                 )
@@ -450,12 +450,12 @@ class VideoAnnotationDataset(_GenericDataset):
         if gid is None:
             have = ", ".join(sorted(ids)[:20]) or "none"
             more = f", … +{len(ids) - 20} more" if len(ids) > 20 else ""
-            raise DatasetError(
-                f"no episode '{episode_id}' in this dataset (have: {have}{more})"
+            raise AnnotationError(
+                f"no episode '{episode_id}' in this annotation (have: {have}{more})"
             )
         rows = self._read_meta_window(gid, gid + 1)
         if not rows:
-            raise DatasetError(
+            raise AnnotationError(
                 f"episode '{episode_id}' is in the index at slot {gid} but has "
                 f"no meta row — the space was modified outside the SDK"
             )
@@ -488,13 +488,13 @@ class VideoAnnotationDataset(_GenericDataset):
 
     def episode(self, episode_id: str) -> Episode:
         """The handle for one episode (by id, or by slot number as a string).
-        Raises :class:`DatasetError` when absent."""
+        Raises :class:`AnnotationError` when absent."""
         return Episode(self, self._require_row(episode_id))
 
     # ---- Introspection ---------------------------------------------------
 
     def cameras(self) -> List[str]:
-        """The dataset's cameras — primary-style order (``main`` first, then
+        """The annotation's cameras — primary-style order (``main`` first, then
         alphabetical; same order the viewer uses). From the adopted camera
         profiles in the encoding meta: O(1), no reads."""
         seen = set(self._encoding.get("cameras") or {})
@@ -505,7 +505,7 @@ class VideoAnnotationDataset(_GenericDataset):
         return ordered
 
     def tracks(self) -> List[Track]:
-        """The dataset's track catalog as the preset knows it, as
+        """The annotation's track catalog as the preset knows it, as
         :class:`Track` handles — the generic vocabulary (name/kind/mime/dim)
         plus the preset extras ``role``/``camera``: the fixed episode-level
         tracks, each camera's namespace triple, and user tracks declared
@@ -574,23 +574,23 @@ class VideoAnnotationDataset(_GenericDataset):
         The web viewer does not render user tracks.
         """
         if not USER_TRACK_RE.match(name) or "__" in name:
-            raise DatasetError(
+            raise AnnotationError(
                 f"user track names must match ^x_[a-z0-9_]+$ with no '__' "
                 f"(got '{name}') — the x_ prefix is the namespace future preset "
                 f"versions promise never to claim"
             )
         if kind == "embedding":
-            raise DatasetError(
+            raise AnnotationError(
                 "embedding tracks can only be declared when a space is created "
                 "(the LSH index is part of the schema — a DreamDB constraint). "
                 "Use the built-in search fields, or a custom schema via dreamlake.db."
             )
         if kind not in TRACK_KINDS:
-            raise DatasetError(f"unknown track kind '{kind}' — one of {list(TRACK_KINDS)}")
+            raise AnnotationError(f"unknown track kind '{kind}' — one of {list(TRACK_KINDS)}")
 
         declared = self._user_tracks()
         if name in declared and declared[name] != kind:
-            raise DatasetError(
+            raise AnnotationError(
                 f"track '{name}' is already declared as kind '{declared[name]}' — "
                 f"a track's kind cannot change"
             )
@@ -619,8 +619,8 @@ class VideoAnnotationDataset(_GenericDataset):
             ))
         except Exception as e:
             if "not in schema" in str(e) or "no FieldTrack" in str(e):
-                raise DatasetError(
-                    f"no track '{field}' in this dataset — declare it first with "
+                raise AnnotationError(
+                    f"no track '{field}' in this annotation — declare it first with "
                     f"ds.add_track({field!r}, kind=...)"
                 ) from e
             raise
@@ -643,7 +643,7 @@ class VideoAnnotationDataset(_GenericDataset):
         if isinstance(videos, (str, Path)):
             videos = {DEFAULT_CAMERA: videos}
         if not isinstance(videos, dict):
-            raise DatasetError(
+            raise AnnotationError(
                 f"videos must be a path (single camera) or a dict of "
                 f"camera name -> path, got {type(videos).__name__}"
             )
@@ -651,7 +651,7 @@ class VideoAnnotationDataset(_GenericDataset):
         for camera, path in videos.items():
             err = validate_camera_name(camera)
             if err:
-                raise DatasetError(err)
+                raise AnnotationError(err)
             out[camera] = str(path)
         return out
 
@@ -666,7 +666,7 @@ class VideoAnnotationDataset(_GenericDataset):
             for camera, doc in joints_pose.items():
                 err = validate_camera_name(camera)
                 if err:
-                    raise DatasetError(err)
+                    raise AnnotationError(err)
                 out[camera] = _load_annotation(
                     doc, f"joints_pose[{camera!r}]", validate_joints_pose
                 )
@@ -681,10 +681,10 @@ class VideoAnnotationDataset(_GenericDataset):
         if meta is None:
             return None
         if not isinstance(meta, dict):
-            raise DatasetError(f"meta must be a dict, got {type(meta).__name__}")
+            raise AnnotationError(f"meta must be a dict, got {type(meta).__name__}")
         unknown = set(meta) - set(META_KEYS)
         if unknown:
-            raise DatasetError(
+            raise AnnotationError(
                 f"unknown meta key(s) {sorted(unknown)} — meta accepts {list(META_KEYS)}. "
                 f"Custom per-episode data belongs on an x_ track (ds.add_track)."
             )
@@ -695,7 +695,7 @@ class VideoAnnotationDataset(_GenericDataset):
         for camera, video in cams.items():
             src = probes[camera] = probe(video)
             if src.duration_sec >= MAX_EPISODE_SECONDS:
-                raise DatasetError(
+                raise AnnotationError(
                     f"camera '{camera}' ({os.path.basename(video)}) is "
                     f"{src.duration_sec:.0f}s — the per-episode limit is "
                     f"{MAX_EPISODE_SECONDS}s (one-hour anchor slot). Split it first."
@@ -719,7 +719,7 @@ class VideoAnnotationDataset(_GenericDataset):
 
     def _ensure_recon_tracks(self, camera: str) -> None:
         """Declare the reconstruction tracks (episode-level mesh + this camera's
-        pose/hands/gravity/intrinsics). Idempotent, and works on datasets created
+        pose/hands/gravity/intrinsics). Idempotent, and works on annotations created
         before the recon extension existed (the fields are all optional)."""
         json_fields = (
             FIELD_RECON_MESH,
@@ -757,7 +757,7 @@ class VideoAnnotationDataset(_GenericDataset):
         )
         for cam in cameras:
             if cam not in cameras_have:
-                raise DatasetError(
+                raise AnnotationError(
                     f"reconstruction names camera '{cam}', but this episode has "
                     f"cameras {sorted(cameras_have)} — reconstruction binds to a "
                     f"camera the episode already has"
@@ -788,7 +788,7 @@ class VideoAnnotationDataset(_GenericDataset):
             return
         want = _preview_width(src.width, src.height, int(profile["height"]))
         if want != int(profile["width"]):
-            raise DatasetError(
+            raise AnnotationError(
                 f"aspect ratio mismatch on camera '{camera}': its playback track is "
                 f"{profile['width']}x{profile['height']}, but "
                 f"{os.path.basename(video)} ({src.width}x{src.height}) would encode to "
@@ -800,7 +800,7 @@ class VideoAnnotationDataset(_GenericDataset):
                          probes: Dict[str, ProbeResult]) -> None:
         """After a successful commit: update the id cache, and ADOPT a
         playback profile for any first-seen camera — height/fps from the
-        dataset defaults, width from the clip's aspect ratio. Persisted
+        annotation defaults, width from the clip's aspect ratio. Persisted
         (one meta-commit) exactly once per camera; routine appends with
         known cameras write nothing."""
         cameras = self._encoding.setdefault("cameras", {})
@@ -822,7 +822,7 @@ class VideoAnnotationDataset(_GenericDataset):
         """The source-location fields for one camera's meta: ``source_rel``
         (last two path components — joins with embed's ``source_dir=``, and
         disambiguates fixed-filename rigs) always; absolute ``source_uri``
-        only on non-public datasets (paths leak the uploader's machine)."""
+        only on non-public annotations (paths leak the uploader's machine)."""
         p = Path(video).resolve()
         out = {"source_rel": "/".join(p.parts[-2:])}
         if not self._public:
@@ -850,7 +850,7 @@ class VideoAnnotationDataset(_GenericDataset):
         self, camera: str, video: str, src: ProbeResult, *, anchor: int, raw: bool
     ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         """Transcode + ingest one camera's clip into its track pair, using
-        the dataset's encoding profile. Returns ``(camera_meta, report)``.
+        the annotation's encoding profile. Returns ``(camera_meta, report)``.
         Playback first, archival second — an archival failure costs the
         archive, not the camera."""
         self._ensure_camera_tracks(camera)
@@ -928,8 +928,8 @@ class VideoAnnotationDataset(_GenericDataset):
         videos: Videos,
         *,
         episode_id: Optional[str] = None,
-        joints_pose: Union[Annotation, Dict[str, Annotation]] = None,
-        subtasks: Annotation = None,
+        joints_pose: Union[AnnotationDoc, Dict[str, AnnotationDoc]] = None,
+        subtasks: AnnotationDoc = None,
         recon_mesh: Any = None,
         recon_pose: Any = None,
         recon_camera: Any = None,
@@ -939,7 +939,7 @@ class VideoAnnotationDataset(_GenericDataset):
         gid: Optional[int] = None,
         raw: bool = False,
     ) -> Episode:
-        """Transcode one episode's camera video(s) into the dataset with its
+        """Transcode one episode's camera video(s) into the annotation with its
         annotations, and return its :class:`Episode` handle (the ingest
         report is on ``.report``).
 
@@ -957,12 +957,12 @@ class VideoAnnotationDataset(_GenericDataset):
         additionally archives a lossless remux (roughly doubles the upload;
         best-effort on mixed sources).
 
-        Encoding (height/fps/fragment length) comes from the dataset's
+        Encoding (height/fps/fragment length) comes from the annotation's
         profile — set at :meth:`create`, never per call.
         """
         cams = self._normalize_videos(videos)
         if not cams:
-            raise DatasetError("add_episode needs at least one camera video")
+            raise AnnotationError("add_episode needs at least one camera video")
         eid = episode_id or Path(next(iter(cams.values()))).stem
         primary = DEFAULT_CAMERA if DEFAULT_CAMERA in cams else next(iter(cams))
 
@@ -973,7 +973,7 @@ class VideoAnnotationDataset(_GenericDataset):
         labels = self._validate_meta_arg(meta) or {}
         for camera in joints_by_cam:
             if camera not in cams:
-                raise DatasetError(
+                raise AnnotationError(
                     f"joints_pose names camera '{camera}', but this episode's videos are "
                     f"{sorted(cams)} — joints bind to the camera whose pixel space they live in"
                 )
@@ -986,7 +986,7 @@ class VideoAnnotationDataset(_GenericDataset):
             p = probes[camera]
             drift = _fps_drift_frames(float(joints["src_fps"]), p.fps, p.duration_sec)
             if drift > 10:
-                raise DatasetError(
+                raise AnnotationError(
                     f"the annotation's src_fps ({joints['src_fps']}) disagrees with camera "
                     f"'{camera}''s ({p.fps:.5f}) by {drift:.1f} frames over {p.duration_sec:.1f}s — "
                     f"these almost certainly describe different videos."
@@ -1004,10 +1004,10 @@ class VideoAnnotationDataset(_GenericDataset):
 
         if gid is not None:
             if gid < 0:
-                raise DatasetError(f"gid must be a non-negative integer, got {gid}")
+                raise AnnotationError(f"gid must be a non-negative integer, got {gid}")
             clash = next((i for i, g in ids.items() if g == gid), None)
             if clash is not None:
-                raise DatasetError(
+                raise AnnotationError(
                     f"slot {gid} is already taken by '{clash}' — omit gid to append"
                 )
         else:
@@ -1017,8 +1017,8 @@ class VideoAnnotationDataset(_GenericDataset):
             gid = (max(ids.values()) + 1) if ids else 0
 
         if eid in ids:
-            raise DatasetError(
-                f"episode id '{eid}' is already in this dataset at slot {ids[eid]} — "
+            raise AnnotationError(
+                f"episode id '{eid}' is already in this annotation at slot {ids[eid]} — "
                 f"use ds.episode({eid!r}).add_cameras()/revise() to extend it, or pass "
                 f"episode_id= to disambiguate"
             )
@@ -1106,7 +1106,7 @@ class VideoAnnotationDataset(_GenericDataset):
         def _a(t: float) -> int:
             ns = round(float(t) * 1e9)
             if not (0 <= ns < EPISODE_STRIDE_NS):
-                raise DatasetError(
+                raise AnnotationError(
                     f"t_sec {t} is outside the episode's slot (0..{MAX_EPISODE_SECONDS}s) — "
                     f"vector timestamps are seconds on the episode's own clock"
                 )
@@ -1133,8 +1133,8 @@ class VideoAnnotationDataset(_GenericDataset):
                 self._ds.append_many(batch)
             except Exception as e:
                 if "not in schema" in str(e):
-                    raise DatasetError(
-                        "this dataset has no search fields (older schema) — "
+                    raise AnnotationError(
+                        "this annotation has no search fields (older schema) — "
                         "re-create it with the current SDK to make it searchable"
                     ) from e
                 raise
@@ -1177,11 +1177,11 @@ class VideoAnnotationDataset(_GenericDataset):
         "score", "source", "subtask"?}]``. ``kind``: ``"frames"``,
         ``"subtasks"`` or ``"both"``. First call loads the encoders."""
         if kind not in ("frames", "subtasks", "both"):
-            raise DatasetError('kind must be "frames", "subtasks" or "both"')
+            raise AnnotationError('kind must be "frames", "subtasks" or "both"')
         try:
             import dreamlake.encoders  # noqa: F401 — the [search] gate
         except ImportError as e:
-            raise DatasetError(str(e)) from e
+            raise AnnotationError(str(e)) from e
 
         by_gid = {r["gid"]: r for r in self._rows()}
         RRF_K = 60.0
@@ -1258,7 +1258,7 @@ class VideoAnnotationDataset(_GenericDataset):
         nxt = max(int(row.get("_rev", base)),
                   *[self._latest_in_window(f, base)[0] for f in fields] or [base - 1]) + 1
         if nxt >= base + REVISION_WINDOW_NS:
-            raise DatasetError(
+            raise AnnotationError(
                 f"episode '{row.get('episode_id')}' has exhausted its "
                 f"{REVISION_WINDOW_NS} revisions — re-ingest it as a new episode"
             )
@@ -1284,8 +1284,8 @@ class VideoAnnotationDataset(_GenericDataset):
         except Exception as e:
             msg = str(e)
             if "no FieldTrack" in msg or "not in schema" in msg:
-                raise DatasetError(
-                    "this dataset has no search fields (older schema) — "
+                raise AnnotationError(
+                    "this annotation has no search fields (older schema) — "
                     "re-create it with the current SDK to make it searchable"
                 ) from e
             batches = []

@@ -1,4 +1,4 @@
-"""Tests for dreamlake.dataset — the robot-training episode dataset SDK.
+"""Tests for dreamlake.annotation — the robot-training episode annotation SDK.
 
 The anchor math gets pinned hardest: every other bug in this feature
 announces itself, but a wrong anchor ingests successfully and the only
@@ -14,8 +14,8 @@ import subprocess
 
 import pytest
 
-from dreamlake.dataset._ffmpeg import FfmpegError, _parse_playlist
-from dreamlake.dataset._schema import (
+from dreamlake.annotation._ffmpeg import FfmpegError, _parse_playlist
+from dreamlake.annotation._schema import (
     EPISODE_STRIDE_NS,
     MAX_EPISODE_SECONDS,
     base_anchor,
@@ -29,7 +29,7 @@ from dreamlake.dataset._schema import (
     validate_joints_pose,
     validate_subtasks,
 )
-from dreamlake.dataset._core import _preview_width
+from dreamlake.annotation._core import _preview_width
 
 # ─── anchor layout ───────────────────────────────────────────────────
 
@@ -173,13 +173,13 @@ def _make_clip(path, size="640x480", seconds=3):
 
 @pytestmark_e2e
 def test_end_to_end_write_then_read(tmp_path):
-    from dreamlake.dataset import VideoAnnotationDataset as Dataset, DatasetError, Episode
+    from dreamlake.annotation import VideoAnnotation, AnnotationError, Episode
 
     video = _make_clip(tmp_path / "clip.mp4")
     backend = f"file://{tmp_path}/space"
-    ds = Dataset.create(backend=backend)
-    with pytest.raises(DatasetError, match="already exists"):
-        Dataset.create(backend=backend)
+    ds = VideoAnnotation.create(backend=backend)
+    with pytest.raises(AnnotationError, match="already exists"):
+        VideoAnnotation.create(backend=backend)
 
     # add_episode returns the handle; raw=True exercises the archival path.
     epo = ds.add_episode(video, episode_id="ep0", joints_pose=JOINTS,
@@ -189,7 +189,7 @@ def test_end_to_end_write_then_read(tmp_path):
     assert epo.report["cameras"]["main"]["preview"]["fragments"] >= 1
     assert epo.report["cameras"]["main"]["raw"]["fragments"] >= 1
 
-    ds2 = Dataset.open(backend=backend)
+    ds2 = VideoAnnotation.open(backend=backend)
     eps = ds2.episodes()
     assert [(e.gid, e.episode_id) for e in eps] == [(0, "ep0")]
     assert eps[0].meta["primary_camera"] == "main"
@@ -205,10 +205,10 @@ def test_end_to_end_write_then_read(tmp_path):
     assert ds2.episode("ep0").read_subtasks() == SUBTASKS
 
     # Duplicate id refused; same-camera aspect mismatch refused pre-transcode.
-    with pytest.raises(DatasetError, match="already in this dataset"):
+    with pytest.raises(AnnotationError, match="already in this annotation"):
         ds.add_episode(video, episode_id="ep0")
     wide = _make_clip(tmp_path / "wide.mp4", size="1280x720", seconds=2)
-    with pytest.raises(DatasetError, match="aspect ratio"):
+    with pytest.raises(AnnotationError, match="aspect ratio"):
         ds.add_episode(wide, episode_id="ep1")
 
     # NO task inference from subtasks: meta only holds what was passed.
@@ -217,26 +217,26 @@ def test_end_to_end_write_then_read(tmp_path):
     assert epo2.task is None
 
     # meta= whitelist.
-    with pytest.raises(DatasetError, match="unknown meta key"):
+    with pytest.raises(AnnotationError, match="unknown meta key"):
         ds.add_episode(_make_clip(tmp_path / "c3.mp4"), episode_id="ep3",
                        meta={"operator": "me"})
 
 
 @pytestmark_e2e
 def test_encoding_profile_persists_and_open_verifies(tmp_path):
-    from dreamlake.dataset import VideoAnnotationDataset as Dataset, DatasetError
+    from dreamlake.annotation import VideoAnnotation, AnnotationError
 
     backend = f"file://{tmp_path}/space"
-    ds = Dataset.create(backend=backend, preview_height=480, preview_fps=24)
+    ds = VideoAnnotation.create(backend=backend, preview_height=480, preview_fps=24)
     assert ds.encoding["preview_height"] == 480
 
-    reopened = Dataset.open(backend=backend)
+    reopened = VideoAnnotation.open(backend=backend)
     assert reopened.encoding == {"preview_height": 480, "preview_fps": 24.0,
                                  "frag_seconds": 2.0, "cameras": {}}
     # verify-not-ignore: matching passes, mismatch errors.
-    Dataset.open(backend=backend, preview_height=480)
-    with pytest.raises(DatasetError, match="preview_height"):
-        Dataset.open(backend=backend, preview_height=720)
+    VideoAnnotation.open(backend=backend, preview_height=480)
+    with pytest.raises(AnnotationError, match="preview_height"):
+        VideoAnnotation.open(backend=backend, preview_height=720)
 
     # The profile drives the transcode: a 640x480 source at height 480.
     clip = _make_clip(tmp_path / "c.mp4")
@@ -246,11 +246,11 @@ def test_encoding_profile_persists_and_open_verifies(tmp_path):
 
 @pytestmark_e2e
 def test_multi_camera_handle_lifecycle(tmp_path):
-    from dreamlake.dataset import VideoAnnotationDataset as Dataset, DatasetError
+    from dreamlake.annotation import VideoAnnotation, AnnotationError
 
     head = _make_clip(tmp_path / "head.mp4", size="1280x720")
     wrist = _make_clip(tmp_path / "wrist.mp4", size="640x480")
-    ds = Dataset.create(backend=f"file://{tmp_path}/space")
+    ds = VideoAnnotation.create(backend=f"file://{tmp_path}/space")
 
     # Different aspect ratios coexist — different camera tracks.
     epo = ds.add_episode({"head": head, "wrist": wrist}, episode_id="ep0")
@@ -262,7 +262,7 @@ def test_multi_camera_handle_lifecycle(tmp_path):
     tail = _make_clip(tmp_path / "tail.mp4", size="1280x720", seconds=2)
     out = epo.add_cameras({"tail": tail})
     assert "tail" in out["cameras"]
-    with pytest.raises(DatasetError, match="already has video"):
+    with pytest.raises(AnnotationError, match="already has video"):
         epo.add_cameras({"head": head})
 
     # revise: atomic LWW — newest wins on read; scene lands; no inference.
@@ -273,7 +273,7 @@ def test_multi_camera_handle_lifecycle(tmp_path):
     assert fresh.scene == "kitchen"
     assert fresh.read_subtasks() == v2
     assert set(fresh.cameras) == {"head", "wrist", "tail"}
-    with pytest.raises(DatasetError, match="nothing to revise"):
+    with pytest.raises(AnnotationError, match="nothing to revise"):
         epo.revise()
 
     # Per-camera joints binding via dict; default read = primary.
@@ -285,7 +285,7 @@ def test_multi_camera_handle_lifecycle(tmp_path):
     assert ds.episode("ep0").read_joints_pose() == jh
     assert ds.episode("ep0").read_joints_pose(camera="wrist") == jw
     assert ds.episode("ep0").read_joints_pose(camera="tail") is None
-    with pytest.raises(DatasetError, match="names camera"):
+    with pytest.raises(AnnotationError, match="names camera"):
         epo.revise(joints_pose={"nope": jh})
 
     # Stale handle cannot clobber: writes re-read meta at call time.
@@ -298,22 +298,22 @@ def test_multi_camera_handle_lifecycle(tmp_path):
 
 @pytestmark_e2e
 def test_user_tracks_and_introspection(tmp_path):
-    from dreamlake.dataset import VideoAnnotationDataset as Dataset, DatasetError
+    from dreamlake.annotation import VideoAnnotation, AnnotationError
 
     clip = _make_clip(tmp_path / "clip.mp4")
-    ds = Dataset.create(backend=f"file://{tmp_path}/space")
+    ds = VideoAnnotation.create(backend=f"file://{tmp_path}/space")
     epo = ds.add_episode(clip, episode_id="ep0")
 
     # Enforcement: x_ namespace, dreamdb kinds, embedding refused.
-    with pytest.raises(DatasetError, match="x_"):
+    with pytest.raises(AnnotationError, match="x_"):
         ds.add_track("reward", "scalar_float")
-    with pytest.raises(DatasetError, match="x_"):
+    with pytest.raises(AnnotationError, match="x_"):
         ds.add_track("x_a__b", "scalar_float")
-    with pytest.raises(DatasetError, match="created"):
+    with pytest.raises(AnnotationError, match="created"):
         ds.add_track("x_vecs", "embedding")
-    with pytest.raises(DatasetError, match="unknown track kind"):
+    with pytest.raises(AnnotationError, match="unknown track kind"):
         ds.add_track("x_thing", "float")
-    with pytest.raises(DatasetError, match="declare it first"):
+    with pytest.raises(AnnotationError, match="declare it first"):
         epo.set_track("x_ghost", 1.0)
 
     ds.add_track("x_reward", "scalar_float")
@@ -332,7 +332,7 @@ def test_user_tracks_and_introspection(tmp_path):
     epo.append_track("x_reward", [(1.0, 0.1), (2.0, 0.2)])
     assert epo.read_track("x_reward", start_sec=0.5) == [(1.0, 0.1), (2.0, 0.2)]
     assert [t for t, _ in epo.read_track("x_reward")] == [0.0, 1.0, 2.0]
-    with pytest.raises(DatasetError, match="outside the episode's slot"):
+    with pytest.raises(AnnotationError, match="outside the episode's slot"):
         epo.set_track("x_reward", 1.0, t_sec=MAX_EPISODE_SECONDS + 1)
     assert epo.anchor_at(1.5) == epo.anchor + 1_500_000_000
 
@@ -346,10 +346,10 @@ def test_user_tracks_and_introspection(tmp_path):
 
 @pytestmark_e2e
 def test_camera_profiles_index_and_paging(tmp_path):
-    from dreamlake.dataset import VideoAnnotationDataset as Dataset
+    from dreamlake.annotation import VideoAnnotation
 
     clip = _make_clip(tmp_path / "clip.mp4")
-    ds = Dataset.create(backend=f"file://{tmp_path}/space")
+    ds = VideoAnnotation.create(backend=f"file://{tmp_path}/space")
     for i in range(3):
         ds.add_episode(clip, episode_id=f"ep-{i}")
 
@@ -372,7 +372,7 @@ def test_camera_profiles_index_and_paging(tmp_path):
     assert enc["cameras"]["main"]["height"] == 720
 
     # A fresh handle allocates the next slot from the index alone.
-    ds2 = Dataset.open(backend=f"file://{tmp_path}/space")
+    ds2 = VideoAnnotation.open(backend=f"file://{tmp_path}/space")
     ds2.add_episode(clip, episode_id="ep-3")
     assert ds2.episode_count() == 4
     assert ds2.episode("ep-3").gid == 3

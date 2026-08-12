@@ -812,14 +812,14 @@ __all__ = [
 
 
 def __getattr__(name):
-    # The dataset family (generic `Dataset` + presets + Schema/Track) is
-    # exported lazily: dreamlake.dataset needs the optional `dreamdb`
+    # The annotation family (generic `Annotation` + presets + Schema/Track)
+    # is exported lazily: dreamlake.annotation needs the optional `dreamdb`
     # package, and an eager import here would make it a hard dependency of
     # every dreamlake user.
-    if name in ("Dataset", "VideoAnnotationDataset", "Schema", "Track"):
-        from . import dataset as _dataset
+    if name in ("Annotation", "VideoAnnotation", "Schema", "Track"):
+        from . import annotation as _annotation
 
-        return getattr(_dataset, name)
+        return getattr(_annotation, name)
     # `db` (DreamDB re-export + platform plumbing) is lazy for the same
     # reason: its dreamdb half is an optional dependency.
     if name == "db":

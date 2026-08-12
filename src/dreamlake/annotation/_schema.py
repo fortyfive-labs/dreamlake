@@ -1,6 +1,6 @@
-"""The DreamLake dataset storage structure — constants and anchor math.
+"""The DreamLake annotation storage structure — constants and anchor math.
 
-A dataset is ONE DreamDB Space holding many EPISODES. An episode is one
+An annotation is ONE DreamDB Space holding many EPISODES. An episode is one
 recording: one or more camera videos plus per-frame joint annotations and
 action segmentation. Episodes coexist on one timeline by occupying disjoint
 one-hour anchor slots, so ``floor(anchor / 1h)`` recovers the episode and
@@ -18,7 +18,7 @@ first use (DreamDB supports schema evolution by addition — and only by
 addition).
 
 These values are shared, byte-for-byte, with the TypeScript CLI
-(dreamlake-cli ``src/cli/dataset/schema.ts``). A dataset written by either
+(dreamlake-cli ``src/cli/dataset/schema.ts``). An annotation written by either
 tool is readable and appendable by the other — which is only true while the
 two files agree. Change one, change both.
 """
@@ -29,7 +29,7 @@ import re
 import struct
 from typing import Any, Dict, List, Optional, Tuple, TypedDict
 
-from ._errors import DatasetError
+from ._errors import AnnotationError
 
 # Anchor slot width per episode: one hour in nanoseconds. An episode's
 # identity is a property of its anchor; a camera clip longer than the slot
@@ -40,8 +40,8 @@ EPISODE_STRIDE_NS = 3_600_000_000_000
 # Seconds any one camera video may run before it would overflow the slot.
 MAX_EPISODE_SECONDS = 3600
 
-# The ref every dataset publishes under. Single-segment: DreamDB rejects "a/b".
-DATASET_REF = "main"
+# The ref every annotation publishes under. Single-segment: DreamDB rejects "a/b".
+ANNOTATION_REF = "main"
 
 # Revision window (ns). DreamDB resolves same-anchor duplicates by CONTENT
 # HASH, not write order (verified empirically — "last writer wins" does not
@@ -63,7 +63,7 @@ DEFAULT_PREVIEW_FPS = 30
 # ---- Camera tracks ---------------------------------------------------------
 #
 # One camera == one pair of video fields. The ``__`` separator is structural:
-# viewers and the TS CLI discover a dataset's cameras by enumerating fields
+# viewers and the TS CLI discover an annotation's cameras by enumerating fields
 # with these prefixes, so camera names may not contain ``__`` themselves.
 
 DEFAULT_CAMERA = "main"
@@ -169,7 +169,7 @@ SUBTASK_VEC_DIM = 384
 
 # ---- Space-meta keys (cross-SDK contract, mirrored in schema.ts) -----------
 #
-# The encoding profile is a DATASET-lifetime property (every clip on one
+# The encoding profile is an ANNOTATION-lifetime property (every clip on one
 # playback track must share one init segment, and the init encodes frame
 # geometry) — so it is chosen once at create and stored in the space meta,
 # not passed per call. Besides the flat defaults, the value carries
@@ -185,7 +185,7 @@ DEFAULT_ENCODING = {
     "preview_fps": DEFAULT_PREVIEW_FPS,
     "frag_seconds": 2.0,
 }
-# "1" when the dataset was created with visibility="public" — episode meta
+# "1" when the annotation was created with visibility="public" — episode meta
 # then omits absolute source paths (they leak the uploader's filesystem).
 PUBLIC_META_KEY = "dreamdb.dataset.public"
 # JSON object {track_name: kind} of user tracks declared via add_track — the
@@ -193,7 +193,7 @@ PUBLIC_META_KEY = "dreamdb.dataset.public"
 USER_TRACKS_META_KEY = "dreamdb.dataset.user_tracks"
 # Present ("v1") once any episode carries the reconstruction extension
 # (recon_* fields). A version tag for the recon payload layout, additive to
-# and independent of the dataset schemaType. See docs/reconstruction-schema.md.
+# and independent of the annotation schemaType. See docs/reconstruction-schema.md.
 RECON_SCHEMA_META_KEY = "dreamdb.dataset.recon"
 RECON_SCHEMA_VERSION = "v1"
 # The only keys `meta=` accepts on add_episode/revise. Everything else in the
@@ -228,7 +228,7 @@ TRACK_KINDS = (
 # ~1KB × N) to a per-episode json blob, loaded per slot window like
 # joints_pose/subtasks; episode_index (scalar_string of bare ids) became the
 # lookup path. v1 spaces are refused at open with an actionable message.
-DATASET_SCHEMA_TYPE = "video.annotation/v2"
+ANNOTATION_SCHEMA_TYPE = "video.annotation/v2"
 
 
 def base_anchor(gid: int) -> int:
@@ -252,7 +252,7 @@ def frame_anchor(gid: int, k: int, fps: float) -> int:
 
 
 def build_schema():
-    """The dataset schema, as a ``dreamdb.Schema``.
+    """The annotation schema, as a ``dreamdb.Schema``.
 
     Every field is ``required=False``, and that is load-bearing: a required
     field cannot be added later without invalidating every existing record, so
@@ -291,7 +291,7 @@ def build_schema():
     schema.add_scalar_string(FIELD_EPISODE_INDEX, required=False)
     # Search vectors. LSH index: maintained on append, so vectors are
     # searchable the moment they land — no separate build step.
-    # lsh_bits=14 targets the 10k-100k-vector regime a real dataset reaches
+    # lsh_bits=14 targets the 10k-100k-vector regime a real annotation reaches
     # (the default 20 spreads a small corpus over 2^20 cells and near-miss
     # queries land in empty ones). Below that regime search() compensates
     # with an exact-scan fallback, so recall is right at every size.
@@ -357,7 +357,7 @@ class CameraMeta(TypedDict, total=False):
     duration_s: float
     codec: str
     source_rel: str   # last two path components — joins with embed's source_dir=
-    source_uri: str   # absolute; omitted on public datasets (path leak)
+    source_uri: str   # absolute; omitted on public annotations (path leak)
 
 
 class EpisodeMeta(TypedDict, total=False):
@@ -429,7 +429,7 @@ def validate_subtasks(doc: Dict[str, Any]) -> Optional[str]:
 
 def _recon_meshes_doc(meshes: Any) -> Dict[str, Any]:
     if not isinstance(meshes, dict) or not meshes:
-        raise DatasetError(
+        raise AnnotationError(
             "reconstruction: meshes must be a non-empty {object: mesh} dict"
         )
     out: Dict[str, Any] = {}
@@ -439,7 +439,7 @@ def _recon_meshes_doc(meshes: Any) -> Dict[str, Any]:
         elif isinstance(m, dict) and "obj" in m:
             out[str(name)] = {"obj": str(m["obj"]), "scale": float(m.get("scale", 1.0))}
         else:
-            raise DatasetError(
+            raise AnnotationError(
                 f"reconstruction: mesh '{name}' must be an .obj string or "
                 f"{{'obj': <text>, 'scale': <float>}}"
             )
@@ -450,20 +450,20 @@ def _recon_poses_doc(poses: Any) -> Dict[str, Any]:
     # accept {frame: {object: {t,q}}} or an already-wrapped {"frames": {...}}
     frames = poses.get("frames") if isinstance(poses, dict) and "frames" in poses else poses
     if not isinstance(frames, dict) or not frames:
-        raise DatasetError(
+        raise AnnotationError(
             "reconstruction: poses must be {frame: {object: {'t':[x,y,z], "
             "'q':[w,x,y,z]}}}"
         )
     out: Dict[str, Any] = {}
     for f, objs in frames.items():
         if not isinstance(objs, dict):
-            raise DatasetError(f"reconstruction: poses[{f}] must be {{object: {{t,q}}}}")
+            raise AnnotationError(f"reconstruction: poses[{f}] must be {{object: {{t,q}}}}")
         row: Dict[str, Any] = {}
         for name, p in objs.items():
             t = [float(x) for x in p["t"]]
             q = [float(x) for x in p["q"]]
             if len(t) != 3 or len(q) != 4:
-                raise DatasetError(
+                raise AnnotationError(
                     f"reconstruction: pose {name}@{f} needs t[3] and q[4 wxyz]"
                 )
             row[str(name)] = {"t": t, "q": q}
@@ -473,12 +473,12 @@ def _recon_poses_doc(poses: Any) -> Dict[str, Any]:
 
 def _recon_camera_doc(intrinsics: Any) -> Dict[str, Any]:
     if not isinstance(intrinsics, dict):
-        raise DatasetError("reconstruction: intrinsics must be a dict")
+        raise AnnotationError("reconstruction: intrinsics must be a dict")
     try:
         fx, fy = float(intrinsics["fx"]), float(intrinsics["fy"])
         cx, cy = float(intrinsics["cx"]), float(intrinsics["cy"])
     except KeyError as e:
-        raise DatasetError(f"reconstruction: intrinsics missing {e}") from e
+        raise AnnotationError(f"reconstruction: intrinsics missing {e}") from e
     return {
         "fx": fx, "fy": fy, "cx": cx, "cy": cy,
         "width": int(intrinsics.get("width", round(2 * cx))),
@@ -488,7 +488,7 @@ def _recon_camera_doc(intrinsics: Any) -> Dict[str, Any]:
 
 def _recon_hands_doc(hands: Any) -> Dict[str, Any]:
     if not isinstance(hands, dict) or "frames" not in hands:
-        raise DatasetError(
+        raise AnnotationError(
             "reconstruction: hands must be {'faces': {'left','right'}, "
             "'frames': {frame: {side: {'verts','joints'}}}}"
         )
@@ -602,12 +602,12 @@ def decode_hands_binary(blob: bytes) -> Dict[str, Any]:
 
     mv = memoryview(blob)
     if bytes(mv[:4]) != _RHB_MAGIC:
-        raise DatasetError("recon_hands: blob is not an RHB1 binary payload")
+        raise AnnotationError("recon_hands: blob is not an RHB1 binary payload")
     off = 4
     version, quant, n_sides = struct.unpack_from("<BBB", mv, off)
     off += 3
     if quant != 1:
-        raise DatasetError(f"recon_hands: unsupported quant mode {quant}")
+        raise AnnotationError(f"recon_hands: unsupported quant mode {quant}")
     bbox_min = np.frombuffer(mv, dtype="<f4", count=3, offset=off).astype(np.float64)
     off += 12
     bbox_max = np.frombuffer(mv, dtype="<f4", count=3, offset=off).astype(np.float64)
@@ -646,7 +646,7 @@ def decode_hands_binary(blob: bytes) -> Dict[str, Any]:
 def _recon_gravity_doc(gravity: Any) -> Dict[str, Any]:
     v = list(gravity)
     if len(v) != 3:
-        raise DatasetError("reconstruction: gravity must be a 3-vector [x,y,z]")
+        raise AnnotationError("reconstruction: gravity must be a 3-vector [x,y,z]")
     return {"vec3d": [float(x) for x in v]}
 
 
@@ -684,7 +684,7 @@ def _recon_by_camera(value: Any, primary: str, is_bare) -> Dict[str, Any]:
     for cam, doc in value.items():
         err = validate_camera_name(cam)
         if err:
-            raise DatasetError(err)
+            raise AnnotationError(err)
         out[cam] = doc
     return out
 
@@ -713,7 +713,7 @@ def reconstruction_fields(
             fields[track_fn(cam)] = normalize(doc)
             cameras.add(cam)
     if not fields:
-        raise DatasetError(
+        raise AnnotationError(
             "no reconstruction data — pass at least one of "
             "recon_mesh / recon_pose / recon_camera / recon_hands / recon_gravity"
         )
@@ -734,7 +734,7 @@ __all__: List[str] = [
     "EPISODE_STRIDE_NS",
     "MAX_EPISODE_SECONDS",
     "REVISION_WINDOW_NS",
-    "DATASET_REF",
+    "ANNOTATION_REF",
     "DEFAULT_PREVIEW_FPS",
     "DEFAULT_CAMERA",
     "preview_track",
