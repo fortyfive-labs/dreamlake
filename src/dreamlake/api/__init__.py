@@ -6,6 +6,7 @@ Objects:
     VideoArray  — batch of videos with fancy indexing
     TextTrack   — time-aligned text entries
     VectorIndex — named vector index (Qdrant)
+    Note        — a collaborative note, readable and writable by section
 
 Functions:
     load_video  — load a Video by resource ID or URI
@@ -13,6 +14,8 @@ Functions:
     upload      — chunked upload with auto type detection
     text_track  — create a TextTrack
     vec_index   — create/connect to a VectorIndex
+    note        — open a Note by "namespace/slug"
+    list_notes / search_notes / shared_with_me
 
 Context:
     Prefix      — context manager for project/path scoping
@@ -22,11 +25,39 @@ from .video import Video, VideoArray
 from .text_track import TextTrack
 from .vector_index import VectorIndex
 from .prefix import Prefix
+from .notes import (
+    Note,
+    NoteRef,
+    Section,
+    NoteError,
+    NoteNotFound,
+    NoteChanged,
+    NoteBusy,
+    NoteReadOnly,
+    PatchFailed,
+    note,
+    list_notes,
+    search_notes,
+    shared_with_me,
+)
 
 __all__ = [
     "Video",
     "VideoArray",
     "TextTrack",
     "VectorIndex",
+    "Note",
+    "NoteRef",
+    "Section",
+    "NoteError",
+    "NoteNotFound",
+    "NoteChanged",
+    "NoteBusy",
+    "NoteReadOnly",
+    "PatchFailed",
+    "note",
+    "list_notes",
+    "search_notes",
+    "shared_with_me",
     "Prefix",
 ]

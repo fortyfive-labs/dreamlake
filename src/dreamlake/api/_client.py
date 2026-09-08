@@ -29,11 +29,25 @@ class DreamLakeClient:
         dl_url: str | None = None,
         qdrant_url: str | None = None,
         token: str | None = None,
+        transport: "httpx.BaseTransport | None" = None,
     ):
+        # Injectable so a caller — in practice a test — can serve requests
+        # without a server. Only the notes surface routes through it; the older
+        # methods still call module-level httpx directly.
+        self._transport = transport
         self.bss_url = (bss_url or os.environ.get("DREAMLAKE_BSS_URL", _DEFAULT_BSS)).rstrip("/")
         self.dl_url = (dl_url or os.environ.get("DREAMLAKE_REMOTE", _DEFAULT_DL)).rstrip("/")
         self.qdrant_url = (qdrant_url or os.environ.get("QDRANT_URL", _DEFAULT_QDRANT)).rstrip("/")
         self._token = token or os.environ.get("DREAMLAKE_API_KEY")
+
+    def http(self) -> "httpx.Client":
+        """An httpx client bound to dreamlake-server, with auth applied."""
+        return httpx.Client(
+            base_url=self.dl_url,
+            headers=self._headers(),
+            transport=self._transport,
+            timeout=30,
+        )
 
     def _headers(self) -> dict:
         h = {}

@@ -43,6 +43,21 @@ except PackageNotFoundError:
 # ── Python API ──────────────────────────────────────────────────────────────
 
 from .api import Video, VideoArray, TextTrack, VectorIndex, Prefix
+from .api import (
+    Note,
+    NoteRef,
+    Section,
+    NoteError,
+    NoteNotFound,
+    NoteChanged,
+    NoteBusy,
+    NoteReadOnly,
+    PatchFailed,
+    note,
+    list_notes,
+    search_notes,
+    shared_with_me,
+)
 from .api._client import DreamLakeClient, get_client as _get_client
 from .api.resource_id import parse_uri as _parse_uri
 
