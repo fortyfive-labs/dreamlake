@@ -13,15 +13,18 @@ concurrency control is not optional here — it is on by default.
     note.read("install")                  # one section
     note.write("install", "## Install\\n…") # replace that section, safely
 
-Every read records the note's ETag; every write sends it back. If someone
-changed the note in between, the write raises NoteChanged rather than
-flattening their work, and `note.refresh()` gets you a current copy to redo
-the edit against. Pass ``force=True`` to write unconditionally, which is
-occasionally what you want and never what you want by accident.
+Every write is a real-time collaborative edit: the server applies it inside
+the note's collaboration room, so anyone with it open watches the change
+appear, and it merges with their typing the way two people's edits merge.
+Nothing is locked and nobody has to close the note first.
 
-A write is also refused while somebody has the note open in a browser
-(NoteBusy) — their edits live in a collaboration room that a write would blow
-away.
+That settles two edits arriving at once. It does not settle an edit built
+from a document that has since moved — which is the other half. Every read
+records the note's ETag and every write sends it back; a note that changed in
+between raises NoteChanged rather than flattening whoever changed it, and
+`note.refresh()` gets you a current copy to redo the edit against. Pass
+``force=True`` to write unconditionally, which is occasionally what you want
+and never what you want by accident.
 """
 
 from __future__ import annotations
@@ -82,10 +85,14 @@ class NoteChanged(NoteError):
 
 
 class NoteBusy(NoteError):
-    """Someone has the note open in a browser (HTTP 409).
+    """The realtime service could not take the write (HTTP 409).
 
-    Transient — worth retrying after a pause. Their work is in a live
-    collaboration room and a write would discard it.
+    Not "someone is editing" — a write normally goes INTO the live
+    collaboration room and appears on their screens. This means the room was
+    unreachable AND people are connected, so the only fallback (replacing the
+    archive) would reset the room and cost them unsaved work.
+
+    Transient: an infrastructure signal, worth retrying after a pause.
     """
 
 
@@ -282,15 +289,20 @@ class Note:
             for s in data.get("sections", [])
         ]
 
-    def read(self, anchor: str) -> str:
-        """One section's text, heading included."""
+    def read_section(self, anchor: str) -> str:
+        """One section's text, heading included.
+
+        Named for what it reads. `note.text` is the whole note; every method
+        with `_section` in its name works on one part of it, and every method
+        without works on all of it. There is no third rule.
+        """
         data = self._get(f"/sections/{_seg(anchor)}")
         self._etag = data.get("etag")
         return data["text"]
 
     # ── writing ─────────────────────────────────────────────────────────────
 
-    def write(self, anchor: str, text: str, *, force: bool = False) -> str:
+    def write_section(self, anchor: str, text: str, *, force: bool = False) -> str:
         """Replace one section. Returns the note's new ETag.
 
         The text is taken verbatim, heading and all — which is how a section is
@@ -298,8 +310,11 @@ class Note:
         """
         return self._send("PUT", f"/sections/{_seg(anchor)}", {"text": text}, force)["etag"]
 
-    def replace(self, text: str, *, force: bool = False) -> str:
-        """Replace the whole body."""
+    def write(self, text: str, *, force: bool = False) -> str:
+        """Replace the whole body.
+
+        The counterpart of `write_section`, which replaces one part of it.
+        """
         return self._send("PUT", "/body", {"text": text}, force)["etag"]
 
     def patch(self, diff: str, *, force: bool = False) -> str:
@@ -311,7 +326,7 @@ class Note:
         """
         return self._send("PATCH", "/body", {"diff": diff}, force)["etag"]
 
-    def insert(
+    def insert_section(
         self,
         text: str,
         *,
@@ -374,7 +389,7 @@ class Note:
         current = self.text
         if current and not current.endswith("\n"):
             current += "\n"
-        return self.replace(current + text, force=force)
+        return self.write(current + text, force=force)
 
 
 def _seg(value: str) -> str:
@@ -447,7 +462,7 @@ def create_note(
     _raise_for(r, f"create note {name!r} in {namespace}")
     note = Note(r.json()["note"]["id"], namespace=namespace, client=c)
     if text:
-        note.replace(text, force=True)
+        note.write(text, force=True)
     return note
 
 
@@ -491,12 +506,16 @@ def search_notes(
     word or an identifier works too. CJK is matched the same way as anything
     else.
 
-    A note written before bodies were indexed matches on its title until it is
-    next edited.
+    A note written before bodies were indexed matches on its title only, until
+    someone edits it or an administrator runs the one-off backfill.
+
+    Current: the search flushes any note open in that namespace before
+    querying, so a sentence a colleague typed seconds ago is findable without
+    waiting for anything.
 
     Each result carries `.matches`: which sections the query was found in, with
     a snippet. That is what saves reading a whole note to locate the part you
-    were looking for — go straight to `note.read(match.anchor)`.
+    were looking for — go straight to `note.read_section(match.anchor)`.
 
     Scoped to one namespace, like `list_notes` — searching "everywhere" is not
     offered, because an organization you belong to and your own namespace are
