@@ -50,6 +50,7 @@ __all__ = [
     "note",
     "search_notes",
     "list_notes",
+    "shared_with_me",
 ]
 
 _OBJECT_ID = re.compile(r"^[a-f0-9]{24}$", re.I)
