@@ -373,10 +373,14 @@ def search_notes(
     limit: int = 50,
     client: DreamLakeClient | None = None,
 ) -> list[NoteRef]:
-    """Notes whose TITLE matches, case-insensitively.
+    """Notes whose title or body contains `query`, case-insensitively.
 
-    Titles only — the server does not index bodies yet. Worth knowing before
-    concluding a note does not exist because a phrase inside it was not found.
+    Substring matching, so a phrase inside a note finds it and a fragment of a
+    word or an identifier works too. CJK is matched the same way as anything
+    else.
+
+    A note written before bodies were indexed matches on its title until it is
+    next edited.
     """
     c = client or get_client()
     with c.http() as http:
