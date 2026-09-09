@@ -356,7 +356,14 @@ def list_notes(
     offset: int = 0,
     client: DreamLakeClient | None = None,
 ) -> list[NoteRef]:
-    """Every note in a namespace you can see."""
+    """Every note in a namespace you can see.
+
+    `namespace` is required and has no default. A personal namespace and an
+    organization's are different places holding different notes, and guessing
+    which one you meant would quietly answer for the wrong one. An
+    organization's slug is its own — `dreamlake org list` in the CLI shows the
+    ones you belong to.
+    """
     c = client or get_client()
     with c.http() as http:
         r = http.get(
@@ -374,7 +381,9 @@ def search_notes(
     limit: int = 50,
     client: DreamLakeClient | None = None,
 ) -> list[NoteRef]:
-    """Notes whose title or body contains `query`, case-insensitively.
+    """Notes in one namespace whose title or body contains `query`.
+
+    Case-insensitive.
 
     Substring matching, so a phrase inside a note finds it and a fragment of a
     word or an identifier works too. CJK is matched the same way as anything
@@ -382,6 +391,11 @@ def search_notes(
 
     A note written before bodies were indexed matches on its title until it is
     next edited.
+
+    Scoped to one namespace, like `list_notes` — searching "everywhere" is not
+    offered, because an organization you belong to and your own namespace are
+    separate collections and a merged result would hide which is which. Use
+    `shared_with_me()` for notes other people sent you.
     """
     c = client or get_client()
     with c.http() as http:
