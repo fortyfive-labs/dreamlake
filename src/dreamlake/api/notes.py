@@ -41,6 +41,7 @@ __all__ = [
     "Note",
     "NoteRef",
     "Section",
+    "SectionMatch",
     "NoteError",
     "NoteNotFound",
     "NoteChanged",
@@ -50,6 +51,7 @@ __all__ = [
     "note",
     "search_notes",
     "list_notes",
+    "create_note",
     "shared_with_me",
 ]
 
@@ -117,6 +119,18 @@ class Section:
 
 
 @dataclass(frozen=True)
+class SectionMatch:
+    """Where a search hit landed inside a note."""
+
+    anchor: str
+    title: str
+    snippet: str
+
+    def __repr__(self) -> str:  # pragma: no cover - display only
+        return f"<SectionMatch {self.anchor!r} {self.snippet[:40]!r}>"
+
+
+@dataclass(frozen=True)
 class NoteRef:
     """A note in a listing. Call ``.open()`` for one you can read and write."""
 
@@ -126,6 +140,8 @@ class NoteRef:
     slug: str
     updated_at: str | None = None
     shared_by: str | None = None
+    #: Which sections matched, on a search result. Empty otherwise.
+    matches: tuple[SectionMatch, ...] = ()
 
     def open(self, *, client: DreamLakeClient | None = None) -> "Note":
         return Note(self.id, namespace=self.namespace, client=client)
@@ -295,6 +311,60 @@ class Note:
         """
         return self._send("PATCH", "/body", {"diff": diff}, force)["etag"]
 
+    def insert(
+        self,
+        text: str,
+        *,
+        before: str | None = None,
+        after: str | None = None,
+        force: bool = False,
+    ) -> list[Section]:
+        """Add a section, and return the note's new outline.
+
+        `after` places it past that section AND its subsections — anything else
+        would drop the new one inside the section you named. With neither
+        `before` nor `after`, it goes at the end.
+
+        The heading is part of `text`, so you choose its level; a `###` can go
+        under a `##`. The outline comes back because the new anchor is only
+        knowable afterwards — a duplicate title takes the next free suffix.
+        """
+        if before and after:
+            raise ValueError("pass before or after, not both")
+        payload: dict[str, Any] = {"text": text}
+        if before:
+            payload["before"] = before
+        elif after:
+            payload["after"] = after
+        out = self._send("POST", "/sections", payload, force)
+        return [
+            Section(
+                anchor=s["anchor"],
+                title=s.get("title", ""),
+                level=s.get("level", 0),
+                start=s.get("start", 0),
+                end=s.get("end", 0),
+            )
+            for s in out.get("sections", [])
+        ]
+
+    def delete_section(self, anchor: str, *, force: bool = False) -> str:
+        """Remove a section and everything under it.
+
+        The subtree goes because that is what the section is; leaving its
+        subsections behind would promote them into the previous one.
+        """
+        headers = {}
+        if not force and self._etag:
+            headers["If-Match"] = self._etag
+        with self._client.http() as http:
+            r = http.delete(f"{self._base}/sections/{_seg(anchor)}", headers=headers)
+        _raise_for(r, f"delete section {anchor!r} of {self._ns}/{self._id}")
+        out = r.json()
+        self._etag = out.get("etag") or r.headers.get("etag")
+        self._text = None
+        return out["etag"]
+
     def append(self, text: str, *, force: bool = False) -> str:
         """Add to the end of the note.
 
@@ -349,6 +419,38 @@ def note(ref: str, *, client: DreamLakeClient | None = None) -> Note:
     return Note(note_id, namespace=ns, client=c)
 
 
+def create_note(
+    namespace: str,
+    name: str,
+    *,
+    text: str = "",
+    visibility: str = "private",
+    client: DreamLakeClient | None = None,
+) -> Note:
+    """Create a note, optionally with a body, and return it ready to edit.
+
+        note = dl.create_note("charlie", "Design Doc", text="# Design Doc\n")
+
+    Two calls behind one: the note is created, then the body written. The write
+    is unconditional — the note is one request old and there is nothing yet for
+    anyone to have changed.
+
+    Titles may repeat; the server appends a suffix to the SLUG to keep it
+    unique, so `note.id` is what to hold on to rather than the name you passed.
+    """
+    c = client or get_client()
+    with c.http() as http:
+        r = http.post(
+            f"/namespaces/{_seg(namespace)}/notes",
+            json={"name": name, "visibility": visibility},
+        )
+    _raise_for(r, f"create note {name!r} in {namespace}")
+    note = Note(r.json()["note"]["id"], namespace=namespace, client=c)
+    if text:
+        note.replace(text, force=True)
+    return note
+
+
 def list_notes(
     namespace: str,
     *,
@@ -392,6 +494,10 @@ def search_notes(
     A note written before bodies were indexed matches on its title until it is
     next edited.
 
+    Each result carries `.matches`: which sections the query was found in, with
+    a snippet. That is what saves reading a whole note to locate the part you
+    were looking for — go straight to `note.read(match.anchor)`.
+
     Scoped to one namespace, like `list_notes` — searching "everywhere" is not
     offered, because an organization you belong to and your own namespace are
     separate collections and a merged result would hide which is which. Use
@@ -428,4 +534,12 @@ def _ref(row: dict[str, Any], namespace: str, shared_by: str | None = None) -> N
         slug=row.get("slug", ""),
         updated_at=row.get("updatedAt"),
         shared_by=shared_by,
+        matches=tuple(
+            SectionMatch(
+                anchor=m.get("anchor", ""),
+                title=m.get("title", ""),
+                snippet=m.get("snippet", ""),
+            )
+            for m in row.get("matches") or ()
+        ),
     )

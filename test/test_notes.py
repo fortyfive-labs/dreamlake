@@ -23,6 +23,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 from dreamlake.api._client import DreamLakeClient  # noqa: E402
 from dreamlake.api.notes import (  # noqa: E402
     Note,
+    create_note,
     NoteBusy,
     NoteChanged,
     NoteNotFound,
@@ -63,12 +64,38 @@ class Server:
         if forced:
             return httpx.Response(forced, json=_err_for(forced, self.etag))
 
+        if path.endswith("/notes") and request.method == "POST":
+            return httpx.Response(201, json={"note": {"id": NOTE_ID, "name": "New", "slug": "new"}})
+        if path.endswith("/sections") and request.method == "POST":
+            self.etag = ETAG2
+            return httpx.Response(
+                201,
+                json={
+                    "etag": ETAG2,
+                    "sizeBytes": 40,
+                    "sections": [
+                        {"anchor": "title", "title": "Title", "level": 1, "start": 0, "end": 14},
+                        {"anchor": "added", "title": "Added", "level": 2, "start": 14, "end": 30},
+                    ],
+                },
+            )
+        if "/sections/" in path and request.method == "DELETE":
+            self.etag = ETAG2
+            return httpx.Response(200, json={"etag": ETAG2, "sizeBytes": 10})
         if path.endswith("/notes") and request.method == "GET":
             return httpx.Response(
                 200,
                 json={
                     "notes": [
-                        {"id": NOTE_ID, "name": "Design Doc", "slug": "design-doc", "updatedAt": "2026-01-01"},
+                        {
+                            "id": NOTE_ID,
+                            "name": "Design Doc",
+                            "slug": "design-doc",
+                            "updatedAt": "2026-01-01",
+                            "matches": [
+                                {"anchor": "install", "title": "Install", "snippet": "…pip install x…"}
+                            ],
+                        },
                         {"id": "b" * 24, "name": "Other", "slug": "other", "updatedAt": "2026-01-02"},
                     ],
                     "total": 2,
@@ -358,3 +385,102 @@ class TestTransport:
     def test_requests_go_to_the_configured_server(self, n, server):
         n.text
         assert str(server.calls[-1].url).startswith("https://api.test/")
+
+
+class TestCreate:
+    def test_creates_and_returns_an_editable_note(self, server):
+        n = create_note("acme", "New", client=server.client())
+        assert n.id == NOTE_ID and n.namespace == "acme"
+        created = server.calls[0]
+        assert created.method == "POST"
+        assert created.url.path == "/namespaces/acme/notes"
+        assert json.loads(created.read())["name"] == "New"
+
+    def test_writes_the_initial_body_unconditionally(self, server):
+        # The note is one request old; there is nothing for anyone to have
+        # changed, and a validator would only be able to fail spuriously.
+        create_note("acme", "New", text="# New\n", client=server.client())
+        put = [c for c in server.calls if c.method == "PUT"][-1]
+        assert json.loads(put.read())["text"] == "# New\n"
+        assert put.headers.get("if-match") is None
+
+    def test_skips_the_write_when_there_is_no_body(self, server):
+        create_note("acme", "Empty", client=server.client())
+        assert not [c for c in server.calls if c.method == "PUT"]
+
+    def test_passes_visibility_through(self, server):
+        create_note("acme", "Open", visibility="public", client=server.client())
+        assert json.loads(server.calls[0].read())["visibility"] == "public"
+
+
+class TestSectionsInsertDelete:
+    def test_insert_at_the_end_by_default(self, n, server):
+        out = n.insert("## Added\nbody\n")
+        assert [s.anchor for s in out] == ["title", "added"]
+        sent = json.loads(server.calls[-1].read())
+        assert sent == {"text": "## Added\nbody\n"}
+
+    def test_insert_after_a_named_section(self, n, server):
+        n.insert("## Added\n", after="install")
+        assert json.loads(server.calls[-1].read())["after"] == "install"
+
+    def test_insert_before_a_named_section(self, n, server):
+        n.insert("## Added\n", before="install")
+        assert json.loads(server.calls[-1].read())["before"] == "install"
+
+    def test_refuses_before_and_after_together(self, n, server):
+        # Ambiguous, and the server would reject it — failing here saves the
+        # round trip and says so more clearly.
+        with pytest.raises(ValueError):
+            n.insert("## X\n", before="a", after="b")
+
+    def test_insert_returns_the_new_outline(self, n):
+        # The new anchor is only knowable afterwards: a duplicate title takes
+        # the next free suffix.
+        out = n.insert("## Added\n")
+        assert any(s.anchor == "added" for s in out)
+
+    def test_insert_carries_the_validator(self, n, server):
+        n.sections()
+        n.insert("## Added\n")
+        assert server.calls[-1].headers.get("if-match") == ETAG
+
+    def test_delete_section(self, n, server):
+        n.sections()
+        etag = n.delete_section("install")
+        assert etag == ETAG2
+        assert server.calls[-1].method == "DELETE"
+        assert server.calls[-1].url.path.endswith("/sections/install")
+        assert server.calls[-1].headers.get("if-match") == ETAG
+
+    def test_delete_adopts_the_new_version(self, n):
+        n.sections()
+        n.delete_section("install")
+        assert n.etag == ETAG2
+
+    def test_delete_force_skips_the_validator(self, n, server):
+        n.sections()
+        n.delete_section("install", force=True)
+        assert server.calls[-1].headers.get("if-match") is None
+
+    def test_a_missing_section_raises_not_found(self, n, server):
+        server.status["DELETE"] = 404
+        with pytest.raises(NoteNotFound):
+            n.delete_section("nope")
+
+
+class TestSearchMatches:
+    def test_a_result_says_where_it_matched(self, server):
+        [hit, other] = search_notes("install", namespace="acme", client=server.client())
+        assert hit.matches[0].anchor == "install"
+        assert "pip install x" in hit.matches[0].snippet
+
+    def test_a_result_with_no_body_hit_has_no_matches(self, server):
+        [_, other] = search_notes("install", namespace="acme", client=server.client())
+        assert other.matches == ()
+
+    def test_the_anchor_can_be_read_straight_back(self, server):
+        c = server.client()
+        [hit, _] = search_notes("install", namespace="acme", client=c)
+        # The point of returning an anchor: go to the part, not the whole note.
+        assert hit.open(client=c).read(hit.matches[0].anchor).startswith("## Install")
