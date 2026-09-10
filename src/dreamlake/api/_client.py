@@ -6,6 +6,11 @@ Reads config from environment variables:
   DREAMLAKE_REMOTE    (default: https://api.dreamlake.ai)
   DREAMLAKE_API_KEY   (token)
   QDRANT_URL          (default: http://localhost:6333)
+
+With no DREAMLAKE_API_KEY, the token and server saved by `dreamlake login`
+are used instead. Both tools keep them in ~/.dreamlake, so logging in once
+is enough — otherwise a user who had just logged in would find the Python
+side unauthenticated with nothing to say why.
 """
 
 import os
@@ -18,6 +23,33 @@ from dreamlake.config import DEFAULT_REMOTE_URL
 _DEFAULT_BSS = "http://localhost:10234"
 _DEFAULT_DL = DEFAULT_REMOTE_URL
 _DEFAULT_QDRANT = "http://localhost:6333"
+
+
+def _saved_token() -> str | None:
+    """The token `dreamlake login` stored, if there is one.
+
+    Best-effort: the auth extras (keyring, cryptography) are optional, and a
+    missing or unreadable store means "not logged in" rather than an error the
+    caller cannot act on.
+    """
+    try:
+        from dreamlake.auth.token_storage import get_token_storage
+
+        # The same key `dreamlake login` writes. Guessing it wrong is a silent
+        # failure — the load returns None and the client is simply anonymous.
+        return get_token_storage().load("dreamlake-token")
+    except Exception:
+        return None
+
+
+def _saved_remote() -> str | None:
+    """The server `dreamlake env use` selected, if any."""
+    try:
+        from dreamlake.config import Config
+
+        return Config().remote_url
+    except Exception:
+        return None
 
 
 class DreamLakeClient:
@@ -36,9 +68,11 @@ class DreamLakeClient:
         # methods still call module-level httpx directly.
         self._transport = transport
         self.bss_url = (bss_url or os.environ.get("DREAMLAKE_BSS_URL", _DEFAULT_BSS)).rstrip("/")
-        self.dl_url = (dl_url or os.environ.get("DREAMLAKE_REMOTE", _DEFAULT_DL)).rstrip("/")
+        self.dl_url = (
+            dl_url or os.environ.get("DREAMLAKE_REMOTE") or _saved_remote() or _DEFAULT_DL
+        ).rstrip("/")
         self.qdrant_url = (qdrant_url or os.environ.get("QDRANT_URL", _DEFAULT_QDRANT)).rstrip("/")
-        self._token = token or os.environ.get("DREAMLAKE_API_KEY")
+        self._token = token or os.environ.get("DREAMLAKE_API_KEY") or _saved_token()
 
     def http(self) -> "httpx.Client":
         """An httpx client bound to dreamlake-server, with auth applied."""

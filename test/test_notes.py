@@ -12,6 +12,7 @@ the server's refusals have to arrive as errors a caller can act on differently
 """
 
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -549,3 +550,30 @@ class TestNoExamplesFromRealAccounts:
         with pytest.raises(ValueError) as e:
             note("design-doc", client=server.client())
         assert "<namespace>" in str(e.value)
+
+
+class TestPicksUpTheCliLogin:
+    """`dreamlake login` then Python should just work.
+
+    Both tools keep the token under ~/.dreamlake, so a user who logged in
+    once should not have to also export DREAMLAKE_API_KEY. The failure this
+    guards is silent: read the wrong key and the load returns None, the
+    client is anonymous, and the first call comes back 401 with nothing
+    pointing at the cause.
+    """
+
+    def test_the_storage_key_matches_the_one_login_writes(self):
+        from pathlib import Path as _P
+
+        client_src = _P(__file__).parent.parent / "src/dreamlake/api/_client.py"
+        login_src = _P(__file__).parent.parent / "src/dreamlake/cli_commands/login.py"
+        key = re.search(r'TOKEN_KEY\s*=\s*"([^"]+)"', login_src.read_text()).group(1)
+        assert f'"{key}"' in client_src.read_text(), f"_client.py must load {key!r}"
+
+    def test_an_explicit_token_still_wins(self, server):
+        c = DreamLakeClient(dl_url="https://api.test", token="explicit", transport=None)
+        assert c._token == "explicit"
+
+    def test_the_env_var_wins_over_the_saved_login(self, monkeypatch):
+        monkeypatch.setenv("DREAMLAKE_API_KEY", "from-env")
+        assert DreamLakeClient()._token == "from-env"
