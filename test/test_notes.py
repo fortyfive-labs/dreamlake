@@ -525,3 +525,27 @@ class TestTheNamingRule:
         for name in ("write", "append", "patch"):
             params = list(inspect.signature(getattr(Note, name)).parameters)
             assert "anchor" not in params, name
+
+
+class TestNoExamplesFromRealAccounts:
+    """Examples and error messages use placeholders, not somebody's namespace.
+
+    A real name in a docstring reads as the value to type, and in an error
+    message it reads as advice — both send a stranger at an account that is
+    not theirs. It also leaks who wrote the example, which is nobody's
+    business by the time this ships.
+    """
+
+    def test_the_module_uses_a_placeholder_namespace(self):
+        from dreamlake.api import notes
+
+        src = Path(notes.__file__).read_text()
+        # Whatever the placeholder is, it must be visibly one.
+        assert "<namespace>/" in src
+        for name in ("charlie", "geyang", "yancy"):
+            assert name not in src.lower(), f"{name!r} appears in notes.py"
+
+    def test_the_bare_reference_error_suggests_a_placeholder(self, server):
+        with pytest.raises(ValueError) as e:
+            note("design-doc", client=server.client())
+        assert "<namespace>" in str(e.value)

@@ -8,7 +8,7 @@ concurrency control is not optional here — it is on by default.
 
     import dreamlake as dl
 
-    note = dl.note("charlie/design-doc")
+    note = dl.note("<namespace>/design-doc")
     note.sections()                       # what is in it
     note.read("install")                  # one section
     note.write("install", "## Install\\n…") # replace that section, safely
@@ -405,7 +405,7 @@ def _resolve(ref: str, client: DreamLakeClient) -> tuple[str, str]:
     """``"ns/slug"`` or ``"ns/<id>"`` -> ``(namespace, note_id)``."""
     if "/" not in ref:
         raise ValueError(
-            f"note reference {ref!r} needs a namespace, e.g. 'charlie/{ref}' — "
+            f"note reference {ref!r} needs a namespace, e.g. '<namespace>/{ref}' — "
             "a note id alone does not say whose namespace it is in"
         )
     ns, rest = ref.split("/", 1)
@@ -426,8 +426,8 @@ def _resolve(ref: str, client: DreamLakeClient) -> tuple[str, str]:
 def note(ref: str, *, client: DreamLakeClient | None = None) -> Note:
     """Open a note by ``namespace/slug`` or ``namespace/<id>``.
 
-        dl.note("charlie/design-doc")
-        dl.note("charlie/507f1f77bcf86cd799439011")
+        dl.note("<namespace>/design-doc")
+        dl.note("<namespace>/507f1f77bcf86cd799439011")
     """
     c = client or get_client()
     ns, note_id = _resolve(ref, c)
@@ -444,7 +444,7 @@ def create_note(
 ) -> Note:
     """Create a note, optionally with a body, and return it ready to edit.
 
-        note = dl.create_note("charlie", "Design Doc", text="# Design Doc\n")
+        note = dl.create_note("<namespace>", "Design Doc", text="# Design Doc\n")
 
     Two calls behind one: the note is created, then the body written. The write
     is unconditional — the note is one request old and there is nothing yet for
