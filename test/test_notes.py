@@ -211,11 +211,11 @@ class TestReading:
         assert got[1].title == "Install"
 
     def test_read_one_section(self, n):
-        assert n.read("install").startswith("## Install")
+        assert n.read_section("install").startswith("## Install")
 
     def test_unknown_section_raises_not_found(self, n):
         with pytest.raises(NoteNotFound):
-            n.read("nope")
+            n.read_section("nope")
 
     def test_sections_also_record_the_version(self, n):
         # So `sections()` then `write()` is safe without touching `.text`.
@@ -224,7 +224,7 @@ class TestReading:
 
     def test_anchor_is_url_encoded(self, n, server):
         # Headings are user text: slashes and spaces must not rewrite the path.
-        n.read("安装 / setup")
+        n.read_section("安装 / setup")
         assert "%E5%AE%89%E8%A3%85%20%2F%20setup" in str(server.calls[-1].url)
 
 
@@ -234,34 +234,34 @@ class TestReading:
 class TestWriting:
     def test_write_sends_if_match_from_the_read(self, n, server):
         n.sections()
-        n.write("install", "## Install\npip install x\n")
+        n.write_section("install", "## Install\npip install x\n")
         assert header(server, "PUT", "if-match") == ETAG
 
     def test_write_without_a_prior_read_is_unconditional(self, n, server):
         # There is nothing to be stale against yet. Inventing a validator would
         # make the first write fail for no reason.
-        n.write("install", "x")
+        n.write_section("install", "x")
         assert header(server, "PUT", "if-match") is None
 
     def test_force_skips_the_precondition(self, n, server):
         n.text
-        n.write("install", "x", force=True)
+        n.write_section("install", "x", force=True)
         assert header(server, "PUT", "if-match") is None
 
     def test_a_write_adopts_the_new_version(self, n):
         n.text
-        n.write("install", "x")
+        n.write_section("install", "x")
         # Consecutive edits must work without a re-read in between.
         assert n.etag == ETAG2
 
     def test_a_write_invalidates_the_cached_text(self, n, server):
         n.text
-        n.replace("# New\n")
+        n.write("# New\n")
         server.body = "# New\n"
         assert n.text == "# New\n"
 
-    def test_replace_and_patch_hit_the_right_routes(self, n, server):
-        n.replace("# A\n")
+    def test_write_and_patch_hit_the_right_routes(self, n, server):
+        n.write("# A\n")
         assert server.calls[-1].method == "PUT" and server.calls[-1].url.path.endswith("/body")
         n.patch("--- a\n+++ b\n")
         assert server.calls[-1].method == "PATCH" and server.calls[-1].url.path.endswith("/body")
@@ -291,7 +291,7 @@ class TestErrors:
         n.text
         server.status["PUT"] = 412
         with pytest.raises(NoteChanged) as e:
-            n.replace("# Clobber\n")
+            n.write("# Clobber\n")
         # Not transient: retrying reproduces it. The ETag is what to re-read
         # against, so it has to survive onto the exception.
         assert e.value.etag == ETAG
@@ -299,7 +299,7 @@ class TestErrors:
     def test_busy_note_raises_note_busy(self, n, server):
         server.status["PUT"] = 409
         with pytest.raises(NoteBusy):
-            n.replace("# x\n")
+            n.write("# x\n")
 
     def test_bad_patch_raises_patch_failed(self, n, server):
         server.status["PATCH"] = 422
@@ -309,7 +309,7 @@ class TestErrors:
     def test_read_only_raises_note_read_only(self, n, server):
         server.status["PUT"] = 403
         with pytest.raises(NoteReadOnly):
-            n.replace("# x\n")
+            n.write("# x\n")
 
     def test_missing_note_raises_not_found(self, n, server):
         server.status["GET"] = 404
@@ -415,34 +415,34 @@ class TestCreate:
 
 class TestSectionsInsertDelete:
     def test_insert_at_the_end_by_default(self, n, server):
-        out = n.insert("## Added\nbody\n")
+        out = n.insert_section("## Added\nbody\n")
         assert [s.anchor for s in out] == ["title", "added"]
         sent = json.loads(server.calls[-1].read())
         assert sent == {"text": "## Added\nbody\n"}
 
     def test_insert_after_a_named_section(self, n, server):
-        n.insert("## Added\n", after="install")
+        n.insert_section("## Added\n", after="install")
         assert json.loads(server.calls[-1].read())["after"] == "install"
 
     def test_insert_before_a_named_section(self, n, server):
-        n.insert("## Added\n", before="install")
+        n.insert_section("## Added\n", before="install")
         assert json.loads(server.calls[-1].read())["before"] == "install"
 
     def test_refuses_before_and_after_together(self, n, server):
         # Ambiguous, and the server would reject it — failing here saves the
         # round trip and says so more clearly.
         with pytest.raises(ValueError):
-            n.insert("## X\n", before="a", after="b")
+            n.insert_section("## X\n", before="a", after="b")
 
     def test_insert_returns_the_new_outline(self, n):
         # The new anchor is only knowable afterwards: a duplicate title takes
         # the next free suffix.
-        out = n.insert("## Added\n")
+        out = n.insert_section("## Added\n")
         assert any(s.anchor == "added" for s in out)
 
     def test_insert_carries_the_validator(self, n, server):
         n.sections()
-        n.insert("## Added\n")
+        n.insert_section("## Added\n")
         assert server.calls[-1].headers.get("if-match") == ETAG
 
     def test_delete_section(self, n, server):
@@ -483,4 +483,45 @@ class TestSearchMatches:
         c = server.client()
         [hit, _] = search_notes("install", namespace="acme", client=c)
         # The point of returning an anchor: go to the part, not the whole note.
-        assert hit.open(client=c).read(hit.matches[0].anchor).startswith("## Install")
+        assert hit.open(client=c).read_section(hit.matches[0].anchor).startswith("## Install")
+
+
+class TestTheNamingRule:
+    """One rule, so a reader never has to check the signature.
+
+    `_section` in the name means it works on one part of the note; no `_section`
+    means the whole thing. The rule only helps if it holds without exception —
+    a single method that breaks it puts every other name back in doubt.
+    """
+
+    WHOLE = {"text", "refresh", "sections", "write", "append", "patch"}
+    PART = {"read_section", "write_section", "insert_section", "delete_section"}
+
+    def test_every_public_method_is_on_one_side_of_the_rule(self):
+        public = {
+            m
+            for m in dir(Note)
+            if not m.startswith("_") and m not in {"id", "namespace", "etag"}
+        }
+        assert public == self.WHOLE | self.PART
+
+    def test_nothing_named_section_operates_on_the_whole_note(self):
+        for name in self.WHOLE:
+            assert "_section" not in name
+
+    def test_every_section_method_takes_or_returns_an_anchor(self, n, server):
+        # The rule has to be true of behaviour, not just spelling.
+        n.sections()
+        assert n.read_section("install").startswith("## Install")
+        n.write_section("install", "## Install\nx\n")
+        n.insert_section("## Added\n", after="install")
+        n.delete_section("install")
+        anchored = [c for c in server.calls if "/sections" in c.url.path]
+        assert len(anchored) >= 4
+
+    def test_whole_note_methods_never_take_an_anchor(self, n):
+        import inspect
+
+        for name in ("write", "append", "patch"):
+            params = list(inspect.signature(getattr(Note, name)).parameters)
+            assert "anchor" not in params, name
