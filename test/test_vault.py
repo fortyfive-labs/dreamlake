@@ -69,3 +69,30 @@ def test_mutation_contract_and_redaction():
     with pytest.raises(VaultError):
         v.add('ge/token', 'SECRET', if_match=True)
     assert len(calls) == before
+
+
+def test_access_key_contract_and_repr():
+    from dreamlake.vault_keys import duration_seconds
+    assert duration_seconds('1h') == 3600
+    for value in [True, 0, '1.5h']:
+        with pytest.raises(VaultError):
+            duration_seconds(value)
+    metadata = dict(id='00000000-0000-0000-0000-000000000000',scopes=[],createdAt='2030-01-01T00:00:00Z',expiresAt='2030-01-01T01:00:00Z',maxTtlSeconds=3600,renewable=True,renewUntil=None,oneTime=False,consumedAt=None,revokedAt=None)
+    token='dlv1_'+'A'*43
+    calls=[]
+    def handle(request):
+        calls.append(request)
+        return httpx.Response(200,json={'key':metadata,'token':token,'keys':[dict(metadata,token=token)]})
+    v=Vault(httpx.Client(base_url='http://test',transport=httpx.MockTransport(handle)))
+    issued=v.keys.create('token',prefix='ge',ttl='1h',renewable=True)
+    assert issued.token == token and token not in repr(issued)
+    assert json.loads(calls[-1].content)['selectors']==['ge/token']
+    assert 'token' not in v.keys.list()[0]
+    v.keys.renew(issued.key['id'],ttl='30m')
+    assert json.loads(calls[-1].content)=={'ttlSeconds':1800}
+    v.keys.revoke(issued.key['id'])
+    assert calls[-1].method=='DELETE'
+    before=len(calls)
+    with pytest.raises(VaultError):
+        v.keys.create('ge/token',ttl='1h',one_time=True,renewable=True)
+    assert len(calls)==before

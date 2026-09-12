@@ -36,7 +36,7 @@ def _entries(data, secrets=False):
         names.add(entry["name"])
         if "revision" in entry and (type(entry["revision"]) is not int or not 1 <= entry["revision"] <= 9007199254740991):
             raise VaultError("Invalid vault response")
-        for key in ("deleteAt", "purgeAt"):
+        for key in ("deleteAt", "purgeAt", "expiresAt"):
             if entry.get(key) is not None and (not isinstance(entry[key], str) or not re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z", entry[key])):
                 raise VaultError("Invalid vault response")
         if any(entry.get(k) is not None and not isinstance(entry[k], str) for k in ("env", "keyName", "fileName")):
@@ -66,7 +66,7 @@ def _metadata_response(data, name):
     entries = _entries({"entries": [data.get("entry")]} if isinstance(data, dict) else None)
     if entries[0]["name"] != name:
         raise VaultError("Invalid vault response")
-    allowed = {"name", "type", "env", "keyName", "fileName", "deleteAt", "purgeAt", "revision"}
+    allowed = {"name", "type", "env", "keyName", "fileName", "deleteAt", "purgeAt", "expiresAt", "revision"}
     return {k: v for k, v in entries[0].items() if k in allowed}
 
 
@@ -84,6 +84,12 @@ def _validate_secret(value):
 class Vault:
     def __init__(self, http_client: httpx.Client):
         self._http = http_client
+
+    @property
+    def keys(self):
+        """Manage scoped retrieval keys with this authenticated session."""
+        from .vault_keys import VaultKeys
+        return VaultKeys(self)
 
     def _request(self, method, path, **kwargs):
         try:
@@ -131,7 +137,7 @@ class Vault:
         if prefix:
             resolve_selector("probe", prefix)
         data = self._request("GET", "/v1/vault/entries", params={"prefix": prefix})
-        allowed = {"name", "type", "env", "keyName", "fileName", "deleteAt", "purgeAt", "revision"}
+        allowed = {"name", "type", "env", "keyName", "fileName", "deleteAt", "purgeAt", "expiresAt", "revision"}
         return [{k: v for k, v in entry.items() if k in allowed} for entry in _entries(data)]
 
     def get(self, name, *, prefix="", to_json=False, to_envs=False, env_prefix=""):
