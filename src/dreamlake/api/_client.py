@@ -74,6 +74,12 @@ class DreamLakeClient:
         self.qdrant_url = (qdrant_url or os.environ.get("QDRANT_URL", _DEFAULT_QDRANT)).rstrip("/")
         self._token = token or os.environ.get("DREAMLAKE_API_KEY") or _saved_token()
 
+    @property
+    def hosts(self):
+        """Host enrollment, input validation, and status using this account."""
+        from .hosts import Hosts
+        return Hosts(self)
+
     def http(self) -> "httpx.Client":
         """An httpx client bound to dreamlake-server, with auth applied."""
         return httpx.Client(
