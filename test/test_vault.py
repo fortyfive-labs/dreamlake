@@ -136,3 +136,15 @@ def test_key_replay_malformed_response_preserves_reconciliation_id(request_id,to
     with pytest.raises(VaultError,match='request-1') as error:
         v.keys.create('ge/token',ttl='1h',request_id='request-1')
     assert 'SECRET' not in str(error.value)
+
+
+def test_invalid_output_preflight_never_retrieves():
+    calls=[]
+    def handle(request):
+        calls.append(request)
+        return httpx.Response(500)
+    v=Vault(httpx.Client(base_url='http://test',transport=httpx.MockTransport(handle)))
+    for name,options in [('ge/token',{'to_envs':True,'env_prefix':'INVALID-'}),('A=B=ge/token',{}),(['TOKEN=ge/token','TOKEN=ge/other'],{'to_envs':True})]:
+        with pytest.raises(VaultError):
+            v.get(name,**options)
+    assert not calls

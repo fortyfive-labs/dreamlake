@@ -15,6 +15,8 @@ class VaultError(RuntimeError):
 
 
 def resolve_selector(name: str, prefix: str = "") -> str:
+    if name.count("=") > 1:
+        raise VaultError("Invalid output alias")
     if "=" in name:
         alias, path = name.split("=", 1)
         if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", alias):
@@ -175,6 +177,22 @@ class Vault:
         if not names:
             raise VaultError("At least one selector is required")
         selectors = [resolve_selector(n, prefix) for n in names]
+        if env_prefix and not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", env_prefix):
+            raise VaultError("Invalid environment prefix")
+        if len(set(selectors)) != len(selectors):
+            raise VaultError("Colliding output keys")
+        known = set()
+        for selector in selectors:
+            alias, path = selector.split("=", 1) if "=" in selector else (None, selector)
+            _, _, field = path.partition(".")
+            key = alias or field
+            if not key:
+                continue
+            if to_envs and not alias:
+                key = key.replace("-", "_").upper()
+            if key in known:
+                raise VaultError("Colliding output keys")
+            known.add(key)
         data = self._request("POST", "/v1/vault/entries/read", json={"selectors": [s.split("=", 1)[-1] for s in selectors]})
         entries = _entries(data, secrets=True)
         if {e["name"] for e in entries} != {s.split("=", 1)[-1].split(".")[0] for s in selectors}:
