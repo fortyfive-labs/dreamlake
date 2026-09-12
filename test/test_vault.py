@@ -82,7 +82,7 @@ def test_access_key_contract_and_repr():
     calls=[]
     def handle(request):
         calls.append(request)
-        return httpx.Response(200,json={'key':metadata,'token':token,'keys':[dict(metadata,token=token)]})
+        return httpx.Response(200,json={'key':dict(metadata,requestId=request.headers.get('Idempotency-Key')),'token':token,'replayed':False,'keys':[dict(metadata,token=token)]})
     v=Vault(httpx.Client(base_url='http://test',transport=httpx.MockTransport(handle)))
     issued=v.keys.create('token',prefix='ge',ttl='1h',renewable=True)
     assert issued.token == token and token not in repr(issued)
@@ -124,3 +124,15 @@ def test_access_key_replay_cannot_fall_back_to_owner_auth():
     assert result.replayed
     with pytest.raises(VaultError,match='unavailable'):
         result.token
+
+
+@pytest.mark.parametrize('request_id,token', [('other',None),('request-1','SECRET')])
+def test_key_replay_malformed_response_preserves_reconciliation_id(request_id,token):
+    metadata=dict(id='00000000-0000-0000-0000-000000000000',scopes=[],createdAt='2030-01-01T00:00:00Z',expiresAt='2030-01-01T01:00:00Z',maxTtlSeconds=3600,renewable=False,renewUntil=None,oneTime=False,consumedAt=None,revokedAt=None,requestId=request_id)
+    body={'key':metadata,'replayed':True,'tokenUnavailable':True}
+    if token is not None:
+        body['token']=token
+    v=Vault(httpx.Client(base_url='http://test',transport=httpx.MockTransport(lambda r:httpx.Response(200,json=body))))
+    with pytest.raises(VaultError,match='request-1') as error:
+        v.keys.create('ge/token',ttl='1h',request_id='request-1')
+    assert 'SECRET' not in str(error.value)

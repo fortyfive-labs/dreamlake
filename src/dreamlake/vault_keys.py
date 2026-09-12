@@ -104,15 +104,25 @@ class VaultKeys:
             result = self._vault._request("POST", "/v1/vault/keys", json=data, headers={"Idempotency-Key": request_id})
         except VaultError:
             raise VaultError(f"Vault key issuance failed; reconcile request ID {request_id} before retrying") from None
-        if not isinstance(result, dict):
-            raise VaultError("Invalid vault key response")
-        metadata = key_metadata(result.get("key"))
-        if result.get("replayed") is True and result.get("tokenUnavailable") is True:
-            return IssuedVaultKey(metadata, None, replayed=True)
-        token = result.get("token")
-        if not isinstance(token, str) or not re.fullmatch(r"dlv1_[A-Za-z0-9_-]{43}", token):
-            raise VaultError("Invalid vault key response")
-        return IssuedVaultKey(metadata, token)
+        try:
+            if not isinstance(result, dict):
+                raise VaultError("Invalid vault key response")
+            metadata = key_metadata(result.get("key"))
+            if metadata.get("requestId") != request_id or type(result.get("replayed")) is not bool:
+                raise VaultError("Invalid vault key response")
+            if result.get("tokenUnavailable") is True and "token" in result:
+                raise VaultError("Invalid vault key response")
+            if result["replayed"]:
+                if result.get("tokenUnavailable") is not True:
+                    raise VaultError("Invalid vault key response")
+                return IssuedVaultKey(metadata, None, replayed=True)
+            token = result.get("token")
+            if not isinstance(token, str) or not re.fullmatch(r"dlv1_[A-Za-z0-9_-]{43}", token):
+                raise VaultError("Invalid vault key response")
+            return IssuedVaultKey(metadata, token)
+        except VaultError:
+            raise VaultError(f"Invalid vault key response; reconcile request ID {request_id} before retrying") from None
+
 
     def list(self):
         """Metadata only; issued tokens cannot be retrieved again."""
