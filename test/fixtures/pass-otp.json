@@ -1,0 +1,76 @@
+[
+  {
+    "uri": "otpauth://totp/Test:alice?secret=JBSWY3DPEHPK3PXP&issuer=Test",
+    "type": "totp",
+    "algorithm": "SHA1",
+    "digits": 6,
+    "period": 30
+  },
+  {
+    "uri": "otpauth://totp/Test?secret=JBSWY3DPEHPK3PXP&algorithm=SHA256&digits=7&period=45",
+    "type": "totp",
+    "algorithm": "SHA256",
+    "digits": 7,
+    "period": 45
+  },
+  {
+    "uri": "otpauth://hotp/Test?secret=JBSWY3DPEHPK3PXP&algorithm=SHA512&digits=8&counter=18446744073709551615",
+    "type": "hotp",
+    "algorithm": "SHA512",
+    "digits": 8,
+    "counter": "18446744073709551615",
+    "active": false
+  },
+  {
+    "uri": "otpauth://totp/Test:alice?secret=JBSWY3DPEHPK3PXP&secret=AAAA",
+    "invalid": true
+  },
+  {
+    "uri": "otpauth://totp/Test:alice?secret=JBSWY3DPEHPK3PXP&algorithm=MD5",
+    "invalid": true
+  },
+  {
+    "uri": "otpauth://totp/Test:alice?secret=JBSWY3DPEHPK3PXP&digits=9",
+    "invalid": true
+  },
+  {
+    "uri": "otpauth://totp/Test:alice?secret=JBSWY3DPEHPK3PXP&period=0",
+    "invalid": true
+  },
+  {
+    "uri": "otpauth://totp/Test:alice?secret=JBSWY3DPEHPK3PXP&counter=1",
+    "invalid": true
+  },
+  {
+    "uri": "otpauth://totp/Test:alice?secret=JBSWY3DPEHPK3PXP&unknown=x",
+    "invalid": true
+  },
+  {
+    "uri": "otpauth://totp/Test:alice?secret=JBSWY3DPEHPK3PXP&issuer=Other",
+    "invalid": true
+  },
+  {
+    "uri": "otpauth://hotp/Test?secret=JBSWY3DPEHPK3PXP",
+    "invalid": true
+  },
+  {
+    "uri": "otpauth://hotp/Test?secret=JBSWY3DPEHPK3PXP&counter=18446744073709551616",
+    "invalid": true
+  },
+  {
+    "uri": "otpauth://totp/Test?secret=ABC",
+    "invalid": true
+  },
+  {
+    "uri": "otpauth://totp/Test?secret=MZ======",
+    "invalid": true
+  },
+  {
+    "uri": "otpauth://totp/%FF?secret=JBSWY3DPEHPK3PXP",
+    "invalid": true
+  },
+  {
+    "uri": "https://totp/Test?secret=JBSWY3DPEHPK3PXP",
+    "invalid": true
+  }
+]
