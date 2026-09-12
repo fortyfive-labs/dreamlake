@@ -96,3 +96,19 @@ def test_access_key_contract_and_repr():
     with pytest.raises(VaultError):
         v.keys.create('ge/token',ttl='1h',one_time=True,renewable=True)
     assert len(calls)==before
+
+
+def test_expiry_omitted_preserved_and_explicit_clear():
+    calls=[]
+    def handle(request):
+        calls.append(json.loads(request.content))
+        return httpx.Response(200,json={'entry':{'name':'ge/token','type':'string','revision':1}})
+    v=Vault(httpx.Client(base_url='http://test',transport=httpx.MockTransport(handle)))
+    v.add('ge/token','SYNTHETIC')
+    assert 'expiresAt' not in calls[-1]
+    v.add('ge/token','SYNTHETIC',expires_at=None)
+    assert calls[-1]['expiresAt'] is None
+    v.add('ge/token','SYNTHETIC',expires_at='2030-01-01T00:00:00Z')
+    assert calls[-1]['expiresAt']=='2030-01-01T00:00:00Z'
+    with pytest.raises(VaultError):
+        v.add('ge/token','SYNTHETIC',expires_at='2030-02-30T00:00:00Z')

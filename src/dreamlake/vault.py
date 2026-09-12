@@ -2,8 +2,12 @@
 import json
 import re
 import shlex
+from datetime import datetime
 
 import httpx
+
+
+_UNSET = object()
 
 
 class VaultError(RuntimeError):
@@ -102,9 +106,11 @@ class Vault:
         except Exception:
             raise VaultError("Vault connection or response failed") from None
 
-    def add(self, name, value, *, prefix="", env=None, key_name=None, file_name=None, if_match=None):
+    def add(self, name, value, *, prefix="", env=None, key_name=None, file_name=None, if_match=None, expires_at=_UNSET):
         """Create only by default; explicit if_match replaces that revision.
 
+        expires_at omitted preserves expiry; None explicitly clears it. Expiry
+        stops vault retrieval, not remote access using previously read credentials.
         Never prompts. The value is transmitted as the encrypted-at-rest server's
         request payload, not as URL metadata. Returns metadata only.
         """
@@ -112,6 +118,15 @@ class Vault:
         headers = _revision_headers(if_match)
         _validate_secret(value)
         data = {"name": name, "type": "string", "value": value}
+        if expires_at is not _UNSET:
+            if expires_at is not None:
+                if not isinstance(expires_at, str) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z", expires_at):
+                    raise VaultError("Invalid expiry; use UTC RFC3339")
+                try:
+                    datetime.fromisoformat(expires_at)
+                except ValueError:
+                    raise VaultError("Invalid expiry; use UTC RFC3339") from None
+            data["expiresAt"] = expires_at
         for key, item in (("env", env), ("keyName", key_name), ("fileName", file_name)):
             if item is not None:
                 data[key] = item
