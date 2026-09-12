@@ -34,12 +34,51 @@ def _entries(data, secrets=False):
             raise VaultError("Invalid vault response")
         resolve_selector(entry["name"])
         names.add(entry["name"])
+        if "revision" in entry and (type(entry["revision"]) is not int or not 1 <= entry["revision"] <= 9007199254740991):
+            raise VaultError("Invalid vault response")
+        for key in ("deleteAt", "purgeAt"):
+            if entry.get(key) is not None and (not isinstance(entry[key], str) or not re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z", entry[key])):
+                raise VaultError("Invalid vault response")
         if any(entry.get(k) is not None and not isinstance(entry[k], str) for k in ("env", "keyName", "fileName")):
             raise VaultError("Invalid vault response")
         value = entry.get("value")
         if secrets and not (isinstance(value, str) or isinstance(value, dict) and all(isinstance(v, str) for v in value.values())):
             raise VaultError("Invalid vault response")
     return data["entries"]
+
+
+def _entry_name(name, prefix=""):
+    resolved = resolve_selector(name, prefix)
+    if "." in resolved or "=" in resolved:
+        raise VaultError("Expected an entry path, not a field or alias")
+    return resolved
+
+
+def _revision_headers(revision):
+    if revision is None:
+        return {}
+    if type(revision) is not int or revision < 1 or revision > 9007199254740991:
+        raise VaultError("Invalid revision")
+    return {"If-Match": str(revision)}
+
+
+def _metadata_response(data, name):
+    entries = _entries({"entries": [data.get("entry")]} if isinstance(data, dict) else None)
+    if entries[0]["name"] != name:
+        raise VaultError("Invalid vault response")
+    allowed = {"name", "type", "env", "keyName", "fileName", "deleteAt", "purgeAt", "revision"}
+    return {k: v for k, v in entries[0].items() if k in allowed}
+
+
+def _validate_secret(value):
+    if not isinstance(value, str) and not (isinstance(value, dict) and value and all(isinstance(k, str) and re.fullmatch(r"[A-Za-z0-9_-]+", k) and k not in {"__proto__", "prototype", "constructor"} and isinstance(v, str) for k, v in value.items())):
+        raise VaultError("Expected a string or nonempty string field map")
+    try:
+        size = len(json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
+    except (ValueError, UnicodeError):
+        raise VaultError("Invalid secret encoding") from None
+    if size > 65536:
+        raise VaultError("Secret value exceeds 64 KiB")
 
 
 class Vault:
@@ -56,6 +95,36 @@ class Vault:
             raise
         except Exception:
             raise VaultError("Vault connection or response failed") from None
+
+    def add(self, name, value, *, prefix="", env=None, key_name=None, file_name=None, if_match=None):
+        """Create only by default; explicit if_match replaces that revision.
+
+        Never prompts. The value is transmitted as the encrypted-at-rest server's
+        request payload, not as URL metadata. Returns metadata only.
+        """
+        name = _entry_name(name, prefix)
+        headers = _revision_headers(if_match)
+        _validate_secret(value)
+        data = {"name": name, "type": "string", "value": value}
+        for key, item in (("env", env), ("keyName", key_name), ("fileName", file_name)):
+            if item is not None:
+                data[key] = item
+        return _metadata_response(self._request("PUT", "/v1/vault/entry", json=data, headers=headers), name)
+
+    def show(self, name, *, prefix=""):
+        """Return metadata, including retirement status, without decrypting."""
+        name = _entry_name(name, prefix)
+        return _metadata_response(self._request("GET", "/v1/vault/entry", params={"name": name}), name)
+
+    def delete(self, name, *, prefix="", if_match=None):
+        """Soft-delete vault access; does not revoke the credential on its host."""
+        name = _entry_name(name, prefix)
+        return _metadata_response(self._request("DELETE", "/v1/vault/entry", params={"name": name}, headers=_revision_headers(if_match)), name)
+
+    def restore(self, name, *, prefix="", if_match=None):
+        """Restore during retention; cannot restore a hard-deleted entry."""
+        name = _entry_name(name, prefix)
+        return _metadata_response(self._request("POST", "/v1/vault/restore", json={"name": name}, headers=_revision_headers(if_match)), name)
 
     def list(self, *, prefix=""):
         """List authorized metadata only, never secret payloads."""
