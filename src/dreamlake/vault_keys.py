@@ -1,6 +1,7 @@
 """Scoped vault bearer key management. Tokens are deliberately absent from repr."""
 from dataclasses import dataclass, field
 import re
+from uuid import uuid4
 from .vault import VaultError, resolve_selector
 
 
@@ -46,6 +47,11 @@ def key_metadata(value):
     if type(value.get("maxTtlSeconds")) is not int or value["maxTtlSeconds"] < 1 or any(type(value.get(key)) is not bool for key in ("renewable", "oneTime")):
         raise VaultError("Invalid vault key response")
     result = {k: value[k] for k in ("id", "createdAt", "expiresAt", "maxTtlSeconds", "renewable", "renewUntil", "oneTime", "consumedAt", "revokedAt")}
+    request_id = value.get("requestId")
+    if request_id is not None and (not isinstance(request_id, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", request_id)):
+        raise VaultError("Invalid vault key response")
+    if request_id is not None:
+        result["requestId"] = request_id
     result["scopes"] = scopes
     return result
 
@@ -53,14 +59,21 @@ def key_metadata(value):
 @dataclass(frozen=True)
 class IssuedVaultKey:
     key: dict
-    token: str = field(repr=False)
+    _token: str | None = field(repr=False)
+    replayed: bool = False
+
+    @property
+    def token(self):
+        if self._token is None:
+            raise VaultError("Original token unavailable; revoke and reissue with a new request ID if delivery was lost")
+        return self._token
 
 
 class VaultKeys:
     def __init__(self, vault):
         self._vault = vault
 
-    def create(self, name=None, *, credential=None, ttl, prefix="", renewable=False, one_time=False, max_lifetime=None):
+    def create(self, name=None, *, credential=None, ttl, prefix="", renewable=False, one_time=False, max_lifetime=None, request_id=None):
         """Issue scoped retrieval key, returned once as result.token (repr redacted).
 
         Explicitly persist or hand off token; ordinary serialization/logging of
@@ -84,10 +97,18 @@ class VaultKeys:
             if not renewable or maximum < ttl_seconds:
                 raise VaultError("Invalid maximum lifetime")
             data["maxLifetimeSeconds"] = maximum
-        result = self._vault._request("POST", "/v1/vault/keys", json=data)
+        request_id = str(uuid4()) if request_id is None else request_id
+        if not isinstance(request_id, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", request_id):
+            raise VaultError("Invalid request ID")
+        try:
+            result = self._vault._request("POST", "/v1/vault/keys", json=data, headers={"Idempotency-Key": request_id})
+        except VaultError:
+            raise VaultError(f"Vault key issuance failed; reconcile request ID {request_id} before retrying") from None
         if not isinstance(result, dict):
             raise VaultError("Invalid vault key response")
         metadata = key_metadata(result.get("key"))
+        if result.get("replayed") is True and result.get("tokenUnavailable") is True:
+            return IssuedVaultKey(metadata, None, replayed=True)
         token = result.get("token")
         if not isinstance(token, str) or not re.fullmatch(r"dlv1_[A-Za-z0-9_-]{43}", token):
             raise VaultError("Invalid vault key response")

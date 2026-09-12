@@ -112,3 +112,15 @@ def test_expiry_omitted_preserved_and_explicit_clear():
     assert calls[-1]['expiresAt']=='2030-01-01T00:00:00Z'
     with pytest.raises(VaultError):
         v.add('ge/token','SYNTHETIC',expires_at='2030-02-30T00:00:00Z')
+
+
+def test_access_key_replay_cannot_fall_back_to_owner_auth():
+    metadata=dict(id='00000000-0000-0000-0000-000000000000',scopes=[],createdAt='2030-01-01T00:00:00Z',expiresAt='2030-01-01T01:00:00Z',maxTtlSeconds=3600,renewable=False,renewUntil=None,oneTime=False,consumedAt=None,revokedAt=None,requestId='request-1')
+    def handle(request):
+        assert request.headers['Idempotency-Key']=='request-1'
+        return httpx.Response(200,json={'key':metadata,'replayed':True,'tokenUnavailable':True})
+    v=Vault(httpx.Client(base_url='http://test',transport=httpx.MockTransport(handle)))
+    result=v.keys.create('ge/token',ttl='1h',request_id='request-1')
+    assert result.replayed
+    with pytest.raises(VaultError,match='unavailable'):
+        result.token

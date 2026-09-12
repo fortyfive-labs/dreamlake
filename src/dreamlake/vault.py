@@ -90,6 +90,12 @@ class Vault:
         self._http = http_client
 
     @property
+    def pass_store(self):
+        """Read-only, explicitly selected local pass store preview."""
+        from .pass_store import PassStore
+        return PassStore()
+
+    @property
     def keys(self):
         """Manage scoped retrieval keys with this authenticated session."""
         from .vault_keys import VaultKeys
