@@ -75,6 +75,9 @@ def preview_pass_otp(records):
         raise ValueError("OTP preview exceeds record limit")
     entries = []
     for record in records:
+        if len(record["content"]) > 1048576:
+            entries.append(dict(path=record["path"], status="invalid"))
+            continue
         lines = [line for line in re.split(r"\r?\n", record["content"]) if line.startswith("otpauth://")]
         entry = dict(path=record["path"], status="no-otp")
         if lines:
