@@ -132,3 +132,21 @@ The cross-client real GPG/HTTP/Mongo acceptance runner lives in the matching
 server checkout at `dreamlake-server/scripts/test-vault-otp-clients.py`; its
 `src/vault/OTP.md` documents prerequisites and reproduction commands. This slice
 tracks [workspace issue #241](https://github.com/dreamlake-ai/dreamlake-workspace/issues/241).
+
+
+### Python TOTP destination binding
+
+Selected TOTP uploads freeze each request's URL, headers (including bearer
+Authorization and applicable cookies), body, timeout and transport route before
+final source revalidation. Dispatch uses an isolated httpx client with redirects
+and environment authentication disabled. Source-client cookie updates (including
+Set-Cookie), auth changes, hooks, base URL changes and replacement of the Vault
+client cannot redirect a prepared upload or change its account. Earlier detected
+connection changes still abort the import. Custom client auth objects and any
+request/response hooks are rejected before reading/decrypting selections: use a
+fixed Authorization header. Arbitrary auth callables cannot be pinned safely.
+Transport/TLS/proxy configuration is retained; caller-provided transports remain
+trusted and must not rewrite destinations or credentials. The caller owns their
+lifecycle and must keep them open during import. This uses httpx's private route
+selection method, covered by dispatch regressions; recheck on httpx upgrades.
+CLI already pins remote/token; no CLI dispatch API change is required for F1.

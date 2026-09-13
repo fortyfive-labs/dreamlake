@@ -1,4 +1,5 @@
 """Create-only selected TOTP imports; no prompts or automatic write retries."""
+import copy
 import hashlib
 import json
 import os
@@ -6,9 +7,35 @@ from pathlib import Path
 import re
 import stat
 from urllib.parse import urlsplit
+
+import httpx
 from .pass_store import decrypt_pass
 from .pass_otp import parse_otp_uri
 from .vault import VaultError, _entry_name, _metadata_response
+
+
+def _cookie_binding(cookies):
+    # Preserve domain/path/secure/expiry attributes and duplicate cookie names.
+    return tuple(copy.deepcopy(vars(cookie)) for cookie in cookies.jar)
+
+
+class _BorrowedTransport(httpx.BaseTransport):
+    """Use the pinned route without closing the caller-owned connection pool."""
+
+    def __init__(self, transport):
+        self.transport = transport
+
+    def handle_request(self, request):
+        return self.transport.handle_request(request)
+
+
+def _send_prepared(transport, request):
+    # A separate client cannot consult the source client's mutable auth, hooks,
+    # cookie jar, redirects or base URL. Cookies are already in request headers;
+    # response cookies stay in this short-lived dispatcher and cannot affect the
+    # next selected entry. The transport remains owned by the source client.
+    with httpx.Client(transport=_BorrowedTransport(transport), trust_env=False) as dispatcher:
+        return dispatcher.send(request, auth=None, follow_redirects=False)
 
 
 def read_pass_ciphertext(root, selected):
@@ -33,11 +60,32 @@ def import_pass_otp(vault, *, store, prefix, select, gpg_home=None, decryptor=No
     _entry_name("probe", prefix)
     if not isinstance(select, list) or not 1 <= len(select) <= 100 or any(not isinstance(p, str) or not re.fullmatch(r"[A-Za-z0-9_-]+(?:/[A-Za-z0-9_-]+)*", p) for p in select) or len(set(select)) != len(select):
         raise VaultError("Pass OTP import requires unique canonical select paths (maximum 100)")
-    url = urlsplit(str(vault._http.base_url))
+    connection = vault._http
+    cookies = httpx.Cookies()
+    for cookie in connection.cookies.jar:
+        cookies.jar.set_cookie(copy.deepcopy(cookie))
+    binding = (str(connection.base_url), tuple(connection.headers.multi_items()),
+               connection.auth, _cookie_binding(cookies))
+    url = urlsplit(binding[0])
     if url.username or url.password or url.query or url.fragment or url.scheme not in ("http", "https") or url.scheme == "http" and url.hostname not in ("localhost", "127.0.0.1", "::1"):
         raise VaultError("Pass OTP import requires HTTPS or loopback HTTP")
-    connection = vault._http
-    binding = (str(connection.base_url), dict(connection.headers), connection.auth, list(connection.cookies.items()))
+    # Auth objects and hooks can mutate destinations/credentials at send time.
+    # Arbitrary callables cannot be safely snapshotted: fail before decryption.
+    if connection.auth is not None or any(connection.event_hooks.values()):
+        raise VaultError("Pass OTP import requires header authentication and no client hooks")
+    # Build only from captured configuration, never via the mutable client.
+    base_url = httpx.URL(binding[0])
+    destination = base_url.copy_with(raw_path=base_url.raw_path + b"v1/vault/entry")
+    template = httpx.Request("PUT", destination, headers=binding[1],
+                             cookies=cookies, params=connection.params)
+    destination = template.url
+    headers = tuple((k, v) for k, v in template.headers.multi_items()
+                    if k.lower() not in ("content-length", "transfer-encoding"))
+    timeout = connection.timeout.as_dict()
+    # httpx has no public route-selection API. Capture the selected transport
+    # once, preserving caller TLS/proxy/MockTransport configuration without
+    # consulting mutable client mounts again at dispatch.
+    transport = connection._transport_for_url(destination)
     root = Path(os.path.abspath(store))
     entries = [dict(path=p, name=_entry_name(p, prefix), status="not-attempted") for p in select]
     prepared = []
@@ -53,10 +101,14 @@ def import_pass_otp(vault, *, store, prefix, select, gpg_home=None, decryptor=No
             registration = parse_otp_uri(lines[0])
             if registration.type != "totp":
                 raise ValueError()
-            prepared.append((hashlib.sha256(data).digest(), json.dumps(registration.reveal())))
+            request = httpx.Request("PUT", destination, headers=headers,
+                                    extensions={"timeout": dict(timeout)},
+                                    json=dict(name=entry["name"], type="totp",
+                                              value=json.dumps(registration.reveal())))
+            prepared.append((hashlib.sha256(data).digest(), request))
 
         def revalidate(i):
-            if vault._http is not connection or (str(connection.base_url), dict(connection.headers), connection.auth, list(connection.cookies.items())) != binding:
+            if vault._http is not connection or (str(connection.base_url), tuple(connection.headers.multi_items()), connection.auth, _cookie_binding(connection.cookies)) != binding:
                 raise VaultError("Vault destination changed during import")
             data = read_pass_ciphertext(root, entries[i]["path"])
             if hashlib.sha256(data).digest() != prepared[i][0]:
@@ -73,8 +125,7 @@ def import_pass_otp(vault, *, store, prefix, select, gpg_home=None, decryptor=No
             try:
                 entry["status"] = "unknown"
                 # Inspect only status and allowlisted metadata. Never expose HTTP bodies.
-                response = vault._http.request("PUT", "/v1/vault/entry", follow_redirects=False,
-                                               json=dict(name=entry["name"], type="totp", value=prepared[i][1]))
+                response = _send_prepared(transport, prepared[i][1])
                 if response.status_code == 409:
                     entry["status"] = "conflict"
                 elif response.status_code in (400, 401, 403, 404, 405, 413, 422):
