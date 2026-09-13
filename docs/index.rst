@@ -30,6 +30,7 @@ Python SDK for ML experiment tracking and data storage.
    files
    cli
    hosts
+   release-notes
    runs
    providers
    vault-import

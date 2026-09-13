@@ -1,8 +1,7 @@
 # Host enrollment
 
 The source package includes `DreamLakeClient.hosts` for configuration validation,
-SSH enrollment, optional post-enrollment credential saving, and host status. This is not yet a released package or
-proof of a live host deployment. Use the shared host backend from issue #218;
+SSH enrollment, optional post-enrollment credential saving, and host status. Credential saving is part of the Python 0.12.0 release candidate; publication and hosted acceptance remain pending. Use the shared host backend from issue #218;
 provider provisioning belongs to #243 and optional credential saving to #241.
 
 The same account token and server configuration used by the DreamLake client
@@ -112,8 +111,7 @@ production deployment, installer-release compatibility or Slurm/GPU execution.
 
 ## Save selected target and jump credentials
 
-This source slice requires the matching host-binding backend and is not yet
-released/deployed. Existing enrollment stays successful if saving is declined,
+This Python 0.12.0 candidate requires the matching host-binding backend; publication and hosted acceptance remain pending. Existing enrollment stays successful if saving is declined,
 missing input, cancelled or unavailable. Inspect both `enrolled` and
 `credentials.status`. No remote access is installed/rotated/revoked by saving.
 
@@ -153,8 +151,10 @@ from dreamlake.vault import Vault
 with host_client.http() as http:
     vault = Vault(http)
     entry = result["credentials"]["entries"][0]
-    receipt = vault.write_status(request_id=entry["requestId"])
-    binding = vault.bind_host_credential(**entry["binding"])
+    if entry["status"] == "unknown":
+        receipt = vault.write_status(request_id=entry["requestId"])
+    elif entry["status"] == "saved_unbound":
+        binding = vault.bind_host_credential(**entry["binding"])
     bindings = vault.host_credentials(
         host_id=result["host"]["id"], enrollment_id=result["enrollment"]["id"],
     )
@@ -179,3 +179,26 @@ loopback sshd processes and synthetic keys, verifies fresh vault-restored two-ho
 access plus independent target/jump denial, and stops its processes afterward.
 The enclosing isolated fixture owns binding/database cleanup; this is not a
 production credential test or nymph enrollment claim.
+
+### Paired CLI 0.15.0 candidate
+
+```shell
+# Masked password re-entry after successful enrollment; target/jump stay separate.
+dreamlake hosts enroll -n fortyfive/bos14/bos14-ctrl --ssh '-J jump bos14-ctrl' \
+  --save-credentials --target-password ge/bos14/login \
+  --jump-key jump=ge/jump/key=/secure/jump-key
+# Automation: explicit consent, protected descriptor, no password argument.
+dreamlake hosts enroll -n fortyfive/bos14/bos14-ctrl --ssh bos14-ctrl \
+  --save-credentials --target-password ge/bos14/login \
+  --password-fd ge/bos14/login=3 --json 3</secure/target-password
+# Use the exact identifiers from a saved_unbound outcome.
+dreamlake vault bind --host-id HOST_ID --enrollment-id ENROLLMENT_ID \
+  --entry-id ENTRY_ID --entry-revision 1 --role target --endpoint bos14-ctrl \
+  --kind password
+```
+
+Without explicit consent, interactive saving defaults to N. `--no-save-credentials`
+declines; `--quiet` suppresses progress only. Python never prompts implicitly.
+Interrupting an entry write preserves `unknown` and its request ID; interrupting
+a binding preserves `saved_unbound` and exact recovery arguments. A missing write
+receipt does not establish failure; do not blindly resubmit with a fresh ID.
