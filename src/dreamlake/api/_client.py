@@ -75,6 +75,12 @@ class DreamLakeClient:
         self._token = token or os.environ.get("DREAMLAKE_API_KEY") or _saved_token()
 
     @property
+    def runs(self):
+        """Tracked execution through the account-authenticated main API."""
+        from .runs import Runs
+        return Runs(self)
+
+    @property
     def hosts(self):
         """Host enrollment, input validation, and status using this account."""
         from .hosts import Hosts

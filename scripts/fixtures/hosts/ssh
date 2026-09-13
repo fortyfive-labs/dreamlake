@@ -1,0 +1,7 @@
+#!/usr/bin/env python3
+import os,sys
+# Real SSH and user services do not inherit the invoking HTTP client credentials.
+for key in list(os.environ):
+    if key.startswith(("DREAMLAKE_", "LAKESHORE_")):
+        os.environ.pop(key, None)
+os.execvp('sh',['sh','-c',sys.argv[-1]])
