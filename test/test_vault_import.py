@@ -152,7 +152,7 @@ def test_source_contract_and_otp_alias(source,tmp_path):
         with pytest.raises(VaultError):v.import_entries(source=kind,prefix='alice')
     with pytest.raises(VaultError):v.import_entries(source='ssh',prefix='alice',store=tmp_path)
     with pytest.raises(VaultError):v.import_entries(source='pass-otp',prefix='alice',select=[])
-    with pytest.raises(ValueError,match='no upload'):v.import_entries(source='pass-otp',prefix='alice',store=tmp_path)
+    with pytest.raises(VaultError,match='select paths'):v.import_entries(source='pass-otp',prefix='alice',store=tmp_path)
     store=tmp_path.resolve();(store/'test.gpg').write_bytes(b'ciphertext')
     decrypt=lambda _: 'ADJACENT_PASSWORD\notpauth://totp/Test?secret=JBSWY3DPEHPK3PXP'
     a=v.import_entries(source='pass-otp',prefix='alice',store=store,dry_run=True,decryptor=decrypt)

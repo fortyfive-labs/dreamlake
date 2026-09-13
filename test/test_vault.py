@@ -187,3 +187,17 @@ def test_write_rejects_old_server_receipt_and_preserves_http_conflict():
         assert raised.value.request_id == "write-2" and raised.value.outcome == outcome
         assert raised.value.status == (409 if status == 409 else None)
         assert "DO_NOT_EMIT" not in repr(raised.value)
+
+
+def test_totp_write_status_validates_receipt_identity_and_redacts_seed():
+    operation = {'requestId': 'totp-write', 'state': 'committed', 'entry': {'name': 'alice/totp', 'type': 'totp', 'revision': 1, 'value': 'SYNTHETIC_SEED'}, 'committedAt': '2030-01-01T00:00:00.000Z', 'retainUntil': '2030-01-31T00:00:00.000Z'}
+    with httpx.Client(base_url='http://test', transport=httpx.MockTransport(lambda _: httpx.Response(200, json={'operation': operation}))) as http:
+        vault = Vault(http)
+        receipt = vault.write_status(request_id='totp-write')
+        assert receipt['entry']['type'] == 'totp'
+        assert 'SYNTHETIC_SEED' not in json.dumps(receipt)
+        with pytest.raises(VaultError, match='Invalid vault write receipt'):
+            vault.write_status(request_id='wrong-id')
+        operation['entry']['revision'] = 0
+        with pytest.raises(VaultError, match='Invalid vault write receipt'):
+            vault.write_status(request_id='totp-write')

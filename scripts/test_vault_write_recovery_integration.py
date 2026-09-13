@@ -87,6 +87,38 @@ def run(fixture, cli_checkout):
             assert vault.write_status(request_id='cli-'+unique)['entry']['revision'] == 1
             assert cli('write-status','--request-id','python-'+unique).returncode == 0
             assert cli('write-status','--request-id','missing-'+unique).returncode != 0
+            # Combined contract: an identified TOTP write loses its committed response.
+            # General add is string-only; registration uses the existing typed wire API.
+            seed = 'GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ'
+            totp_name, totp_id = 'alice/totp-recovery-' + unique, 'totp-' + unique
+            payload = {'type': 'totp', 'seed': seed, 'algorithm': 'SHA1', 'digits': 6, 'period': 30, 'label': 'Synthetic', 'active': True}
+            body = {'name': totp_name, 'type': 'totp', 'value': json.dumps(payload)}
+            try:
+                lossy.put('/v1/vault/entry', json=body, headers={'Idempotency-Key': totp_id})
+            except httpx.TransportError:
+                pass
+            else:
+                raise AssertionError('Expected lost TOTP response')
+            assert writes == [200, 200, 200]
+            receipt = vault.write_status(request_id=totp_id)
+            cli_receipt = cli('write-status', '--request-id', totp_id)
+            assert cli_receipt.returncode == 0
+            assert json.loads(cli_receipt.stdout) == receipt
+            assert receipt['entry']['type'] == 'totp' and receipt['entry']['revision'] == 1
+            assert seed not in json.dumps(receipt) + cli_receipt.stdout + cli_receipt.stderr
+            assert len(vault.otp(totp_name)) == 6
+            assert len(cli('otp', '-n', totp_name).stdout.strip()) == 6
+            replacement = {**body, 'value': json.dumps({**payload, 'digits': 8})}
+            assert http.put('/v1/vault/entry', json=replacement, headers={'Idempotency-Key': 'replace-' + totp_id, 'If-Match': '1'}).status_code == 200
+            replay = http.put('/v1/vault/entry', json=body, headers={'Idempotency-Key': totp_id}).json()
+            assert replay['replayed'] is True and replay['entry']['revision'] == 1
+            assert vault.show(totp_name)['revision'] == 2 and len(vault.otp(totp_name)) == 8
+            assert http.put('/v1/vault/entry', json=replacement, headers={'Idempotency-Key': totp_id}).status_code == 409
+            vault.delete(totp_name, if_match=2)
+            assert http.put('/v1/vault/entry', json=body, headers={'Idempotency-Key': totp_id}).json()['replayed'] is True
+            assert cli('otp', '-n', totp_name).returncode != 0
+            assert vault.write_status(request_id=totp_id) == receipt
+            print('PASS combined TOTP lost-response receipt parity, code retrieval, replacement/replay, retirement and redaction')
     finally:
         proxy.shutdown(); proxy.server_close(); thread.join()
     print('PASS: real HTTP/Mongo CLI/Python lost-response recovery, replay, conflicts, tenant denial, redaction and byte preservation')
