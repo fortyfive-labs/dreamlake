@@ -4,6 +4,10 @@
 
 Adds `Vault.rotate_host_key`, account-owned binding lookup and exact cleanup confirmation. A shared CLI/Python immutable journal resumes interrupted saves, selected-key verification, conditional binding replacement and exact old authorization cleanup. Target and jump credentials are separate, no calls prompt, and shared old entries are not automatically retired. [Commands and recovery guide](vault-key-rotation.md). Local tests are separate from remote SSH/hosted acceptance; password rotation remains required follow-up.
 
+## Unreleased
+
+`client.vault.kms.show/preview/activate/status` adds personal-owner prefix policy inspection, explicit empty-prefix activation and immutable operation recovery with CLI parity. Operator-approved key references only; populated migration and customer cloud grants remain unavailable. [Guide](vault-kms.md).
+
 ## Unreleased — host credential replacement metadata
 
 Adds conditional host-binding replacement and owner-only operation recovery.

@@ -299,6 +299,12 @@ class Vault:
         from .vault_keys import VaultKeys
         return VaultKeys(self)
 
+    @property
+    def kms(self):
+        """Personal prefix KMS metadata and explicit empty-prefix activation."""
+        from .vault_kms import VaultKms
+        return VaultKms(self)
+
     def _request(self, method, path, **kwargs):
         try:
             response = self._http.request(method, path, follow_redirects=False, **kwargs)
