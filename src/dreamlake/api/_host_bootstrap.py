@@ -2,6 +2,22 @@ import base64, fcntl, pwd, hashlib, json, os, pathlib, shutil, subprocess, sys, 
 
 def run(args, **kwargs):
     return subprocess.run(args, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, **kwargs)
+def prerequisite_error(code):
+    print(json.dumps({'code': code}))
+    sys.exit(1)
+def check_prerequisites():
+    if not shutil.which('openssl'):
+        prerequisite_error('openssl_missing')
+    try:
+        run(['systemctl', '--user', 'show-environment'])
+    except Exception:
+        prerequisite_error('systemd_user_unavailable')
+    try:
+        linger = run(['loginctl', 'show-user', pwd.getpwuid(os.getuid()).pw_name, '-p', 'Linger', '--value']).stdout.strip()
+    except Exception:
+        prerequisite_error('linger_unavailable')
+    if linger != b'yes':
+        prerequisite_error('linger_required')
 def write(path, value):
     fd, tmp = tempfile.mkstemp(dir=str(path.parent))
     try:
@@ -12,6 +28,8 @@ def write(path, value):
         if os.path.exists(tmp): os.unlink(tmp)
 def main():
     p = json.load(sys.stdin)
+    # Check before identity creation or requesting an enrollment grant.
+    check_prerequisites()
     home = pathlib.Path.home()
     root = home / '.local/state/dreamlake/hosts' / hashlib.sha256(p['name'].encode()).hexdigest()
     root.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -31,9 +49,6 @@ def main():
             return
         if public_key != p['publicKey']: raise RuntimeError('identity changed')
         # Never fall back to a privileged system unit or an unsupervised daemon.
-        run(['systemctl','--user','show-environment'])
-        linger = run(['loginctl','show-user',pwd.getpwuid(os.getuid()).pw_name,'-p','Linger','--value']).stdout.strip()
-        if linger != b'yes': raise RuntimeError('user linger required')
         binary = shutil.which('nymph')
         if not binary:
             bindir = home / '.local/bin'

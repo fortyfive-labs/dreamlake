@@ -14,10 +14,11 @@ import tempfile
 import time
 import uuid
 from collections.abc import Mapping
+from datetime import UTC, datetime
 from importlib.resources import files
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 
 import httpx
 
@@ -29,10 +30,13 @@ class HostError(Exception):
     """Sanitized host failure; status and request_id support explicit recovery."""
 
     def __init__(self, message: str, *, status: int | None = None,
-                 request_id: str | None = None):
+                 request_id: str | None = None, operation_id: str | None = None,
+                 retry_at: str | None = None):
         super().__init__(message)
         self.status = status
         self.request_id = request_id
+        self.operation_id = operation_id
+        self.retry_at = retry_at
 
 
 class HostConfigurationError(HostError, ValueError):
@@ -51,10 +55,27 @@ class HostNotFound(HostError):
     pass
 
 
-_SEGMENT = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]*\Z")
+_SEGMENT = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}\Z")
 _DESTINATION = re.compile(r"(?:[A-Za-z0-9_.-]+@)?[A-Za-z0-9_\[][A-Za-z0-9_.:\[\]-]*\Z")
 _OPTIONS = {"BatchMode", "ServerAliveInterval", "ServerAliveCountMax", "ConnectTimeout",
             "IdentitiesOnly", "StrictHostKeyChecking", "UserKnownHostsFile"}
+
+
+def _recovery(data: Any) -> dict:
+    if not isinstance(data, dict):
+        return {}
+    safe = {}
+    operation = data.get("operationId")
+    if isinstance(operation, str) and re.fullmatch(r"[a-fA-F0-9]{24}", operation):
+        safe["operation_id"] = operation
+    retry = data.get("retryAt")
+    if isinstance(retry, str) and re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z", retry):
+        try:
+            datetime.fromisoformat(retry)
+            safe["retry_at"] = retry
+        except ValueError:
+            pass
+    return safe
 
 
 def _string(value: Any, label: str) -> str:
@@ -177,8 +198,22 @@ def _remote(args: list[str], payload: dict) -> dict:
                                     stderr=subprocess.DEVNULL, timeout=180, check=False)
             output.seek(0)
             raw = output.read(64001)
-        if result.returncode or len(raw) > 64000:
-            raise HostError("SSH bootstrap failed; check noninteractive access and target prerequisites")
+        if len(raw) > 64000:
+            raise HostError("SSH bootstrap failed; response exceeded the output limit")
+        if result.returncode:
+            messages = {
+                "openssl_missing": "SSH target needs OpenSSL before enrollment",
+                "systemd_user_unavailable": "SSH target has no accessible systemd user manager",
+                "linger_unavailable": "SSH target user-linger status could not be checked",
+                "linger_required": "SSH target requires user lingering: run loginctl enable-linger for the target account before enrollment",
+            }
+            try:
+                failure = json.loads(raw)
+                code = failure.get("code") if isinstance(failure, dict) else None
+                message = messages.get(code) if isinstance(code, str) else None
+            except (ValueError, TypeError):
+                message = None
+            raise HostError(message or "SSH bootstrap failed; check noninteractive access and target prerequisites")
         data = json.loads(raw)
         if not isinstance(data, dict):
             raise TypeError
@@ -216,10 +251,15 @@ class Hosts:
             raise HostAuthorizationError("DreamLake authentication is required", status=401, request_id=request_id)
         try:
             with self._client.http() as client:
-                response = client.request(method, path, json=body)
+                response = client.request(method, path, json=body, follow_redirects=False)
             if not response.is_success:
                 cls = HostAuthorizationError if response.status_code in {401, 403} else HostConflictError if response.status_code == 409 else HostNotFound if response.status_code == 404 else HostError
-                raise cls(f"Host API request failed (HTTP {response.status_code})", status=response.status_code, request_id=request_id)
+                try:
+                    recovery = _recovery(response.json())
+                except ValueError:
+                    recovery = {}
+                raise cls(f"Host API request failed (HTTP {response.status_code})", status=response.status_code,
+                          request_id=request_id, **recovery)
             data = response.json()
             if not isinstance(data, dict):
                 raise TypeError
@@ -231,8 +271,8 @@ class Hosts:
         """Inspect one canonical name or namespace/group/*; no credentials returned."""
         if not isinstance(selector, str):
             raise HostConfigurationError("host selector must be a string")
-        if type(page) is not int or page < 1 or type(page_size) is not int or not 1 <= page_size <= 100:
-            raise HostConfigurationError("page must be positive and page_size between 1 and 100")
+        if type(page) is not int or not 1 <= page <= 100_000 or type(page_size) is not int or not 1 <= page_size <= 100:
+            raise HostConfigurationError("page must be between 1 and 100000 and page_size between 1 and 100")
         wildcard = selector.endswith("/*")
         parts = _name(selector[:-1] + "placeholder" if wildcard else selector)
         prefix = "/".join(parts[:2])
@@ -267,8 +307,8 @@ class Hosts:
         if type(wait_seconds) not in {int, float} or not math.isfinite(wait_seconds) or not 0 <= wait_seconds <= 600:
             raise HostConfigurationError("wait_seconds must be between 0 and 600")
         _string(nymph_version, "nymph_version")
-        if request_id is not None:
-            _string(request_id, "request_id")
+        if request_id is not None and (not isinstance(request_id, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}", request_id)):
+            raise HostConfigurationError("Invalid enrollment request_id")
         if lakeshore_id is not None:
             _string(lakeshore_id, "lakeshore_id")
         if dry_run:
@@ -280,7 +320,11 @@ class Hosts:
         path = f"/namespaces/{quote(plan['namespace'], safe='')}/hosts"
         # Authorize namespace access before creating target identity files.
         self._request("GET", path + "?prefix=" + quote(plan["namespace"] + "/" + plan["group"], safe=""), request_id=request_id)
-        probe = _remote(plan["ssh"]["args"], {"action": "probe", "name": plan["name"]})
+        try:
+            probe = _remote(plan["ssh"]["args"], {"action": "probe", "name": plan["name"]})
+        except HostError as error:
+            error.request_id = request_id
+            raise
         if not isinstance(probe.get("unixUser"), str) or not probe["unixUser"] or not isinstance(probe.get("publicKey"), str) or not re.fullmatch(r"[A-Za-z0-9_-]{43}", probe["publicKey"]):
             raise HostError("Remote host returned invalid identity", request_id=request_id)
         body = {"name": plan["name"], "unixUser": probe["unixUser"], "publicKey": probe["publicKey"], "requestId": request_id}
@@ -294,23 +338,46 @@ class Hosts:
             for v in (host["id"], enrollment["id"], enrollment["machineId"], bootstrap["controlPlaneUrl"], bootstrap["namespace"]):
                 if not isinstance(v, str) or not v:
                     raise ValueError
-            operation_id = receipt["operationId"]
+            operation_id = _recovery(receipt).get("operation_id")
+            if operation_id is None:
+                raise ValueError
         except (KeyError, TypeError, ValueError):
             raise HostError("Host API returned inconsistent enrollment identity", request_id=request_id) from None
+        try:
+            url = urlsplit(bootstrap["controlPlaneUrl"])
+            expires = datetime.fromisoformat(bootstrap["expiresAt"])
+            grant = bootstrap["token"]
+            if (url.scheme not in {"http", "https"} or not url.hostname or url.username is not None
+                    or url.password is not None or url.query or url.fragment
+                    or not _SEGMENT.fullmatch(bootstrap["namespace"])
+                    or not isinstance(grant, str) or not 16 <= len(grant) <= 4096
+                    or expires.tzinfo is None or expires <= datetime.now(UTC)):
+                raise ValueError
+            _ = url.port
+        except (KeyError, TypeError, ValueError):
+            raise HostError("Host API returned an invalid or expired bootstrap grant",
+                            request_id=request_id, operation_id=operation_id) from None
         try:
             _remote(plan["ssh"]["args"], {"action": "configure", "name": plan["name"], "publicKey": probe["publicKey"],
                     "controlPlaneUrl": bootstrap["controlPlaneUrl"], "namespace": bootstrap["namespace"],
                     "token": bootstrap.get("token"), "machineId": enrollment["machineId"], "version": nymph_version})
         except HostError:
-            raise HostError("Remote configuration failed after host registration; reconcile with the same request_id", request_id=request_id) from None
+            raise HostError("Remote configuration failed after host registration; reconcile with the same request_id", request_id=request_id, operation_id=operation_id) from None
         deadline = time.monotonic() + wait_seconds
         while True:
-            detail = self._request("GET", path + "/" + quote(host["id"], safe=""), request_id=request_id)
+            try:
+                detail = self._request("GET", path + "/" + quote(host["id"], safe=""), request_id=request_id)
+            except HostError as error:
+                error.operation_id = error.operation_id or operation_id
+                raise
             match = next((e for e in detail.get("enrollments", []) if e.get("id") == enrollment["id"]), None)
-            online = match is not None and match.get("state") == "online"
+            online = (match is not None and match.get("state") == "online"
+                      and match.get("statusVerified") is True
+                      and match.get("machineId") == enrollment["machineId"])
             if online or time.monotonic() >= deadline:
                 return {"status": "online" if online else "pending", "enrolled": online,
                         "host": {"id": host["id"], "name": host["name"]},
-                        "enrollment": match if online else {"id": enrollment["id"], "machineId": enrollment["machineId"]},
+                        "enrollment": {"id": enrollment["id"], "machineId": enrollment["machineId"],
+                                       **({"state": "online"} if online else {})},
                         "operationId": operation_id, "requestId": request_id, "credentialsSaved": False}
             time.sleep(min(1, max(0, deadline - time.monotonic())))

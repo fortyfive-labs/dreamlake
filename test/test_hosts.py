@@ -78,8 +78,8 @@ def test_pending_and_redacted_conflict(monkeypatch):
             assert req.url.params["prefix"] == "fortyfive/bos14"
         if req.method == "POST":
             return httpx.Response(200, json={"host": {"id": "h1", "name": NAME},
-                "enrollment": {"id": "e1", "machineId": "m1"}, "operationId": "op1",
-                "bootstrap": {"namespace": "distinct-controlplane", "controlPlaneUrl": "https://cp.example", "token": GRANT}})
+                "enrollment": {"id": "e1", "machineId": "m1"}, "operationId": "a" * 24,
+                "bootstrap": {"namespace": "distinct-controlplane", "controlPlaneUrl": "https://cp.example", "token": GRANT, "expiresAt": "2099-01-01T00:00:00.000Z"}})
         return httpx.Response(200, json={"hosts": [], "enrollments": [{"id": "e1", "state": "pending"}]})
     hosts = DreamLakeClient(token="test", transport=httpx.MockTransport(handler)).hosts
     result = hosts.enroll(NAME, ssh="ctrl", wait_seconds=0)
@@ -114,7 +114,7 @@ def api_server(db_path, online=True):
             if self.path.startswith("/namespaces/fortyfive/hosts?"):
                 self.reply(200, {"hosts": [host]})
             else:
-                self.reply(200, {"host": host, "enrollments": [{"id": "e1", "machineId": "m1", "state": "online" if online else "pending"}]})
+                self.reply(200, {"host": host, "enrollments": [{"id": "e1", "machineId": "m1", "state": "online" if online else "pending", "statusVerified": True}]})
         def do_POST(self):
             if self.headers.get("Authorization") != "Bearer test-user-token":
                 self.reply(403, {"error": GRANT}); return
@@ -126,8 +126,8 @@ def api_server(db_path, online=True):
                 self.reply(409, {"error": GRANT}); return
             db.execute("insert or ignore into receipts values (?,?)", [key, payload]); db.commit()
             self.reply(200, {"host": {"id": "h1", "name": body["name"]},
-                "enrollment": {"id": "e1", "machineId": "m1"}, "operationId": key,
-                "bootstrap": {"namespace": "distinct-controlplane", "controlPlaneUrl": "https://cp.example", "token": GRANT}})
+                "enrollment": {"id": "e1", "machineId": "m1"}, "operationId": "a" * 24,
+                "bootstrap": {"namespace": "distinct-controlplane", "controlPlaneUrl": "https://cp.example", "token": GRANT, "expiresAt": "2099-01-01T00:00:00.000Z"}})
     server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True); thread.start()
     try:
@@ -201,3 +201,89 @@ def test_status_pagination():
     assert hosts.status("fortyfive/bos14/*", page=2)["page"] == 2
     with pytest.raises(HostConfigurationError):
         hosts.status(NAME, page_size=101)
+
+
+def _receipt(**bootstrap_overrides):
+    return {"host": {"id": "h1", "name": NAME},
+            "enrollment": {"id": "e1", "machineId": "m1"}, "operationId": "a" * 24,
+            "bootstrap": {"namespace": "different-cp", "controlPlaneUrl": "https://cp.example",
+                          "token": GRANT, "expiresAt": "2099-01-01T00:00:00.000Z", **bootstrap_overrides}}
+
+
+@pytest.mark.parametrize("verified,machine,expected", [(False, "m1", False), (True, "other", False), (True, "m1", True)])
+def test_online_requires_verified_matching_identity_and_returns_only_public_fields(monkeypatch, verified, machine, expected):
+    monkeypatch.setattr("dreamlake.api.hosts._remote", lambda args, p: {"unixUser": "ge", "publicKey": KEY} if p["action"] == "probe" else {"started": True})
+    def handler(req):
+        if req.method == "POST":
+            return httpx.Response(200, json=_receipt())
+        return httpx.Response(200, json={"hosts": [], "enrollments": [{"id": "e1", "machineId": machine,
+            "state": "online", "statusVerified": verified, "privateData": GRANT}]})
+    result = DreamLakeClient(token="test", transport=httpx.MockTransport(handler)).hosts.enroll(NAME, ssh="ctrl", wait_seconds=0)
+    assert result["enrolled"] is expected
+    assert result["enrollment"]["machineId"] == "m1"
+    assert GRANT not in repr(result)
+    assert "privateData" not in result["enrollment"]
+
+
+@pytest.mark.parametrize("bad", [{"expiresAt": "2000-01-01T00:00:00.000Z"}, {"expiresAt": "invalid"},
+    {"expiresAt": "2099-01-01T00:00:00"}, {"controlPlaneUrl": "https://user:secret@cp.example"},
+    {"controlPlaneUrl": "file:///tmp/target"}, {"namespace": "invalid/name"}, {"token": "short"}])
+def test_invalid_grant_never_reaches_remote_configuration(monkeypatch, bad):
+    from dreamlake.api.hosts import HostError
+    actions = []
+    def remote(args, payload):
+        actions.append(payload["action"])
+        return {"unixUser": "ge", "publicKey": KEY}
+    monkeypatch.setattr("dreamlake.api.hosts._remote", remote)
+    transport = httpx.MockTransport(lambda req: httpx.Response(200, json=_receipt(**bad) if req.method == "POST" else {"hosts": []}))
+    with pytest.raises(HostError, match="invalid or expired") as error:
+        DreamLakeClient(token="test", transport=transport).hosts.enroll(NAME, ssh="ctrl", request_id="retry-id")
+    assert error.value.request_id == "retry-id" and error.value.operation_id == "a" * 24
+    assert actions == ["probe"]
+    assert GRANT not in str(error.value)
+
+
+def test_error_recovery_fields_are_allowlisted_and_redirects_refused():
+    from dreamlake.api.hosts import HostError
+    for body, expected in [({"error": GRANT, "operationId": "b" * 24, "retryAt": "2099-01-01T00:00:00.000Z"}, True),
+                           ({"operationId": GRANT, "retryAt": GRANT}, False),
+                           ({"retryAt": "2099-99-01T00:00:00.000Z"}, False)]:
+        hosts = DreamLakeClient(token="test", transport=httpx.MockTransport(lambda r, body=body: httpx.Response(409, json=body))).hosts
+        with pytest.raises(HostConflictError) as error:
+            hosts.enroll(NAME, ssh="ctrl", request_id="retry-id")
+        assert error.value.request_id == "retry-id"
+        assert error.value.operation_id == ("b" * 24 if expected else None)
+        assert error.value.retry_at == ("2099-01-01T00:00:00.000Z" if expected else None)
+        assert GRANT not in str(error.value)
+    calls = []
+    def redirect(req):
+        calls.append(str(req.url))
+        return httpx.Response(307, headers={"location": "https://other.example/secret"})
+    with pytest.raises(HostError) as error:
+        DreamLakeClient(token="test", transport=httpx.MockTransport(redirect)).hosts.enroll(NAME, ssh="ctrl")
+    assert error.value.status == 307
+    assert len(calls) == 1
+
+
+def test_contract_validation_precedes_all_effects(monkeypatch):
+    monkeypatch.setattr("dreamlake.api.hosts._remote", lambda *a: pytest.fail("remote effect"))
+    hosts = DreamLakeClient(token="test", transport=httpx.MockTransport(lambda r: pytest.fail("network effect"))).hosts
+    for name in ["team.with.dot/group/host", "t" * 65 + "/group/host"]:
+        with pytest.raises(HostConfigurationError):
+            hosts.enroll(name, ssh="ctrl")
+    for request in ["with space", "x" * 129, "", 5]:
+        with pytest.raises(HostConfigurationError):
+            hosts.enroll(NAME, ssh="ctrl", request_id=request)
+    with pytest.raises(HostConfigurationError):
+        hosts.status("fortyfive/bos14/*", page=100001)
+
+
+def test_bootstrap_prerequisite_failure_preserves_request_id(monkeypatch):
+    from dreamlake.api.hosts import HostError
+    def remote(*args):
+        raise HostError("SSH target requires user lingering")
+    monkeypatch.setattr("dreamlake.api.hosts._remote", remote)
+    hosts = DreamLakeClient(token="test", transport=httpx.MockTransport(lambda r: httpx.Response(200, json={"hosts": []}))).hosts
+    with pytest.raises(HostError, match="user lingering") as error:
+        hosts.enroll(NAME, ssh="ctrl", request_id="retry-id")
+    assert error.value.request_id == "retry-id"
