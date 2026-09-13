@@ -99,7 +99,7 @@ def run(args):
             bindings[role]=bound;state['bindings'].append(bound)
             wrong=vault.add(prefix+'/'+role+'-wrong',secrets.token_urlsafe(32))
             bad=vault.bind_host_credential(host_id=fixture['hostId'],enrollment_id=fixture['enrollmentId'],role=role,
-                 endpoint=facts['accounts'][role]['user']+'@127.0.0.1:'+str(facts['port']),kind='password',entry_id=wrong['id'],entry_revision=wrong['revision'])
+                 endpoint=facts['accounts'][role]['user']+'@127.0.0.1:'+str(local_port if role=='jump' else facts['port']),kind='password',entry_id=wrong['id'],entry_revision=wrong['revision'])
             bindings[role+'-wrong']=bad;state['bindings'].append(bad);state_write(state_path,state)
             state['checks'].append(client+' stdin password saving preserved bytes and redacted output')
         for client in ('native','npm','python'):

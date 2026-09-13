@@ -18,7 +18,7 @@ def run(args):
     fake_source=ast.parse((Path(__file__).resolve().parents[1]/'test/test_host_password.py').read_text())
     fake=next(ast.literal_eval(node.value) for node in fake_source.body if isinstance(node,ast.Assign) and any(isinstance(t,ast.Name) and t.id=='FAKE' for t in node.targets))
     binding_id=str(uuid.uuid4())
-    binding=dict(id=binding_id,hostId='a'*24,enrollmentId='b'*24,role='target',endpoint='fixture',kind='password',entryId='entry',entryRevision=1)
+    binding=dict(id=binding_id,hostId='a'*24,enrollmentId='b'*24,role='target',endpoint='fixture@127.0.0.1',kind='password',entryId='entry',entryRevision=1)
     entry=dict(id='entry',name='alice/fixture',type='string',revision=1)
     class Handler(http.server.BaseHTTPRequestHandler):
         def log_message(self,*_):pass

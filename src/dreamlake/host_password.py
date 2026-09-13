@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+from copy import deepcopy
 import os
 from pathlib import Path
 import re
@@ -11,6 +12,7 @@ import sys
 import tempfile
 import threading
 import uuid
+from urllib.parse import urlsplit
 
 from .host_key_journal import publish_record, read_record
 from .host_key_rotation import _PinnedVault, now
@@ -121,13 +123,14 @@ class _OneShotAskpass:
 
 def probe_password(*, profile, password, executable='ssh'):
     """Return verified/denied metadata; inconclusive transport fails closed."""
+    profile = deepcopy(profile)
     validate_profile(profile)
     raw = password_bytes(password)
-    if 'jump' in profile:
-        read_record(Path(profile['jump']['identityFile']))
     nonce = str(uuid.uuid4())
     program = "import json,os,pwd,pathlib;u=pwd.getpwuid(os.getuid());print(json.dumps({'nonce':" + repr(nonce) + ", 'identity':{'uid':u.pw_uid,'user':u.pw_name,'home':u.pw_dir,'machineId':pathlib.Path('/etc/machine-id').read_text().strip()}}))"
     try:
+        if 'jump' in profile:
+            read_record(Path(profile['jump']['identityFile']))
         # A short canonical path also fits macOS's Unix-socket path limit.
         with tempfile.TemporaryDirectory(prefix='dl-pw-', dir='/tmp') as temporary:
             directory = Path(temporary).resolve()
@@ -173,7 +176,21 @@ def probe_password(*, profile, password, executable='ssh'):
         raw[:] = b'\0' * len(raw)
 
 
+def match_password_endpoint(endpoint, profile):
+    validate_profile(profile)
+    if not isinstance(endpoint, str) or '@' not in endpoint:
+        raise ValueError('Password binding requires an explicit user and host')
+    parsed = urlsplit('ssh://' + endpoint)
+    if (parsed.username != profile['user'] or parsed.password is not None
+            or parsed.hostname is None or parsed.hostname.lower() != profile['host'].lower()
+            or parsed.path or parsed.query or parsed.fragment
+            or parsed.port is not None and parsed.port != profile['port']):
+        raise ValueError('Password binding endpoint does not match selected transport')
+
+
 def verify_host_password(original, *, binding_id, ssh):
+    ssh = deepcopy(ssh)
+    validate_profile(ssh)
     vault = _PinnedVault(original)
     try:
         before = vault.host_credential(binding_id)
@@ -182,6 +199,7 @@ def verify_host_password(original, *, binding_id, ssh):
                 or not entry or entry.get('type') != 'string' or entry['id'] != binding['entryId'] or entry['revision'] != binding['entryRevision']
                 or entry.get('deleteAt') or entry.get('purgeAt') or entry.get('status') == 'expired'):
             raise ValueError('Inactive password binding')
+        match_password_endpoint(binding['endpoint'], ssh)
         read = vault._request('POST', '/v1/vault/entries/read', json={'selectors': [entry['name']]})
         rows = read.get('entries') if isinstance(read, dict) else None
         if not isinstance(rows, list) or len(rows) != 1 or not isinstance(rows[0], dict) or not isinstance(rows[0].get('value'), str):
@@ -196,6 +214,6 @@ def verify_host_password(original, *, binding_id, ssh):
         value = None
         if vault.host_credential(binding_id) != before:
             raise ValueError('Password binding changed')
-        return {**result, 'bindingId': binding_id, 'entryId': entry['id'], 'entryRevision': entry['revision']}
+        return {**result, 'target': {key: ssh[key] for key in ('host', 'user', 'port')}, 'verificationScope': 'credential_at_explicit_endpoint', 'bindingId': binding_id, 'entryId': entry['id'], 'entryRevision': entry['revision']}
     except Exception:
         raise VaultError('Password authentication unconfirmed; no password was changed') from None

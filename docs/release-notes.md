@@ -1,5 +1,9 @@
 # Release notes
 
+## Unreleased — password-only SSH verification
+
+`Vault.verify_host_password` pairs with CLI `vault verify-password`. A private one-shot askpass channel and parent-client authentication evidence verify the exact saved binding without password arguments, plaintext journals or unexpected prompts. Password changes and reservation APIs remain separate unfinished work. [Guide and reusable tests](vault-passwords.md).
+
 ## Unreleased — client-owned SSH key rotation
 
 Adds `Vault.rotate_host_key`, account-owned binding lookup and exact cleanup confirmation. A shared CLI/Python immutable journal resumes interrupted saves, selected-key verification, conditional binding replacement and exact old authorization cleanup. Target and jump credentials are separate, no calls prompt, and shared old entries are not automatically retired. [Commands and recovery guide](vault-key-rotation.md). [Real candidate SSH acceptance](vault-key-rotation-acceptance.json) passed both clients for target and jump rotation with independent cleanup. Published clients, hosted KMS and enrollment acceptance remain separate; password rotation remains required follow-up.

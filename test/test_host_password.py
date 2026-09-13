@@ -12,6 +12,7 @@ from dreamlake.vault import VaultError
 PROFILE = dict(host='127.0.0.1', user='fixture', port=2222, knownHostsFile='/tmp/trusted-hosts')
 FAKE = r'''import os,sys,subprocess,json,re
 mode=os.environ['PROBE_CASE'];args=sys.argv[1:];log=args[args.index('-E')+1]
+if os.environ.get('PROBE_DIR_REPORT'):open(os.environ['PROBE_DIR_REPORT'],'w').write(os.path.dirname(log))
 if mode=='network':sys.exit(255)
 assert all('test-password' not in v for v in os.environ.values())
 prompt="fixture@127.0.0.1's password: "
@@ -40,7 +41,8 @@ def test_password_transport_uses_real_private_askpass_and_fails_closed(tmp_path,
     executable.write_text('#!' + sys.executable + '\n' + FAKE)
     executable.chmod(0o700)
     monkeypatch.setenv('PROBE_CASE', case)
-    before = set(Path('/tmp').resolve().glob('dl-pw-*'))
+    report=tmp_path/'owned-directory'
+    monkeypatch.setenv('PROBE_DIR_REPORT',str(report))
     if case in ('verified', 'denied'):
         result = probe_password(profile=PROFILE, password='test-password', executable=str(executable))
         assert result['status'] == case
@@ -48,7 +50,7 @@ def test_password_transport_uses_real_private_askpass_and_fails_closed(tmp_path,
     else:
         with pytest.raises(VaultError, match='Password authentication unconfirmed'):
             probe_password(profile=PROFILE, password='test-password', executable=str(executable))
-    assert set(Path('/tmp').resolve().glob('dl-pw-*')) == before
+    assert not Path(report.read_text()).exists()
 
 
 @pytest.mark.parametrize('value', ['', 'x\n', 'x\r', 'x\0', 'x'*513, '\ud800'])
@@ -72,14 +74,14 @@ def test_password_only_config_resolves_without_alternate_identity(tmp_path):
     assert 'preferredauthentications publickey\n' in jump.stdout
     assert 'passwordauthentication no\n' in jump.stdout
 
-@pytest.mark.parametrize('mode', ['verified', 'wrong-read-id', 'stale-after-read', 'stale-after-probe', 'released', 'other-kind'])
+@pytest.mark.parametrize('mode', ['verified', 'wrong-read-id', 'stale-after-read', 'stale-after-probe', 'released', 'other-kind', 'endpoint-mismatch'])
 def test_sdk_pins_auth_and_exact_binding_entry_across_probe(monkeypatch, mode):
     import base64
     import httpx
     import dreamlake.host_password as module
     from dreamlake.vault import Vault
     binding_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
-    binding = dict(id=binding_id, hostId='a'*24, enrollmentId='b'*24, role='target', endpoint='fixture', kind='password', entryId='entry', entryRevision=1)
+    binding = dict(id=binding_id, hostId='a'*24, enrollmentId='b'*24, role='target', endpoint='fixture@127.0.0.1', kind='password', entryId='entry', entryRevision=1)
     entry = dict(id='entry', name='alice/fixture', type='string', revision=1)
     calls = []
     token = 'x.' + base64.urlsafe_b64encode(b'{"sub":"alice"}').decode().rstrip('=') + '.x'
@@ -93,6 +95,7 @@ def test_sdk_pins_auth_and_exact_binding_entry_across_probe(monkeypatch, mode):
         current = dict(binding)
         if mode=='released':current['releasedAt']='2030-01-01T00:00:00Z'
         if mode=='other-kind':current['kind']='private_key'
+        if mode=='endpoint-mismatch':current['endpoint']='other@elsewhere'
         if mode=='stale-after-read' and len(calls)>=3 or mode=='stale-after-probe' and len(calls)>=4:current['entryRevision']=2
         return httpx.Response(200, json={'binding': current, 'entry': entry})
     probes = []
@@ -109,3 +112,25 @@ def test_sdk_pins_auth_and_exact_binding_entry_across_probe(monkeypatch, mode):
             with pytest.raises(VaultError,match='Password authentication unconfirmed'):
                 Vault(http).verify_host_password(binding_id=binding_id,ssh=PROFILE)
     assert len(probes)==(1 if mode in ('verified','stale-after-probe') else 0)
+
+@pytest.mark.parametrize('endpoint,accepted',[
+    ('fixture@127.0.0.1',True),('fixture@127.0.0.1:2222',True),
+    ('fixture@127.0.0.1:22',False),('other@127.0.0.1',False),
+    ('fixture@elsewhere',False),('alias-only',False),('fixture:secret@127.0.0.1',False),
+])
+def test_binding_endpoint_must_match_explicit_target(endpoint,accepted):
+    from dreamlake.host_password import match_password_endpoint
+    if accepted:match_password_endpoint(endpoint,PROFILE)
+    else:
+        with pytest.raises(ValueError):match_password_endpoint(endpoint,PROFILE)
+
+
+def test_invalid_jump_source_still_zeroes_password_buffer(monkeypatch):
+    import dreamlake.host_password as module
+    secret=bytearray(b'synthetic')
+    monkeypatch.setattr(module,'password_bytes',lambda _:secret)
+    def fail(_):raise ValueError('invalid source')
+    monkeypatch.setattr(module,'read_record',fail)
+    with pytest.raises(VaultError):
+        module.probe_password(profile={**PROFILE,'jump':{**PROFILE,'identityFile':'/tmp/absent'}},password='unused')
+    assert secret==bytearray(len(secret))
