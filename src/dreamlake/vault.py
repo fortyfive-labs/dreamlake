@@ -3,6 +3,7 @@ import json
 import re
 import shlex
 from datetime import datetime
+from uuid import uuid4
 
 import httpx
 
@@ -12,6 +13,41 @@ _UNSET = object()
 
 class VaultError(RuntimeError):
     """Sanitized vault failure; never contains response bodies or secrets."""
+
+
+class VaultHttpError(VaultError):
+    def __init__(self, status):
+        self.status = status
+        super().__init__(f"Vault request failed (HTTP {status})")
+
+
+class VaultWriteError(VaultError):
+    """Write failed or delivery is uncertain. Reconcile request_id before retry."""
+    def __init__(self, request_id, status=None):
+        self.request_id = request_id
+        self.status = status
+        self.outcome = "rejected" if status is not None and 400 <= status < 500 else "unknown"
+        detail = f" (HTTP {status})" if status is not None else ""
+        super().__init__(f"Vault write {self.outcome}{detail}; reconcile request ID {request_id}")
+
+
+def _write_request_id(value):
+    if not isinstance(value, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", value):
+        raise VaultError("Invalid request ID")
+    return value
+
+
+def _write_receipt(data, request_id):
+    op = data.get("operation") if isinstance(data, dict) else None
+    if not isinstance(op, dict) or op.get("requestId") != request_id or op.get("state") != "committed":
+        raise VaultError("Invalid vault write receipt")
+    for key in ("committedAt", "retainUntil"):
+        if not isinstance(op.get(key), str) or not re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z", op[key]):
+            raise VaultError("Invalid vault write receipt")
+    entry = op.get("entry")
+    if not isinstance(entry, dict) or type(entry.get("revision")) is not int or entry["revision"] < 1:
+        raise VaultError("Invalid vault write receipt")
+    return {"requestId": request_id, "state": "committed", "entry": _metadata_response({"entry": entry}, entry.get("name")), "committedAt": op["committedAt"], "retainUntil": op["retainUntil"]}
 
 
 def resolve_selector(name: str, prefix: str = "") -> str:
@@ -134,23 +170,26 @@ class Vault:
         try:
             response = self._http.request(method, path, follow_redirects=False, **kwargs)
             if not response.is_success:
-                raise VaultError(f"Vault request failed (HTTP {response.status_code})")
+                raise VaultHttpError(response.status_code)
             return response.json()
         except VaultError:
             raise
         except Exception:
             raise VaultError("Vault connection or response failed") from None
 
-    def add(self, name, value, *, prefix="", env=None, key_name=None, file_name=None, if_match=None, expires_at=_UNSET):
+    def add(self, name, value, *, prefix="", env=None, key_name=None, file_name=None, if_match=None, expires_at=_UNSET, request_id=None):
         """Create only by default; explicit if_match replaces that revision.
 
         expires_at omitted preserves expiry; None explicitly clears it. Expiry
         stops vault retrieval, not remote access using previously read credentials.
         Never prompts. The value is transmitted as the encrypted-at-rest server's
-        request payload, not as URL metadata. Returns metadata only.
+        request payload, not as URL metadata. Returns metadata plus requestId and
+        replayed. Retain an explicit request_id before submission for crash
+        recovery; otherwise one is generated. Requires receipt-capable server.
         """
         name = _entry_name(name, prefix)
-        headers = _revision_headers(if_match)
+        request_id = _write_request_id(str(uuid4()) if request_id is None else request_id)
+        headers = {**_revision_headers(if_match), "Idempotency-Key": request_id}
         _validate_secret(value)
         data = {"name": name, "type": "string", "value": value}
         if expires_at is not _UNSET:
@@ -165,7 +204,25 @@ class Vault:
         for key, item in (("env", env), ("keyName", key_name), ("fileName", file_name)):
             if item is not None:
                 data[key] = item
-        return _metadata_response(self._request("PUT", "/v1/vault/entry", json=data, headers=headers), name)
+        try:
+            result = self._request("PUT", "/v1/vault/entry", json=data, headers=headers)
+            receipt = _write_receipt(result, request_id)
+            if receipt["entry"]["name"] != name or type(result.get("replayed")) is not bool:
+                raise VaultError("Invalid vault write receipt")
+            return {**receipt["entry"], "requestId": request_id, "replayed": result["replayed"]}
+        except VaultHttpError as error:
+            raise VaultWriteError(request_id, error.status) from None
+        except Exception:
+            raise VaultWriteError(request_id) from None
+
+    def write_status(self, *, request_id):
+        """Owner-only committed receipt, without revealing values or requiring KMS.
+
+        Missing/unavailable status does not prove failure. Retry identical input
+        and revision with the same ID only within the 30-day retention window.
+        """
+        request_id = _write_request_id(request_id)
+        return _write_receipt(self._request("GET", f"/v1/vault/write-operations/{request_id}"), request_id)
 
     def show(self, name, *, prefix=""):
         """Return metadata, including retirement status, without decrypting."""

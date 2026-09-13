@@ -49,7 +49,7 @@ def test_mutation_contract_and_redaction():
     calls = []
     def handle(request):
         calls.append(request)
-        return httpx.Response(200, json={'entry': {'name':'ge/token','type':'string','revision':1,'value':'SHOULD_NOT_RETURN'}})
+        return httpx.Response(200, json=write_response(request, {'name':'ge/token','type':'string','revision':1,'value':'SHOULD_NOT_RETURN'}))
     v = Vault(httpx.Client(base_url='http://test', transport=httpx.MockTransport(handle)))
     assert 'value' not in v.add('token', 'SECRET', prefix='ge', env='TOKEN')
     assert json.loads(calls[-1].content)['value'] == 'SECRET'
@@ -102,7 +102,7 @@ def test_expiry_omitted_preserved_and_explicit_clear():
     calls=[]
     def handle(request):
         calls.append(json.loads(request.content))
-        return httpx.Response(200,json={'entry':{'name':'ge/token','type':'string','revision':1}})
+        return httpx.Response(200,json=write_response(request, {'name':'ge/token','type':'string','revision':1}))
     v=Vault(httpx.Client(base_url='http://test',transport=httpx.MockTransport(handle)))
     v.add('ge/token','SYNTHETIC')
     assert 'expiresAt' not in calls[-1]
@@ -148,3 +148,42 @@ def test_invalid_output_preflight_never_retrieves():
         with pytest.raises(VaultError):
             v.get(name,**options)
     assert not calls
+
+
+def write_response(request, entry):
+    result = {"entry": entry}
+    if "Idempotency-Key" in request.headers:
+        result.update(replayed=False, operation={"requestId": request.headers["Idempotency-Key"], "state":"committed", "entry":entry, "committedAt":"2030-01-01T00:00:00.000Z", "retainUntil":"2030-01-31T00:00:00.000Z"})
+    return result
+
+
+def test_write_receipt_redaction_validation_and_unknown_errors():
+    from dreamlake.vault import VaultWriteError
+    calls = []
+    def handle(request):
+        calls.append(request)
+        if request.method == "GET":
+            # A faulty response must not smuggle secret values through status.
+            return httpx.Response(200, json={"operation": {"requestId":"write-1", "state":"committed", "entry":{"name":"ge/token", "type":"string", "revision":1, "value":"DO_NOT_EMIT"}, "committedAt":"2030-01-01T00:00:00.000Z", "retainUntil":"2030-01-31T00:00:00.000Z", "requestHash":"DO_NOT_EMIT", "encrypted":"DO_NOT_EMIT"}})
+        raise httpx.ReadError("DO_NOT_EMIT")
+    v = Vault(httpx.Client(base_url="http://test", transport=httpx.MockTransport(handle)))
+    with pytest.raises(VaultWriteError) as raised:
+        v.add("ge/token", "DO_NOT_EMIT", request_id="write-1")
+    assert raised.value.request_id == "write-1" and raised.value.outcome == "unknown"
+    assert "DO_NOT_EMIT" not in str(raised.value)
+    assert len(calls) == 1  # never blindly retries or changes request ID
+    assert "DO_NOT_EMIT" not in json.dumps(v.write_status(request_id="write-1"))
+    with pytest.raises(VaultError, match="Invalid request ID"):
+        v.add("ge/token", "DO_NOT_EMIT", request_id="bad/id")
+    assert len(calls) == 2
+
+
+def test_write_rejects_old_server_receipt_and_preserves_http_conflict():
+    from dreamlake.vault import VaultWriteError
+    for status, body, outcome in [(200, {"entry":{"name":"ge/token","type":"string","revision":1}}, "unknown"), (409,{"error":"DO_NOT_EMIT"},"rejected")]:
+        v = Vault(httpx.Client(base_url="http://test", transport=httpx.MockTransport(lambda _:httpx.Response(status,json=body))))
+        with pytest.raises(VaultWriteError) as raised:
+            v.add("ge/token","DO_NOT_EMIT",request_id="write-2")
+        assert raised.value.request_id == "write-2" and raised.value.outcome == outcome
+        assert raised.value.status == (409 if status == 409 else None)
+        assert "DO_NOT_EMIT" not in repr(raised.value)
