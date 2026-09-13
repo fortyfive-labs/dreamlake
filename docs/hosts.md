@@ -1,7 +1,7 @@
 # Host enrollment
 
 The source package includes `DreamLakeClient.hosts` for configuration validation,
-no-save SSH enrollment, and host status. This is not yet a released package or
+SSH enrollment, optional post-enrollment credential saving, and host status. This is not yet a released package or
 proof of a live host deployment. Use the shared host backend from issue #218;
 provider provisioning belongs to #243 and optional credential saving to #241.
 
@@ -75,8 +75,7 @@ workload runs. The process runner is the initial supported bootstrap.
 Library calls never prompt or exit the process. OpenSSH uses `BatchMode=yes` and
 zero password prompts, so keys/agent access must already be usable. Password or
 passphrase authentication that needs a prompt fails clearly. No raw-password
-argument or configuration field is introduced. `save_credentials=True` is accepted
-only as intent during dry-run; real saving fails before networking or host changes.
+argument or configuration field is introduced. `save_credentials=True` saves explicitly supplied credentials only after successful enrollment; Python never prompts. Dry-run never reads credential sources.
 
 Failures raise sanitized `HostError` subclasses from `dreamlake.api.hosts`:
 `HostConfigurationError`, `HostAuthorizationError`, `HostConflictError`, and
@@ -109,3 +108,74 @@ reconnect after removing the bootstrap token. A control-plane process request
 then returned the expected stdout as the target Unix user. The test-owned service,
 files, database fixtures and tunnel were removed. This does not establish
 production deployment, installer-release compatibility or Slurm/GPU execution.
+
+
+## Save selected target and jump credentials
+
+This source slice requires the matching host-binding backend and is not yet
+released/deployed. Existing enrollment stays successful if saving is declined,
+missing input, cancelled or unavailable. Inspect both `enrolled` and
+`credentials.status`. No remote access is installed/rotated/revoked by saving.
+
+```python
+from getpass import getpass
+from dreamlake import DreamLakeClient
+from dreamlake.host_credentials import HostCredential
+
+host_client = DreamLakeClient()
+result = host_client.hosts.enroll(
+    "fortyfive/bos14/bos14-ctrl", ssh="-J jump bos14-ctrl",
+    request_id="bos14-enrollment-001", save_credentials=True,
+    credentials=[
+        HostCredential("target", "bos14-ctrl", "ge/bos14/login", "password",
+                       password=getpass("Password to save: ")),
+        HostCredential("jump", "jump", "ge/jump/key", "private_key",
+                       key_file="/secure/jump-key"),
+    ],
+)
+assert result["enrolled"]
+print(result["credentials"])  # Redacted outcome, never credential values.
+```
+
+Only the caller prompts. Target/jump/key selection is explicit, never inferred
+from SSH configuration. `HostCredential` hides source fields in repr; do not
+serialize it. Passwords/private keys are not enrollment JSON fields. Private-key
+files must be owner-only regular files; encrypted keys retain their original
+bytes and require their existing passphrase on use.
+
+`unknown` entry writes include `requestId` for receipt reconciliation. A confirmed
+save with unconfirmed binding is `saved_unbound`, retaining exact `binding`
+arguments for metadata-only retry with the same account (no SSH or secret reread):
+
+```python
+from dreamlake.vault import Vault
+
+with host_client.http() as http:
+    vault = Vault(http)
+    entry = result["credentials"]["entries"][0]
+    receipt = vault.write_status(request_id=entry["requestId"])
+    binding = vault.bind_host_credential(**entry["binding"])
+    bindings = vault.host_credentials(
+        host_id=result["host"]["id"], enrollment_id=result["enrollment"]["id"],
+    )
+```
+
+Retry only the same binding arguments; a different entry ID/revision in an
+existing slot conflicts. Listing never returns plaintext values. It distinguishes
+current, changed, retired, expired, missing and released references; current data
+does not prove SSH authentication. Personal vault ownership is independent of
+the host namespace. Saving grants no backend SSH delegation.
+
+Reusable isolated acceptance runners:
+
+```shell
+uv run python scripts/test_host_credentials_http.py /secure/fixture.json --cli /path/to/cli
+uv run python scripts/test_host_credentials_ssh.py /secure/fixture.json
+```
+
+The HTTP runner verifies paired source clients against a native-Mongo backend.
+The SSH runner requires authorized Linux sshd prerequisites, uses two owned
+loopback sshd processes and synthetic keys, verifies fresh vault-restored two-hop
+access plus independent target/jump denial, and stops its processes afterward.
+The enclosing isolated fixture owns binding/database cleanup; this is not a
+production credential test or nymph enrollment claim.

@@ -6,6 +6,7 @@ SSH credentials remain local; bootstrap grants travel only on stdin.
 from __future__ import annotations
 
 import base64
+import copy
 import json
 import math
 import re
@@ -293,10 +294,10 @@ class Hosts:
 
     def enroll(self, name: str | None = None, *, prefix: str | None = None,
                ssh: str | Mapping | None = None, config: str | Path | Mapping | None = None,
-               dry_run: bool = False, save_credentials: bool = False,
+               dry_run: bool = False, save_credentials: bool = False, credentials=None,
                request_id: str | None = None, lakeshore_id: str | None = None,
                wait_seconds: float = 60, nymph_version: str = "latest") -> dict:
-        """Enroll without saving SSH credentials; return only backend-confirmed readiness.
+        """Enroll, then optionally save explicitly supplied HostCredential selections.
 
         Reuse request_id when reconciling an uncertain write. Pending readiness is
         returned separately from online status. Bootstrap grants never escape the API.
@@ -314,12 +315,13 @@ class Hosts:
         if dry_run:
             return {"status": "validated", "enrolled": False, "authorizationVerified": False,
                     "credentialSaveRequested": bool(save_credentials), "credentialsSaved": False, "plan": plan}
-        if save_credentials:
-            raise HostConfigurationError("Credential saving is not implemented; enroll without saving")
         request_id = request_id or str(uuid.uuid4())
+        # Pin endpoint/account across asynchronous SSH bootstrap and saving.
+        pinned_client = copy.copy(self._client)
+        pinned_request = Hosts(pinned_client)._request
         path = f"/namespaces/{quote(plan['namespace'], safe='')}/hosts"
         # Authorize namespace access before creating target identity files.
-        self._request("GET", path + "?prefix=" + quote(plan["namespace"] + "/" + plan["group"], safe=""), request_id=request_id)
+        pinned_request("GET", path + "?prefix=" + quote(plan["namespace"] + "/" + plan["group"], safe=""), request_id=request_id)
         try:
             probe = _remote(plan["ssh"]["args"], {"action": "probe", "name": plan["name"]})
         except HostError as error:
@@ -330,7 +332,7 @@ class Hosts:
         body = {"name": plan["name"], "unixUser": probe["unixUser"], "publicKey": probe["publicKey"], "requestId": request_id}
         if lakeshore_id is not None:
             body["lakeshoreId"] = lakeshore_id
-        receipt = self._request("POST", path + "/enrollments", body=body, request_id=request_id)
+        receipt = pinned_request("POST", path + "/enrollments", body=body, request_id=request_id)
         try:
             host, enrollment, bootstrap = receipt["host"], receipt["enrollment"], receipt["bootstrap"]
             if host["name"] != plan["name"]:
@@ -366,7 +368,7 @@ class Hosts:
         deadline = time.monotonic() + wait_seconds
         while True:
             try:
-                detail = self._request("GET", path + "/" + quote(host["id"], safe=""), request_id=request_id)
+                detail = pinned_request("GET", path + "/" + quote(host["id"], safe=""), request_id=request_id)
             except HostError as error:
                 error.operation_id = error.operation_id or operation_id
                 raise
@@ -375,9 +377,20 @@ class Hosts:
                       and match.get("statusVerified") is True
                       and match.get("machineId") == enrollment["machineId"])
             if online or time.monotonic() >= deadline:
-                return {"status": "online" if online else "pending", "enrolled": online,
+                result = {"status": "online" if online else "pending", "enrolled": online,
                         "host": {"id": host["id"], "name": host["name"]},
                         "enrollment": {"id": enrollment["id"], "machineId": enrollment["machineId"],
                                        **({"state": "online"} if online else {})},
                         "operationId": operation_id, "requestId": request_id, "credentialsSaved": False}
+                result["credentials"] = {"status": "not_requested" if not save_credentials else "enrollment_pending", "entries": []}
+                if online and save_credentials:
+                    from ..host_credentials import save_enrollment_credentials
+                    from ..vault import Vault
+                    try:
+                        with pinned_client.http() as http:
+                            result["credentials"] = save_enrollment_credentials(Vault(http), result, credentials, request_id)
+                    except Exception:
+                        result["credentials"] = {"status": "failed", "entries": []}
+                    result["credentialsSaved"] = result["credentials"]["status"] == "saved"
+                return result
             time.sleep(min(1, max(0, deadline - time.monotonic())))
