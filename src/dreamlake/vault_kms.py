@@ -1,5 +1,6 @@
 """Metadata-only personal prefix KMS management; operator provisioning is separate."""
 import re
+from datetime import datetime
 from .vault import VaultError, VaultWriteError, VaultHttpError, _write_request_id
 
 
@@ -15,12 +16,21 @@ def _ref(value):
     return value
 
 
+def _instant(raw):
+    if not isinstance(raw, str) or not re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z", raw):
+        return None
+    try:
+        return datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
 def _view(value, operation=False):
     if not isinstance(value, dict) or value.get("provider") not in ("aws-kms", "gcp-kms"):
         raise VaultError("Invalid KMS response")
     result = {"prefix": _prefix(value.get("prefix")), "provider": value["provider"]}
     if operation:
-        if value.get("state") != "committed" or not isinstance(value.get("committedAt"), str) or not re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z", value["committedAt"]):
+        if value.get("state") != "committed" or not _instant(value.get("committedAt")):
             raise VaultError("Invalid KMS receipt")
         return dict(result, keyRef=_ref(value.get("keyRef")), requestId=_write_request_id(value.get("requestId")), state="committed", committedAt=value["committedAt"])
     result["governingPrefix"] = None if value.get("governingPrefix") is None else _prefix(value["governingPrefix"])
@@ -57,11 +67,9 @@ def _view(value, operation=False):
 def _migration_view(value):
     if not isinstance(value, dict) or value.get("provider") not in ("aws-kms", "gcp-kms") or value.get("state") not in ("migrating", "completed"):
         raise VaultError("Invalid KMS migration response")
-    def instant(raw):
-        return isinstance(raw, str) and re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z", raw)
-    if type(value.get("migrated")) is not int or value["migrated"] < 0 or value["migrated"] > 9007199254740991 or not instant(value.get("startedAt")):
+    if type(value.get("migrated")) is not int or value["migrated"] < 0 or value["migrated"] > 9007199254740991 or not _instant(value.get("startedAt")):
         raise VaultError("Invalid KMS migration progress")
-    completion_valid = instant(value.get("completedAt")) if value["state"] == "completed" else value.get("completedAt") is None
+    completion_valid = (_instant(value.get("completedAt")) is not None and _instant(value["completedAt"]) >= _instant(value["startedAt"])) if value["state"] == "completed" else value.get("completedAt") is None
     if not completion_valid:
         raise VaultError("Invalid KMS migration completion")
     return dict(prefix=_prefix(value.get("prefix")), keyRef=_ref(value.get("keyRef")), requestId=_write_request_id(value.get("requestId")), provider=value["provider"], state=value["state"], migrated=value["migrated"], startedAt=value["startedAt"], completedAt=value.get("completedAt"))
@@ -117,24 +125,27 @@ class VaultKms:
         except VaultError as error:
             raise VaultWriteError(request_id, error.status if isinstance(error, VaultHttpError) else None) from None
 
-    def resume(self, *, request_id, limit=50):
+    def resume(self, *, request_id, limit=50, prefix=None):
         """Attempt at most limit ciphertext rows (1-100). Retain ID on uncertainty."""
         request_id = _write_request_id(request_id)
         if type(limit) is not int or not 1 <= limit <= 100:
             raise VaultError("Invalid KMS migration limit")
+        prefix = _prefix(prefix) if prefix is not None else None
+        body = {"limit": limit, **({"expectedPrefix": prefix} if prefix is not None else {})}
         try:
-            result = _migration_view(self._vault._request("POST", "/v1/vault/kms/migrations/" + request_id + "/resume", json={"limit": limit}))
-            if result["requestId"] != request_id:
+            result = _migration_view(self._vault._request("POST", "/v1/vault/kms/migrations/" + request_id + "/resume", json=body))
+            if result["requestId"] != request_id or (prefix is not None and result["prefix"] != prefix):
                 raise VaultError("Mismatched KMS migration receipt")
             return result
         except VaultError as error:
             raise VaultWriteError(request_id, error.status if isinstance(error, VaultHttpError) else None) from None
 
-    def status(self, *, request_id):
-        """Retrieve committed metadata. No receipt is not a no-commit guarantee."""
+    def status(self, *, request_id, prefix=None):
+        """Retrieve activation/migration metadata. Absence is not proof of no commit."""
         request_id = _write_request_id(request_id)
+        prefix = _prefix(prefix) if prefix is not None else None
         value = self._vault._request("GET", "/v1/vault/kms/operations/" + request_id)
         result = _view(value, True) if isinstance(value, dict) and value.get("state") == "committed" else _migration_view(value)
-        if result["requestId"] != request_id:
+        if result["requestId"] != request_id or (prefix is not None and result["prefix"] != prefix):
             raise VaultError("Mismatched KMS receipt")
         return result

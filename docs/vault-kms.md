@@ -51,7 +51,7 @@ Use an immutable request ID for start and each recovery attempt. `resume` proces
 ```python
 client.vault.kms.preview(prefix="alice/research", key_ref="research-key")
 client.vault.kms.migrate(prefix="alice/research", key_ref="research-key", request_id="research-move-001")
-client.vault.kms.resume(request_id="research-move-001", limit=50)
+client.vault.kms.resume(request_id="research-move-001", limit=50, prefix="alice/research")
 client.vault.kms.status(request_id="research-move-001")
 ```
 
@@ -62,7 +62,7 @@ client.vault.kms.status(request_id="research-move-001")
 ```shell
 dreamlake vault -p alice/research kms preview --key research-key
 dreamlake vault -p alice/research kms migrate --key research-key --request-id research-move-001
-dreamlake vault kms resume research-move-001 --limit 50
+dreamlake vault -p alice/research kms resume research-move-001 --limit 50
 dreamlake vault kms status research-move-001
 ```
 
@@ -71,4 +71,8 @@ dreamlake vault kms status research-move-001
 
 Repeat bounded resume explicitly until completed. Logical credential revisions and HOTP counters stay unchanged. A lost response raises `VaultWriteError` with the original ID; it is not proof of rollback. `managed` is the explicit operator default target, and reversal requires a new operation after completion. No arbitrary key ARN or provider fallback is accepted.
 
-Completion covers the active database, not retained backups or remote credential revocation. Keep historical keys until actual backup/recovery retention permits retirement. Same-provider/region is the initial candidate; customer grants, cross-provider routing and GCP live setup remain required. All writing backend instances must enforce epochs before migration is exposed. These APIs are unreleased source, not deployed behavior.
+Completion covers the active database, not retained backups or remote credential revocation. Keep historical keys until actual backup/recovery retention permits retirement. The candidate uses one configured provider: AWS keys stay in its configured region, while GCP accepts operator-allowlisted CryptoKey locations without cross-location live acceptance; customer grants, cross-provider routing and GCP live setup remain required. All writing backend instances must enforce epochs before migration is exposed. These APIs are unreleased source, not deployed behavior.
+
+Optional `prefix=` on resume is asserted by the server against the original operation before any mutation. Omit it for ID-only recovery. CLI `--prefix` behaves identically; status also rejects a mismatched explicit prefix.
+
+Migration routes require the operator flag `DREAMLAKE_VAULT_KMS_MIGRATION_ENABLED=true`, default off. Enable it only after every backend writer is verified epoch-aware. Disabling it preserves policies and completed progress; it does not authorize rolling back to old writers.

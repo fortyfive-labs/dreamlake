@@ -72,3 +72,26 @@ def test_migration_bounded_resume_and_wrong_identity_keep_intent():
         response[field] = original
     response['state'] = 'completed'
     with pytest.raises(VaultError): vault.kms.status(request_id='move-1')
+
+
+@pytest.mark.parametrize('patch', [
+    {'startedAt': '2030-02-31T00:00:00.000Z'},
+    {'startedAt': '0000-01-01T00:00:00.000Z'},
+    {'completedAt': '2030-02-31T00:00:00.000Z'},
+    {'completedAt': '2029-12-31T00:00:00.000Z'},
+])
+def test_migration_rejects_impossible_or_backwards_timestamps(patch):
+    value = dict(prefix='alice/work', provider='aws-kms', keyRef='research', requestId='move-1', state='completed', migrated=1, startedAt='2030-01-01T00:00:00.000Z', completedAt='2030-01-02T00:00:00.000Z')
+    value.update(patch)
+    vault = Vault(httpx.Client(base_url='http://fixture', transport=httpx.MockTransport(lambda _: httpx.Response(200, json=value))))
+    with pytest.raises(VaultError): vault.kms.status(request_id='move-1')
+
+
+def test_resume_sends_explicit_prefix_and_rejects_mismatched_response():
+    value = dict(prefix='alice/other', provider='aws-kms', keyRef='research', requestId='move-1', state='migrating', migrated=1, startedAt='2030-01-01T00:00:00.000Z', completedAt=None)
+    def handler(request):
+        assert json.loads(request.content) == {'limit': 1, 'expectedPrefix': 'alice/work'}
+        return httpx.Response(200, json=value)
+    vault = Vault(httpx.Client(base_url='http://fixture', transport=httpx.MockTransport(handler)))
+    with pytest.raises(VaultWriteError) as error: vault.kms.resume(request_id='move-1', limit=1, prefix='alice/work/')
+    assert error.value.request_id == 'move-1'
