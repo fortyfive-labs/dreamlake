@@ -91,6 +91,33 @@ class Vault:
     def __init__(self, http_client: httpx.Client):
         self._http = http_client
 
+    def import_entries(self, *, source, prefix, select=None, config=None, store=None,
+                       dry_run=False, if_match=None, retry=0, gpg_home=None, decryptor=None):
+        """Import explicitly selected SSH items, or preview pass OTPs locally.
+
+        Never prompts. SSH upload requires select=[item IDs]; dry_run reads no
+        private keys and makes no HTTP calls. pass-otp currently requires dry_run.
+        Unknown writes are reconciled within this call's bounded retry loop only;
+        do not blindly invoke a new import after an unknown result.
+        """
+        if not isinstance(prefix, str) or not prefix:
+            raise VaultError("Vault import requires an explicit prefix")
+        _entry_name("probe", prefix)
+        if type(dry_run) is not bool:
+            raise VaultError("dry_run must be a boolean")
+        if source == "ssh":
+            if store is not None or gpg_home is not None or decryptor is not None:
+                raise VaultError("Pass options cannot be used with SSH import")
+            from .vault_import import import_ssh
+            return import_ssh(self, prefix=prefix, select=select, config=config,
+                              dry_run=dry_run, if_match=if_match, retry=retry)
+        if source == "pass-otp":
+            if select is not None or config is not None or if_match is not None or retry != 0:
+                raise VaultError("SSH options cannot be used with pass-OTP preview")
+            return self.pass_store.sync(store=store, otp=True, dry_run=dry_run, prefix=prefix,
+                                        gpg_home=gpg_home, decryptor=decryptor)
+        raise VaultError("Choose exactly one supported import source: ssh or pass-otp")
+
     @property
     def pass_store(self):
         """Read-only, explicitly selected local pass store preview."""
