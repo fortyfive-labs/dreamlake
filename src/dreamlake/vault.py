@@ -22,11 +22,19 @@ class VaultHttpError(VaultError):
 
 
 class VaultWriteError(VaultError):
-    """Write failed or delivery is uncertain. Reconcile request_id before retry."""
+    """Logical write remains unknown; attempt_outcome describes this HTTP attempt.
+
+    Even a rejected replay may follow a committed write with the same ID.
+    Only a matching authenticated committed receipt resolves that uncertainty.
+    """
     def __init__(self, request_id, status=None):
         self.request_id = request_id
         self.status = status
-        self.outcome = "rejected" if status is not None and 400 <= status < 500 else "unknown"
+        self.outcome = "unknown"
+        self.attempt_outcome = (
+            "rejected" if status is not None and 400 <= status < 500 and status != 408
+            else "unknown"
+        )
         detail = f" (HTTP {status})" if status is not None else ""
         super().__init__(f"Vault write {self.outcome}{detail}; reconcile request ID {request_id}")
 
@@ -191,6 +199,8 @@ class Vault:
         request payload, not as URL metadata. Returns metadata plus requestId and
         replayed. Retain an explicit request_id before submission for crash
         recovery; otherwise one is generated. Requires receipt-capable server.
+        VaultWriteError.outcome stays unknown on failure, including rejected
+        retries; attempt_outcome reports only this attempt's HTTP rejection.
         """
         name = _entry_name(name, prefix)
         request_id = _write_request_id(str(uuid4()) if request_id is None else request_id)

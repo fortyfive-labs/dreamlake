@@ -180,7 +180,7 @@ def test_write_receipt_redaction_validation_and_unknown_errors():
 
 def test_write_rejects_old_server_receipt_and_preserves_http_conflict():
     from dreamlake.vault import VaultWriteError
-    for status, body, outcome in [(200, {"entry":{"name":"ge/token","type":"string","revision":1}}, "unknown"), (409,{"error":"DO_NOT_EMIT"},"rejected")]:
+    for status, body, outcome in [(200, {"entry":{"name":"ge/token","type":"string","revision":1}}, "unknown"), (409,{"error":"DO_NOT_EMIT"},"unknown")]:
         v = Vault(httpx.Client(base_url="http://test", transport=httpx.MockTransport(lambda _:httpx.Response(status,json=body))))
         with pytest.raises(VaultWriteError) as raised:
             v.add("ge/token","DO_NOT_EMIT",request_id="write-2")
