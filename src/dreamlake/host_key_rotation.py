@@ -236,6 +236,9 @@ def rotate_host_key(vault, *, binding_id, operation_file, new_entry, ssh):
             state = load_journal(path, validate_state, validate_transition)[0]
         except FileNotFoundError:
             state = _prepare(pinned, path, binding_id, new_entry, profile)
+        candidate = path.parent / ('.rotation-' + state['operationId'])
+        if state['oldKeyPath'] != str(candidate / 'old-key') or state['newKeyPath'] != str(candidate / 'new-key'):
+            raise ValueError('Rotation key paths do not match owned operation directory')
         if (state['origin'] != pinned.origin or state['account'] != pinned.account
                 or state['bindingId'] != binding_id or state['replacementEntryName'] != new_entry
                 or state['sshProfile'] != profile):

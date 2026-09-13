@@ -23,7 +23,7 @@ from dreamlake.vault import Vault
 from dreamlake.host_key_journal import _directory, canonical_json, load_journal, publish_record
 from dreamlake.host_key_state import validate_state, validate_transition
 from dreamlake.host_key_rotation import _public
-from dreamlake.host_key_transport import public_key_denied, ssh_config
+from dreamlake.host_key_transport import public_key_denied, ssh_config, run_helper, _AuthLog, _bounded_process
 
 
 REMOTE = r'''
@@ -36,7 +36,7 @@ assert set(accounts) == {'target', 'jump'}
 def checked(role, missing=False):
     a = accounts[role]
     assert a['user'] == 'dlvr-' + role[0] + '-' + p['tag']
-    assert a['marker'] == 'dreamlake-vault-rotation:' + p['tag'] + ':' + role
+    assert a['marker'] == 'dreamlake-vault-rotation-' + p['tag'] + '-' + role
     try: row = pwd.getpwnam(a['user'])
     except KeyError:
         if missing: return None
@@ -92,7 +92,8 @@ print(json.dumps({'accounts':result,'machineId':pathlib.Path('/etc/machine-id').
 def command(argv, **kwargs):
     result = subprocess.run(argv, capture_output=True, timeout=90, **kwargs)
     if result.returncode:
-        raise RuntimeError('Fixture command failed; diagnostics withheld, retain private workdir')
+        safe=[line for line in result.stderr.decode(errors='replace').splitlines() if line.startswith('Rotation is not confirmed') and len(line)<1000]
+        raise RuntimeError('Fixture command failed; '+''.join(safe)+'; retain private workdir')
     return result
 
 
@@ -122,7 +123,7 @@ def run(args):
         unrelated=work/(role+'-unrelated')
         command(['ssh-keygen','-q','-t','ed25519','-N','','-f',str(unrelated)])
         unchanged='# preserve unrelated comment\n'+_public(unrelated)+' unrelated-public-key\n'
-        state['accounts'][role]=dict(user='dlvr-'+role[0]+'-'+tag, marker='dreamlake-vault-rotation:'+tag+':'+role,
+        state['accounts'][role]=dict(user='dlvr-'+role[0]+'-'+tag, marker='dreamlake-vault-rotation-'+tag+'-'+role,
             authorized='no-agent-forwarding,no-X11-forwarding '+_public(key)+' selected-original\n'+unchanged,
             unchanged=unchanged,key=str(key))
     save_state(state_file,state)
@@ -162,6 +163,24 @@ def run(args):
         save_state(state_file,state)
         known=work/'known_hosts'
         known.write_text(f'[{hostname}]:{port} '+facts['hostPublicKey']+'\n'+hostname+' '+facts['hostPublicKey']+'\n');known.chmod(0o600)
+        probe_key=work/'diagnostic-key'
+        command(['ssh-keygen','-q','-t','ed25519','-N','','-f',str(probe_key)])
+        for role in ('jump','target'):
+            profile=dict(host=hostname,user=state['accounts'][role]['user'],port=port,knownHostsFile=str(known))
+            if role=='target': profile['jump']=dict(host=hostname,user=state['accounts']['jump']['user'],port=port,
+                    knownHostsFile=str(known),identityFile=state['accounts']['jump']['key'])
+            cfg=work/(role+'-initial-probe-config')
+            publish_record(cfg,ssh_config(profile,state['accounts'][role]['key']).encode())
+            probe=subprocess.run(['ssh','-F',str(cfg),'rotation-target','printf fixture-ready'],capture_output=True,timeout=30,env={**os.environ,'LC_ALL':'C'})
+            if probe.returncode:
+                reason='selected-publickey-denied' if public_key_denied(probe.returncode,probe.stderr.decode(),profile) else 'transport-unconfirmed'
+                raise RuntimeError('Initial '+role+' SSH '+reason)
+            assert probe.stdout==b'fixture-ready'
+            print('PASS initial '+role+' fresh selected-key SSH',flush=True)
+            reply=run_helper(profile=profile,selected_key=state['accounts'][role]['key'],config_file=cfg,
+                request=dict(action='inspect',operationId=str(uuid.uuid4()),oldPublicKey=_public(Path(state['accounts'][role]['key'])),newPublicKey=_public(probe_key)))
+            assert reply['oldPresent'] and not reply['newPresent']
+            print('PASS initial '+role+' real standalone helper inspect',flush=True)
         for role in ('target','jump'):
             name=f'alice/rotation-{tag}/{role}-initial'
             entry=vault.add(name,Path(state['accounts'][role]['key']).read_text())
@@ -179,9 +198,9 @@ def run(args):
             env={**os.environ,'DREAMLAKE_REMOTE':fixture['url'],'DREAMLAKE_API_KEY':fixture['aliceToken'],'XDG_CONFIG_HOME':str(work/'config')}
             if client=='cli':
                 argv=['node','--import','tsx','src/cli/index.ts','vault','rotate-key','--binding-id',bound['id'],
-                      '--operation-file',str(operation_file),'--new-entry',name,'--ssh',f'-p {port} {profile["user"]}@{hostname}',
+                      '--operation-file',str(operation_file),'--new-entry',name,'--ssh='+f'-p {port} {profile["user"]}@{hostname}',
                       '--known-hosts',str(known)]
-                if role=='target':argv+=['--jump-ssh',f'-p {port} {profile["jump"]["user"]}@{hostname}',
+                if role=='target':argv+=['--jump-ssh='+f'-p {port} {profile["jump"]["user"]}@{hostname}',
                                         '--jump-identity',profile['jump']['identityFile'],'--jump-known-hosts',str(known)]
                 result=command(argv,cwd=args.cli_dir.resolve(),env=env)
                 assert json.loads(result.stdout)['phase']=='cleanup_confirmed'
@@ -201,8 +220,11 @@ def run(args):
             oldkey=state['accounts'][role]['key']
             denial_config=work/(role+'-'+client+'-denied-config')
             publish_record(denial_config,ssh_config(profile,oldkey).encode())
-            denied=subprocess.run(['ssh','-F',str(denial_config),'rotation-target','true'],capture_output=True,timeout=30,env={**os.environ,'LC_ALL':'C'})
-            assert public_key_denied(denied.returncode,denied.stderr.decode(),profile)
+            auth_log=_AuthLog(work)
+            try:
+                code,_,_=_bounded_process(['ssh','-F',str(denial_config),'-v','-E',str(auth_log.path),'rotation-target','true'],b'',monitor=auth_log.check_size)
+                assert public_key_denied(code,auth_log.read(),profile)
+            finally:auth_log.close()
             fresh_config=work/(role+'-'+client+'-fresh-config')
             publish_record(fresh_config,ssh_config(profile,str(newkey)).encode())
             assert command(['ssh','-F',str(fresh_config),'rotation-target','printf rotation-ok']).stdout==b'rotation-ok'
@@ -259,7 +281,7 @@ def run(args):
         if cleanup_errors:raise RuntimeError('Cleanup incomplete: '+', '.join(cleanup_errors)+'; retain private workdir')
         # Delete only known synthetic key files after all remote/API cleanup.
         for path in work.iterdir():
-            if path.is_file() and path.name not in ('state.json',) and (path.name.endswith('-initial') or path.name.endswith('-restored') or path.name.endswith('-unrelated')):
+            if path.is_file() and path.name not in ('state.json',) and (path.name.endswith('-initial') or path.name.endswith('-restored') or path.name.endswith('-unrelated') or path.name=='diagnostic-key'):
                 path.unlink()
         for folder in work.glob('.rotation-*'):
             for key in ('old-key','new-key'):

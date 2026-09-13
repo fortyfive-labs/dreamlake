@@ -1,0 +1,32 @@
+#!/usr/bin/env python3
+"""Local auth adapter for HTTP/client tests; never claims real SSH acceptance."""
+import json
+import os
+from pathlib import Path
+import shlex
+import subprocess
+import sys
+from dreamlake.host_key_remote import operate
+
+config = Path(sys.argv[sys.argv.index('-F') + 1]).read_text()
+selected = {}
+for line in config.splitlines():
+    parts = shlex.split(line)
+    if not parts: continue
+    if parts[0] == 'Host' and parts[1] != 'rotation-target': break
+    if len(parts) == 2: selected[parts[0]] = parts[1]
+home = Path(os.environ['VAULT_ROTATION_FAKE_HOME'])
+result = subprocess.run(['ssh-keygen', '-y', '-P', '', '-f', selected['IdentityFile']], capture_output=True)
+key = ' '.join(result.stdout.decode().strip().split()[:2])
+denied = result.returncode or key.encode() not in (home/'.ssh/authorized_keys').read_bytes()
+if '-E' in sys.argv:
+    log = Path(sys.argv[sys.argv.index('-E')+1])
+    log.write_text(('debug1: No more authentication methods to try.\n'+selected['User']+'@'+selected['HostName']+': Permission denied (publickey).\n') if denied else 'Authenticated to '+selected['HostName']+' using \"publickey\".\n')
+if denied:
+    print(selected['User']+'@'+selected['HostName']+': Permission denied (publickey).', file=sys.stderr)
+    raise SystemExit(255)
+try:
+    print(json.dumps(operate(json.load(sys.stdin), home=home, machine_id='synthetic-http-fixture')))
+except Exception:
+    print(json.dumps({'error':'FIXTURE_HELPER_FAILED'}))
+    raise SystemExit(1)

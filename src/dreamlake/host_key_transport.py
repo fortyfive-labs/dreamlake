@@ -9,6 +9,8 @@ import selectors
 import shlex
 import subprocess
 import time
+import stat
+import uuid
 
 from .host_key_journal import publish_record, read_record
 from . import host_key_remote
@@ -90,7 +92,7 @@ def _request(value):
         raise ValueError('Remote mutation requires pinned identity')
 
 
-def _bounded_process(argv, data, *, timeout=30):
+def _bounded_process(argv, data, *, timeout=30, monitor=None):
     """Bound both output and elapsed time; never expose process diagnostics."""
     process = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                stderr=subprocess.PIPE, env={**os.environ, 'LC_ALL': 'C'})
@@ -105,6 +107,8 @@ def _bounded_process(argv, data, *, timeout=30):
         sent = 0
         deadline = time.monotonic() + timeout
         while selector.get_map():
+            if monitor:
+                monitor()
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 raise TimeoutError('Remote rotation timed out')
@@ -136,8 +140,50 @@ def _bounded_process(argv, data, *, timeout=30):
             stream.close()
 
 
-def public_key_denied(code, stderr, profile):
-    return code == 255 and f'{profile["user"]}@{profile["host"]}: Permission denied (publickey).' in stderr.splitlines()
+def public_key_denied(code, local_auth_log, profile):
+    """Only locally recorded parent SSH auth state; never remote command stderr."""
+    lines = local_auth_log.splitlines()
+    return (code == 255
+            and not any(re.match(r'^(?:debug[123]: )?(?:Authenticated to |Authentication succeeded\b)', line) for line in lines)
+            and 'debug1: No more authentication methods to try.' in lines
+            and f'{profile["user"]}@{profile["host"]}: Permission denied (publickey).' in lines)
+
+
+class _AuthLog:
+    def __init__(self, directory):
+        self.path = Path(directory) / ('.rotation-auth-' + str(uuid.uuid4()) + '.log')
+        self.fd = os.open(self.path, os.O_RDWR | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+        os.fchmod(self.fd, 0o600)
+        self.initial = os.fstat(self.fd)
+
+    def check_size(self):
+        if os.fstat(self.fd).st_size > 65536:
+            raise ValueError('Authentication log limit exceeded')
+
+    def read(self):
+        before = os.fstat(self.fd)
+        current = self.path.lstat()
+        if (not stat.S_ISREG(before.st_mode) or before.st_nlink != 1
+                or before.st_uid != os.getuid() or stat.S_IMODE(before.st_mode) != 0o600
+                or (current.st_dev, current.st_ino) != (self.initial.st_dev, self.initial.st_ino)):
+            raise ValueError('Invalid local authentication log')
+        self.check_size()
+        os.lseek(self.fd, 0, os.SEEK_SET)
+        data = os.read(self.fd, 65537)
+        after = os.fstat(self.fd)
+        if len(data) != before.st_size or (after.st_size, after.st_mtime_ns) != (before.st_size, before.st_mtime_ns):
+            raise ValueError('Authentication log changed')
+        return data.decode('utf-8')
+
+    def close(self):
+        try:
+            current = self.path.lstat()
+            if (current.st_dev, current.st_ino) == (self.initial.st_dev, self.initial.st_ino):
+                self.path.unlink()
+        except FileNotFoundError:
+            pass
+        finally:
+            os.close(self.fd)
 
 
 def run_helper(*, profile, selected_key, config_file, request, expect_denied=False, executable='ssh'):
@@ -153,10 +199,14 @@ def run_helper(*, profile, selected_key, config_file, request, expect_denied=Fal
     if len(data) > 65536:
         raise ValueError('Remote metadata exceeds limit')
     source = Path(host_key_remote.__file__).read_text()
+    log = _AuthLog(Path(config_file).parent) if expect_denied else None
     try:
-        code, stdout, stderr = _bounded_process(
-            [executable, '-F', str(config_file), 'rotation-target', 'python3', '-c', shlex.quote(source)], data)
-        if expect_denied and public_key_denied(code, stderr.decode('utf-8'), profile):
+        argv = [executable, '-F', str(config_file)]
+        if log:
+            argv += ['-v', '-E', str(log.path)]
+        argv += ['rotation-target', 'python3', '-c', shlex.quote(source)]
+        code, stdout, stderr = _bounded_process(argv, data, monitor=log.check_size if log else None)
+        if expect_denied and public_key_denied(code, log.read(), profile):
             return 'publickey-denied'
         if code != 0 or expect_denied:
             raise ValueError('Remote step unconfirmed')
@@ -170,3 +220,6 @@ def run_helper(*, profile, selected_key, config_file, request, expect_denied=Fal
         return reply
     except Exception:
         raise ValueError('Remote rotation step unconfirmed; retain the operation and retry') from None
+    finally:
+        if log:
+            log.close()
