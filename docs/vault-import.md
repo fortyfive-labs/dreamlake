@@ -82,7 +82,7 @@ assert preview["uploaded"] is False
 This remains a redacted, read-only preview. It decrypts records from the explicit
 store locally without interactive pinentry, finds OTP records, and reports
 mapping/error status without exposing seeds or adjacent ordinary passwords.
-Selected TOTP upload and owner-only generation are available from Python 0.10.0 with the matching OTP backend. HOTP support is included in the 0.13.0 release candidate; its publication and hosted acceptance are separate. Ordinary `source="pass"`
+Selected TOTP upload and owner-only generation are available from Python 0.10.0 with the matching OTP backend. HOTP support is published in Python 0.13.0; hosted backend availability and live acceptance remain separate. Ordinary `source="pass"`
 is unsupported; `config`, `if_match` and `retry` remain SSH-only.
 
 The existing `client.vault.pass_store.sync(store=..., otp=True, dry_run=True)`
