@@ -2,7 +2,7 @@
 
 ## 0.13.0 — 2026-09-13
 
-**Published to PyPI.** Wheel and sdist downloads match the reviewed SHA256 hashes; a fresh registry installation reports 0.13.0. Paired CLI candidate: 0.16.0. The matching Vault backend
+**Published to PyPI.** Wheel and sdist downloads match the reviewed SHA256 hashes; a fresh registry installation reports 0.13.0. Paired CLI release: 0.16.0. The matching Vault backend
 is required; local package validation is separate from hosted deployment.
 
 - HOTP registrations import inactive by default. Explicit `hotp_owner="dreamlake"`
