@@ -343,13 +343,56 @@ class Vault:
         name = _entry_name(name, prefix)
         return _metadata_response(self._request("POST", "/v1/vault/restore", json={"name": name}, headers=_revision_headers(if_match)), name)
 
-    def list(self, *, prefix=""):
-        """List authorized metadata only, never secret payloads."""
+    def list_page(self, *, prefix="", limit=100, cursor=None, include_deleted=False):
+        """Read one bounded metadata page; nextCursor is None at completion.
+
+        Cursor traversal is not a snapshot. Names inserted before the previous
+        page boundary require a fresh listing; deleted names may disappear.
+        """
         if prefix:
             resolve_selector("probe", prefix)
-        data = self._request("GET", "/v1/vault/entries", params={"prefix": prefix})
+        if type(limit) is not int or not 1 <= limit <= 200 or type(include_deleted) is not bool:
+            raise VaultError("Invalid page options")
+        if cursor is not None and (not isinstance(cursor, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,2048}", cursor)):
+            raise VaultError("Invalid cursor")
+        params = {"prefix": prefix, "limit": limit}
+        if cursor is not None:
+            params["cursor"] = cursor
+        if include_deleted:
+            params["includeDeleted"] = "true"
+        data = self._request("GET", "/v1/vault/entries", params=params)
+        entries = _entries(data)
+        next_cursor = data.get("nextCursor")
+        if next_cursor is not None and (not isinstance(next_cursor, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,2048}", next_cursor)):
+            raise VaultError("Invalid vault page")
+        if "nextCursor" in data and (len(entries) > limit or next_cursor is not None and not entries or any(a["name"] >= b["name"] for a, b in zip(entries, entries[1:]))):
+            raise VaultError("Invalid vault page")
         allowed = {"name", "type", "env", "keyName", "fileName", "deleteAt", "purgeAt", "expiresAt", "revision"}
-        return [{k: v for k, v in entry.items() if k in allowed} for entry in _entries(data)]
+        return {"entries": [{k: v for k, v in entry.items() if k in allowed} for entry in entries], "nextCursor": next_cursor}
+
+    def list(self, *, prefix="", include_deleted=False):
+        """Return all authorized metadata, draining bounded pages without reveals."""
+        def authority():
+            return (id(self._http), id(self._http._transport_for_url(self._http.base_url)), str(self._http.base_url), tuple(self._http.headers.raw),
+                    tuple((c.domain, c.path, c.name, c.value) for c in self._http.cookies.jar),
+                    self._http.auth, tuple((key, tuple(value)) for key, value in self._http.event_hooks.items()))
+        original_authority = authority()
+        entries, seen, cursor = [], set(), None
+        while True:
+            if authority() != original_authority:
+                raise VaultError("Vault connection changed during listing")
+            page = self.list_page(prefix=prefix, cursor=cursor, include_deleted=include_deleted)
+            if authority() != original_authority:
+                raise VaultError("Vault connection changed during listing")
+            if entries and page["entries"] and entries[-1]["name"] >= page["entries"][0]["name"]:
+                raise VaultError("Non-progressing vault page")
+            entries.extend(page["entries"])
+            cursor = page["nextCursor"]
+            if cursor is None:
+                return entries
+            if cursor in seen:
+                raise VaultError("Repeated vault cursor")
+            seen.add(cursor)
 
     def get(self, name, *, prefix="", to_json=False, to_envs=False, env_prefix=""):
         """Read one selector or compose a list. Explicit formatting returns a string.
