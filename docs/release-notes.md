@@ -1,8 +1,8 @@
 # Release notes
 
-## 0.14.0 — release candidate
+## 0.14.0 — 2026-09-13
 
-**Not published.** Paired CLI 0.17.0. This candidate contains only merged changes.
+**Published to PyPI.** Wheel and sdist hashes match the reviewed artifacts; a fresh registry installation reports 0.14.0. Paired CLI 0.17.0 publication is pending. This release contains only merged changes.
 
 - Personal owners can inspect trusted prefix KMS policies, preview retained records,
   activate empty prefixes, and explicitly start/resume populated-prefix migrations.
