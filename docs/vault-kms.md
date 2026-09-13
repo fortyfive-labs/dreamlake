@@ -1,6 +1,6 @@
 # Prefix KMS policies
 
-**Unreleased; matching backend required.** Managed KMS is already the default. Personal owners can inspect operator-approved key references and activate them for an empty prefix. This does not onboard arbitrary cloud keys, grant cloud permissions, or implicitly migrate existing data. The explicit migration flow is described below; the SDK never prompts.
+**Python 0.14.0 release candidate; matching backend required.** Managed KMS is already the default. Personal owners can inspect operator-approved key references and activate them for an empty prefix. This does not onboard arbitrary cloud keys, grant cloud permissions, or implicitly migrate existing data. The explicit migration flow is described below; the SDK never prompts.
 
 ::::{tab-set}
 
