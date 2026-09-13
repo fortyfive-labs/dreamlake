@@ -155,6 +155,22 @@ class Vault:
             raise VaultError("Invalid host credential binding response")
         return {k: binding[k] for k in (*data, "id", "createdAt") if k in binding}
 
+    def unbind_host_credential(self, *, binding_id, entry_id, entry_revision):
+        """Release a personal retention reference; does not revoke remote SSH access.
+
+        Retiring the entry and its configured retention deadline still govern
+        deletion. Retry the same metadata after an uncertain response.
+        """
+        if not isinstance(binding_id, str) or not re.fullmatch(r"[a-f0-9-]{36}", binding_id) or not isinstance(entry_id, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", entry_id) or type(entry_revision) is not int or not 1 <= entry_revision <= 9007199254740991:
+            raise VaultError("Invalid host credential reference")
+        result = self._request("POST", f"/v1/vault/host-credentials/{binding_id}/release", json={"entryId": entry_id, "entryRevision": entry_revision})
+        b = result.get("binding") if isinstance(result, dict) else None
+        _host_binding(b)
+        if b.get("id") != binding_id or b.get("entryId") != entry_id or b.get("entryRevision") != entry_revision or not isinstance(b.get("releasedAt"), str) or not b["releasedAt"] or b.get("remoteAccessRevoked") is not False:
+            raise VaultError("Invalid host credential release response")
+        allowed = {"id", "hostId", "enrollmentId", "role", "endpoint", "kind", "entryId", "entryRevision", "createdAt", "releasedAt", "remoteAccessRevoked"}
+        return {k: v for k, v in b.items() if k in allowed}
+
     def host_credentials(self, *, host_id, enrollment_id):
         """Account-only binding metadata; does not return secret values."""
         if any(not isinstance(value, str) or not re.fullmatch(r"[0-9a-f]{24}", value) for value in (host_id, enrollment_id)):
