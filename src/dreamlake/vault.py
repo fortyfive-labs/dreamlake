@@ -157,6 +157,8 @@ class Vault:
 
     def host_credentials(self, *, host_id, enrollment_id):
         """Account-only binding metadata; does not return secret values."""
+        if any(not isinstance(value, str) or not re.fullmatch(r"[0-9a-f]{24}", value) for value in (host_id, enrollment_id)):
+            raise VaultError("Invalid host credential identity")
         result = self._request("GET", "/v1/vault/host-credentials", params={"hostId": host_id, "enrollmentId": enrollment_id})
         bindings = result.get("bindings") if isinstance(result, dict) else None
         if not isinstance(bindings, list):
