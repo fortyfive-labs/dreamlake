@@ -59,7 +59,8 @@ request_id = "service-write-001"  # persist only this non-secret operation ID
 try:
     result = client.vault.add("service", secret, prefix="alice", request_id=request_id)
 except VaultWriteError as error:
-    # error.request_id is safe to retain; error.status identifies HTTP rejection.
+    # error.request_id is safe to retain; error.status is the HTTP status.
+    # error.outcome is "unknown"; attempt_outcome may be "rejected".
     receipt = client.vault.write_status(request_id=error.request_id)
     # A missing/unavailable receipt leaves the outcome unknown.
 
@@ -73,3 +74,24 @@ Mongo replica-set transactions and authenticated encryption, including a proxy
 that drops the committed response, races, rollback and tenant denial. The Python
 repository's `scripts/test_vault_write_recovery_integration.py` drives the actual
 CLI and Python clients against `serveTestFixture.ts`, losing both responses.
+
+## Error outcome contract and CLI parity
+
+`VaultWriteError.outcome` is always `"unknown"`: an HTTP failure cannot prove
+that this logical operation never committed, including with an automatically
+generated ID. `attempt_outcome` is `"rejected"` for 4xx except 408, and
+`"unknown"` for 408, transport errors, 5xx, redirects or malformed success
+receipts. HTTP 408 can originate at an intermediary after commitment. A 409
+conflict or expired-recovery response rejects this attempt; an earlier attempt
+with that ID may already have committed. Neither field authorizes starting a
+new logical write. Reconcile using a matching authenticated committed receipt;
+missing, expired or unavailable status preserves uncertainty. Errors retain
+only the request ID and HTTP status, never server diagnostics or secret values.
+
+CLI integration must preserve the same distinction in its errors, output and
+retry decisions: 408 is unknown, and a rejected retry (including 409
+`IDEMPOTENCY_CONFLICT`/`WRITE_RECOVERY_EXPIRED`) must not claim the logical write
+failed or advise a new ID. If exposing structured outcomes, use logical
+`outcome=unknown` separately from `attemptOutcome=rejected`. This Python change
+does not update the standalone CLI; its implementation and public docs require
+integration-owner verification before publication.

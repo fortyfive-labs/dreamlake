@@ -22,48 +22,6 @@ class PassStore:
             raise ValueError("Pass store must be a real directory without symlink ancestors")
         entries = []
 
-        def decrypt(ciphertext):
-            if decryptor is not None:
-                return decryptor(ciphertext)
-            args = ["gpg", "--no-options", "--batch", "--no-tty", "--pinentry-mode", "error"]
-            if gpg_home:
-                args += ["--homedir", str(gpg_home)]
-            # No pass extension or config execution. Timeout never falls back to pinentry.
-            with subprocess.Popen(args + ["--decrypt"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL) as proc:
-                chunks, failed = [], []
-                def feed():
-                    try:
-                        proc.stdin.write(ciphertext)
-                        proc.stdin.close()
-                    except (BrokenPipeError, OSError):
-                        pass
-                def drain():
-                    size = 0
-                    while True:
-                        chunk = proc.stdout.read(16384)
-                        if not chunk:
-                            break
-                        size += len(chunk)
-                        if size > 1048576:
-                            failed.append(True)
-                            proc.kill()
-                            break
-                        chunks.append(chunk)
-                writer, reader = threading.Thread(target=feed), threading.Thread(target=drain)
-                writer.start()
-                reader.start()
-                try:
-                    proc.wait(timeout=15)
-                except subprocess.TimeoutExpired:
-                    failed.append(True)
-                    proc.kill()
-                    proc.wait()
-                finally:
-                    writer.join()
-                    reader.join()
-                if failed or proc.returncode:
-                    raise ValueError("Credential decryption failed")
-                return b"".join(chunks).decode("utf-8")
 
         def walk(directory):
             for source in sorted(directory.iterdir()):
@@ -92,7 +50,7 @@ class PassStore:
                         raise ValueError("Pass store changed or exceeds size limit")
                 path = str(source.relative_to(root))[:-4]
                 try:
-                    content = decrypt(ciphertext)
+                    content = decrypt_pass(ciphertext, gpg_home, decryptor)
                     if not isinstance(content, str) or len(content) > 1048576:
                         raise ValueError()
                     entries.extend(preview_pass_otp([dict(path=path, content=content)])["entries"])
@@ -108,3 +66,47 @@ class PassStore:
                     invalid=sum(e["status"] == "invalid" for e in entries),
                     skipped=sum(e["status"] == "no-otp" for e in entries),
                     failed=sum(e["status"] == "decrypt-failed" for e in entries))
+
+
+def decrypt_pass(ciphertext, gpg_home=None, decryptor=None):
+    if decryptor is not None:
+        return decryptor(ciphertext)
+    args = ["gpg", "--no-options", "--batch", "--no-tty", "--pinentry-mode", "error"]
+    if gpg_home:
+        args += ["--homedir", str(gpg_home)]
+    # No pass extension or config execution. Timeout never falls back to pinentry.
+    with subprocess.Popen(args + ["--decrypt"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL) as proc:
+        chunks, failed = [], []
+        def feed():
+            try:
+                proc.stdin.write(ciphertext)
+                proc.stdin.close()
+            except (BrokenPipeError, OSError):
+                pass
+        def drain():
+            size = 0
+            while True:
+                chunk = proc.stdout.read(16384)
+                if not chunk:
+                    break
+                size += len(chunk)
+                if size > 1048576:
+                    failed.append(True)
+                    proc.kill()
+                    break
+                chunks.append(chunk)
+        writer, reader = threading.Thread(target=feed), threading.Thread(target=drain)
+        writer.start()
+        reader.start()
+        try:
+            proc.wait(timeout=15)
+        except subprocess.TimeoutExpired:
+            failed.append(True)
+            proc.kill()
+            proc.wait()
+        finally:
+            writer.join()
+            reader.join()
+        if failed or proc.returncode:
+            raise ValueError("Credential decryption failed")
+        return b"".join(chunks).decode("utf-8")

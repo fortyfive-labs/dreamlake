@@ -22,11 +22,19 @@ class VaultHttpError(VaultError):
 
 
 class VaultWriteError(VaultError):
-    """Write failed or delivery is uncertain. Reconcile request_id before retry."""
+    """Logical write remains unknown; attempt_outcome describes this HTTP attempt.
+
+    Even a rejected replay may follow a committed write with the same ID.
+    Only a matching authenticated committed receipt resolves that uncertainty.
+    """
     def __init__(self, request_id, status=None):
         self.request_id = request_id
         self.status = status
-        self.outcome = "rejected" if status is not None and 400 <= status < 500 else "unknown"
+        self.outcome = "unknown"
+        self.attempt_outcome = (
+            "rejected" if status is not None and 400 <= status < 500 and status != 408
+            else "unknown"
+        )
         detail = f" (HTTP {status})" if status is not None else ""
         super().__init__(f"Vault write {self.outcome}{detail}; reconcile request ID {request_id}")
 
@@ -129,10 +137,10 @@ class Vault:
 
     def import_entries(self, *, source, prefix, select=None, config=None, store=None,
                        dry_run=False, if_match=None, retry=0, gpg_home=None, decryptor=None):
-        """Import explicitly selected SSH items, or preview pass OTPs locally.
+        """Import explicitly selected SSH items or TOTP records from pass.
 
         Never prompts. SSH upload requires select=[item IDs]; dry_run reads no
-        private keys and makes no HTTP calls. pass-otp currently requires dry_run.
+        private keys and makes no HTTP calls. pass-otp upload requires select paths.
         Unknown writes are reconciled within this call's bounded retry loop only;
         do not blindly invoke a new import after an unknown result.
         """
@@ -148,8 +156,13 @@ class Vault:
             return import_ssh(self, prefix=prefix, select=select, config=config,
                               dry_run=dry_run, if_match=if_match, retry=retry)
         if source == "pass-otp":
-            if select is not None or config is not None or if_match is not None or retry != 0:
-                raise VaultError("SSH options cannot be used with pass-OTP preview")
+            if config is not None or if_match is not None or retry != 0:
+                raise VaultError("config, if_match and retry cannot be used with pass-OTP import")
+            if not dry_run:
+                from .pass_import import import_pass_otp
+                return import_pass_otp(self, store=store, prefix=prefix, select=select, gpg_home=gpg_home, decryptor=decryptor)
+            if select is not None:
+                raise VaultError("select is for upload; dry_run previews the explicit store")
             return self.pass_store.sync(store=store, otp=True, dry_run=dry_run, prefix=prefix,
                                         gpg_home=gpg_home, decryptor=decryptor)
         raise VaultError("Choose exactly one supported import source: ssh or pass-otp")
@@ -186,6 +199,8 @@ class Vault:
         request payload, not as URL metadata. Returns metadata plus requestId and
         replayed. Retain an explicit request_id before submission for crash
         recovery; otherwise one is generated. Requires receipt-capable server.
+        VaultWriteError.outcome stays unknown on failure, including rejected
+        retries; attempt_outcome reports only this attempt's HTTP rejection.
         """
         name = _entry_name(name, prefix)
         request_id = _write_request_id(str(uuid4()) if request_id is None else request_id)
@@ -223,6 +238,25 @@ class Vault:
         """
         request_id = _write_request_id(request_id)
         return _write_receipt(self._request("GET", f"/v1/vault/write-operations/{request_id}"), request_id)
+
+    def otp(self, name, *, prefix="", to_json=False):
+        """Explicitly retrieve a current TOTP code. Owner-only; never prompts.
+
+        Returns a code string, or JSON containing code and validUntil when
+        to_json=True. Treat either result as secret. HOTP is not supported.
+        """
+        if type(to_json) is not bool:
+            raise VaultError("to_json must be a boolean")
+        result = self._request("POST", "/v1/vault/otp", json={"name": _entry_name(name, prefix)})
+        try:
+            if not isinstance(result, dict) or not isinstance(result.get("code"), str) or not re.fullmatch(r"[0-9]{6,8}", result["code"]) or not isinstance(result.get("validUntil"), str) or not re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z", result["validUntil"]):
+                raise ValueError()
+            from datetime import timezone
+            if datetime.fromisoformat(result["validUntil"].replace("Z", "+00:00")) <= datetime.now(timezone.utc):
+                raise ValueError()
+        except (ValueError, TypeError):
+            raise VaultError("Invalid or expired OTP response") from None
+        return json.dumps({"code": result["code"], "validUntil": result["validUntil"]}) if to_json else result["code"]
 
     def show(self, name, *, prefix=""):
         """Return metadata, including retirement status, without decrypting."""
@@ -286,7 +320,7 @@ class Vault:
             alias, selector = selector.split("=", 1) if "=" in selector else (None, selector)
             path, _, field = selector.partition(".")
             entry = next((e for e in entries if e["name"] == path), None)
-            if not entry or entry["type"] != "string":
+            if not entry or entry["type"] not in ("string", "totp"):
                 raise VaultError("Entry unavailable or unsupported type")
             value = entry["value"]
             if field:
