@@ -29,7 +29,7 @@ class LostResponse(httpx.BaseTransport):
         self.transport.close()
 
 
-def run(fixture):
+def run(fixture, cli_checkout=None):
     if not __debug__:
         raise ValueError('Assertions required')
     info = fixture.lstat()
@@ -55,6 +55,13 @@ def run(fixture):
             assert all(entry['status']=='success' for entry in result['entries'])
             assert owner.get(names[1]) == key.read_text()
             assert owner.get(names[0])['proxyjump']=='jump'
+            if cli_checkout:
+                process = subprocess.run(['node','--import','tsx','src/cli/index.ts','vault','import','--ssh','-p',prefix,'--config',str(config),'--select','profile:target','--select','key:target:1','--json'],
+                                         cwd=cli_checkout,env={**os.environ,'DREAMLAKE_REMOTE':settings['url'],'DREAMLAKE_API_KEY':settings['aliceToken']},capture_output=True,text=True,timeout=60)
+                assert process.returncode==0
+                assert all(entry['status']=='success' for entry in json.loads(process.stdout)['entries'])
+                assert owner.show(names[0])['revision']==1 and owner.show(names[1])['revision']==1
+                print('Canonical CLI/Python selected-import parity passed')
             denied = other.import_entries(**args, select=['profile:target'])
             assert denied['entries'][0]['status']=='failure'
             same = owner.import_entries(**args,select=['profile:target'])
@@ -81,9 +88,10 @@ def run(fixture):
 
 
 if __name__=='__main__':
-    parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--fixture',required=True)
+    parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--fixture',required=True);parser.add_argument('--cli-checkout')
     try:
-        run(Path(parser.parse_args().fixture))
+        args=parser.parse_args()
+        run(Path(args.fixture), args.cli_checkout)
     except Exception:
         print('Python import fixture probe failed; details redacted')
         raise SystemExit(1)
