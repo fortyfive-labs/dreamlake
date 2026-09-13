@@ -46,3 +46,29 @@ def test_read_metadata_must_match_requested_identity(method, changes):
     with pytest.raises(VaultError, match="Mismatched KMS"):
         if method == "show": vault.kms.show(prefix="alice/work/")
         else: vault.kms.preview(prefix="alice/work/", key_ref="research")
+
+
+def test_migration_bounded_resume_and_wrong_identity_keep_intent():
+    response = dict(prefix='alice/work', provider='aws-kms', keyRef='research', requestId='move-1', state='migrating', migrated=0, startedAt='2030-01-01T00:00:00.000Z', completedAt=None, ciphertext='NEVER_RETURN')
+    observed = []
+    def handler(request):
+        observed.append(request)
+        return httpx.Response(200, json=response)
+    vault = Vault(httpx.Client(base_url='http://fixture', transport=httpx.MockTransport(handler)))
+    result = vault.kms.migrate(prefix='alice/work', key_ref='research', request_id='move-1')
+    assert 'ciphertext' not in result
+    assert observed[-1].headers['idempotency-key'] == 'move-1'
+    assert vault.kms.resume(request_id='move-1', limit=3) == result
+    assert json.loads(observed[-1].content) == {'limit': 3}
+    assert vault.kms.status(request_id='move-1') == result
+    count = len(observed)
+    for limit in [0, 101, True, 1.5, '1']:
+        with pytest.raises(VaultError): vault.kms.resume(request_id='move-1', limit=limit)
+    assert len(observed) == count
+    for field, value in [('prefix', 'alice/other'), ('keyRef', 'other'), ('requestId', 'other')]:
+        original = response[field]; response[field] = value
+        with pytest.raises(VaultWriteError) as error: vault.kms.migrate(prefix='alice/work', key_ref='research', request_id='move-1')
+        assert error.value.request_id == 'move-1'
+        response[field] = original
+    response['state'] = 'completed'
+    with pytest.raises(VaultError): vault.kms.status(request_id='move-1')
