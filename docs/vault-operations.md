@@ -1,6 +1,6 @@
 # Vault operations
 
-**Python 0.13.0 / CLI 0.16.0 release candidates: not yet published.** These APIs
+**Python 0.13.0 is published; CLI 0.16.0 publication is in progress.** These APIs
 require the matching Vault backend. See the [runtime note](https://docs.dreamlake.ai/dev/notes/vault-runtime/)
 for hosted availability; package checks do not establish deployment.
 
