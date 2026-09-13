@@ -45,3 +45,7 @@ merged in [Python #34](https://github.com/fortyfive-labs/dreamlake/pull/34),
 [backend #336](https://github.com/dreamlake-ai/dreamlake-workspace/pull/336).
 Published on PyPI and GitHub; wheel/sdist downloads match the release artifacts. A fresh PyPI installation passed version/API/redaction checks. Hosted acceptance remains pending. The earlier bos14 snapshot is
 separate evidence; see the [Vault Dev Note](https://docs.dreamlake.ai/dev/notes/vault-runtime/).
+
+## Unreleased — populated-prefix KMS migration
+
+`client.vault.kms.migrate`, bounded `resume`, and shared `status` pair with CLI commands. Preview counts retained entry and recovery records; response metadata strips secret/ciphertext fields. Unknown outcomes preserve the immutable operation ID. No hosted or package release is claimed.
