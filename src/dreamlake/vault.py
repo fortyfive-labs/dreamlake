@@ -382,6 +382,8 @@ class Vault:
             if authority() != original_authority:
                 raise VaultError("Vault connection changed during listing")
             page = self.list_page(prefix=prefix, cursor=cursor, include_deleted=include_deleted)
+            if authority() != original_authority:
+                raise VaultError("Vault connection changed during listing")
             if entries and page["entries"] and entries[-1]["name"] >= page["entries"][0]["name"]:
                 raise VaultError("Non-progressing vault page")
             entries.extend(page["entries"])

@@ -52,14 +52,15 @@ def test_page_invalid_options_make_no_request():
 
 
 @pytest.mark.parametrize('change', ['origin', 'token', 'cookie'])
-def test_list_aborts_before_next_page_if_connection_authority_changes(change):
+@pytest.mark.parametrize('next_cursor', ['next', None])
+def test_list_aborts_before_return_or_next_page_if_connection_authority_changes(change, next_cursor):
     calls=[]
     def handle(request):
         calls.append(request)
         if change == 'origin':client.base_url='https://changed.test'
         if change == 'token':client.headers['Authorization']='Bearer other-account'
         if change == 'cookie':client.cookies.set('session','other-account')
-        return httpx.Response(200,json={'entries':[entry('alice/a')], 'nextCursor':'next'})
+        return httpx.Response(200,json={'entries':[entry('alice/a')], 'nextCursor':next_cursor})
     with httpx.Client(base_url='https://original.test',headers={'Authorization':'Bearer original-account'},transport=httpx.MockTransport(handle)) as client:
         with pytest.raises(VaultError,match='connection changed'):
             Vault(client).list(prefix='alice')
