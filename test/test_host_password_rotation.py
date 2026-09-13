@@ -49,11 +49,15 @@ def test_sdk_roundtrip_and_exact_explicit_snapshot_read():
 
 
 def test_wrong_snapshot_revision_is_never_returned():
+    calls=[]
     def handle(request):
+        calls.append(request.method)
         return httpx.Response(200,json={'operation':OP} if request.method=='GET' else dict(operationId='rotation',slot='old',entryId='old',entryRevision=2,value='DO_NOT_RETURN'))
-    with httpx.Client(base_url='https://fixture.test',transport=httpx.MockTransport(handle)) as http:
+    with httpx.Client(base_url='https://fixture.test',headers={'Authorization':'Bearer synthetic'},transport=httpx.MockTransport(handle)) as http:
         with pytest.raises(VaultError) as error:Vault(http).read_host_password_rotation('rotation',slot='old')
         assert 'DO_NOT_RETURN' not in str(error.value)
+
+    assert calls==['GET','POST']
 
 
 def test_proof_is_password_typed_ordered_and_copied():
