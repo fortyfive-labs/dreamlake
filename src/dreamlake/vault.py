@@ -189,6 +189,55 @@ class Vault:
             raise VaultError("Invalid operation identity")
         return receipt(self._request("GET", f"/v1/vault/host-credential-operations/{operation_id}"), operation_id)
 
+    def rotate_host_key(self, *, binding_id, operation_file, new_entry, ssh):
+        """Rotate one selected target/jump private key using a resumable journal.
+
+        Requires explicit normalized SSH transport and trusted known_hosts.
+        Never prompts, delegates SSH to the backend, or retires shared entries.
+        """
+        from .host_key_rotation import rotate_host_key
+        return rotate_host_key(self, binding_id=binding_id, operation_file=operation_file,
+                               new_entry=new_entry, ssh=ssh)
+
+    def host_credential(self, binding_id):
+        """Read one account-owned binding and current entry metadata, never secrets."""
+        if not isinstance(binding_id, str) or not re.fullmatch(r"[a-f0-9-]{36}", binding_id):
+            raise VaultError("Invalid binding identity")
+        result = self._request("GET", f"/v1/vault/host-credentials/{binding_id}")
+        binding = result.get("binding") if isinstance(result, dict) else None
+        _host_binding(binding)
+        if binding.get("id") != binding_id:
+            raise VaultError("Binding identity mismatch")
+        allowed = {"id", "hostId", "enrollmentId", "role", "endpoint", "kind", "entryId", "entryRevision", "createdAt", "releasedAt", "status"}
+        entry = result.get("entry")
+        if entry is not None:
+            if not isinstance(entry, dict) or entry.get("id") != binding["entryId"]:
+                raise VaultError("Entry identity mismatch")
+            entry = _metadata_response({"entry": entry}, entry.get("name"))
+        return {"binding": {k: v for k, v in binding.items() if k in allowed}, "entry": entry}
+
+    def confirm_host_credential_cleanup(self, operation_id, *, binding_id,
+                                        expected_entry_id, expected_entry_revision,
+                                        replacement_entry_id, replacement_entry_revision,
+                                        verification):
+        """Attest verified remote cleanup; this API does not itself connect over SSH.
+
+        Retry exactly the same operation and proof after an uncertain outcome.
+        Confirmation releases historical retention, not shared entry values.
+        """
+        from .host_supersessions import intent, receipt, validate_verification
+        data = intent(binding_id, dict(operationId=operation_id,
+            expectedEntryId=expected_entry_id, expectedEntryRevision=expected_entry_revision,
+            replacementEntryId=replacement_entry_id, replacementEntryRevision=replacement_entry_revision))
+        proof = validate_verification(verification)
+        body = {k: v for k, v in data.items() if k != "operationId"}
+        body.update(bindingId=binding_id, verification=proof)
+        result = receipt(self._request("POST", f"/v1/vault/host-credential-operations/{operation_id}/confirm-cleanup", json=body),
+                         operation_id, binding_id, data)
+        if result.get("state") != "cleanup_confirmed" or result.get("confirmation") != body:
+            raise VaultError("Cleanup confirmation identity mismatch")
+        return result
+
     def host_credentials(self, *, host_id, enrollment_id):
         """Account-only binding metadata; does not return secret values."""
         if any(not isinstance(value, str) or not re.fullmatch(r"[0-9a-f]{24}", value) for value in (host_id, enrollment_id)):

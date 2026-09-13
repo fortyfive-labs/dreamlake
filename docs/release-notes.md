@@ -1,5 +1,9 @@
 # Release notes
 
+## Unreleased — client-owned SSH key rotation
+
+Adds `Vault.rotate_host_key`, account-owned binding lookup and exact cleanup confirmation. A shared CLI/Python immutable journal resumes interrupted saves, selected-key verification, conditional binding replacement and exact old authorization cleanup. Target and jump credentials are separate, no calls prompt, and shared old entries are not automatically retired. [Commands and recovery guide](vault-key-rotation.md). [Real candidate SSH acceptance](vault-key-rotation-acceptance.json) passed both clients for target and jump rotation with independent cleanup. Published clients, hosted KMS and enrollment acceptance remain separate; password rotation remains required follow-up.
+
 ## 0.14.0 — 2026-09-13
 
 **Published to PyPI.** Wheel and sdist hashes match the reviewed artifacts; a fresh registry installation reports 0.14.0. Paired CLI 0.17.0 publication is pending. This release contains only merged changes.
