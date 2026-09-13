@@ -135,7 +135,7 @@ def run(args):
     # after successful authentication. Neither client may accept it as revocation.
     spoof_key=work/'jump-spoof-key'
     command(['ssh-keygen','-q','-t','ed25519','-N','','-f',str(spoof_key)])
-    spoof_command="printf '%s\\n' '"+state['accounts']['jump']['user']+'@'+hostname+": Permission denied (publickey).' >&2; exit 255"
+    spoof_command="echo '"+state['accounts']['jump']['user']+'@'+hostname+": Permission denied (publickey).' >&2; exit 255"
     escaped=spoof_command.replace('\\','\\\\').replace('"','\\"')
     spoof_line='command="'+escaped+'" '+_public(spoof_key)+' synthetic-forged-denial\n'
     state['accounts']['jump']['unchanged']+=spoof_line
