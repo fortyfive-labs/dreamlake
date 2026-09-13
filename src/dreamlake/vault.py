@@ -216,6 +216,11 @@ class Vault:
             entry = _metadata_response({"entry": entry}, entry.get("name"))
         return {"binding": {k: v for k, v in binding.items() if k in allowed}, "entry": entry}
 
+    def verify_host_password(self, *, binding_id, ssh):
+        """Verify one saved password over fresh password-only SSH; never prompts or mutates."""
+        from .host_password import verify_host_password
+        return verify_host_password(self, binding_id=binding_id, ssh=ssh)
+
     def confirm_host_credential_cleanup(self, operation_id, *, binding_id,
                                         expected_entry_id, expected_entry_revision,
                                         replacement_entry_id, replacement_entry_revision,
