@@ -80,3 +80,10 @@ def test_binding_response_loss_replays_metadata_only():
     assert 'PRIVATE_DIAGNOSTIC' not in str(error.value)
     assert vault.bind_host_credential(**args)['id'] == 'binding'
     assert bodies[0] == bodies[1] and 'value' not in bodies[0]
+
+
+def test_invalid_binding_lookup_never_reaches_transport():
+    vault = Vault(httpx.Client(base_url='https://example.test', transport=httpx.MockTransport(lambda r: pytest.fail('transport effect'))))
+    from dreamlake.vault import VaultError
+    with pytest.raises(VaultError):
+        vault.host_credentials(host_id='PRIVATE_SENTINEL', enrollment_id='b'*24)
