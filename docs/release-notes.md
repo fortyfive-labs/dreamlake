@@ -1,8 +1,14 @@
 # Release notes
 
-## Unreleased — client-owned SSH key rotation
+## 0.15.0 — release candidate, 2026-09-13
+
+**Not yet published.** Prepared from reviewed main `bbe4e03` (Python #44), excluding unmerged password-probe work.
 
 Adds `Vault.rotate_host_key`, account-owned binding lookup and exact cleanup confirmation. A shared CLI/Python immutable journal resumes interrupted saves, selected-key verification, conditional binding replacement and exact old authorization cleanup. Target and jump credentials are separate, no calls prompt, and shared old entries are not automatically retired. [Commands and recovery guide](vault-key-rotation.md). [Real candidate SSH acceptance](vault-key-rotation-acceptance.json) passed both clients for target and jump rotation with independent cleanup. Published clients, hosted KMS and enrollment acceptance remain separate; password rotation remains required follow-up.
+
+### Release preparation evidence
+
+Python 3.12.12: full suite 584 passed, 60 skipped; installed-wheel rotation suite 55 passed outside the source checkout; wheel and sdist fresh installations report 0.15.0 and expose `Vault.rotate_host_key`. Sphinx HTML build passed with 38 warnings. The first full run encountered an unrelated concurrent-file duplicate-ID assertion (583 passed, 60 skipped); its isolated four-test file and the subsequent full run passed. No unrelated runtime changes were made. Live source acceptance remains the linked four CLI/Python target/jump flows with cleanup; this release preparation does not establish published-package or hosted rotation acceptance.
 
 ## 0.14.0 — 2026-09-13
 
