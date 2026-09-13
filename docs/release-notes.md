@@ -1,8 +1,8 @@
 # Release notes
 
-## 0.15.0 — release candidate, 2026-09-13
+## 0.15.0 — 2026-09-13
 
-**Not yet published.** Prepared from reviewed main `bbe4e03` (Python #44), excluding unmerged password-probe work.
+**Published to PyPI.** Reviewed release PR #48 merged as `b698d8f`; tag `v0.15.0` points to that exact source. Public wheel/sdist downloads match reviewed SHA256 hashes. A fresh installation from the public PyPI index reports 0.15.0 and passes all 55 installed-package rotation tests. This excludes unmerged password-probe work; published-package remote and hosted rotation acceptance remain separate.
 
 Adds `Vault.rotate_host_key`, account-owned binding lookup and exact cleanup confirmation. A shared CLI/Python immutable journal resumes interrupted saves, selected-key verification, conditional binding replacement and exact old authorization cleanup. Target and jump credentials are separate, no calls prompt, and shared old entries are not automatically retired. [Commands and recovery guide](vault-key-rotation.md). [Real candidate SSH acceptance](vault-key-rotation-acceptance.json) passed both clients for target and jump rotation with independent cleanup. Published clients, hosted KMS and enrollment acceptance remain separate; password rotation remains required follow-up.
 
