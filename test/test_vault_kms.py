@@ -59,7 +59,7 @@ def test_migration_bounded_resume_and_wrong_identity_keep_intent():
     assert 'ciphertext' not in result
     assert observed[-1].headers['idempotency-key'] == 'move-1'
     assert vault.kms.resume(request_id='move-1', limit=3) == result
-    assert json.loads(observed[-1].content) == {'limit': 3}
+    assert json.loads(observed[-1].content) == {'limit': 3, 'retainedRecordSchemaVersion': 2}
     assert vault.kms.status(request_id='move-1') == result
     count = len(observed)
     for limit in [0, 101, True, 1.5, '1']:
@@ -90,8 +90,16 @@ def test_migration_rejects_impossible_or_backwards_timestamps(patch):
 def test_resume_sends_explicit_prefix_and_rejects_mismatched_response():
     value = dict(prefix='alice/other', provider='aws-kms', keyRef='research', requestId='move-1', state='migrating', migrated=1, startedAt='2030-01-01T00:00:00.000Z', completedAt=None)
     def handler(request):
-        assert json.loads(request.content) == {'limit': 1, 'expectedPrefix': 'alice/work'}
+        assert json.loads(request.content) == {'limit': 1, 'expectedPrefix': 'alice/work', 'retainedRecordSchemaVersion': 2}
         return httpx.Response(200, json=value)
     vault = Vault(httpx.Client(base_url='http://fixture', transport=httpx.MockTransport(handler)))
     with pytest.raises(VaultWriteError) as error: vault.kms.resume(request_id='move-1', limit=1, prefix='alice/work/')
     assert error.value.request_id == 'move-1'
+
+
+def test_retained_schema2_counts_and_kinds_are_explicit():
+    from dreamlake.vault_kms import _view
+    value=dict(prefix='alice/work',provider='aws-kms',keyRef='managed',governingPrefix=None,overlappingPrefixes=[],retainedRecordSchemaVersion=2,retainedRecordKinds=['entry','write_receipt','hotp_receipt','password_snapshot'],entryCount=1,writeReceiptCount=2,hotpReceiptCount=3,passwordSnapshotCount=4,totalRetainedRecordCount=10,hasPasswordSnapshots=True)
+    assert _view(value)==value
+    for patch in [dict(retainedRecordSchemaVersion=True),dict(retainedRecordSchemaVersion=3),dict(retainedRecordKinds=['entry']),dict(passwordSnapshotCount=-1),dict(totalRetainedRecordCount=True)]:
+        with pytest.raises(VaultError):_view({**value,**patch})

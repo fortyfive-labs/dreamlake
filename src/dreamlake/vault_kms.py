@@ -38,16 +38,21 @@ def _view(value, operation=False):
     if not isinstance(value.get("overlappingPrefixes"), list):
         raise VaultError("Invalid KMS overlaps")
     result["overlappingPrefixes"] = [_prefix(p) for p in value["overlappingPrefixes"]]
-    for key in ("hasEntries", "hasWriteReceipts", "hasHotpReceipts", "canActivate", "migrationRequired", "migrationSupported", "canMigrate"):
+    for key in ("hasEntries", "hasWriteReceipts", "hasHotpReceipts", "hasPasswordSnapshots", "canActivate", "migrationRequired", "migrationSupported", "canMigrate"):
         if key in value:
             if type(value[key]) is not bool:
                 raise VaultError("Invalid KMS state")
             result[key] = value[key]
-    for key in ("entryCount", "writeReceiptCount", "hotpReceiptCount"):
+    for key in ("entryCount", "writeReceiptCount", "hotpReceiptCount", "passwordSnapshotCount", "totalRetainedRecordCount"):
         if key in value:
             if type(value[key]) is not int or not 0 <= value[key] <= 9007199254740991:
                 raise VaultError("Invalid KMS count")
             result[key] = value[key]
+    if "retainedRecordSchemaVersion" in value or "retainedRecordKinds" in value:
+        kinds = ["entry", "write_receipt", "hotp_receipt", "password_snapshot"]
+        if type(value.get("retainedRecordSchemaVersion")) is not int or value["retainedRecordSchemaVersion"] != 2 or value.get("retainedRecordKinds") != kinds:
+            raise VaultError("Unsupported retained record schema")
+        result.update(retainedRecordSchemaVersion=2, retainedRecordKinds=kinds)
     if "selectedKeyRef" in value:
         if value.get("readiness") != "not-probed":
             raise VaultError("Invalid KMS preview")
@@ -72,7 +77,13 @@ def _migration_view(value):
     completion_valid = (_instant(value.get("completedAt")) is not None and _instant(value["completedAt"]) >= _instant(value["startedAt"])) if value["state"] == "completed" else value.get("completedAt") is None
     if not completion_valid:
         raise VaultError("Invalid KMS migration completion")
-    return dict(prefix=_prefix(value.get("prefix")), keyRef=_ref(value.get("keyRef")), requestId=_write_request_id(value.get("requestId")), provider=value["provider"], state=value["state"], migrated=value["migrated"], startedAt=value["startedAt"], completedAt=value.get("completedAt"))
+    extra = {}
+    if "requiredRetainedRecordSchemaVersion" in value:
+        version = value["requiredRetainedRecordSchemaVersion"]
+        if type(version) is not int or version not in (1, 2):
+            raise VaultError("Unsupported retained record schema")
+        extra["requiredRetainedRecordSchemaVersion"] = version
+    return dict(**extra, prefix=_prefix(value.get("prefix")), keyRef=_ref(value.get("keyRef")), requestId=_write_request_id(value.get("requestId")), provider=value["provider"], state=value["state"], migrated=value["migrated"], startedAt=value["startedAt"], completedAt=value.get("completedAt"))
 
 
 class VaultKms:
@@ -118,7 +129,7 @@ class VaultKms:
         """
         prefix, key_ref, request_id = _prefix(prefix), _ref(key_ref), _write_request_id(request_id)
         try:
-            result = _migration_view(self._vault._request("POST", "/v1/vault/kms/migrations", json={"prefix": prefix, "keyRef": key_ref}, headers={"Idempotency-Key": request_id}))
+            result = _migration_view(self._vault._request("POST", "/v1/vault/kms/migrations", json={"prefix": prefix, "keyRef": key_ref, "retainedRecordSchemaVersion": 2}, headers={"Idempotency-Key": request_id}))
             if (result["prefix"], result["keyRef"], result["requestId"]) != (prefix, key_ref, request_id):
                 raise VaultError("Mismatched KMS migration receipt")
             return result
@@ -131,7 +142,7 @@ class VaultKms:
         if type(limit) is not int or not 1 <= limit <= 100:
             raise VaultError("Invalid KMS migration limit")
         prefix = _prefix(prefix) if prefix is not None else None
-        body = {"limit": limit, **({"expectedPrefix": prefix} if prefix is not None else {})}
+        body = {"retainedRecordSchemaVersion": 2, "limit": limit, **({"expectedPrefix": prefix} if prefix is not None else {})}
         try:
             result = _migration_view(self._vault._request("POST", "/v1/vault/kms/migrations/" + request_id + "/resume", json=body))
             if result["requestId"] != request_id or (prefix is not None and result["prefix"] != prefix):

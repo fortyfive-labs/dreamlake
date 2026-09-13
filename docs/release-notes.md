@@ -1,5 +1,9 @@
 # Release notes
 
+## Unreleased — password reservation and recovery
+
+Six paired SDK/CLI reservation methods retain exact recovery revisions, freeze the dedicated replacement and expose explicit owner-only pending snapshot reads. Real HTTP/native Mongo cross-client metadata flows passed for target and jump roles. Requires backend #370; privileged remote mutation and explicit rollback-resolution remain unfinished. [Guide](vault-passwords.md#reserve-and-recover-a-password-rotation).
+
 ## Unreleased — password-only SSH verification
 
 `Vault.verify_host_password` pairs with CLI `vault verify-password`. A private one-shot askpass channel and parent-client authentication evidence verify the exact saved binding without password arguments, plaintext journals or unexpected prompts. Password changes and reservation APIs remain separate unfinished work. [Guide and reusable tests](vault-passwords.md).
@@ -68,3 +72,5 @@ separate evidence; see the [Vault Dev Note](https://docs.dreamlake.ai/dev/notes/
 ## Unreleased — populated-prefix KMS migration
 
 `client.vault.kms.migrate`, bounded `resume`, and shared `status` pair with CLI commands. Preview counts retained entry and recovery records; response metadata strips secret/ciphertext fields. Unknown outcomes preserve the immutable operation ID. No hosted or package release is claimed.
+
+Password reservation candidates also acknowledge retained-record schema 2 on KMS migration start/resume and preserve separate password-snapshot/total counts in metadata. Compatible backend deployment must precede these commands. Source validation: target/jump cross-client reservation and snapshot reads over real loopback HTTP/Mongo; published CLI 0.17/Python 0.14–0.15 are safely gated, new clients advance the same migration. No remote password changes are included.
