@@ -19,13 +19,22 @@ def _intent(value, binding):
 
 
 def intent_file(path, binding, metadata):
+    def sync_directory():
+        fd = os.open(os.path.dirname(os.path.abspath(path)), os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            os.fsync(fd)
+        finally:
+            os.close(fd)
     def read():
         fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
         with os.fdopen(fd, 'rb') as stream:
             info = os.fstat(stream.fileno())
             if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or stat.S_IMODE(info.st_mode) != 0o600 or info.st_uid != os.getuid() or info.st_size > 4096:
                 raise VaultError('Unsafe OTP request file')
-            return _intent(json.loads(stream.read(4097)), binding)
+            value = _intent(json.loads(stream.read(4097)), binding)
+            os.fsync(stream.fileno())
+            sync_directory()
+            return value
     try:
         return read()
     except FileNotFoundError:
@@ -43,6 +52,7 @@ def intent_file(path, binding, metadata):
         stream.write(json.dumps(value) + '\n')
         stream.flush()
         os.fsync(stream.fileno())
+    sync_directory()
     return value
 
 

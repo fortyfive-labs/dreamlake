@@ -55,3 +55,35 @@ def test_failed_hotp_preserves_intent_and_sanitizes_exception(tmp_path):
             Vault(client).otp('alice/login',request_file=tmp_path/'intent.json')
         assert 'SENSITIVE_SECRET' not in str(error.value)
     assert (tmp_path/'intent.json').is_file()
+
+
+def test_directory_sync_failure_prevents_http_issuance_and_preserves_retry(tmp_path, monkeypatch):
+    import stat
+    original = os.fsync
+    fail = True
+    calls = []
+    def sync(fd):
+        if stat.S_ISDIR(os.fstat(fd).st_mode) and fail:
+            raise OSError('SENSITIVE_SYNC_FAILURE')
+        return original(fd)
+    monkeypatch.setattr(os, 'fsync', sync)
+    token='x.'+base64.urlsafe_b64encode(b'{"sub":"alice"}').decode().rstrip('=')+'.x'
+    def handler(request):
+        calls.append(request)
+        if request.method == 'GET':
+            return httpx.Response(200,json={'entry':dict(name='alice/login',type='hotp',id='stable-id',revision=1)})
+        body=json.loads(request.content)
+        return httpx.Response(200,json=dict(type='hotp',code='123456',requestId=body['requestId'],revision=2,replayed=False,recoverUntil=(datetime.now(timezone.utc)+timedelta(hours=1)).isoformat(timespec='milliseconds').replace('+00:00','Z')))
+    file=tmp_path/'intent.json'
+    with httpx.Client(base_url='https://example.test',headers={'Authorization':'Bearer '+token},transport=httpx.MockTransport(handler)) as client:
+        vault=Vault(client)
+        for _ in range(2):
+            with pytest.raises(VaultError,match='reuse the same request_file'):
+                vault.otp('alice/login',request_file=file)
+        saved=json.loads(file.read_text())
+        assert [r.method for r in calls] == ['GET']
+        fail=False
+        assert vault.otp('alice/login',request_file=file)=='123456'
+        assert [r.method for r in calls] == ['GET','POST']
+        assert json.loads(calls[-1].content)['requestId'] == saved['requestId']
+        assert json.loads(file.read_text()) == saved
