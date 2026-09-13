@@ -1,16 +1,21 @@
 # Release notes
 
-## Unreleased
+## 0.14.0 — release candidate
 
-`client.vault.kms.show/preview/activate/status` adds personal-owner prefix policy inspection, explicit empty-prefix activation and immutable operation recovery with CLI parity. Operator-approved key references only; populated migration and customer cloud grants remain unavailable. [Guide](vault-kms.md).
+**Not published.** Paired CLI 0.17.0. This candidate contains only merged changes.
 
-## Unreleased — host credential replacement metadata
+- Personal owners can inspect trusted prefix KMS policies, preview retained records,
+  activate empty prefixes, and explicitly start/resume populated-prefix migrations.
+  Immutable request IDs recover uncertain outcomes; explicit prefixes are checked
+  before resuming. The SDK never prompts or advances migration in the background.
+- Conditional host-binding replacement and owner-only operation recovery retain
+  both credential identities until explicit cleanup. This metadata API does not
+  install or revoke remote SSH keys; remote rotation candidates are excluded.
 
-Adds conditional host-binding replacement and owner-only operation recovery.
-Exact intent retries preserve one receipt; both entry identities remain retained
-while remote cleanup is pending. These APIs do not install or revoke SSH keys.
-[Design and paired examples](https://github.com/dreamlake-ai/dreamlake-workspace/blob/feat/241-host-credential-supersede/docs/pages/dev/plans/host-credential-rotation/%2BPage.mdx).
-Remote key lifecycle, cleanup confirmation and password rotation remain open.
+Migration requires backend [#359](https://github.com/dreamlake-ai/dreamlake-workspace/pull/359).
+The operator migration flag defaults to false and must remain disabled until all
+writers enforce policy epochs. Installing this package does not enable migration,
+configure customer grants, or prove hosted acceptance. [Paired KMS guide](vault-kms.md).
 
 ## 0.13.0 — 2026-09-13
 
