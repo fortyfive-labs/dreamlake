@@ -1,7 +1,7 @@
 # Host enrollment
 
 The source package includes `DreamLakeClient.hosts` for configuration validation,
-SSH enrollment, optional post-enrollment credential saving, and host status. Credential saving is part of the Python 0.12.0 release candidate; publication and hosted acceptance remain pending. Use the shared host backend from issue #218;
+SSH enrollment, optional post-enrollment credential saving, and host status. Credential saving is available in Python 0.12.0 on PyPI/GitHub; hosted acceptance remains pending. Use the shared host backend from issue #218;
 provider provisioning belongs to #243 and optional credential saving to #241.
 
 The same account token and server configuration used by the DreamLake client
@@ -111,7 +111,7 @@ production deployment, installer-release compatibility or Slurm/GPU execution.
 
 ## Save selected target and jump credentials
 
-This Python 0.12.0 candidate requires the matching host-binding backend; publication and hosted acceptance remain pending. Existing enrollment stays successful if saving is declined,
+Python 0.12.0 requires the matching host-binding backend; package publication is verified and hosted acceptance remains pending. Existing enrollment stays successful if saving is declined,
 missing input, cancelled or unavailable. Inspect both `enrolled` and
 `credentials.status`. No remote access is installed/rotated/revoked by saving.
 
