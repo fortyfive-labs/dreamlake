@@ -1,5 +1,13 @@
 # Release notes
 
+## Unreleased — host credential replacement metadata
+
+Adds conditional host-binding replacement and owner-only operation recovery.
+Exact intent retries preserve one receipt; both entry identities remain retained
+while remote cleanup is pending. These APIs do not install or revoke SSH keys.
+[Design and paired examples](https://github.com/dreamlake-ai/dreamlake-workspace/blob/feat/241-host-credential-supersede/docs/pages/dev/plans/host-credential-rotation/%2BPage.mdx).
+Remote key lifecycle, cleanup confirmation and password rotation remain open.
+
 ## 0.13.0 — 2026-09-13
 
 **Published to PyPI.** Wheel and sdist downloads match the reviewed SHA256 hashes; a fresh registry installation reports 0.13.0. Paired CLI release: 0.16.0. The matching Vault backend

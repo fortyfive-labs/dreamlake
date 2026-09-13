@@ -171,6 +171,24 @@ class Vault:
         allowed = {"id", "hostId", "enrollmentId", "role", "endpoint", "kind", "entryId", "entryRevision", "createdAt", "releasedAt", "remoteAccessRevoked"}
         return {k: v for k, v in b.items() if k in allowed}
 
+    def supersede_host_credential(self, *, binding_id, operation_id, expected_entry_id, expected_entry_revision, replacement_entry_id, replacement_entry_revision):
+        """Conditionally replace metadata; retains both refs pending remote cleanup.
+
+        Perform and verify remote changes separately. Persist operation_id before
+        calling; recover an uncertain response with host_credential_operation or
+        retry these exact arguments. This method never prompts or changes SSH.
+        """
+        from .host_supersessions import intent, receipt
+        data = intent(binding_id, dict(operationId=operation_id, expectedEntryId=expected_entry_id, expectedEntryRevision=expected_entry_revision, replacementEntryId=replacement_entry_id, replacementEntryRevision=replacement_entry_revision))
+        return receipt(self._request("POST", f"/v1/vault/host-credentials/{binding_id}/supersede", json=data), operation_id, binding_id, data)
+
+    def host_credential_operation(self, operation_id):
+        """Recover account-owned replacement metadata; a 404 is not proof of failure."""
+        from .host_supersessions import receipt
+        if not isinstance(operation_id, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", operation_id):
+            raise VaultError("Invalid operation identity")
+        return receipt(self._request("GET", f"/v1/vault/host-credential-operations/{operation_id}"), operation_id)
+
     def host_credentials(self, *, host_id, enrollment_id):
         """Account-only binding metadata; does not return secret values."""
         if any(not isinstance(value, str) or not re.fullmatch(r"[0-9a-f]{24}", value) for value in (host_id, enrollment_id)):
