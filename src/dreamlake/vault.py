@@ -372,8 +372,15 @@ class Vault:
 
     def list(self, *, prefix="", include_deleted=False):
         """Return all authorized metadata, draining bounded pages without reveals."""
+        def authority():
+            return (id(self._http), id(self._http._transport_for_url(self._http.base_url)), str(self._http.base_url), tuple(self._http.headers.raw),
+                    tuple((c.domain, c.path, c.name, c.value) for c in self._http.cookies.jar),
+                    self._http.auth, tuple((key, tuple(value)) for key, value in self._http.event_hooks.items()))
+        original_authority = authority()
         entries, seen, cursor = [], set(), None
         while True:
+            if authority() != original_authority:
+                raise VaultError("Vault connection changed during listing")
             page = self.list_page(prefix=prefix, cursor=cursor, include_deleted=include_deleted)
             if entries and page["entries"] and entries[-1]["name"] >= page["entries"][0]["name"]:
                 raise VaultError("Non-progressing vault page")

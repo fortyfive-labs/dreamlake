@@ -49,3 +49,20 @@ def test_page_invalid_options_make_no_request():
         for cursor in ['',{},'x/y']:
             with pytest.raises(VaultError):vault.list_page(cursor=cursor)
         with pytest.raises(VaultError):vault.list_page(include_deleted='true')
+
+
+@pytest.mark.parametrize('change', ['origin', 'token', 'cookie'])
+def test_list_aborts_before_next_page_if_connection_authority_changes(change):
+    calls=[]
+    def handle(request):
+        calls.append(request)
+        if change == 'origin':client.base_url='https://changed.test'
+        if change == 'token':client.headers['Authorization']='Bearer other-account'
+        if change == 'cookie':client.cookies.set('session','other-account')
+        return httpx.Response(200,json={'entries':[entry('alice/a')], 'nextCursor':'next'})
+    with httpx.Client(base_url='https://original.test',headers={'Authorization':'Bearer original-account'},transport=httpx.MockTransport(handle)) as client:
+        with pytest.raises(VaultError,match='connection changed'):
+            Vault(client).list(prefix='alice')
+    assert len(calls)==1
+    assert calls[0].url.host=='original.test'
+    assert calls[0].headers['Authorization']=='Bearer original-account'
