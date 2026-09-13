@@ -36,7 +36,11 @@ def test_real_gpg_preview(tmp_path):
             PassStore().sync(store=store, otp=True, dry_run=True, gpg_home=home)
     finally:
         subprocess.run(['gpgconf', '--homedir', str(home), '--kill', 'gpg-agent'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        shutil.rmtree(root)
+        # gpg-agent can unlink its sockets concurrently after --kill returns.
+        def cleanup_error(_function, _path, exc_info):
+            if not isinstance(exc_info[1], FileNotFoundError):
+                raise exc_info[1]
+        shutil.rmtree(root, onerror=cleanup_error)
 
 
 def test_explicit_decryptor_errors_redacted(tmp_path):
