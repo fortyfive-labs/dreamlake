@@ -28,7 +28,7 @@ def test_selected_only_redaction_and_explicit_reveal(tmp_path):
     assert all(secret not in json.dumps(result) for secret in ['JBSWY3DPEHPK3PXP', 'SERVER_SECRET', 'ADJACENT_PASSWORD'])
 
 
-@pytest.mark.parametrize('content', ['password-only', URI + '\n' + URI, URI.replace('totp', 'hotp') + '&counter=0', 'otpauth://totp/Bad?secret=BAD_SECRET'])
+@pytest.mark.parametrize('content', ['password-only', URI + '\n' + URI, URI.replace('totp', 'hotp') + '&counter=invalid', 'otpauth://totp/Bad?secret=BAD_SECRET'])
 def test_batch_validation_before_writes(tmp_path, content):
     calls = []
     v = fixture(tmp_path, lambda req: calls.append(req))
