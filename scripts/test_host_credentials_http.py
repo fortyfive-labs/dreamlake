@@ -78,6 +78,21 @@ try{const r=await saveCredentials({enrolled:true,host:{id:c.hostId},enrollment:{
                         bindings = vault.host_credentials(host_id=config['hostId'], enrollment_id=config['enrollmentId'])
                         existing = next(b for b in bindings if b['endpoint'] == endpoint)
                         assert vault.bind_host_credential(**item['binding'])['id'] == existing['id']
+            # Release only the selected references. This must leave active
+            # vault entries readable and explicitly deny remote revocation.
+            for index, item in enumerate(report['entries'][:2]):
+                expected = dict(binding_id=item['bindingId'], entry_id=item['entryId'], entry_revision=item['revision'])
+                if cli and index == 1:
+                    process = subprocess.run(['node', '--import', 'tsx', 'src/cli/index.ts', 'vault', 'unbind', '--binding-id', item['bindingId'], '--entry-id', item['entryId'], '--entry-revision', str(item['revision'])], cwd=cli, env={**os.environ, 'DREAMLAKE_REMOTE': config['url'], 'DREAMLAKE_API_KEY': config['aliceToken']}, capture_output=True, text=True, timeout=30, check=True)
+                    released = json.loads(process.stdout)
+                    assert config['aliceToken'] not in process.stdout + process.stderr
+                else:
+                    released = vault.unbind_host_credential(**expected)
+                assert released['remoteAccessRevoked'] is False
+                replay = vault.unbind_host_credential(**expected)
+                assert replay['releasedAt'] == released['releasedAt']
+                assert vault.get(item['name']) == selections[index].password
+            print('PASS: CLI/Python reference release and retry preserve active secrets; no remote revocation claimed')
             print('PASS: committed entry/binding response interruption retains unknown/saved_unbound recovery')
             print('PASS: real HTTP/Mongo Python and CLI save/bind, target+jump separation, exact bytes, metadata-only binding replay and write receipts')
         finally:
