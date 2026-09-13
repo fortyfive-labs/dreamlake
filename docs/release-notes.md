@@ -1,6 +1,6 @@
 # Release notes
 
-## 0.12.0 candidate — 2026-09-13
+## 0.12.0 — 2026-09-13
 
 Post-enrollment saving accepts explicit target/jump `HostCredential` selections,
 keeps passwords in memory and selected keys in protected files, and never prompts
@@ -12,5 +12,5 @@ bindings preserve metadata-only recovery arguments.
 merged in [Python #34](https://github.com/fortyfive-labs/dreamlake/pull/34),
 [CLI #47](https://github.com/dreamlake-ai/dreamlake-cli/pull/47), and
 [backend #336](https://github.com/dreamlake-ai/dreamlake-workspace/pull/336).
-Publication and hosted acceptance are pending. The earlier bos14 snapshot is
+Published on PyPI and GitHub; wheel/sdist downloads match the release artifacts. A fresh PyPI installation passed version/API/redaction checks. Hosted acceptance remains pending. The earlier bos14 snapshot is
 separate evidence; see the [Vault Dev Note](https://docs.dreamlake.ai/dev/notes/vault-runtime/).
