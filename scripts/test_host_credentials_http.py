@@ -45,6 +45,40 @@ try{const r=await saveCredentials({enrolled:true,host:{id:c.hostId},enrollment:{
                     report['entries'].extend(cli_report['entries'])
                     assert cli_report['status']=='saved'
                     assert vault.get(config['prefix']+'/cli-'+run_id)=='cli-synthetic\n'
+            # Discard a confirmed real server response before Vault.add/bind can
+            # consume it, then recover through durable receipt/binding metadata.
+            for phase in ('entry', 'binding'):
+                for interrupt in (KeyboardInterrupt, SystemExit):
+                    endpoint = phase + '-' + interrupt.__name__ + '-' + run_id
+                    chosen = HostCredential('target', endpoint, config['prefix']+'/'+endpoint,
+                                            'password', password='CANCEL_PRIVATE_SENTINEL')
+                    request = vault._request
+                    calls = []
+                    def committed_then_interrupt(method, path, **kwargs):
+                        response = request(method, path, **kwargs)
+                        calls.append((method, path))
+                        if method == 'PUT' and path == ('/v1/vault/entry' if phase == 'entry' else '/v1/vault/host-credentials'):
+                            raise interrupt()
+                        return response
+                    vault._request = committed_then_interrupt
+                    try:
+                        cancelled = save_enrollment_credentials(vault, result, [chosen], endpoint)
+                    finally:
+                        vault._request = request
+                    item = cancelled['entries'][0]
+                    report['entries'].append(item)
+                    # Reconcile for cleanup before assertions, even on old code.
+                    receipt = vault.write_status(request_id=item['requestId'])
+                    item['entryId'] = receipt['entry']['id']
+                    assert cancelled['status'] == 'cancelled'
+                    assert item['status'] == ('unknown' if phase == 'entry' else 'saved_unbound')
+                    assert calls.count(('PUT', '/v1/vault/entry')) == 1
+                    assert 'CANCEL_PRIVATE_SENTINEL' not in json.dumps(cancelled)
+                    if phase == 'binding':
+                        bindings = vault.host_credentials(host_id=config['hostId'], enrollment_id=config['enrollmentId'])
+                        existing = next(b for b in bindings if b['endpoint'] == endpoint)
+                        assert vault.bind_host_credential(**item['binding'])['id'] == existing['id']
+            print('PASS: committed entry/binding response interruption retains unknown/saved_unbound recovery')
             print('PASS: real HTTP/Mongo Python and CLI save/bind, target+jump separation, exact bytes, metadata-only binding replay and write receipts')
         finally:
             for item in report['entries']:

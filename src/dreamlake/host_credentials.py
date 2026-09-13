@@ -53,13 +53,16 @@ def save_enrollment_credentials(vault, result, credentials, request_id):
             rid = 'host_' + sha256((request_id + '\0' + c.role + '\0' + c.endpoint + '\0' + c.kind + '\0' + c.entry_name).encode()).hexdigest()
             item = {"role": c.role, "endpoint": c.endpoint, "kind": c.kind, "name": c.entry_name, "requestId": rid, "status": "failed"}
             entries.append(item)
+            writing = False
             try:
                 value = c.password if c.kind == 'password' else read_ssh_file(Path(c.key_file).absolute(), private_key=True)
                 if c.kind == 'private_key':
                     _validate_key(value)
+                writing = True
                 meta = vault.add(c.entry_name, value, request_id=rid)
                 value = None
                 item.update(status='saved_unbound', entryId=meta['id'], revision=meta['revision'])
+                writing = False
                 item['binding'] = dict(host_id=result['host']['id'], enrollment_id=result['enrollment']['id'], role=c.role, endpoint=c.endpoint, kind=c.kind, entry_id=meta['id'], entry_revision=meta['revision'])
                 bound = vault.bind_host_credential(**item['binding'])
                 item.update(status='saved', bindingId=bound['id'])
@@ -67,6 +70,8 @@ def save_enrollment_credentials(vault, result, credentials, request_id):
                 # Preserve stable request ID. Caller can reconcile; no blind replay.
                 item['status'] = 'unknown'
             except (KeyboardInterrupt, SystemExit):
+                if writing:
+                    item['status'] = 'unknown'
                 return {"status": "cancelled", "entries": entries}
             except Exception:
                 pass  # Source/provider diagnostics may include plaintext.

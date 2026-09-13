@@ -87,3 +87,26 @@ def test_invalid_binding_lookup_never_reaches_transport():
     from dreamlake.vault import VaultError
     with pytest.raises(VaultError):
         vault.host_credentials(host_id='PRIVATE_SENTINEL', enrollment_id='b'*24)
+
+
+@pytest.mark.parametrize("interrupt", [KeyboardInterrupt, SystemExit])
+@pytest.mark.parametrize("phase", ["entry", "binding"])
+def test_committed_interruption_preserves_recovery_state(interrupt, phase):
+    committed = {}
+    class FixtureVault:
+        _http = httpx.Client(base_url="https://example.test")
+        def add(self, name, value, request_id):
+            committed["entry"] = dict(id="entry", revision=1, requestId=request_id)
+            if phase == "entry": raise interrupt()
+            return committed["entry"]
+        def bind_host_credential(self, **data):
+            committed["binding"] = data
+            raise interrupt()
+    report = save_enrollment_credentials(FixtureVault(), {"host":{"id":"a"*24}, "enrollment":{"id":"b"*24}},
+        [HostCredential("target", "target", "alice/cancel", "password", password="PRIVATE_SENTINEL")], "cancel-id")
+    assert report["status"] == "cancelled"
+    item = report["entries"][0]
+    assert item["requestId"] == committed["entry"]["requestId"]
+    assert item["status"] == ("unknown" if phase == "entry" else "saved_unbound")
+    if phase == "binding": assert item["binding"] == committed["binding"]
+    assert "PRIVATE_SENTINEL" not in json.dumps(report)
