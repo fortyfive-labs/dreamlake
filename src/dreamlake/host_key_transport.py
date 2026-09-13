@@ -70,7 +70,7 @@ def identity(value):
             or any(type(value[k]) is not int or not 0 <= value[k] <= 9007199254740991
                    for k in ('uid', 'sshDirectoryDevice', 'sshDirectoryInode'))
             or not isinstance(value['home'], str) or not value['home'].startswith('/')
-            or len(value['home']) > 4096 or re.search(r'[\r\n\x00]', value['home'])
+            or len(value['home']) > 4096 or any(part in ('.', '..') for part in value['home'].split('/')) or re.search(r'[\r\n\x00]', value['home'])
             or not isinstance(value['machineId'], str) or not re.fullmatch(r'[A-Za-z0-9_-]{1,128}', value['machineId'])):
         raise ValueError('Invalid remote identity')
     return value

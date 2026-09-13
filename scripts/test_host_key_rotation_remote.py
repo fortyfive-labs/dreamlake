@@ -131,6 +131,16 @@ def run(args):
     config=command(['ssh','-G','-F',str(args.admin_config.resolve()),args.admin_host]).stdout.decode()
     resolved=dict(line.split(' ',1) for line in config.splitlines() if ' ' in line)
     hostname,port=resolved['hostname'],int(resolved['port'])
+    # An unrelated synthetic forced command deliberately forges a denial line
+    # after successful authentication. Neither client may accept it as revocation.
+    spoof_key=work/'jump-spoof-key'
+    command(['ssh-keygen','-q','-t','ed25519','-N','','-f',str(spoof_key)])
+    spoof_command="printf '%s\\n' '"+state['accounts']['jump']['user']+'@'+hostname+": Permission denied (publickey).' >&2; exit 255"
+    escaped=spoof_command.replace('\\','\\\\').replace('"','\\"')
+    spoof_line='command="'+escaped+'" '+_public(spoof_key)+' synthetic-forged-denial\n'
+    state['accounts']['jump']['unchanged']+=spoof_line
+    state['accounts']['jump']['authorized']+=spoof_line
+    save_state(state_file,state)
     def remote(action):
         body=json.dumps(dict(action=action,tag=tag,accounts=state['accounts'])).encode()
         return json.loads(command(admin+['sudo','-n','python3','-c',shlex.quote(REMOTE)],input=body).stdout)
@@ -181,6 +191,27 @@ def run(args):
                 request=dict(action='inspect',operationId=str(uuid.uuid4()),oldPublicKey=_public(Path(state['accounts'][role]['key'])),newPublicKey=_public(probe_key)))
             assert reply['oldPresent'] and not reply['newPresent']
             print('PASS initial '+role+' real standalone helper inspect',flush=True)
+        spoof_profile=dict(host=hostname,user=state['accounts']['jump']['user'],port=port,knownHostsFile=str(known))
+        spoof_config=work/'spoof-baseline-config'
+        publish_record(spoof_config,ssh_config(spoof_profile,str(spoof_key)).encode())
+        auth_log=_AuthLog(work)
+        try:
+            code,_,stderr=_bounded_process(['ssh','-F',str(spoof_config),'-v','-E',str(auth_log.path),'rotation-target','true'],b'',monitor=auth_log.check_size)
+            evidence=auth_log.read()
+            assert code==255 and 'Authenticated to ' in evidence
+            assert (spoof_profile['user']+'@'+hostname+': Permission denied (publickey).') in stderr.decode().splitlines()
+            assert not public_key_denied(code,evidence,spoof_profile)
+        finally:auth_log.close()
+        spoof_request=dict(action='inspect',operationId=str(uuid.uuid4()),oldPublicKey=_public(spoof_key),newPublicKey=_public(probe_key))
+        try:
+            run_helper(profile=spoof_profile,selected_key=str(spoof_key),config_file=work/'spoof-python-config',request=spoof_request,expect_denied=True)
+        except ValueError:pass
+        else:raise RuntimeError('Python accepted authenticated forced-command output as denial')
+        options=work/'spoof-cli-options.json'
+        publish_record(options,canonical_json(dict(profile=spoof_profile,selectedKey=str(spoof_key),configFile=str(work/'spoof-cli-config'),request=spoof_request,expectDenied=True)))
+        code="import fs from 'node:fs';import {runRotationHelper} from './src/cli/vault/rotationRemote.ts';const o=JSON.parse(fs.readFileSync(process.argv[1],'utf8'));let rejected=false;try{await runRotationHelper(o)}catch{rejected=true}if(!rejected)process.exit(1);console.log('guard-rejected')"
+        assert command(['node','--import','tsx','--input-type=module','-e',code,str(options)],cwd=args.cli_dir.resolve()).stdout.strip()==b'guard-rejected'
+        print('PASS both clients reject real authenticated forced-command denial forgery',flush=True)
         for role in ('target','jump'):
             name=f'alice/rotation-{tag}/{role}-initial'
             entry=vault.add(name,Path(state['accounts'][role]['key']).read_text())
@@ -281,7 +312,7 @@ def run(args):
         if cleanup_errors:raise RuntimeError('Cleanup incomplete: '+', '.join(cleanup_errors)+'; retain private workdir')
         # Delete only known synthetic key files after all remote/API cleanup.
         for path in work.iterdir():
-            if path.is_file() and path.name not in ('state.json',) and (path.name.endswith('-initial') or path.name.endswith('-restored') or path.name.endswith('-unrelated') or path.name=='diagnostic-key'):
+            if path.is_file() and path.name not in ('state.json',) and (path.name.endswith('-initial') or path.name.endswith('-restored') or path.name.endswith('-unrelated') or path.name in ('diagnostic-key','jump-spoof-key')):
                 path.unlink()
         for folder in work.glob('.rotation-*'):
             for key in ('old-key','new-key'):
