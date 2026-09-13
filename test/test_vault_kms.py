@@ -36,3 +36,13 @@ def test_wrong_receipt_and_server_failure_preserve_original_intent():
     vault = Vault(httpx.Client(base_url='http://fixture', transport=httpx.MockTransport(handler)))
     with pytest.raises(VaultWriteError) as error: vault.kms.activate(prefix='alice/work', key_ref='research', request_id='id')
     assert error.value.outcome == 'unknown'
+
+
+@pytest.mark.parametrize("method,changes", [("show", {"prefix": "alice/other"}), ("preview", {"prefix": "alice/other"}), ("preview", {"selectedKeyRef": "different"})])
+def test_read_metadata_must_match_requested_identity(method, changes):
+    response = dict(prefix="alice/work", provider="aws-kms", keyRef="managed", governingPrefix=None, overlappingPrefixes=[], selectedKeyRef="research", readiness="not-probed")
+    response.update(changes)
+    vault = Vault(httpx.Client(base_url="http://fixture", transport=httpx.MockTransport(lambda request: httpx.Response(200, json=response))))
+    with pytest.raises(VaultError, match="Mismatched KMS"):
+        if method == "show": vault.kms.show(prefix="alice/work/")
+        else: vault.kms.preview(prefix="alice/work/", key_ref="research")

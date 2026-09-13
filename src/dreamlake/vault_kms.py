@@ -55,11 +55,19 @@ class VaultKms:
 
     def show(self, *, prefix):
         """Inspect governing prefix and tenant-authorized operator key refs."""
-        return _view(self._vault._request("GET", "/v1/vault/kms", params={"prefix": _prefix(prefix)}))
+        prefix = _prefix(prefix)
+        result = _view(self._vault._request("GET", "/v1/vault/kms", params={"prefix": prefix}))
+        if result["prefix"] != prefix:
+            raise VaultError("Mismatched KMS response")
+        return result
 
     def preview(self, *, prefix, key_ref):
         """Read-only eligibility; does not probe KMS or reserve the prefix."""
-        return _view(self._vault._request("POST", "/v1/vault/kms/preview", json={"prefix": _prefix(prefix), "keyRef": _ref(key_ref)}))
+        prefix, key_ref = _prefix(prefix), _ref(key_ref)
+        result = _view(self._vault._request("POST", "/v1/vault/kms/preview", json={"prefix": prefix, "keyRef": key_ref}))
+        if result["prefix"] != prefix or result.get("selectedKeyRef") != key_ref:
+            raise VaultError("Mismatched KMS response")
+        return result
 
     def activate(self, *, prefix, key_ref, request_id):
         """Activate only an empty prefix. Persist/reuse the same tuple on retry.
