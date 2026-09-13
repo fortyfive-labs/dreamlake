@@ -57,6 +57,12 @@ class RemoteClient:
         )
 
     @property
+    def vault(self):
+        """Account-authorized vault read/list API using this client session."""
+        from .vault import Vault
+        return Vault(self._client)
+
+    @property
     def api_key(self) -> str:
         """The bearer token used for authentication."""
         return self._api_key
