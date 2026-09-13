@@ -15,7 +15,7 @@ class RunConfigurationError(ValueError):
 
 
 def collect_source(includes: Sequence[str], cwd: str | Path | None = None,
-                   limit: int = 8 * 1024 * 1024) -> list[dict]:
+                   limit: int = 1024 * 1024) -> list[dict]:
     """Read explicit regular files beneath cwd, without following path symlinks."""
     if isinstance(includes, (str, bytes)) or not isinstance(includes, Sequence):
         raise RunConfigurationError("include must be a sequence of relative file paths")
