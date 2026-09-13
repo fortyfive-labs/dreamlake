@@ -171,6 +171,43 @@ class Vault:
         allowed = {"id", "hostId", "enrollmentId", "role", "endpoint", "kind", "entryId", "entryRevision", "createdAt", "releasedAt", "remoteAccessRevoked"}
         return {k: v for k, v in b.items() if k in allowed}
 
+    def reserve_host_password_rotation(self, *, binding_id, operation_id, intent):
+        """Reserve metadata and encrypted revisions; never changes remote passwords.
+
+        Persist the exact operation ID and intent first. A lost response is an
+        unknown outcome: recover metadata or replay exactly; never invent a new ID.
+        """
+        from .host_password_rotation import reserve
+        return reserve(self, binding_id=binding_id, operation_id=operation_id, intent=intent)
+
+    def host_password_rotation(self, operation_id):
+        """Owner-only metadata recovery, including after the original host is deleted."""
+        from .host_password_rotation import get
+        return get(self, operation_id)
+
+    def read_host_password_rotation(self, operation_id, *, slot):
+        """Explicitly return one pending old/new password snapshot, even after expiry.
+
+        Never prompts or logs. This is a recovery exception, not an ordinary entry read.
+        """
+        from .host_password_rotation import read
+        return read(self, operation_id, slot)
+
+    def start_host_password_rotation(self, operation_id):
+        """Persist mutation intent before a separately reviewed remote adapter runs."""
+        from .host_password_rotation import transition
+        return transition(self, operation_id, 'start')
+
+    def cancel_host_password_rotation(self, operation_id):
+        """Cancel only a reservation whose remote mutation has never started."""
+        from .host_password_rotation import transition
+        return transition(self, operation_id, 'cancel')
+
+    def confirm_host_password_rotation(self, operation_id, *, proof):
+        """Submit exact client attestation; does not itself verify or change SSH."""
+        from .host_password_rotation import transition
+        return transition(self, operation_id, 'confirm', proof)
+
     def supersede_host_credential(self, *, binding_id, operation_id, expected_entry_id, expected_entry_revision, replacement_entry_id, replacement_entry_revision):
         """Conditionally replace metadata; retains both refs pending remote cleanup.
 
