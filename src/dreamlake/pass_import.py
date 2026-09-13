@@ -54,7 +54,9 @@ def read_pass_ciphertext(root, selected):
         return data
 
 
-def import_pass_otp(vault, *, store, prefix, select, gpg_home=None, decryptor=None):
+def import_pass_otp(vault, *, store, prefix, select, gpg_home=None, decryptor=None, hotp_owner=None):
+    if hotp_owner not in (None, "dreamlake"):
+        raise VaultError("HOTP owner must be dreamlake")
     if not store or not prefix:
         raise VaultError("Pass OTP import requires explicit store and prefix")
     _entry_name("probe", prefix)
@@ -99,12 +101,17 @@ def import_pass_otp(vault, *, store, prefix, select, gpg_home=None, decryptor=No
             if len(lines) != 1:
                 raise ValueError()
             registration = parse_otp_uri(lines[0])
-            if registration.type != "totp":
-                raise ValueError()
+            payload = registration.reveal()
+            if registration.type == "hotp":
+                payload["counterMeaning"] = "pass-last-generated"
+                if hotp_owner == "dreamlake":
+                    if payload["algorithm"] != "SHA1" or len(payload["seed"]) * 5 // 8 < 16 or int(payload["counter"]) == 18446744073709551615:
+                        raise ValueError()
+                    payload.update(counter=str(int(payload["counter"]) + 1), counterMeaning="next-unused", counterOwner="dreamlake", active=True)
             request = httpx.Request("PUT", destination, headers=headers,
                                     extensions={"timeout": dict(timeout)},
-                                    json=dict(name=entry["name"], type="totp",
-                                              value=json.dumps(registration.reveal())))
+                                    json=dict(name=entry["name"], type=registration.type,
+                                              value=json.dumps(payload)))
             prepared.append((hashlib.sha256(data).digest(), request))
 
         def revalidate(i):
@@ -132,7 +139,7 @@ def import_pass_otp(vault, *, store, prefix, select, gpg_home=None, decryptor=No
                     entry["status"] = "denied"
                 elif response.is_success:
                     metadata = _metadata_response(response.json(), entry["name"])
-                    if metadata.get("type") != "totp" or metadata.get("revision") != 1:
+                    if metadata.get("type") != json.loads(prepared[i][1].content)["type"] or metadata.get("revision") != 1:
                         raise ValueError()
                     entry["status"] = "success"
                 else:
@@ -145,6 +152,6 @@ def import_pass_otp(vault, *, store, prefix, select, gpg_home=None, decryptor=No
     except KeyboardInterrupt:
         return dict(cancelled=True, uploaded=False, entries=entries)
     except Exception:
-        return dict(cancelled=False, uploaded=False, error="Pass OTP preparation or source revalidation failed; HOTP upload unsupported; no further writes attempted", entries=entries)
+        return dict(cancelled=False, uploaded=False, error="Pass OTP preparation or source revalidation failed; no further writes attempted", entries=entries)
     finally:
         prepared.clear()
