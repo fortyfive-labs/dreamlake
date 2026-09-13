@@ -1,12 +1,16 @@
 # Release notes
 
+## Unreleased — client-owned SSH key rotation
+
+Adds `Vault.rotate_host_key`, account-owned binding lookup and exact cleanup confirmation. A shared CLI/Python immutable journal resumes interrupted saves, selected-key verification, conditional binding replacement and exact old authorization cleanup. Target and jump credentials are separate, no calls prompt, and shared old entries are not automatically retired. [Commands and recovery guide](vault-key-rotation.md). Local tests are separate from remote SSH/hosted acceptance; password rotation remains required follow-up.
+
 ## Unreleased — host credential replacement metadata
 
 Adds conditional host-binding replacement and owner-only operation recovery.
 Exact intent retries preserve one receipt; both entry identities remain retained
 while remote cleanup is pending. These APIs do not install or revoke SSH keys.
 [Design and paired examples](https://github.com/dreamlake-ai/dreamlake-workspace/blob/feat/241-host-credential-supersede/docs/pages/dev/plans/host-credential-rotation/%2BPage.mdx).
-Remote key lifecycle, cleanup confirmation and password rotation remain open.
+Client-owned key lifecycle and cleanup confirmation are now implemented for review above; password rotation remains open.
 
 ## 0.13.0 — 2026-09-13
 

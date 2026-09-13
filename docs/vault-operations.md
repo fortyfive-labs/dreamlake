@@ -4,6 +4,13 @@
 require the matching Vault backend. See the [runtime note](https://docs.dreamlake.ai/dev/notes/vault-runtime/)
 for hosted availability; package checks do not establish deployment.
 
+## Host key rotation (unreleased)
+
+See [Rotate one host SSH key](vault-key-rotation.md) for paired CLI/Python commands,
+explicit target/jump transport, interruption recovery and cleanup. The matching
+backend and client release are required; current published versions above do not
+include this new rotation orchestration.
+
 ## HOTP ownership and recovery
 
 ```python
