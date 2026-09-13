@@ -50,13 +50,11 @@ def test_configuration_and_conflicts(tmp_path):
     assert "DO-NOT-ECHO" not in str(error.value)
 
 
-def test_dry_run_and_save_refusal_have_no_effects(monkeypatch):
+def test_dry_run_has_no_effects(monkeypatch):
     monkeypatch.setattr("dreamlake.api.hosts._remote", lambda *a: pytest.fail("remote effect"))
     hosts = DreamLakeClient(token="test", transport=httpx.MockTransport(lambda r: pytest.fail("network effect"))).hosts
     result = hosts.enroll(NAME, ssh="ctrl", save_credentials=True, dry_run=True)
     assert result["credentialSaveRequested"] and not result["credentialsSaved"]
-    with pytest.raises(HostConfigurationError, match="not implemented"):
-        hosts.enroll(NAME, ssh="ctrl", save_credentials=True)
     for bad in [float("nan"), -1, 601, True]:
         with pytest.raises(HostConfigurationError):
             hosts.enroll(NAME, ssh="ctrl", wait_seconds=bad)

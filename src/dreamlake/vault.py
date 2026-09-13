@@ -116,7 +116,7 @@ def _metadata_response(data, name):
     entries = _entries({"entries": [data.get("entry")]} if isinstance(data, dict) else None)
     if entries[0]["name"] != name:
         raise VaultError("Invalid vault response")
-    allowed = {"name", "type", "env", "keyName", "fileName", "deleteAt", "purgeAt", "expiresAt", "revision"}
+    allowed = {"id", "name", "type", "env", "keyName", "fileName", "deleteAt", "purgeAt", "expiresAt", "revision"}
     return {k: v for k, v in entries[0].items() if k in allowed}
 
 
@@ -131,9 +131,44 @@ def _validate_secret(value):
         raise VaultError("Secret value exceeds 64 KiB")
 
 
+def _host_binding(b):
+    if not isinstance(b, dict) or any(not isinstance(b.get(k), str) or not re.fullmatch(r"[0-9a-f]{24}", b[k]) for k in ("hostId", "enrollmentId")) or not isinstance(b.get("entryId"), str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", b["entryId"]) or type(b.get("entryRevision")) is not int or b["entryRevision"] < 1 or b["entryRevision"] > 9007199254740991 or b.get("role") not in ("target", "jump") or b.get("kind") not in ("password", "private_key") or not isinstance(b.get("endpoint"), str) or not re.fullmatch(r"[A-Za-z0-9_.@:\[\]-]{1,255}", b["endpoint"]):
+        raise VaultError("Invalid host credential binding")
+
+
 class Vault:
     def __init__(self, http_client: httpx.Client):
         self._http = http_client
+
+    def bind_host_credential(self, *, host_id, enrollment_id, role, endpoint, kind, entry_id, entry_revision):
+        """Bind an existing exact entry revision to this account's enrollment.
+
+        No SSH connection, installation, or backend delegation. Repeating the
+        same slot/ref is idempotent; replacing an existing binding is rejected.
+        """
+        data = dict(hostId=host_id, enrollmentId=enrollment_id, role=role, endpoint=endpoint,
+                    kind=kind, entryId=entry_id, entryRevision=entry_revision)
+        _host_binding(data)
+        result = self._request("PUT", "/v1/vault/host-credentials", json=data)
+        binding = result.get("binding") if isinstance(result, dict) else None
+        if not isinstance(binding, dict) or not isinstance(binding.get("id"), str) or any(binding.get(k) != v for k, v in data.items()):
+            raise VaultError("Invalid host credential binding response")
+        return {k: binding[k] for k in (*data, "id", "createdAt") if k in binding}
+
+    def host_credentials(self, *, host_id, enrollment_id):
+        """Account-only binding metadata; does not return secret values."""
+        if any(not isinstance(value, str) or not re.fullmatch(r"[0-9a-f]{24}", value) for value in (host_id, enrollment_id)):
+            raise VaultError("Invalid host credential identity")
+        result = self._request("GET", "/v1/vault/host-credentials", params={"hostId": host_id, "enrollmentId": enrollment_id})
+        bindings = result.get("bindings") if isinstance(result, dict) else None
+        if not isinstance(bindings, list):
+            raise VaultError("Invalid host credential binding response")
+        allowed = {"id", "hostId", "enrollmentId", "role", "endpoint", "kind", "entryId", "entryRevision", "createdAt", "releasedAt", "status"}
+        for binding in bindings:
+            _host_binding(binding)
+            if not isinstance(binding.get("id"), str):
+                raise VaultError("Invalid host credential binding response")
+        return [{k: v for k, v in binding.items() if k in allowed} for binding in bindings]
 
     def import_entries(self, *, source, prefix, select=None, config=None, store=None,
                        dry_run=False, if_match=None, retry=0, gpg_home=None, decryptor=None):
