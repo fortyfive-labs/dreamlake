@@ -1,0 +1,63 @@
+{
+  "schema": "dreamlake.acceptance/v1",
+  "observedAt": "2026-09-13T17:45:06.708748+00:00",
+  "status": "passed",
+  "scope": "Candidate source CLI/Python, merged local HTTP/native Mongo backend, real SSH on an authorized Linux host",
+  "sources": {
+    "server": "f42a7ba20df991d01c780e5aea5d0118bfd37c7e",
+    "cli": "76056b7db04dc672a15b1149afa975a3d55f7f84",
+    "python": "17d2acae320c77759fb562aa1aa5790ef51f435e"
+  },
+  "runnerSha256": "0490817314612f6c78f6be05d6c285cc757ea91f0490eabd7db7f8b80defe501",
+  "logSha256": "ebaa8ddc48f7bc64827636c2aa93d813d24c36d427c457569509f0e6c02d9abf",
+  "checks": [
+    "initial jump fresh selected-key SSH",
+    "initial jump real standalone helper inspect",
+    "initial target fresh selected-key SSH",
+    "initial target real standalone helper inspect",
+    "both clients reject real authenticated forced-command denial forgery",
+    "cli target real SSH rotation; restored new access, old denial, exact unrelated bytes/mode",
+    "python jump real SSH rotation; restored new access, old denial, exact unrelated bytes/mode",
+    "python target real SSH rotation; restored new access, old denial, exact unrelated bytes/mode",
+    "cli jump real SSH rotation; restored new access, old denial, exact unrelated bytes/mode",
+    "owned remote accounts removed, current bindings released, entries retired, fixture database removed"
+  ],
+  "rotations": [
+    {
+      "client": "cli",
+      "role": "target",
+      "phase": "cleanup_confirmed"
+    },
+    {
+      "client": "python",
+      "role": "jump",
+      "phase": "cleanup_confirmed"
+    },
+    {
+      "client": "python",
+      "role": "target",
+      "phase": "cleanup_confirmed"
+    },
+    {
+      "client": "cli",
+      "role": "jump",
+      "phase": "cleanup_confirmed"
+    }
+  ],
+  "cleanup": {
+    "syntheticAccountsRemoved": 2,
+    "syntheticHomesRemoved": 2,
+    "independentAdminReadback": true,
+    "currentBindingsReleased": 2,
+    "entriesRetired": 6,
+    "fixtureDatabaseRemoved": true,
+    "syntheticPrivateKeysRemoved": true
+  },
+  "limitations": [
+    "Source candidates, not published package acceptance",
+    "Local fixture encryption, not hosted KMS acceptance",
+    "Synthetic enrollment metadata, not live Nymph enrollment",
+    "Private-key rotation only; password rotation remains required",
+    "Backend cleanup confirmation is client attestation, not server SSH verification"
+  ]
+}

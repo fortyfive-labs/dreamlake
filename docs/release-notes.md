@@ -2,7 +2,7 @@
 
 ## Unreleased — client-owned SSH key rotation
 
-Adds `Vault.rotate_host_key`, account-owned binding lookup and exact cleanup confirmation. A shared CLI/Python immutable journal resumes interrupted saves, selected-key verification, conditional binding replacement and exact old authorization cleanup. Target and jump credentials are separate, no calls prompt, and shared old entries are not automatically retired. [Commands and recovery guide](vault-key-rotation.md). Local tests are separate from remote SSH/hosted acceptance; password rotation remains required follow-up.
+Adds `Vault.rotate_host_key`, account-owned binding lookup and exact cleanup confirmation. A shared CLI/Python immutable journal resumes interrupted saves, selected-key verification, conditional binding replacement and exact old authorization cleanup. Target and jump credentials are separate, no calls prompt, and shared old entries are not automatically retired. [Commands and recovery guide](vault-key-rotation.md). [Real candidate SSH acceptance](vault-key-rotation-acceptance.json) passed both clients for target and jump rotation with independent cleanup. Published clients, hosted KMS and enrollment acceptance remain separate; password rotation remains required follow-up.
 
 ## Unreleased
 
