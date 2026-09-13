@@ -29,6 +29,7 @@ Python SDK for ML experiment tracking and data storage.
    tracks
    files
    cli
+   hosts
 
 .. toctree::
    :maxdepth: 2
