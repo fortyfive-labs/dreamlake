@@ -92,10 +92,10 @@ def _request(value):
         raise ValueError('Remote mutation requires pinned identity')
 
 
-def _bounded_process(argv, data, *, timeout=30, monitor=None):
+def _bounded_process(argv, data, *, timeout=30, monitor=None, environment=None):
     """Bound both output and elapsed time; never expose process diagnostics."""
     process = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                               stderr=subprocess.PIPE, env={**os.environ, 'LC_ALL': 'C'})
+                               stderr=subprocess.PIPE, env={**os.environ, **(environment or {}), 'LC_ALL': 'C'})
     outputs = {process.stdout: bytearray(), process.stderr: bytearray()}
     selector = selectors.DefaultSelector()
     try:

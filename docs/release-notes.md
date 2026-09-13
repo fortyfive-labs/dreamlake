@@ -1,5 +1,9 @@
 # Release notes
 
+## Unreleased — password-only SSH verification
+
+`Vault.verify_host_password` pairs with CLI `vault verify-password`. A private one-shot askpass channel and parent-client authentication evidence verify the exact saved binding without password arguments, plaintext journals or unexpected prompts. Password changes and reservation APIs remain separate unfinished work. [Guide and reusable tests](vault-passwords.md).
+
 ## 0.15.0 — 2026-09-13
 
 **Published to PyPI.** Reviewed release PR #48 merged as `b698d8f`; tag `v0.15.0` points to that exact source. Public wheel/sdist downloads match reviewed SHA256 hashes. A fresh installation from the public PyPI index reports 0.15.0 and passes all 55 installed-package rotation tests. This excludes unmerged password-probe work; published-package remote and hosted rotation acceptance remain separate.
