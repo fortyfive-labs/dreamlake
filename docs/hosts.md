@@ -93,9 +93,10 @@ without bootstrap credentials. No rollback is implied by timeout or cancellation
 
 ## Validation scope
 
-Tests exercise configuration and error handling plus a real subprocess Python
-consumer talking HTTP to a persistent SQLite-backed protocol fixture, with an
-SSH subprocess adapter checking that grants use stdin. That fixture is not the
-production host server or a real remote nymph. Real backend/control-plane/remote
-host acceptance is tracked separately and must be reported before claiming
-end-to-end deployment support.
+Tests exercise configuration/error handling and a subprocess consumer against a
+persistent protocol fixture. A separate coordinated local run also passed against
+the actual main-server JWT/routes, persistent MongoDB, control plane, and nymph
+binary: online status, stable replay without service restart, denied authorization,
+conflicting replay, and renewed heartbeat after nymph restart. SSH/systemd adapters
+execute the real packaged bootstrap locally; this does not prove real network SSH,
+Linux supervision, bos14/AWS operation, or workload execution.

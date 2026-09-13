@@ -74,10 +74,12 @@ def test_authorization_precedes_target_effects(monkeypatch):
 def test_pending_and_redacted_conflict(monkeypatch):
     monkeypatch.setattr("dreamlake.api.hosts._remote", lambda args, p: {"unixUser": "ge", "publicKey": KEY} if p["action"] == "probe" else {"started": True})
     def handler(req):
+        if req.url.path.endswith("/hosts"):
+            assert req.url.params["prefix"] == "fortyfive/bos14"
         if req.method == "POST":
             return httpx.Response(200, json={"host": {"id": "h1", "name": NAME},
                 "enrollment": {"id": "e1", "machineId": "m1"}, "operationId": "op1",
-                "bootstrap": {"namespace": "fortyfive", "controlPlaneUrl": "https://cp.example", "token": GRANT}})
+                "bootstrap": {"namespace": "distinct-controlplane", "controlPlaneUrl": "https://cp.example", "token": GRANT}})
         return httpx.Response(200, json={"hosts": [], "enrollments": [{"id": "e1", "state": "pending"}]})
     hosts = DreamLakeClient(token="test", transport=httpx.MockTransport(handler)).hosts
     result = hosts.enroll(NAME, ssh="ctrl", wait_seconds=0)
@@ -125,7 +127,7 @@ def api_server(db_path, online=True):
             db.execute("insert or ignore into receipts values (?,?)", [key, payload]); db.commit()
             self.reply(200, {"host": {"id": "h1", "name": body["name"]},
                 "enrollment": {"id": "e1", "machineId": "m1"}, "operationId": key,
-                "bootstrap": {"namespace": "fortyfive", "controlPlaneUrl": "https://cp.example", "token": GRANT}})
+                "bootstrap": {"namespace": "distinct-controlplane", "controlPlaneUrl": "https://cp.example", "token": GRANT}})
     server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True); thread.start()
     try:
@@ -187,6 +189,8 @@ def test_status_pagination():
     seen = []
     def handler(req):
         seen.append(str(req.url))
+        if not req.url.path.endswith("/h1"):
+            assert req.url.params["prefix"] == "fortyfive/bos14"
         if req.url.path.endswith("/h1"):
             return httpx.Response(200, json={"host": {"id": "h1", "name": NAME}})
         page = int(req.url.params["page"])
