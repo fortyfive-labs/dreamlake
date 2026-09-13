@@ -1,5 +1,24 @@
 # Release notes
 
+## 0.13.0 — release candidate, 2026-09-13
+
+**Not yet published.** Paired CLI candidate: 0.16.0. The matching Vault backend
+is required; local package validation is separate from hosted deployment.
+
+- HOTP registrations import inactive by default. Explicit `hotp_owner="dreamlake"`
+  or `activate_otp` takes counter ownership; `otp(request_file=...)` preserves one
+  private immutable intent for issuance/recovery. It never prompts or modifies pass.
+- `list()` preserves complete metadata results through bounded pages; `list_page()`
+  exposes continuation and owner-only retired inclusion. Account/config changes
+  during traversal abort without returning a partial result.
+- `unbind_host_credential()` releases exact personal retention references, including
+  after host deletion, without claiming remote revocation or deleting active secrets.
+
+[Examples and recovery limits](vault-operations.md). Source:
+[HOTP #38](https://github.com/fortyfive-labs/dreamlake/pull/38),
+[pagination #39](https://github.com/fortyfive-labs/dreamlake/pull/39), and
+[unbind #36](https://github.com/fortyfive-labs/dreamlake/pull/36).
+
 ## 0.12.0 — 2026-09-13
 
 Post-enrollment saving accepts explicit target/jump `HostCredential` selections,

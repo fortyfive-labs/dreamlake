@@ -82,8 +82,7 @@ assert preview["uploaded"] is False
 This remains a redacted, read-only preview. It decrypts records from the explicit
 store locally without interactive pinentry, finds OTP records, and reports
 mapping/error status without exposing seeds or adjacent ordinary passwords.
-Selected TOTP upload and owner-only code generation are implemented for review
-with the matching OTP backend; they are not deployed. Ordinary `source="pass"`
+Selected TOTP upload and owner-only generation are available from Python 0.10.0 with the matching OTP backend. HOTP support is included in the 0.13.0 release candidate; its publication and hosted acceptance are separate. Ordinary `source="pass"`
 is unsupported; `config`, `if_match` and `retry` remain SSH-only.
 
 The existing `client.vault.pass_store.sync(store=..., otp=True, dry_run=True)`
@@ -91,7 +90,7 @@ remains a compatibility alias for preview. New examples use `import_entries`;
 future `sync` is reserved for tracked reconciliation rather than one-way import.
 
 
-## Selected TOTP import and use (unreleased)
+## Selected TOTP import and use
 
 ```python
 result = client.vault.import_entries(
@@ -112,16 +111,15 @@ Only selected files are decrypted during apply; paths are relative to the store
 without `.gpg`, with canonical slash-separated names. Selection is explicit
 consent; Python never prompts. The complete batch is validated before upload,
 and encrypted source bytes are rechecked before writes. Adjacent passwords never
-upload. HOTP upload and counter advancement remain unsupported; preview still
-classifies HOTP safely. There is no persisted preview/apply plan.
+upload. HOTP registrations default to inactive; `hotp_owner="dreamlake"` explicitly opts into counter authority. See [Vault operations](vault-operations.md) for activation, counter normalization and durable recovery. There is no persisted preview/apply plan.
 
 Imports create only. `conflict`, `denied`, `source-changed`, and `unknown` stop
 the batch, retaining earlier successes. `unknown` means the write may have
 committed; there is no automatic retry or rollback. Inspect metadata using
 `show`, and use explicit `get` only for secure comparison before deciding whether
-to retry. General uncertain-write recovery is a separate workstream.
+to retry. Identified-write recovery exists separately; source import batch outcomes still require explicit reconciliation.
 
-`otp` returns a secret code string, or JSON containing only `code` and
+For TOTP, `otp` returns a secret code string, or JSON containing only `code` and
 `validUntil` with `to_json=True`; do not log either. Expired responses are
 rejected locally. The server clock drives generation and payload expiry caps
 validity. Scoped keys are denied. Explicit `get` reveals the registration JSON
