@@ -1,0 +1,31 @@
+#!/usr/bin/env python3
+import os,pathlib,shlex,signal,subprocess,sys,time
+# Real SSH and user services do not inherit the invoking HTTP client credentials.
+for key in list(os.environ):
+    if key.startswith(("DREAMLAKE_", "LAKESHORE_")):
+        os.environ.pop(key, None)
+home=pathlib.Path.home()
+args=sys.argv[1:]
+if args[0]=='--user':args=args[1:]
+cmd=args[0]
+if cmd in ['show-environment','daemon-reload','enable']:sys.exit(0)
+unit=args[1]
+pidfile=home/(unit+'.pid')
+def alive(pid):
+    p=subprocess.run(['ps','-p',str(pid),'-o','stat='],capture_output=True,text=True)
+    return p.returncode==0 and p.stdout.strip() and not p.stdout.strip().startswith('Z')
+pid=int(pidfile.read_text()) if pidfile.exists() else None
+if pid and alive(pid):
+    if cmd=='start':sys.exit(0)
+    os.kill(pid,signal.SIGTERM)
+    for _ in range(100):
+        if not alive(pid):break
+        time.sleep(.05)
+    if alive(pid):os.kill(pid,signal.SIGKILL)
+if cmd=='stop':sys.exit(0)
+text=(home/'.config/systemd/user'/unit).read_text()
+line=next(line[len('ExecStart='):] for line in text.splitlines() if line.startswith('ExecStart='))
+argv=shlex.split(line.replace('%%','%'))
+with open(home/'nymph-fixture.log','ab') as log:
+    child=subprocess.Popen(argv,stdin=subprocess.DEVNULL,stdout=log,stderr=log,start_new_session=True)
+pidfile.write_text(str(child.pid))
