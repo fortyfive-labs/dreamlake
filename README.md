@@ -23,7 +23,7 @@ A simple and flexible SDK for ML experiment tracking and data storage.
 <td>
 
 ```shell
-uv add dreamlake@0.4.2
+uv add dreamlake@0.15.0
 ```
 
 </td>
