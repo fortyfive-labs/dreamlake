@@ -1,6 +1,6 @@
 # Rotate one host SSH key
 
-**Under review, unreleased.** Requires the matching host-credential cleanup backend. This is client-owned SSH transport; DreamLake does not connect on your behalf. [Vault #241](https://github.com/dreamlake-ai/dreamlake-workspace/issues/241) tracks release and live acceptance separately. Password rotation remains required work; this guide covers private keys only.
+**Python 0.15.0, published to PyPI.** Requires the matching host-credential cleanup backend. This is client-owned SSH transport; DreamLake does not connect on your behalf. [Vault #241](https://github.com/dreamlake-ai/dreamlake-workspace/issues/241) tracks release and live acceptance separately. Password rotation remains required work; this guide covers private keys only.
 
 Start with an enrolled SSH-accessible machine and an existing private-key binding. Select the target or jump binding explicitly. The current saved key must authenticate and occur exactly once in that account's `~/.ssh/authorized_keys`. Remote Python 3 and local OpenSSH are required. Use trusted existing known_hosts, an explicit host/user/port, and an owned private local operation directory.
 
