@@ -34,6 +34,7 @@ Python SDK for ML experiment tracking and data storage.
    runs
    providers
    vault-import
+   vault-kms
    vault-operations
    vault-write-recovery
 

@@ -1,5 +1,9 @@
 # Release notes
 
+## Unreleased
+
+`client.vault.kms.show/preview/activate/status` adds personal-owner prefix policy inspection, explicit empty-prefix activation and immutable operation recovery with CLI parity. Operator-approved key references only; populated migration and customer cloud grants remain unavailable. [Guide](vault-kms.md).
+
 ## Unreleased — host credential replacement metadata
 
 Adds conditional host-binding replacement and owner-only operation recovery.
