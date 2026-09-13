@@ -1,5 +1,9 @@
 # Release notes
 
+## Unreleased
+
+`client.vault.kms.show/preview/activate/status` adds personal-owner prefix policy inspection, explicit empty-prefix activation and immutable operation recovery with CLI parity. Operator-approved key references only; populated migration and customer cloud grants remain unavailable. [Guide](vault-kms.md).
+
 ## 0.13.0 — 2026-09-13
 
 **Published to PyPI.** Wheel and sdist downloads match the reviewed SHA256 hashes; a fresh registry installation reports 0.13.0. Paired CLI release: 0.16.0. The matching Vault backend
