@@ -82,10 +82,53 @@ assert preview["uploaded"] is False
 This remains a redacted, read-only preview. It decrypts records from the explicit
 store locally without interactive pinentry, finds OTP records, and reports
 mapping/error status without exposing seeds or adjacent ordinary passwords.
-OTP upload and code generation are not implemented: omitting `dry_run=True`
-fails before upload. Ordinary `source="pass"` is unsupported. SSH options cannot
-be mixed with pass-OTP options.
+Selected TOTP upload and owner-only code generation are implemented for review
+with the matching OTP backend; they are not deployed. Ordinary `source="pass"`
+is unsupported; `config`, `if_match` and `retry` remain SSH-only.
 
 The existing `client.vault.pass_store.sync(store=..., otp=True, dry_run=True)`
 remains a compatibility alias for preview. New examples use `import_entries`;
 future `sync` is reserved for tracked reconciliation rather than one-way import.
+
+
+## Selected TOTP import and use (unreleased)
+
+```python
+result = client.vault.import_entries(
+    source="pass-otp", prefix="alice/otp", store="/canonical/test-store",
+    gpg_home="/canonical/test-keyring", select=["login"],
+)
+code = client.vault.otp("login", prefix="alice/otp")
+code_json = client.vault.otp("login", prefix="alice/otp", to_json=True)
+```
+
+```shell
+dreamlake vault import --pass-otp -p alice/otp --store /canonical/test-store --gpg-home /canonical/test-keyring --select login
+dreamlake vault otp -p alice/otp -n login
+dreamlake vault otp -p alice/otp -n login --to-json
+```
+
+Only selected files are decrypted during apply; paths are relative to the store
+without `.gpg`, with canonical slash-separated names. Selection is explicit
+consent; Python never prompts. The complete batch is validated before upload,
+and encrypted source bytes are rechecked before writes. Adjacent passwords never
+upload. HOTP upload and counter advancement remain unsupported; preview still
+classifies HOTP safely. There is no persisted preview/apply plan.
+
+Imports create only. `conflict`, `denied`, `source-changed`, and `unknown` stop
+the batch, retaining earlier successes. `unknown` means the write may have
+committed; there is no automatic retry or rollback. Inspect metadata using
+`show`, and use explicit `get` only for secure comparison before deciding whether
+to retry. General uncertain-write recovery is a separate workstream.
+
+`otp` returns a secret code string, or JSON containing only `code` and
+`validUntil` with `to_json=True`; do not log either. Expired responses are
+rejected locally. The server clock drives generation and payload expiry caps
+validity. Scoped keys are denied. Explicit `get` reveals the registration JSON
+string and seed; it does not generate a code. Target authentication services
+still enforce one-time acceptance. Staging and production need separate gates.
+
+The cross-client real GPG/HTTP/Mongo acceptance runner lives in the matching
+server checkout at `dreamlake-server/scripts/test-vault-otp-clients.py`; its
+`src/vault/OTP.md` documents prerequisites and reproduction commands. This slice
+tracks [workspace issue #241](https://github.com/dreamlake-ai/dreamlake-workspace/issues/241).
