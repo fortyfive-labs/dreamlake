@@ -235,7 +235,7 @@ class Hosts:
             raise HostConfigurationError("page must be positive and page_size between 1 and 100")
         wildcard = selector.endswith("/*")
         parts = _name(selector[:-1] + "placeholder" if wildcard else selector)
-        prefix = "/".join(parts[:2]) + "/" if wildcard else selector
+        prefix = "/".join(parts[:2])
         path = f"/namespaces/{quote(parts[0], safe='')}/hosts"
         current_page = page if wildcard else 1
         while True:
@@ -279,7 +279,7 @@ class Hosts:
         request_id = request_id or str(uuid.uuid4())
         path = f"/namespaces/{quote(plan['namespace'], safe='')}/hosts"
         # Authorize namespace access before creating target identity files.
-        self._request("GET", path + "?prefix=" + quote(plan["name"], safe=""), request_id=request_id)
+        self._request("GET", path + "?prefix=" + quote(plan["namespace"] + "/" + plan["group"], safe=""), request_id=request_id)
         probe = _remote(plan["ssh"]["args"], {"action": "probe", "name": plan["name"]})
         if not isinstance(probe.get("unixUser"), str) or not probe["unixUser"] or not isinstance(probe.get("publicKey"), str) or not re.fullmatch(r"[A-Za-z0-9_-]{43}", probe["publicKey"]):
             raise HostError("Remote host returned invalid identity", request_id=request_id)
@@ -289,9 +289,9 @@ class Hosts:
         receipt = self._request("POST", path + "/enrollments", body=body, request_id=request_id)
         try:
             host, enrollment, bootstrap = receipt["host"], receipt["enrollment"], receipt["bootstrap"]
-            if host["name"] != plan["name"] or bootstrap["namespace"] != plan["namespace"]:
+            if host["name"] != plan["name"]:
                 raise ValueError
-            for v in (host["id"], enrollment["id"], enrollment["machineId"], bootstrap["controlPlaneUrl"]):
+            for v in (host["id"], enrollment["id"], enrollment["machineId"], bootstrap["controlPlaneUrl"], bootstrap["namespace"]):
                 if not isinstance(v, str) or not v:
                     raise ValueError
             operation_id = receipt["operationId"]
