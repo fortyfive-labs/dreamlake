@@ -277,7 +277,7 @@ def import_ssh(vault, *, prefix, select=None, config=None, dry_run=False, if_mat
                     transfer.update(status='success', detail=f"Saved revision {meta['revision']}")
                 except Exception as error:
                     match = re.fullmatch(r'Vault request failed \(HTTP ([0-9]+)\)', str(error)) if isinstance(error, VaultError) else None
-                    status = int(match[1]) if match else None
+                    status = getattr(error, 'status', None) or (int(match[1]) if match else None)
                     rejected = status in (400, 401, 403, 404, 405, 409, 412, 413, 422, 429, 501)
                     outcome = 'unknown' if unknown or writing and not rejected else 'failure'
                     transfer.update(status=outcome, detail='Write outcome unknown; retry reconciles only, without replay' if outcome == 'unknown'

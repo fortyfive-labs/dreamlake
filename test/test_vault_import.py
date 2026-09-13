@@ -78,7 +78,8 @@ def test_selected_only_upload_and_jump_reference(source):
         calls.append(request.method)
         if request.method == 'GET':return httpx.Response(404)
         value=json.loads(request.content);saved[value['name']]=value['value']
-        return httpx.Response(200,json={'entry':{'name':value['name'],'type':'string','revision':1}})
+        entry = {'name':value['name'],'type':'string','revision':1}
+        return httpx.Response(200,json={'entry':entry,'replayed':False,'operation':{'requestId':request.headers['Idempotency-Key'],'state':'committed','entry':entry,'committedAt':'2030-01-01T00:00:00.000Z','retainUntil':'2030-01-31T00:00:00.000Z'}})
     report=client(handler).import_entries(source='ssh',prefix='alice/remote',config=config,select=['profile:target','key:target:1'])
     assert [e['status'] for e in report['entries']]==['success','success']
     assert saved['alice/remote/ssh/keys/target-1']==key.read_text()

@@ -32,6 +32,7 @@ Python SDK for ML experiment tracking and data storage.
    hosts
    runs
    vault-import
+   vault-write-recovery
 
 .. toctree::
    :maxdepth: 2
