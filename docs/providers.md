@@ -1,6 +1,6 @@
 # Provider registrations
 
-Use `client.providers` to store provider configuration and associate your Slurm enrollment. This API requires a server with [workspace PR #321](https://github.com/dreamlake-ai/dreamlake-workspace/pull/321) and is not included in Python package 0.10.0.
+Use `client.providers` to store provider configuration and associate your Slurm enrollment. This API requires a server with [workspace PR #321](https://github.com/dreamlake-ai/dreamlake-workspace/pull/321) and was added in Python package 0.11.0. The corresponding CLI commands are in 0.14.0.
 
 ## Register and associate
 
