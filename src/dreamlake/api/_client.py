@@ -75,6 +75,12 @@ class DreamLakeClient:
         self._token = token or os.environ.get("DREAMLAKE_API_KEY") or _saved_token()
 
     @property
+    def providers(self):
+        """Provider declarations, owned associations and recovery receipts."""
+        from .providers import Providers
+        return Providers(self)
+
+    @property
     def runs(self):
         """Tracked execution through the account-authenticated main API."""
         from .runs import Runs
