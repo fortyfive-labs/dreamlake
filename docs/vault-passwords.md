@@ -1,6 +1,6 @@
 # Verify a saved SSH password
 
-**Implemented for review; unreleased.** Saving a password during enrollment does not establish that it works. This command reads one explicitly selected password binding and verifies it through a fresh password-only SSH connection. It does not change passwords, retire entries or authorize backend SSH. [Design and remaining rotation work](https://github.com/dreamlake-ai/dreamlake-workspace/blob/main/docs/pages/dev/plans/host-password-rotation/%2BPage.mdx).
+**Python 0.16.0 / CLI 0.19.0 release candidates; not published.** Saving a password during enrollment does not establish that it works. This command reads one explicitly selected password binding and verifies it through a fresh password-only SSH connection. It does not change passwords, retire entries or authorize backend SSH. [Design and remaining rotation work](https://github.com/dreamlake-ai/dreamlake-workspace/blob/main/docs/pages/dev/plans/host-password-rotation/%2BPage.mdx).
 
 ```shell
 dreamlake vault verify-password --binding-id "$password_binding_id" \

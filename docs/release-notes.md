@@ -1,18 +1,22 @@
 # Release notes
 
-## Unreleased — password reservation and recovery
+## 0.16.0 — release candidate (not published)
 
-Six paired SDK/CLI reservation methods retain exact recovery revisions, freeze the dedicated replacement and expose explicit owner-only pending snapshot reads. Real HTTP/native Mongo cross-client metadata flows passed for target and jump roles. Requires backend #370; privileged remote mutation and explicit rollback-resolution remain unfinished. [Guide](vault-passwords.md#reserve-and-recover-a-password-rotation).
+Paired CLI candidate: **0.19.0**. Publication is gated on matching hosted backend acceptance.
 
-## Unreleased — password-only SSH verification
+- `Vault.verify_host_password` verifies one saved target/jump password through isolated SSH and private askpass IPC, without command-line passwords or unexpected prompts. Candidate CLI/native/npm/Python authentication success and denial passed with disposable-account cleanup.
+- Six reservation methods retain exact encrypted recovery revisions, freeze a dedicated replacement and expose explicit owner-only snapshot reads. Real HTTP/native Mongo paired target/jump metadata flows passed. Requires backend #370; the API never mutates a remote password.
+- KMS migration acknowledges retained-record schema 2 and preserves separate snapshot/total counts. Older clients are gated when these records require the newer contract.
 
-`Vault.verify_host_password` pairs with CLI `vault verify-password`. A private one-shot askpass channel and parent-client authentication evidence verify the exact saved binding without password arguments, plaintext journals or unexpected prompts. Password changes and reservation APIs remain separate unfinished work. [Guide and reusable tests](vault-passwords.md).
+Remote password mutation and verified rollback-resolution remain unfinished and are not included. [Paired API and tests](vault-passwords.md).
+
+Local preparation: Python 3.12 full suite 644 passed, 60 skipped; 45 verification/reservation tests passed against the installed wheel outside the checkout. Fresh wheel/sdist installations expose 0.16.0 and the paired APIs. Sphinx HTML build passed with 39 warnings. These checks do not publish the package or prove hosted acceptance of the new APIs.
 
 ## 0.15.0 — 2026-09-13
 
-**Published to PyPI.** Reviewed release PR #48 merged as `b698d8f`; tag `v0.15.0` points to that exact source. Public wheel/sdist downloads match reviewed SHA256 hashes. A fresh installation from the public PyPI index reports 0.15.0 and passes all 55 installed-package rotation tests. This excludes unmerged password-probe work; published-package remote and hosted rotation acceptance remain separate.
+**Published to PyPI.** Reviewed release PR #48 merged as `b698d8f`; tag `v0.15.0` points to that exact source. Public wheel/sdist downloads match reviewed SHA256 hashes. A fresh installation from the public PyPI index reports 0.15.0 and passes all 55 installed-package rotation tests. This frozen release excludes the password verification/reservation APIs in the next candidate. Published CLI 0.18.0/Python 0.15.0 hosted staging acceptance passed all four target/jump key rotations, committed-response loss and fresh-process recovery, with full owned cleanup. [Repeatable fixture and evidence](https://github.com/dreamlake-ai/lakeshore-examples/pull/34). Production acceptance remains separate.
 
-Adds `Vault.rotate_host_key`, account-owned binding lookup and exact cleanup confirmation. A shared CLI/Python immutable journal resumes interrupted saves, selected-key verification, conditional binding replacement and exact old authorization cleanup. Target and jump credentials are separate, no calls prompt, and shared old entries are not automatically retired. [Commands and recovery guide](vault-key-rotation.md). [Real candidate SSH acceptance](vault-key-rotation-acceptance.json) passed both clients for target and jump rotation with independent cleanup. Published clients, hosted KMS and enrollment acceptance remain separate; password rotation remains required follow-up.
+Adds `Vault.rotate_host_key`, account-owned binding lookup and exact cleanup confirmation. A shared CLI/Python immutable journal resumes interrupted saves, selected-key verification, conditional binding replacement and exact old authorization cleanup. Target and jump credentials are separate, no calls prompt, and shared old entries are not automatically retired. [Commands and recovery guide](vault-key-rotation.md). [Real candidate SSH acceptance](vault-key-rotation-acceptance.json) passed both clients for target and jump rotation with independent cleanup. Published-client hosted staging KMS/enrollment acceptance is recorded above; password rotation remains required follow-up.
 
 ### Release preparation evidence
 
@@ -20,7 +24,7 @@ Python 3.12.12: full suite 584 passed, 60 skipped; installed-wheel rotation suit
 
 ## 0.14.0 — 2026-09-13
 
-**Published to PyPI.** Wheel and sdist hashes match the reviewed artifacts; a fresh registry installation reports 0.14.0. Paired CLI 0.17.0 publication is pending. This release contains only merged changes.
+**Published to PyPI.** Wheel and sdist hashes match the reviewed artifacts; a fresh registry installation reports 0.14.0. Paired CLI 0.17.0 is published. This release contains only merged changes.
 
 - Personal owners can inspect trusted prefix KMS policies, preview retained records,
   activate empty prefixes, and explicitly start/resume populated-prefix migrations.
@@ -69,8 +73,8 @@ merged in [Python #34](https://github.com/fortyfive-labs/dreamlake/pull/34),
 Published on PyPI and GitHub; wheel/sdist downloads match the release artifacts. A fresh PyPI installation passed version/API/redaction checks. Hosted acceptance remains pending. The earlier bos14 snapshot is
 separate evidence; see the [Vault Dev Note](https://docs.dreamlake.ai/dev/notes/vault-runtime/).
 
-## Unreleased — populated-prefix KMS migration
+## Retained-record migration compatibility
 
-`client.vault.kms.migrate`, bounded `resume`, and shared `status` pair with CLI commands. Preview counts retained entry and recovery records; response metadata strips secret/ciphertext fields. Unknown outcomes preserve the immutable operation ID. No hosted or package release is claimed.
+`client.vault.kms.migrate`, bounded `resume`, and shared `status` pair with CLI commands. Preview counts retained entry and recovery records; response metadata strips secret/ciphertext fields. Unknown outcomes preserve the immutable operation ID. The core migration commands shipped in 0.14.0; the retained-password-snapshot extension below is new in this candidate.
 
-Password reservation candidates also acknowledge retained-record schema 2 on KMS migration start/resume and preserve separate password-snapshot/total counts in metadata. Compatible backend deployment must precede these commands. Source validation: target/jump cross-client reservation and snapshot reads over real loopback HTTP/Mongo; published CLI 0.17/Python 0.14–0.15 are safely gated, new clients advance the same migration. No remote password changes are included.
+The 0.16.0 candidate also acknowledges retained-record schema 2 on KMS migration start/resume and preserves separate password-snapshot/total counts in metadata. Compatible backend deployment must precede these commands. Source validation: target/jump cross-client reservation and snapshot reads over real loopback HTTP/Mongo; published CLI 0.17/Python 0.14–0.15 are safely gated, new clients advance the same migration. No remote password changes are included.

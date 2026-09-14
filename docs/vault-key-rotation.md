@@ -90,3 +90,5 @@ reuse its path for a new operation or delete its recovery files prematurely.
 ## Recorded candidate acceptance
 
 [Sanitized evidence](vault-key-rotation-acceptance.json) records the exact source hashes and ten passing groups from real target/jump SSH: both CLI and Python completed each role, freshly restored replacement keys worked, old keys failed authentication, unrelated authorization bytes/options/modes remained intact, and authenticated forced-command denial forgery was rejected. Both marked users and homes were independently confirmed absent after cleanup. The source fixture does not prove published clients, hosted KMS, live enrollment or password rotation.
+
+Published CLI 0.18.0/Python 0.15.0 passed the [hosted staging fixture](https://github.com/dreamlake-ai/lakeshore-examples/pull/34): four target/jump rotations, lost committed-response recovery across clients and complete owned cleanup. This does not establish production acceptance or remote password mutation.
