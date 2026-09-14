@@ -310,6 +310,22 @@ class Note:
         """
         return self._send("PUT", f"/sections/{_seg(anchor)}", {"text": text}, force)["etag"]
 
+    def read(self) -> "Doc":
+        """Load the source and its revision as an editable snapshot.
+
+            doc = dl.note("<uuid>").read()
+            doc.replace("Published", query="Draft", all=True)
+            doc.save()
+
+        A separate entry point from `text`, which returns a plain string and
+        has callers — changing what that returns to hand back an object would
+        break them silently, since a string and a Doc both print.
+        """
+        from ._doc import Doc
+
+        self.refresh()
+        return Doc(self, self._text or "", self.etag)
+
     def write(self, text: str, *, force: bool = False) -> str:
         """Replace the whole body.
 
@@ -402,12 +418,26 @@ def _seg(value: str) -> str:
 
 
 def _resolve(ref: str, client: DreamLakeClient) -> tuple[str, str]:
-    """``"ns/slug"`` or ``"ns/<id>"`` -> ``(namespace, note_id)``."""
+    """``"<id>"``, ``"ns/slug"`` or ``"ns/<id>"`` -> ``(namespace, note_id)``.
+
+    An id identifies a note on its own, so it does not need a namespace in
+    front of it — the server resolves which namespace it is in, and answers
+    404 for a note the caller may not see exactly as it does for one that does
+    not exist. A slug is only unique within a namespace, so that form still
+    names one.
+    """
     if "/" not in ref:
-        raise ValueError(
-            f"note reference {ref!r} needs a namespace, e.g. '<namespace>/{ref}' — "
-            "a note id alone does not say whose namespace it is in"
-        )
+        if not _OBJECT_ID.match(ref):
+            raise ValueError(
+                f"note reference {ref!r} is neither an id nor '<namespace>/<slug>' — "
+                "an id is 24 hex characters"
+            )
+        with client.http() as http:
+            r = http.get(f"/notes/{_seg(ref)}")
+        _raise_for(r, f"resolve {ref}")
+        row = r.json()
+        return row["namespaceSlug"], row["id"]
+
     ns, rest = ref.split("/", 1)
     if _OBJECT_ID.match(rest):
         return ns, rest
