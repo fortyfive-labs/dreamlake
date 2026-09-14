@@ -96,3 +96,8 @@ separate test host with committed local transport/supervision adapters, cancels
 remaining test runs, stops nymph, and removes temporary files. It leaves records
 in the disposable fixture database for inspection. Stop the backend fixtures and
 remove only their dedicated test data after reviewing results.
+
+## Provider placement (unreleased)
+
+See [provider checks and placed runs](providers.md) for the check, placement and
+resource arguments. They require the draft server API in workspace PR #389.
