@@ -87,3 +87,41 @@ client.providers.retire(
 ```
 
 Retirement changes metadata. It does not stop jobs, remove hosts or delete Vault entries. Retire associations separately when you want their records marked retired. Editing declarations and upgrading legacy provider records are not yet supported.
+
+## Provider checks and placed runs (unreleased)
+
+Requires the server API in [workspace PR #389](https://github.com/dreamlake-ai/dreamlake-workspace/pull/389)
+and a tracked Slurm worker. These client additions are not released yet.
+
+```python
+provider_id = "aaaaaaaaaaaaaaaaaaaaaaaa"  # Replace with your provider ID.
+association_id = "bbbbbbbbbbbbbbbbbbbbbbbb"  # Your owned association.
+probe = client.providers.check(
+    "team", provider_id, association_id=association_id,
+    association_revision=1, request_id="probe-001",
+)
+client.runs.wait("team", probe["id"])
+status = client.providers.status("team", provider_id)
+# Inspect this association's readiness before submitting.
+run = client.runs.submit(
+    "team/lab/host", kind="uv-run", argv=["train.py"], include=["train.py"],
+    request_id="train-001",
+    placement={"providerId": provider_id, "associationId": association_id,
+               "associationRevision": 1},
+    resources={"cpus": 4, "memoryMib": 8192, "gpus": 0},
+)
+```
+
+A check explicitly consumes a small Slurm allocation (1 CPU, 512 MiB, no GPU,
+120-second CP timeout). `runs.status`, `runs.logs`, `runs.wait` and `runs.cancel`
+operate on its returned run ID. Waiting does not imply success; inspect the returned
+status. Readiness must be successful, current and from the same association/worker.
+It expires after 15 minutes and proves submission/environment access, not capacity
+or GPU isolation. A new check supersedes previous evidence.
+
+After a lost response, repeat identical input with the same request ID. Provider
+checks use run receipts, not provider-operation receipts. There are no automatic
+write retries. Resources are optional and default to 1 CPU, 512 MiB and zero GPUs;
+resource fields require placement, and placement supports `uv-run` only. Changed
+resource values under an accepted request ID conflict. Paired real-server and
+live-worker acceptance remain open.

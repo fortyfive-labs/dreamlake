@@ -72,3 +72,22 @@ def test_invalid_inputs_never_contact_api(tmp_path):
 def test_wait_returns_failed_terminal_record():
     runs = DreamLakeClient(token="synthetic", transport=httpx.MockTransport(lambda r: httpx.Response(200, json={"run": {"id": "run1", "status": "failed", "exitCode": 7}}))).runs
     assert runs.wait("ge", "run1", timeout_seconds=0)["exitCode"] == 7
+
+
+def test_provider_placement_resources_are_explicit(tmp_path):
+    seen = []
+    def handler(req):
+        seen.append(json.loads(req.content))
+        return httpx.Response(202, json={"run": {"id": "run1", "status": "queued"}})
+    runs = DreamLakeClient(token="synthetic", transport=httpx.MockTransport(handler)).runs
+    placement = {"providerId": "A" * 24, "associationId": "b" * 24, "associationRevision": 1}
+    runs.submit("ge/lab/box", kind="uv-run", argv=["train.py"], cwd=tmp_path,
+                placement=placement, resources={"cpus": 4, "gpus": 1}, request_id="placed")
+    assert seen[0]["placement"] == {**placement, "providerId": "a" * 24}
+    assert seen[0]["resources"] == {"cpus": 4, "memoryMib": 512, "gpus": 1}
+    for extra in [{"placement": {}}, {"resources": {"cpus": 2}},
+                  {"placement": placement, "resources": {"cpus": True}},
+                  {"placement": placement, "resources": {"gpus": -1}}]:
+        with pytest.raises(RunConfigurationError):
+            runs.submit("ge/lab/box", kind="uv-run", argv=["train.py"], cwd=tmp_path, **extra)
+    assert len(seen) == 1

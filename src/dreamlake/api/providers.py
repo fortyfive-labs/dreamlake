@@ -11,7 +11,7 @@ import httpx
 _SEGMENT = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}\Z")
 _ID = re.compile(r"[a-f0-9]{24}\Z")
 _REQUEST = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}\Z")
-_CODES = set("unauthorized forbidden namespace_not_found provider_not_found enrollment_not_found association_not_found operation_not_found invalid_provider_declaration invalid_provider_association invalid_provider_retirement invalid_request_id invalid_resource_id invalid_pagination runner_not_supported request_id_conflict provider_name_conflict association_exists provider_revision_conflict association_revision_conflict provider_retired association_retired legacy_provider_requires_upgrade runner_configuration_mismatch provider_service_unavailable".split())
+_CODES = {"host_not_online", "runner_capability_missing", "invalid_provider_check", "placement_configuration_invalid", "placement_target_mismatch"} | set("unauthorized forbidden namespace_not_found provider_not_found enrollment_not_found association_not_found operation_not_found invalid_provider_declaration invalid_provider_association invalid_provider_retirement invalid_request_id invalid_resource_id invalid_pagination runner_not_supported request_id_conflict provider_name_conflict association_exists provider_revision_conflict association_revision_conflict provider_retired association_retired legacy_provider_requires_upgrade runner_configuration_mismatch provider_service_unavailable".split())
 
 
 class ProviderError(Exception):
@@ -114,7 +114,7 @@ class Providers:
         self._client = client
         self.operations = ProviderOperations(self)
 
-    def _request(self, method, path, *, body=None, request_id=None, operation_id=None):
+    def _request(self, method, path, *, body=None, request_id=None, operation_id=None, check=False):
         if not self._client._token:
             raise ProviderAuthorizationError("DreamLake authentication is required", status=401, code="unauthorized", request_id=request_id)
         if body is not None and len(json.dumps(body, ensure_ascii=False).encode()) > 32768:
@@ -135,7 +135,11 @@ class Providers:
             raise error(f"Provider request failed (HTTP {response.status_code})" + (f": {code}" if code else ""), status=response.status_code, code=code, request_id=request_id)
         if not isinstance(data, dict):
             raise ProviderError("Provider response is invalid; recover submitted writes by request ID", status=response.status_code, request_id=request_id)
-        if method == "POST" or "/provider-operations/" in path:
+        if check:
+            run = data.get("run")
+            if not isinstance(run, dict) or not isinstance(run.get("id"), str) or not _ID.fullmatch(run["id"]) or not isinstance(run.get("status"), str) or run.get("purpose") != "provider_check":
+                raise ProviderError("Provider returned an invalid check receipt; retry with the same request ID", request_id=request_id)
+        elif method == "POST" or "/provider-operations/" in path:
             resource = data.get("resource")
             if (data.get("status") != "committed" or (operation_id is not None and data.get("operationId") != operation_id) or not isinstance(data.get("requestId"), str) or not _REQUEST.fullmatch(data["requestId"]) or (request_id is not None and data["requestId"] != request_id)
                     or not isinstance(data.get("operationId"), str) or not _ID.fullmatch(data["operationId"])
@@ -154,6 +158,17 @@ class Providers:
         rid = _text(request_id, _REQUEST, "request ID")
         return self._request("POST", _resource(namespace, provider_id) + "/associations",
                              body={**_payload(association, "association"), "requestId": rid}, request_id=rid)
+
+    def check(self, namespace, provider_id, *, association_id, association_revision, request_id):
+        """Explicitly submit a small Slurm probe; inspect/wait/cancel with runs APIs.
+
+        This consumes an allocation. Retry identical input with the same request_id
+        after an uncertain response; provider operation receipts do not track checks.
+        """
+        rid = _text(request_id, _REQUEST, "request ID")
+        return self._request("POST", _resource(namespace, provider_id) + "/checks", check=True,
+                             body={"requestId": rid, "associationId": _text(association_id, _ID, "association ID"),
+                                   "associationRevision": _integer(association_revision, "association revision", 9007199254740991)}, request_id=rid)["run"]
 
     def get(self, namespace, provider):
         """Read an active provider by ID or name through existing collection APIs."""

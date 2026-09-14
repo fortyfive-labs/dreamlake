@@ -80,3 +80,20 @@ def test_local_validation_rejects_raw_secrets_and_bad_shapes_before_network():
         providers.retire("team", ID, revision=True, request_id="stable")
     with pytest.raises(ProviderConfigurationError):
         providers.status("team", ID, page_size=101)
+
+
+def test_explicit_check_returns_run_receipt_without_polling_or_retry():
+    seen = []
+    def handler(req):
+        seen.append(req)
+        return httpx.Response(202, json={"run": {"id": OP, "status": "queued", "purpose": "provider_check"}})
+    providers = client(handler)
+    run = providers.check("team", ID, association_id=OP, association_revision=1, request_id="probe")
+    assert run["id"] == OP and len(seen) == 1
+    assert seen[0].url.path == f"/namespaces/team/lakeshore-providers/{ID}/checks"
+    assert json.loads(seen[0].content) == {"requestId": "probe", "associationId": OP, "associationRevision": 1}
+    with pytest.raises(ProviderConfigurationError):
+        providers.check("team", ID, association_id=OP, association_revision=True, request_id="bad")
+    assert len(seen) == 1
+    with pytest.raises(ProviderError):
+        client(lambda req: httpx.Response(200, json=receipt())).check("team", ID, association_id=OP, association_revision=1, request_id="probe")

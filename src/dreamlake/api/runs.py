@@ -5,7 +5,7 @@ import math
 import re
 import time
 import uuid
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from urllib.parse import quote, urlencode
 
@@ -89,7 +89,8 @@ class Runs:
     def submit(self, target: str, *, kind: str, argv: Sequence[str],
                include: Sequence[str] = (), cwd: str | Path | None = None,
                request_id: str | None = None, enrollment_id: str | None = None,
-               timeout_seconds: int = 3600) -> dict:
+               timeout_seconds: int = 3600, placement: Mapping | None = None,
+               resources: Mapping | None = None) -> dict:
         """Submit and immediately return a durable run record; call wait explicitly.
 
         Only include paths are read/uploaded. argv is passed unchanged to uv run
@@ -107,9 +108,33 @@ class Runs:
         request_id = str(uuid.uuid4()) if request_id is None else _text(request_id, "request_id")
         if enrollment_id is not None:
             _text(enrollment_id, "enrollment_id")
+        selected = None
+        limits = None
+        if placement is not None:
+            if not isinstance(placement, Mapping) or set(placement) != {"providerId", "associationId", "associationRevision"}:
+                raise RunConfigurationError("placement requires providerId, associationId and associationRevision")
+            selected = dict(placement)
+            for key in ("providerId", "associationId"):
+                if not isinstance(selected[key], str) or not re.fullmatch(r"[a-fA-F0-9]{24}", selected[key]):
+                    raise RunConfigurationError("Invalid placement ID")
+                selected[key] = selected[key].lower()
+            revision = selected["associationRevision"]
+            if type(revision) is not int or not 1 <= revision <= 9007199254740991 or kind != "uv-run":
+                raise RunConfigurationError("Placement requires a positive revision and uv-run")
+        if resources is not None:
+            if selected is None or not isinstance(resources, Mapping) or set(resources) - {"cpus", "memoryMib", "gpus"}:
+                raise RunConfigurationError("resources requires placement and CPU, memory or GPU fields")
+            limits = {"cpus": 1, "memoryMib": 512, "gpus": 0, **resources}
+            for key, low, high in (("cpus", 1, 65535), ("memoryMib", 1, 4294967295), ("gpus", 0, 65535)):
+                if type(limits[key]) is not int or not low <= limits[key] <= high:
+                    raise RunConfigurationError("Invalid resource limit")
         body = {"requestId": request_id, "target": target,
                 "execution": {"kind": kind, "argv": list(argv)},
                 "source": {"files": collect_source(include, cwd)}, "timeoutSeconds": timeout_seconds}
+        if selected is not None:
+            body["placement"] = selected
+        if limits is not None:
+            body["resources"] = limits
         if enrollment_id is not None:
             body["enrollmentId"] = enrollment_id
         return self._run(self._request("POST", _path(target.split("/")[0]), body=body,
