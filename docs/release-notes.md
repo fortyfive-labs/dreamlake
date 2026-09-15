@@ -1,16 +1,19 @@
 # Release notes
 
-## Unreleased — run capability discovery
+## 0.16.0 — unpublished candidate
 
-Adds `client.runs.capabilities(namespace)` with CLI parity and validated metadata. Reports server support, not fresh host readiness. Private production activation remains blocked pending the termination-refusal fix and live acceptance.
+Built from current main, including reviewed Python #50/#51/#55/#56. This replaces the older password-only release candidate #52; its frozen artifacts must not be published. No package upload, tag or hosted activation is claimed.
 
-## Unreleased — password reservation and recovery
+- `client.runs.submit(setup=..., allow_vault_delivery=True, ...)` submits an explicitly reviewed, pinned repository and selected credential mappings. Repeating the exact request ID recovers uncertain submissions. Private output is discarded; Python never prompts or implicitly reads a setup file. [Paired CLI/Python guide](runs.md).
+- `client.runs.capabilities(namespace)` reports authenticated server support and limits, separately from fresh host readiness. Unknown response fields are excluded and repository origins are validated. The CLI counterpart is `dreamlake runs capabilities`.
+- `client.vault.verify_host_password` verifies a saved binding with a private one-shot password channel. Reservation/recovery methods preserve the immutable replacement and provide owner-only pending snapshot reads. [Password guide](vault-passwords.md).
+- KMS migration acknowledges retained-record schema 2, including password snapshots. The compatible backend must be deployed before those operations; older clients remain safely gated. [KMS guide](vault-kms.md).
 
-Six paired SDK/CLI reservation methods retain exact recovery revisions, freeze the dedicated replacement and expose explicit owner-only pending snapshot reads. Real HTTP/native Mongo cross-client metadata flows passed for target and jump roles. Requires backend #370; privileged remote mutation and explicit rollback-resolution remain unfinished. [Guide](vault-passwords.md#reserve-and-recover-a-password-rotation).
+Private execution requires the matching backend configuration and a verified worker. Production activation remains blocked pending Nymph #45 termination handling and fresh acceptance. Source bos14 success/cancel/expiry evidence for earlier pins does not establish installed-package or hosted acceptance of this candidate. Remote password mutation and rollback resolution remain unfinished.
 
-## Unreleased — password-only SSH verification
+### Validation
 
-`Vault.verify_host_password` pairs with CLI `vault verify-password`. A private one-shot askpass channel and parent-client authentication evidence verify the exact saved binding without password arguments, plaintext journals or unexpected prompts. Password changes and reservation APIs remain separate unfinished work. [Guide and reusable tests](vault-passwords.md).
+Python 3.12 source suite: 667 passed, 60 skipped. A fresh wheel environment outside the source checkout passed all 63 run/capability/password tests. Sphinx HTML builds successfully; existing documentation warnings remain. Final artifact hashes and sdist installation checks are recorded in the release PR. These checks do not establish hosted acceptance.
 
 ## 0.15.0 — 2026-09-13
 
@@ -72,9 +75,3 @@ merged in [Python #34](https://github.com/fortyfive-labs/dreamlake/pull/34),
 [backend #336](https://github.com/dreamlake-ai/dreamlake-workspace/pull/336).
 Published on PyPI and GitHub; wheel/sdist downloads match the release artifacts. A fresh PyPI installation passed version/API/redaction checks. Hosted acceptance remains pending. The earlier bos14 snapshot is
 separate evidence; see the [Vault Dev Note](https://docs.dreamlake.ai/dev/notes/vault-runtime/).
-
-## Unreleased — populated-prefix KMS migration
-
-`client.vault.kms.migrate`, bounded `resume`, and shared `status` pair with CLI commands. Preview counts retained entry and recovery records; response metadata strips secret/ciphertext fields. Unknown outcomes preserve the immutable operation ID. No hosted or package release is claimed.
-
-Password reservation candidates also acknowledge retained-record schema 2 on KMS migration start/resume and preserve separate password-snapshot/total counts in metadata. Compatible backend deployment must precede these commands. Source validation: target/jump cross-client reservation and snapshot reads over real loopback HTTP/Mongo; published CLI 0.17/Python 0.14–0.15 are safely gated, new clients advance the same migration. No remote password changes are included.
