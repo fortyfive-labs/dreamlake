@@ -1,10 +1,10 @@
 # Release notes
 
-## 0.17.0 — unpublished release candidate
+## 0.17.0 — published 2026-09-15
 
 Adds `Vault.tree(prefix=..., limit=100, cursor=None)` for one owner-only metadata page. Based on published 0.16.2 plus the reviewed tree-only change from PR66; unrelated Notes work on main is excluded. No prompting, secret reads, automatic pagination or policy mutation.
 
-Requires an authenticated owner and backend PR576's `GET /v1/vault/tree` route. Backend source is merged but not deployed at preparation time: older servers return 404; that is not an empty tree. CLI 0.22.0 supplies the paired `vault list --tree` view. Neither candidate is published yet.
+Requires an authenticated owner and `GET /v1/vault/tree`; older servers return 404, which is not an empty tree. Both public PyPI archives match the frozen release hashes. A fresh no-cache PyPI installation verified version 0.17.0 and an authenticated production metadata-only tree page, with no remote writes or secret reads. CLI 0.22.0 provides the paired `vault list --tree` interface; its publication is tracked separately. [Publication receipt](releases/0.17.0/publication.json). [GitHub v0.17.0](https://github.com/fortyfive-labs/dreamlake/releases/tag/v0.17.0) is published at release source `a1450d4`, with both attached archives downloaded and hash-verified; this SDK check does not establish every API operation or fleet provenance.
 
 ## 0.16.2 — published 2026-09-15
 
