@@ -1,8 +1,10 @@
 # Release notes
 
-## Unreleased
+## 0.16.1 — unpublished patch candidate
 
 - Keep enrolled user-systemd hosts available while idle by explicitly setting `keep_alive_s = -1`. Existing hosts require re-enrollment with this fix. Paired CLI/Python bootstrap tests parse the generated TOML and verify re-enrollment repairs the old configuration. Package publication and a fresh remote idle window longer than 300 seconds remain pending.
+
+Python source suite: 668 passed, 60 skipped. Wheel and sdist built; fresh installations outside the source tree each passed 27 host/run tests, including generated bootstrap configuration. Sphinx build passed with 39 existing warnings. Both candidates are based on the previous published tag plus the reviewed host fix; unrelated Notes changes on main are excluded. Publication and a fresh hosted idle window longer than 300 seconds remain pending.
 
 ## 0.16.0 — 2026-09-15
 
