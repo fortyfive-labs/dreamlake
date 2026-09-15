@@ -112,6 +112,30 @@ class PatchFailed(NoteError):
 
 
 @dataclass(frozen=True)
+class LineRange:
+    """Part of a body, with enough context to know it is a part.
+
+    `total_lines` and `truncated` are not decoration: without them a caller
+    cannot tell "this is the whole note" from "this is the first page", and a
+    rewrite built on a partial read silently drops everything it never saw.
+    """
+
+    text: str
+    #: The revision of the WHOLE note, not of this range.
+    etag: str | None
+    #: 1-based, inclusive.
+    start_line: int
+    #: The last line actually returned — not necessarily the one asked for.
+    end_line: int
+    total_lines: int
+    truncated: bool
+
+    def __repr__(self) -> str:  # pragma: no cover - display only
+        more = ", truncated" if self.truncated else ""
+        return f"LineRange(lines {self.start_line}-{self.end_line} of {self.total_lines}{more})"
+
+
+@dataclass(frozen=True)
 class Section:
     """One addressable part of a note: a heading plus everything under it."""
 
@@ -322,6 +346,40 @@ class Note:
         renamed. Omit the heading and the section stops being one.
         """
         return self._send("PUT", f"/sections/{_seg(anchor)}", {"text": text}, force)["etag"]
+
+    def read_lines(
+        self,
+        start_line: int | None = None,
+        end_line: int | None = None,
+    ) -> "LineRange":
+        """Read part of the body, and say what was left out.
+
+            part = note.read_lines(1, 40)
+            part.truncated      # there is more below
+            part.total_lines    # how much more
+
+        For looking at a large note without pulling all of it. NOT a basis for
+        a write: the ETag identifies the WHOLE snapshot, so sending `part.text`
+        back as the body would delete everything outside the range. Use
+        `read()` and edit the draft, or address the range with `line=`.
+        """
+        params = {}
+        if start_line is not None:
+            params["startLine"] = str(start_line)
+        if end_line is not None:
+            params["endLine"] = str(end_line)
+        with self._client.http() as http:
+            r = http.get(f"{self._base}/body", params=params)
+        _raise_for(r, f"read {self._ns}/{self._id}")
+        d = r.json()
+        return LineRange(
+            text=d["text"],
+            etag=d.get("etag"),
+            start_line=d.get("startLine", 1),
+            end_line=d.get("endLine", 1),
+            total_lines=d.get("totalLines", 1),
+            truncated=bool(d.get("truncated", False)),
+        )
 
     def read(self) -> "Doc":
         """Load the source and its revision as an editable snapshot.

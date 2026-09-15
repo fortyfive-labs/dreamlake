@@ -281,3 +281,57 @@ def test_patch_refuses_if_match_and_force_together():
     n = Note("651111111111111111111111", namespace="ns", client=object())
     with pytest.raises(ValueError, match="give one"):
         n.patch("d", if_match="r", force=True)
+
+
+# ── Ranged reads ─────────────────────────────────────────────────────────────
+
+def test_read_lines_reports_what_it_left_out():
+    # The danger: a caller reads part of a note, rewrites what it read, and
+    # posts that back as the body — deleting everything it never saw. These
+    # fields are what make that visible beforehand.
+    import httpx
+
+    from dreamlake.api.notes import Note
+
+    captured: dict = {}
+
+    class FakeHttp:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def get(self, url, params=None):
+            captured["params"] = params
+            return httpx.Response(
+                200,
+                json={
+                    "text": "one\ntwo\n",
+                    "etag": "rev-whole",
+                    "startLine": 1,
+                    "endLine": 2,
+                    "totalLines": 6,
+                    "truncated": True,
+                },
+                request=httpx.Request("GET", url),
+            )
+
+    class FakeClient:
+        remote = "https://example.test"
+
+        def http(self):
+            return FakeHttp()
+
+    n = Note("651111111111111111111111", namespace="ns", client=FakeClient())
+    part = n.read_lines(1, 2)
+
+    assert captured["params"] == {"startLine": "1", "endLine": "2"}
+    assert part.text == "one\ntwo\n"
+    assert part.truncated is True
+    assert (part.start_line, part.end_line, part.total_lines) == (1, 2, 6)
+    # The revision is the WHOLE note's, which is what a later write is checked
+    # against — a validator describing only the range would turn a partial read
+    # into a whole-document overwrite.
+    assert part.etag == "rev-whole"
+    assert "truncated" in repr(part)
