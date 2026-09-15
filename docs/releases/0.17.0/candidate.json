@@ -1,0 +1,41 @@
+{
+  "version": "0.17.0",
+  "source": "09d2af5b397f66b1f42c254a80134c77d44b43d5",
+  "releasedBaseline": "b398f2c858f84fe3f60f0cc29d407e2606d0a1f6",
+  "baselineExistingRuntimeChanges": [
+    "src/dreamlake/vault.py"
+  ],
+  "newRuntimeFiles": [
+    "src/dreamlake/vault_tree.py"
+  ],
+  "reviewedTreeBytesMatch": "1ccae1f5c4e629eec349b8c892aa183a8f51f2d4",
+  "wheelAndSdistRuntimeFilesMatchSource": 80,
+  "notesRuntimeUnchangedFromPublishedBaseline": true,
+  "archives": {
+    "dreamlake-0.17.0-py3-none-any.whl": {
+      "sha256": "2b0d3daf2d573e178a23042a82ca59a2d0e81d7e5d56cc74fd8327333c1d1989",
+      "size": 256900
+    },
+    "dreamlake-0.17.0.tar.gz": {
+      "sha256": "30bb2f1a49c2c8416a244ad25555a4e1f033a76ad2189d6972cb4cb9101e2b3f",
+      "size": 214400
+    }
+  },
+  "status": "unpublished candidate",
+  "fullTests": {
+    "passed": 671,
+    "skipped": 60,
+    "warnings": 2096
+  },
+  "freshInstalledTests": {
+    "wheel": 2,
+    "sdist": 2
+  },
+  "actualCompiledCliHttpMongoPty": {
+    "wheel": true,
+    "sdist": true,
+    "npmWrapper": true
+  },
+  "backendRequired": "PR576 must be deployed; older routes return404",
+  "docsSiteMoved": false
+}
