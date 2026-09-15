@@ -31,7 +31,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Iterator
+from typing import TYPE_CHECKING, Any, Iterator, Sequence
 
 import httpx
 
@@ -179,6 +179,80 @@ class NoteRef:
 
     def __repr__(self) -> str:  # pragma: no cover - display only
         return f"<NoteRef {self.namespace}/{self.slug}>"
+
+
+@dataclass(frozen=True)
+class Hit:
+    """One match, and everywhere it is.
+
+    Three coordinates because three things consume them, and converting
+    between them by hand is where off-by-ones come from:
+
+        line    1-based, what you read and what ``line=`` takes
+        column  1-based code points into that line, so it lines up with ``rg -n``
+        ind     0-based end-exclusive code points from the start of the
+                document — what ``replace(ind=...)`` addresses
+
+    ``etag`` is the revision these offsets were computed against. Pass it to
+    ``patch(if_match=...)`` and a note edited in between is refused rather than
+    overwritten at offsets that have since moved.
+    """
+
+    note_id: str
+    note_slug: str
+    note_name: str
+    #: Revision the offsets belong to. Use it as the write's precondition.
+    etag: str
+    line: int
+    column: int
+    ind: tuple[int, int]
+    #: The whole line, not just the matched text — enough to judge the hit.
+    text: str
+    match: str
+    before: tuple[str, ...]
+    after: tuple[str, ...]
+    #: Innermost section containing the hit, for addressing it by section.
+    anchor: str
+    namespace: str = ""
+
+    def open(self, *, client: DreamLakeClient | None = None) -> "Note":
+        """The note this hit is in."""
+        return Note(self.note_id, namespace=self.namespace, client=client)
+
+    def __repr__(self) -> str:  # pragma: no cover - display only
+        return f"<Hit {self.note_slug}:{self.line}:{self.column} {self.match!r}>"
+
+
+@dataclass(frozen=True)
+class GrepResult:
+    """Hits, plus what was NOT looked at.
+
+    Every field after ``hits`` exists to stop a caller mistaking a bounded
+    answer for a complete one — which is how "replace all of them" quietly
+    replaces some of them.
+    """
+
+    hits: tuple[Hit, ...]
+    #: A note held more matches than the server returns for one note.
+    truncated: bool
+    #: How many notes the caller was allowed to see and search.
+    notes_searched: int
+    #: Notes too large to index in full; their tail was not searched.
+    partial_notes: tuple[str, ...]
+    #: Open notes whose unsaved text could not be flushed in time.
+    stale_notes: int
+    #: Opaque; pass back as ``cursor=`` for the next page. None at the end.
+    next_cursor: str | None
+
+    def __iter__(self):
+        return iter(self.hits)
+
+    def __len__(self) -> int:
+        return len(self.hits)
+
+    def __repr__(self) -> str:  # pragma: no cover - display only
+        more = ", truncated" if self.truncated else ""
+        return f"GrepResult({len(self.hits)} hits from {self.notes_searched} notes{more})"
 
 
 def _raise_for(resp: httpx.Response, what: str) -> None:
@@ -639,6 +713,120 @@ def search_notes(
         )
     _raise_for(r, f"search notes in {namespace}")
     return [_ref(row, namespace) for row in r.json().get("notes", [])]
+
+
+def grep_notes(
+    query: str | None = None,
+    *,
+    namespace: str,
+    regex: str | None = None,
+    flags: str = "",
+    case_sensitive: bool | None = None,
+    glob: str | None = None,
+    notes: Sequence[str] | None = None,
+    context: int = 0,
+    limit: int = 50,
+    cursor: str | None = None,
+    client: DreamLakeClient | None = None,
+) -> GrepResult:
+    """Search note bodies and get the location of every hit.
+
+    ``search_notes`` answers "which notes contain this". This answers "where",
+    so you can go straight to an edit:
+
+        for hit in dl.grep_notes("TODO", namespace="me"):
+            print(f"{hit.note_slug}:{hit.line}:{hit.column}  {hit.text}")
+
+        hit = dl.grep_notes("Draft", namespace="me").hits[0]
+        doc = hit.open().read()
+        doc.replace("Published", ind=hit.ind)
+        doc.save()
+
+    Not the same thing as ``doc.find()``: that searches ONE note you have
+    already loaded, locally and exactly. This searches every note in a
+    namespace you may see, on the server, against the indexed copy.
+
+    Literal and case-insensitive by default — punctuation in ``query`` matches
+    itself, so searching for "v1.2" does not also find "v1x2". Pass ``regex=``
+    for a pattern; that defaults to case-SENSITIVE, because a pattern is
+    written deliberately. ``flags`` takes any of i, m, s, u; "g" is refused,
+    since whether all matches are wanted is decided by this call.
+
+    ``limit`` is a number of HITS, and pages are followed to reach it. Read
+    ``.truncated`` and ``.partial_notes`` before concluding you have seen every
+    occurrence.
+    """
+    c = client or get_client()
+    params: dict[str, Any] = {"limit": min(limit, 200), "context": context}
+    if query is not None:
+        params["q"] = query
+    if regex is not None:
+        params["regex"] = regex
+    if flags:
+        params["flags"] = flags
+    if case_sensitive is not None:
+        params["caseSensitive"] = "true" if case_sensitive else "false"
+    if glob:
+        params["glob"] = glob
+    if notes:
+        params["note"] = ",".join(notes)
+
+    hits: list[Hit] = []
+    truncated = False
+    searched = 0
+    partial: list[str] = []
+    stale = 0
+    next_cursor = cursor
+
+    # Follow pages until `limit` hits are in hand. A caller asking for 50 hits
+    # means 50 hits, not "50 or fewer depending on how the server chose to
+    # chunk them" — and a page boundary is not something they can see.
+    while True:
+        page_params = dict(params)
+        page_params["limit"] = min(limit - len(hits), 200)
+        if next_cursor:
+            page_params["cursor"] = next_cursor
+        with c.http() as http:
+            r = http.get(f"/namespaces/{_seg(namespace)}/notes/search", params=page_params)
+        _raise_for(r, f"search notes in {namespace}")
+        d = r.json()
+
+        for row in d.get("hits", []):
+            ind = row.get("ind") or [0, 0]
+            hits.append(
+                Hit(
+                    note_id=row.get("noteId", ""),
+                    note_slug=row.get("noteSlug", ""),
+                    note_name=row.get("noteName", ""),
+                    etag=row.get("etag", ""),
+                    line=row.get("line", 1),
+                    column=row.get("column", 1),
+                    ind=(ind[0], ind[1]),
+                    text=row.get("text", ""),
+                    match=row.get("match", ""),
+                    before=tuple(row.get("before") or ()),
+                    after=tuple(row.get("after") or ()),
+                    anchor=row.get("anchor", ""),
+                    namespace=namespace,
+                )
+            )
+        truncated = truncated or bool(d.get("truncated"))
+        searched += int(d.get("notesSearched") or 0)
+        partial.extend(d.get("partialNotes") or ())
+        stale = max(stale, int(d.get("staleNotes") or 0))
+        next_cursor = d.get("nextCursor")
+
+        if not next_cursor or len(hits) >= limit:
+            break
+
+    return GrepResult(
+        hits=tuple(hits),
+        truncated=truncated,
+        notes_searched=searched,
+        partial_notes=tuple(dict.fromkeys(partial)),
+        stale_notes=stale,
+        next_cursor=next_cursor,
+    )
 
 
 def shared_with_me(*, client: DreamLakeClient | None = None) -> list[NoteRef]:

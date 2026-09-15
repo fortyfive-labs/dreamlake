@@ -57,6 +57,7 @@ from .api import (
     note,
     create_note,
     list_notes,
+    grep_notes,
     search_notes,
     shared_with_me,
 )
