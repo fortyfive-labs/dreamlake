@@ -41,7 +41,7 @@ def affected_options(limit, cursor):
 
 
 def affected_view(value, prefix, key_ref):
-    if not isinstance(value, dict) or type(value.get("schemaVersion")) is not int or value["schemaVersion"] != 1 or value.get("consistency") != "page-snapshot" or value.get("includesRetired") is not True or value.get("comparison") != "policy-only" or "blockedReason" not in value or value["blockedReason"] not in (None, "active-migration", "overlapping-boundary") or not isinstance(value.get("entries"), list) or len(value["entries"]) > 200 or "nextCursor" not in value or (value["nextCursor"] is not None and not _matches(value["nextCursor"], r"[A-Za-z0-9_-]{1,4096}")):
+    if not isinstance(value, dict) or not isinstance(value.get("observedAt"), str) or _date(value["observedAt"]) is None or not _matches(value.get("contextFingerprint"), r"[a-f0-9]{64}") or type(value.get("schemaVersion")) is not int or value["schemaVersion"] != 1 or value.get("consistency") != "page-snapshot" or value.get("includesRetired") is not True or value.get("comparison") != "policy-only" or "blockedReason" not in value or value["blockedReason"] not in (None, "active-migration", "overlapping-boundary") or not isinstance(value.get("entries"), list) or len(value["entries"]) > 200 or "nextCursor" not in value or (value["nextCursor"] is not None and not _matches(value["nextCursor"], r"[A-Za-z0-9_-]{1,4096}")):
         _fail()
     entries, previous = [], None
     for row in value["entries"]:
@@ -61,4 +61,4 @@ def affected_view(value, prefix, key_ref):
         entries.append(dict(id=row["id"], name=row["name"], revision=row["revision"], type=row["type"], deleteAt=_date(row["deleteAt"]), purgeAt=_date(row["purgeAt"]), expiresAt=_date(row["expiresAt"]), currentPolicy={k: current[k] for k in ("prefix", "keyRef", "provider", "epoch")}, proposedPolicy=None if proposed is None else {k: proposed[k] for k in ("prefix", "keyRef", "provider")}))
     if value["nextCursor"] is not None and not entries:
         _fail()
-    return dict(schemaVersion=1, consistency="page-snapshot", includesRetired=True, comparison="policy-only", blockedReason=value["blockedReason"], entries=entries, nextCursor=value["nextCursor"])
+    return dict(observedAt=value["observedAt"], contextFingerprint=value["contextFingerprint"], schemaVersion=1, consistency="page-snapshot", includesRetired=True, comparison="policy-only", blockedReason=value["blockedReason"], entries=entries, nextCursor=value["nextCursor"])

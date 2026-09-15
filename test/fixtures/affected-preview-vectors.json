@@ -30,7 +30,9 @@
           }
         }
       ],
-      "nextCursor": null
+      "nextCursor": null,
+      "observedAt": "2026-09-15T14:00:00.000Z",
+      "contextFingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
     }
   },
   {
@@ -60,7 +62,9 @@
           "proposedPolicy": null
         }
       ],
-      "nextCursor": null
+      "nextCursor": null,
+      "observedAt": "2026-09-15T14:00:00.000Z",
+      "contextFingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
     }
   }
 ]

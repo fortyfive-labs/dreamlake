@@ -18,7 +18,7 @@ def test_shared_metadata_vectors_and_projection():
         assert affected_view(dirty, vector['prefix'], vector['keyRef']) == vector['value']
 
 
-@pytest.mark.parametrize('field,value', [('schemaVersion', 2), ('nextCursor', '../bad'), ('blockedReason', 'active-migration')])
+@pytest.mark.parametrize('field,value', [('observedAt', 'bad'), ('contextFingerprint', 'bad'), ('schemaVersion', 2), ('nextCursor', '../bad'), ('blockedReason', 'active-migration')])
 def test_invalid_page(field, value):
     page = copy.deepcopy(VECTORS[0]['value']); page[field] = value
     with pytest.raises(VaultError): affected_view(page, 'alice/project', 'selected')

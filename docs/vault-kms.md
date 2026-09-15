@@ -79,6 +79,13 @@ Migration routes require the operator flag `DREAMLAKE_VAULT_KMS_MIGRATION_ENABLE
 
 ## Affected-entry preview — Unreleased, 2026-09-15
 
+`affectedEntries.observedAt` is the application's UTC wall-clock observation when
+that page read completes, not a Mongo cluster timestamp or a guarantee spanning
+multiple pages. `contextFingerprint` identifies the policy/owner/tenant/key/schema
+context also bound into continuation cursors. Equal fingerprints do not freeze
+entry revisions between observations. All opt-in metadata probes have a 10-second
+Mongo operation limit; ordinary preview timeout behavior is preserved.
+
 ```python
 page = client.vault.kms.preview(
     prefix="alice/project", key_ref="managed", affected_limit=100,
