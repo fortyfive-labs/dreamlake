@@ -15,7 +15,7 @@ Functions:
     text_track  — create a TextTrack
     vec_index   — create/connect to a VectorIndex
     note        — open a Note by "namespace/slug"
-    list_notes / search_notes / shared_with_me
+    list_notes / search_notes / grep_notes / shared_with_me
 
 Context:
     Prefix      — context manager for project/path scoping
@@ -39,6 +39,7 @@ from .notes import (
     note,
     create_note,
     list_notes,
+    grep_notes,
     search_notes,
     shared_with_me,
 )
@@ -61,6 +62,7 @@ __all__ = [
     "note",
     "create_note",
     "list_notes",
+    "grep_notes",
     "search_notes",
     "shared_with_me",
     "Prefix",

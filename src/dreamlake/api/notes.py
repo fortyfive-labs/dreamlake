@@ -31,7 +31,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Iterator
+from typing import TYPE_CHECKING, Any, Iterator, Sequence
 
 import httpx
 
@@ -111,6 +111,57 @@ class PatchFailed(NoteError):
 # ── Values ───────────────────────────────────────────────────────────────────
 
 
+class PatchResult(str):
+    """What a patch committed.
+
+    Subclasses `str` and equals its own ETag, so `note.patch(...)` can grow
+    fields without breaking a caller that treated the old return value as the
+    revision string — comparisons, formatting and `if_match=` all still work.
+    """
+
+    __slots__ = ("_size_bytes",)
+
+    def __new__(cls, etag: str, size_bytes: int = 0) -> "PatchResult":
+        self = super().__new__(cls, etag)
+        self._size_bytes = size_bytes
+        return self
+
+    @property
+    def etag(self) -> str:
+        return str(self)
+
+    @property
+    def size_bytes(self) -> int:
+        return self._size_bytes
+
+    def __repr__(self) -> str:  # pragma: no cover - display only
+        return f"PatchResult(etag={str(self)!r}, size_bytes={self.size_bytes})"
+
+
+@dataclass(frozen=True)
+class LineRange:
+    """Part of a body, with enough context to know it is a part.
+
+    `total_lines` and `truncated` are not decoration: without them a caller
+    cannot tell "this is the whole note" from "this is the first page", and a
+    rewrite built on a partial read silently drops everything it never saw.
+    """
+
+    text: str
+    #: The revision of the WHOLE note, not of this range.
+    etag: str | None
+    #: 1-based, inclusive.
+    start_line: int
+    #: The last line actually returned — not necessarily the one asked for.
+    end_line: int
+    total_lines: int
+    truncated: bool
+
+    def __repr__(self) -> str:  # pragma: no cover - display only
+        more = ", truncated" if self.truncated else ""
+        return f"LineRange(lines {self.start_line}-{self.end_line} of {self.total_lines}{more})"
+
+
 @dataclass(frozen=True)
 class Section:
     """One addressable part of a note: a heading plus everything under it."""
@@ -155,6 +206,80 @@ class NoteRef:
 
     def __repr__(self) -> str:  # pragma: no cover - display only
         return f"<NoteRef {self.namespace}/{self.slug}>"
+
+
+@dataclass(frozen=True)
+class Hit:
+    """One match, and everywhere it is.
+
+    Three coordinates because three things consume them, and converting
+    between them by hand is where off-by-ones come from:
+
+        line    1-based, what you read and what ``line=`` takes
+        column  1-based code points into that line, so it lines up with ``rg -n``
+        ind     0-based end-exclusive code points from the start of the
+                document — what ``replace(ind=...)`` addresses
+
+    ``etag`` is the revision these offsets were computed against. Pass it to
+    ``patch(if_match=...)`` and a note edited in between is refused rather than
+    overwritten at offsets that have since moved.
+    """
+
+    note_id: str
+    note_slug: str
+    note_name: str
+    #: Revision the offsets belong to. Use it as the write's precondition.
+    etag: str
+    line: int
+    column: int
+    ind: tuple[int, int]
+    #: The whole line, not just the matched text — enough to judge the hit.
+    text: str
+    match: str
+    before: tuple[str, ...]
+    after: tuple[str, ...]
+    #: Innermost section containing the hit, for addressing it by section.
+    anchor: str
+    namespace: str = ""
+
+    def open(self, *, client: DreamLakeClient | None = None) -> "Note":
+        """The note this hit is in."""
+        return Note(self.note_id, namespace=self.namespace, client=client)
+
+    def __repr__(self) -> str:  # pragma: no cover - display only
+        return f"<Hit {self.note_slug}:{self.line}:{self.column} {self.match!r}>"
+
+
+@dataclass(frozen=True)
+class GrepResult:
+    """Hits, plus what was NOT looked at.
+
+    Every field after ``hits`` exists to stop a caller mistaking a bounded
+    answer for a complete one — which is how "replace all of them" quietly
+    replaces some of them.
+    """
+
+    hits: tuple[Hit, ...]
+    #: A note held more matches than the server returns for one note.
+    truncated: bool
+    #: How many notes the caller was allowed to see and search.
+    notes_searched: int
+    #: Notes too large to index in full; their tail was not searched.
+    partial_notes: tuple[str, ...]
+    #: Open notes whose unsaved text could not be flushed in time.
+    stale_notes: int
+    #: Opaque; pass back as ``cursor=`` for the next page. None at the end.
+    next_cursor: str | None
+
+    def __iter__(self):
+        return iter(self.hits)
+
+    def __len__(self) -> int:
+        return len(self.hits)
+
+    def __repr__(self) -> str:  # pragma: no cover - display only
+        more = ", truncated" if self.truncated else ""
+        return f"GrepResult({len(self.hits)} hits from {self.notes_searched} notes{more})"
 
 
 def _raise_for(resp: httpx.Response, what: str) -> None:
@@ -233,12 +358,25 @@ class Note:
         _raise_for(r, f"read {self._ns}/{self._id}")
         return r.json()
 
-    def _send(self, method: str, path: str, payload: dict, force: bool) -> dict:
+    def _send(
+        self,
+        method: str,
+        path: str,
+        payload: dict,
+        force: bool,
+        if_match: str | None = None,
+    ) -> dict:
         headers = {}
         # The default is a conditional write. Sending no validator would make
         # every edit a last-writer-wins overwrite, which for a document several
         # people share is data loss with a success code on it.
-        if not force and self._etag:
+        #
+        # An explicit `if_match` wins over the cached one: a caller who names a
+        # revision is writing against THAT one, and quietly substituting a
+        # newer one this object happens to hold would defeat the check.
+        if if_match is not None:
+            headers["If-Match"] = if_match
+        elif not force and self._etag:
             headers["If-Match"] = self._etag
         with self._client.http() as http:
             r = http.request(method, f"{self._base}{path}", json=payload, headers=headers)
@@ -310,6 +448,88 @@ class Note:
         """
         return self._send("PUT", f"/sections/{_seg(anchor)}", {"text": text}, force)["etag"]
 
+    @property
+    def files(self) -> "NoteFiles":
+        """Files attached to this note.
+
+            note.files.list("assets/*.png")
+            note.files.upload(Path("diagram.png"), path="assets/diagram.png")
+
+        Distinct from note MEDIA, which is the image-embedding path: a media
+        URL is its own credential and readable by anyone holding it, which is
+        right for a picture in a public note and wrong for an attachment. These
+        inherit the note's permissions on every read.
+        """
+        from ._files import NoteFiles
+
+        return NoteFiles(self)
+
+    def read_lines(
+        self,
+        start_line: int | None = None,
+        end_line: int | None = None,
+    ) -> "LineRange":
+        """Read part of the body, and say what was left out.
+
+            part = note.read_lines(1, 40)
+            part.truncated      # there is more below
+            part.total_lines    # how much more
+
+        For looking at a large note without pulling all of it. NOT a basis for
+        a write: the ETag identifies the WHOLE snapshot, so sending `part.text`
+        back as the body would delete everything outside the range. Use
+        `read()` and edit the draft, or address the range with `line=`.
+        """
+        params = {}
+        if start_line is not None:
+            params["startLine"] = str(start_line)
+        if end_line is not None:
+            params["endLine"] = str(end_line)
+        with self._client.http() as http:
+            r = http.get(f"{self._base}/body", params=params)
+        _raise_for(r, f"read {self._ns}/{self._id}")
+        d = r.json()
+        return LineRange(
+            text=d["text"],
+            etag=d.get("etag"),
+            start_line=d.get("startLine", 1),
+            end_line=d.get("endLine", 1),
+            total_lines=d.get("totalLines", 1),
+            truncated=bool(d.get("truncated", False)),
+        )
+
+    def read(self, *, if_match: str | None = None) -> "Doc":
+        """Load the source and its revision as an editable snapshot.
+
+            doc = dl.note("<uuid>").read()
+            doc.replace("Published", query="Draft", all=True)
+            doc.save()
+
+        `if_match` makes this a VERIFICATION read: the note must still be at
+        that revision, and `NoteChanged` is raised if it is not. The use is
+        read-after-write —
+
+            rev = note.patch(diff, if_match=doc.etag)
+            check = note.read(if_match=rev.etag)   # the version just committed
+
+        — where returning whatever happens to be there now would quietly
+        validate a different snapshot than the one being checked, and report
+        success for someone else's document.
+
+        A separate entry point from `text`, which returns a plain string and
+        has callers — changing what that returns to hand back an object would
+        break them silently, since a string and a Doc both print.
+        """
+        from ._doc import Doc
+
+        self.refresh()
+        if if_match is not None and self.etag != if_match:
+            raise NoteChanged(
+                f"note is at {self.etag}, not {if_match} — it changed since that revision",
+                etag=self.etag,
+            )
+        return Doc(self, self._text or "", self.etag)
+
     def write(self, text: str, *, force: bool = False) -> str:
         """Replace the whole body.
 
@@ -317,14 +537,29 @@ class Note:
         """
         return self._send("PUT", "/body", {"text": text}, force)["etag"]
 
-    def patch(self, diff: str, *, force: bool = False) -> str:
-        """Apply a unified diff.
+    def patch(
+        self, diff: str, *, if_match: str | None = None, force: bool = False
+    ) -> "PatchResult":
+        """Apply a unified diff. Returns the commit's `etag` and `size_bytes`.
 
-        Self-verifying: the diff's context is its own precondition, so a
-        document that moved refuses the patch (PatchFailed) rather than taking
-        half of it.
+        The result compares and prints as the ETag string, so code written
+        against the older `str` return keeps working while `result.etag` — the
+        spelling the documented recipes use — also resolves.
+
+        Self-verifying in one sense: the diff's context is its own
+        precondition, so a document that moved refuses the patch (PatchFailed)
+        rather than taking half of it. That is NOT the same as knowing the
+        source is current — a patch can apply cleanly after unrelated changes
+        elsewhere in the file — so the revision is still checked.
+
+        `if_match` names the revision to write against, for a caller holding
+        one from an earlier read. Without it the note's own cached revision is
+        used; `force` sends no precondition at all.
         """
-        return self._send("PATCH", "/body", {"diff": diff}, force)["etag"]
+        if if_match is not None and force:
+            raise ValueError("if_match names a revision and force says to ignore one; give one")
+        data = self._send("PATCH", "/body", {"diff": diff}, force, if_match)
+        return PatchResult(etag=data["etag"], size_bytes=data.get("sizeBytes", 0))
 
     def insert_section(
         self,
@@ -402,12 +637,26 @@ def _seg(value: str) -> str:
 
 
 def _resolve(ref: str, client: DreamLakeClient) -> tuple[str, str]:
-    """``"ns/slug"`` or ``"ns/<id>"`` -> ``(namespace, note_id)``."""
+    """``"<id>"``, ``"ns/slug"`` or ``"ns/<id>"`` -> ``(namespace, note_id)``.
+
+    An id identifies a note on its own, so it does not need a namespace in
+    front of it — the server resolves which namespace it is in, and answers
+    404 for a note the caller may not see exactly as it does for one that does
+    not exist. A slug is only unique within a namespace, so that form still
+    names one.
+    """
     if "/" not in ref:
-        raise ValueError(
-            f"note reference {ref!r} needs a namespace, e.g. '<namespace>/{ref}' — "
-            "a note id alone does not say whose namespace it is in"
-        )
+        if not _OBJECT_ID.match(ref):
+            raise ValueError(
+                f"note reference {ref!r} is neither an id nor '<namespace>/<slug>' — "
+                "an id is 24 hex characters"
+            )
+        with client.http() as http:
+            r = http.get(f"/notes/{_seg(ref)}")
+        _raise_for(r, f"resolve {ref}")
+        row = r.json()
+        return row["namespaceSlug"], row["id"]
+
     ns, rest = ref.split("/", 1)
     if _OBJECT_ID.match(rest):
         return ns, rest
@@ -530,6 +779,120 @@ def search_notes(
         )
     _raise_for(r, f"search notes in {namespace}")
     return [_ref(row, namespace) for row in r.json().get("notes", [])]
+
+
+def grep_notes(
+    query: str | None = None,
+    *,
+    namespace: str,
+    regex: str | None = None,
+    flags: str = "",
+    case_sensitive: bool | None = None,
+    glob: str | None = None,
+    notes: Sequence[str] | None = None,
+    context: int = 0,
+    limit: int = 50,
+    cursor: str | None = None,
+    client: DreamLakeClient | None = None,
+) -> GrepResult:
+    """Search note bodies and get the location of every hit.
+
+    ``search_notes`` answers "which notes contain this". This answers "where",
+    so you can go straight to an edit:
+
+        for hit in dl.grep_notes("TODO", namespace="me"):
+            print(f"{hit.note_slug}:{hit.line}:{hit.column}  {hit.text}")
+
+        hit = dl.grep_notes("Draft", namespace="me").hits[0]
+        doc = hit.open().read()
+        doc.replace("Published", ind=hit.ind)
+        doc.save()
+
+    Not the same thing as ``doc.find()``: that searches ONE note you have
+    already loaded, locally and exactly. This searches every note in a
+    namespace you may see, on the server, against the indexed copy.
+
+    Literal and case-insensitive by default — punctuation in ``query`` matches
+    itself, so searching for "v1.2" does not also find "v1x2". Pass ``regex=``
+    for a pattern; that defaults to case-SENSITIVE, because a pattern is
+    written deliberately. ``flags`` takes any of i, m, s, u; "g" is refused,
+    since whether all matches are wanted is decided by this call.
+
+    ``limit`` is a number of HITS, and pages are followed to reach it. Read
+    ``.truncated`` and ``.partial_notes`` before concluding you have seen every
+    occurrence.
+    """
+    c = client or get_client()
+    params: dict[str, Any] = {"limit": min(limit, 200), "context": context}
+    if query is not None:
+        params["q"] = query
+    if regex is not None:
+        params["regex"] = regex
+    if flags:
+        params["flags"] = flags
+    if case_sensitive is not None:
+        params["caseSensitive"] = "true" if case_sensitive else "false"
+    if glob:
+        params["glob"] = glob
+    if notes:
+        params["note"] = ",".join(notes)
+
+    hits: list[Hit] = []
+    truncated = False
+    searched = 0
+    partial: list[str] = []
+    stale = 0
+    next_cursor = cursor
+
+    # Follow pages until `limit` hits are in hand. A caller asking for 50 hits
+    # means 50 hits, not "50 or fewer depending on how the server chose to
+    # chunk them" — and a page boundary is not something they can see.
+    while True:
+        page_params = dict(params)
+        page_params["limit"] = min(limit - len(hits), 200)
+        if next_cursor:
+            page_params["cursor"] = next_cursor
+        with c.http() as http:
+            r = http.get(f"/namespaces/{_seg(namespace)}/notes/search", params=page_params)
+        _raise_for(r, f"search notes in {namespace}")
+        d = r.json()
+
+        for row in d.get("hits", []):
+            ind = row.get("ind") or [0, 0]
+            hits.append(
+                Hit(
+                    note_id=row.get("noteId", ""),
+                    note_slug=row.get("noteSlug", ""),
+                    note_name=row.get("noteName", ""),
+                    etag=row.get("etag", ""),
+                    line=row.get("line", 1),
+                    column=row.get("column", 1),
+                    ind=(ind[0], ind[1]),
+                    text=row.get("text", ""),
+                    match=row.get("match", ""),
+                    before=tuple(row.get("before") or ()),
+                    after=tuple(row.get("after") or ()),
+                    anchor=row.get("anchor", ""),
+                    namespace=namespace,
+                )
+            )
+        truncated = truncated or bool(d.get("truncated"))
+        searched += int(d.get("notesSearched") or 0)
+        partial.extend(d.get("partialNotes") or ())
+        stale = max(stale, int(d.get("staleNotes") or 0))
+        next_cursor = d.get("nextCursor")
+
+        if not next_cursor or len(hits) >= limit:
+            break
+
+    return GrepResult(
+        hits=tuple(hits),
+        truncated=truncated,
+        notes_searched=searched,
+        partial_notes=tuple(dict.fromkeys(partial)),
+        stale_notes=stale,
+        next_cursor=next_cursor,
+    )
 
 
 def shared_with_me(*, client: DreamLakeClient | None = None) -> list[NoteRef]:
