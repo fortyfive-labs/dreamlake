@@ -458,6 +458,15 @@ class Vault:
         name = _entry_name(name, prefix)
         return _metadata_response(self._request("POST", "/v1/vault/restore", json={"name": name}, headers=_revision_headers(if_match)), name)
 
+    def tree(self, *, prefix, limit=100, cursor=None):
+        """Read one owner-only policy metadata page. No values, prompts or automatic pagination.
+
+        Cursors do not freeze subsequent pages. Unknown policy/migration state
+        remains unknown; the policy key may differ from historical ciphertext.
+        """
+        from .vault_tree import tree
+        return tree(self, prefix=prefix, limit=limit, cursor=cursor)
+
     def list_page(self, *, prefix="", limit=100, cursor=None, include_deleted=False):
         """Read one bounded metadata page; nextCursor is None at completion.
 
