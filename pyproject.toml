@@ -33,6 +33,7 @@ dependencies = [
     "numpy>=2.4.3",
     "pillow>=12.2.0",
     "jsonschema>=4.21.0",
+    "regex>=2026.7.19",
 ]
 
 [project.optional-dependencies]
