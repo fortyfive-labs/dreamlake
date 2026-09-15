@@ -1,0 +1,171 @@
+{
+  "_comment": [
+    "Shared HTML fixtures. Read by BOTH the TypeScript suite here and the",
+    "Python suite in the dreamlake SDK, so the two selector implementations",
+    "are checked against the same data rather than against each other's prose.",
+    "",
+    "`select` gives a selector and the expected inner source; `error` names the",
+    "refusal. `text` is the element's decoded text. `replaceIn` performs an",
+    "element-scoped replacement and gives the whole expected document — which",
+    "is where 'untouched source stays untouched' is actually asserted."
+  ],
+  "cases": [
+    {
+      "name": "by-id",
+      "doc": "<div id=\"a\"><p>hi</p></div>",
+      "select": "#a",
+      "inner": "<p>hi</p>",
+      "text": "hi"
+    },
+    {
+      "name": "by-class",
+      "doc": "<p class=\"note wide\">x</p>",
+      "select": "p.note",
+      "inner": "x",
+      "text": "x"
+    },
+    {
+      "name": "by-attribute-presence",
+      "doc": "<a href=\"/s\">t</a>",
+      "select": "a[href]",
+      "inner": "t",
+      "text": "t"
+    },
+    {
+      "name": "by-attribute-value",
+      "doc": "<a href=\"/s\">t</a><a href=\"/o\">u</a>",
+      "select": "[href=\"/s\"]",
+      "inner": "t",
+      "text": "t"
+    },
+    {
+      "name": "descendant",
+      "doc": "<div id=\"a\"><span>deep</span></div>",
+      "select": "#a span",
+      "inner": "deep",
+      "text": "deep"
+    },
+    {
+      "name": "child-combinator",
+      "doc": "<div id=\"a\"><span>one</span></div>",
+      "select": "#a > span",
+      "inner": "one",
+      "text": "one"
+    },
+    {
+      "name": "nth-of-type",
+      "doc": "<div><p>one</p><p>two</p></div>",
+      "select": "p:nth-of-type(2)",
+      "inner": "two",
+      "text": "two"
+    },
+    {
+      "name": "entity-is-decoded-in-text",
+      "doc": "<p>a &amp; b</p>",
+      "select": "p",
+      "inner": "a &amp; b",
+      "text": "a & b"
+    },
+    {
+      "name": "text-not-joined-across-tags",
+      "doc": "<p><b>a</b>b</p>",
+      "select": "p",
+      "inner": "<b>a</b>b",
+      "text": "ab"
+    },
+    {
+      "name": "attributes-are-not-text",
+      "doc": "<p class=\"href\">body</p>",
+      "select": "p",
+      "inner": "body",
+      "text": "body"
+    },
+    {
+      "name": "void-element-has-empty-inner",
+      "doc": "<p>a<br>b</p>",
+      "select": "br",
+      "inner": "",
+      "text": ""
+    },
+    {
+      "name": "missing-element",
+      "doc": "<p>x</p>",
+      "select": "#nope",
+      "error": "NoElement"
+    },
+    {
+      "name": "ambiguous-element",
+      "doc": "<p>a</p><p>b</p>",
+      "select": "p",
+      "error": "AmbiguousElement"
+    },
+    {
+      "name": "selector-list-refused",
+      "doc": "<p>x</p>",
+      "select": "p, div",
+      "error": "SelectorError"
+    },
+    {
+      "name": "pseudo-element-refused",
+      "doc": "<p>x</p>",
+      "select": "p::before",
+      "error": "SelectorError"
+    },
+    {
+      "name": "attribute-operator-refused",
+      "doc": "<a href=\"/s\">t</a>",
+      "select": "[href^=/s]",
+      "error": "SelectorError"
+    },
+
+    {
+      "name": "replace-keeps-entity-spelling",
+      "doc": "<p>Contact us &amp; more</p>",
+      "select": "p",
+      "replaceIn": { "query": "Contact us", "text": "Talk to sales" },
+      "out": "<p>Talk to sales &amp; more</p>"
+    },
+    {
+      "name": "replace-keeps-attribute-quoting",
+      "doc": "<div id='a' class=card><p>old</p></div>",
+      "select": "p",
+      "replaceIn": { "query": "old", "text": "new" },
+      "out": "<div id='a' class=card><p>new</p></div>"
+    },
+    {
+      "name": "replace-escapes-the-new-text",
+      "doc": "<p>body</p>",
+      "select": "p",
+      "replaceIn": { "query": "body", "text": "a & b <tag>" },
+      "out": "<p>a &amp; b &lt;tag&gt;</p>"
+    },
+    {
+      "name": "replace-inside-one-element-only",
+      "doc": "<p>x</p><p>x</p>",
+      "select": "p:nth-of-type(1)",
+      "replaceIn": { "query": "x", "text": "y" },
+      "out": "<p>y</p><p>x</p>"
+    },
+    {
+      "name": "replace-ambiguous-within-element",
+      "doc": "<p>x x</p>",
+      "select": "p",
+      "replaceIn": { "query": "x", "text": "y" },
+      "error": "AmbiguousMatch"
+    },
+    {
+      "name": "replace-all-within-element",
+      "doc": "<p>x x</p>",
+      "select": "p",
+      "replaceIn": { "query": "x", "text": "y", "all": true },
+      "out": "<p>y y</p>"
+    },
+    {
+      "name": "replace-no-match-within-element",
+      "doc": "<p>body</p>",
+      "select": "p",
+      "replaceIn": { "query": "zzz", "text": "y" },
+      "error": "NoMatch"
+    }
+  ]
+}

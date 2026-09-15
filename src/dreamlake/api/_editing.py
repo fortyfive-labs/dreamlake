@@ -30,7 +30,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from ._jsregex import InvalidPattern, JsRegex, UnsupportedPattern
+from ._jsregex import (
+    InputTooLarge,
+    InvalidPattern,
+    JsRegex,
+    MatchTimeout,
+    PatternTooLong,
+    UnsupportedPattern,
+)
 
 __all__ = [
     "EditError",
@@ -38,6 +45,7 @@ __all__ = [
     "AmbiguousMatch",
     "InvalidRange",
     "BadPattern",
+    "LimitExceeded",
     "Match",
     "find",
     "replace",
@@ -72,6 +80,14 @@ class InvalidRange(EditError):
 
 class BadPattern(EditError):
     """The regex is invalid, or uses something the shared dialect excludes."""
+
+
+class LimitExceeded(EditError):
+    """The pattern, the document, or the scan ran past a bound.
+
+    Its own type because the remedy differs from a bad pattern's: the pattern
+    is fine, there is simply too much of it or of the document to run safely.
+    """
 
 
 @dataclass(frozen=True)
@@ -200,12 +216,14 @@ def find(
 
     try:
         rx = JsRegex(regex, flags)
+        for m in rx.finditer(source):
+            if len(out) >= limit:
+                break
+            out.append(_spans_to_match(source, m.start(), m.end(), m))
     except (InvalidPattern, UnsupportedPattern) as exc:
         raise BadPattern(str(exc)) from exc
-    for m in rx.finditer(source):
-        if len(out) >= limit:
-            break
-        out.append(_spans_to_match(source, m.start(), m.end(), m))
+    except (PatternTooLong, InputTooLarge, MatchTimeout) as exc:
+        raise LimitExceeded(str(exc)) from exc
     return out
 
 
@@ -311,6 +329,8 @@ def replace(
             rx = JsRegex(regex, flags)
         except (InvalidPattern, UnsupportedPattern) as exc:
             raise BadPattern(str(exc)) from exc
+        except (PatternTooLong, InputTooLarge, MatchTimeout) as exc:
+            raise LimitExceeded(str(exc)) from exc
         # Every replacement is expanded against the ORIGINAL source, so an
         # expansion can never see text a previous replacement introduced.
         edits = []

@@ -176,3 +176,53 @@ def test_expand_replacement_needs_no_regex_object():
     rx = JsRegex(r"(?<a>x)")
     m = next(rx.finditer("x"))
     assert expand_replacement("[$<a>]", m, "x") == "[x]"
+
+
+# ── Limits ───────────────────────────────────────────────────────────────────
+#
+# A pattern is caller-supplied and a document can be large, so the two together
+# are an easy denial of service. These are checked before the engine is
+# entered, which is the only place a check reliably happens.
+
+def test_an_oversized_pattern_is_refused_before_compiling():
+    from dreamlake.api._jsregex import LIMITS, PatternTooLong
+
+    with pytest.raises(PatternTooLong, match=str(LIMITS.pattern)):
+        compile_js("a" * (LIMITS.pattern + 1))
+
+
+def test_an_oversized_document_is_refused_before_scanning():
+    from dreamlake.api._jsregex import InputTooLarge, LIMITS
+
+    rx = JsRegex("a")
+    huge = "b" * (LIMITS.input + 1)
+    with pytest.raises(InputTooLarge):
+        rx.findall(huge)
+    with pytest.raises(InputTooLarge):
+        rx.replace(huge, "c")
+
+
+def test_a_runaway_scan_is_abandoned_with_an_explicit_error():
+    # Not "returns fewer matches" — a truncated result presented as the whole
+    # answer is worse than a failure, because a replacement built on it would
+    # silently apply to a subset.
+    import dreamlake.api._jsregex as jr
+
+    original = jr.LIMITS.seconds
+    jr.LIMITS.seconds = 0.0  # every step is past the deadline
+    try:
+        rx = JsRegex("a")
+        with pytest.raises(jr.MatchTimeout, match="narrow the pattern"):
+            rx.findall("aaa")
+    finally:
+        jr.LIMITS.seconds = original
+
+
+def test_limits_are_generous_enough_for_real_documents():
+    # A limit that trips on ordinary use would push people to force-flags.
+    from dreamlake.api._jsregex import LIMITS
+
+    assert LIMITS.pattern >= 1000
+    assert LIMITS.input >= 1_000_000
+    rx = JsRegex(r"\bTODO\b")
+    assert len(rx.findall("TODO x " * 5000)) == 5000

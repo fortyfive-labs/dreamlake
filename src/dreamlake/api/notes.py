@@ -233,12 +233,25 @@ class Note:
         _raise_for(r, f"read {self._ns}/{self._id}")
         return r.json()
 
-    def _send(self, method: str, path: str, payload: dict, force: bool) -> dict:
+    def _send(
+        self,
+        method: str,
+        path: str,
+        payload: dict,
+        force: bool,
+        if_match: str | None = None,
+    ) -> dict:
         headers = {}
         # The default is a conditional write. Sending no validator would make
         # every edit a last-writer-wins overwrite, which for a document several
         # people share is data loss with a success code on it.
-        if not force and self._etag:
+        #
+        # An explicit `if_match` wins over the cached one: a caller who names a
+        # revision is writing against THAT one, and quietly substituting a
+        # newer one this object happens to hold would defeat the check.
+        if if_match is not None:
+            headers["If-Match"] = if_match
+        elif not force and self._etag:
             headers["If-Match"] = self._etag
         with self._client.http() as http:
             r = http.request(method, f"{self._base}{path}", json=payload, headers=headers)
@@ -333,14 +346,22 @@ class Note:
         """
         return self._send("PUT", "/body", {"text": text}, force)["etag"]
 
-    def patch(self, diff: str, *, force: bool = False) -> str:
-        """Apply a unified diff.
+    def patch(self, diff: str, *, if_match: str | None = None, force: bool = False) -> str:
+        """Apply a unified diff. Returns the note's new ETag.
 
-        Self-verifying: the diff's context is its own precondition, so a
-        document that moved refuses the patch (PatchFailed) rather than taking
-        half of it.
+        Self-verifying in one sense: the diff's context is its own
+        precondition, so a document that moved refuses the patch (PatchFailed)
+        rather than taking half of it. That is NOT the same as knowing the
+        source is current — a patch can apply cleanly after unrelated changes
+        elsewhere in the file — so the revision is still checked.
+
+        `if_match` names the revision to write against, for a caller holding
+        one from an earlier read. Without it the note's own cached revision is
+        used; `force` sends no precondition at all.
         """
-        return self._send("PATCH", "/body", {"diff": diff}, force)["etag"]
+        if if_match is not None and force:
+            raise ValueError("if_match names a revision and force says to ignore one; give one")
+        return self._send("PATCH", "/body", {"diff": diff}, force, if_match)["etag"]
 
     def insert_section(
         self,

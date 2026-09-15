@@ -231,3 +231,53 @@ def test_an_element_handle_notices_when_its_target_is_gone():
     doc.replace("", query='<div id="a">x</div>')
     with pytest.raises(NoElement):
         handle.replace("z", query="x")
+
+
+# ── Raw patch access ─────────────────────────────────────────────────────────
+
+def test_patch_takes_the_revision_to_write_against():
+    # A caller holding a revision from an earlier read is writing against THAT
+    # one; substituting a newer one this object happens to hold would defeat
+    # the check it asked for.
+    import httpx
+
+    from dreamlake.api.notes import Note
+
+    sent: dict = {}
+
+    class FakeHttp:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def request(self, method, url, json=None, headers=None):
+            sent["headers"] = headers or {}
+            return httpx.Response(200, json={"etag": "rev-9"}, request=httpx.Request(method, url))
+
+    class FakeClient:
+        remote = "https://example.test"
+
+        def http(self):
+            return FakeHttp()
+
+    n = Note("651111111111111111111111", namespace="ns", client=FakeClient())
+    n._etag = "rev-cached"
+
+    n.patch("--- a\n+++ b\n", if_match="rev-explicit")
+    assert sent["headers"]["If-Match"] == "rev-explicit"
+
+    n.patch("--- a\n+++ b\n")
+    assert sent["headers"]["If-Match"] == "rev-9"  # adopted from the last write
+
+    n.patch("--- a\n+++ b\n", force=True)
+    assert "If-Match" not in sent["headers"]
+
+
+def test_patch_refuses_if_match_and_force_together():
+    from dreamlake.api.notes import Note
+
+    n = Note("651111111111111111111111", namespace="ns", client=object())
+    with pytest.raises(ValueError, match="give one"):
+        n.patch("d", if_match="r", force=True)

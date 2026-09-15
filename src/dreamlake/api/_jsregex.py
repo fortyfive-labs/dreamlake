@@ -35,11 +35,17 @@ contract and matching JavaScript's historical behaviour here would be the bug.
 
 from __future__ import annotations
 
+import time as _time
+
 import regex as _re
 
 __all__ = [
     "UnsupportedPattern",
     "InvalidPattern",
+    "PatternTooLong",
+    "InputTooLarge",
+    "MatchTimeout",
+    "LIMITS",
     "compile_js",
     "expand_replacement",
     "JsRegex",
@@ -52,6 +58,44 @@ class InvalidPattern(ValueError):
 
 class UnsupportedPattern(ValueError):
     """Valid JavaScript that this translation cannot reproduce faithfully."""
+
+
+class PatternTooLong(ValueError):
+    """The pattern exceeds the size this API will compile."""
+
+
+class InputTooLarge(ValueError):
+    """The document exceeds the size this API will scan."""
+
+
+class MatchTimeout(ValueError):
+    """Matching ran past its deadline and was abandoned."""
+
+
+class Limits:
+    """Bounds on regex work, enforced in every client.
+
+    A pattern is caller-supplied and a document can be large, so the two
+    together are an easy denial of service: `(a+)+$` against a few thousand
+    characters backtracks effectively forever, and a synchronous engine cannot
+    be interrupted once it is inside `match`.
+
+    So the sizes are checked BEFORE compiling or scanning — that is the only
+    check that reliably happens — and the deadline is enforced by matching
+    incrementally rather than by trying to stop an engine mid-call. The
+    numbers are generous for real documents and small enough that a pathological
+    pattern fails in about a second instead of never.
+    """
+
+    #: Characters. Long enough for the gnarliest hand-written pattern.
+    pattern: int = 4_000
+    #: Characters. A note far past this is not something to regex over.
+    input: int = 2_000_000
+    #: Seconds of wall clock across one find/replace.
+    seconds: float = 2.0
+
+
+LIMITS = Limits()
 
 
 #: Flags a caller may pass. `g` is not among them — whether every match is
@@ -137,6 +181,10 @@ def _translate(pattern: str, *, unicode_mode: bool) -> str:
 
 def compile_js(pattern: str, flags: str = "") -> _re.Pattern:
     """Compile a JavaScript pattern. Raises on anything not faithfully supported."""
+    if len(pattern) > LIMITS.pattern:
+        raise PatternTooLong(
+            f"pattern is {len(pattern)} characters; the limit is {LIMITS.pattern}"
+        )
     unknown = set(flags) - _KNOWN_FLAGS
     if unknown:
         extra = " ('g' is not a flag here — use all=True or count=N)" if "g" in unknown else ""
@@ -206,14 +254,43 @@ class JsRegex:
         self.flags = flags
         self._rx = compile_js(pattern, flags)
 
+    def _check_input(self, source: str) -> None:
+        if len(source) > LIMITS.input:
+            raise InputTooLarge(
+                f"document is {len(source)} characters; the limit for regex is {LIMITS.input}"
+            )
+
     def finditer(self, source: str):
-        return self._rx.finditer(source)
+        """Matches, with a deadline.
+
+        Stepped one match at a time rather than handed to the engine wholesale:
+        a catastrophically backtracking pattern spends its time INSIDE a single
+        `match` call, and nothing in Python can interrupt that. Between calls
+        is the only place a deadline can be honoured, so this bounds how far a
+        scan gets rather than how long one match may take. The pattern and
+        input size limits above are what keep that single call short.
+        """
+        self._check_input(source)
+        deadline = _time.monotonic() + LIMITS.seconds
+        pos = 0
+        while True:
+            m = self._rx.search(source, pos)
+            if m is None:
+                return
+            yield m
+            if _time.monotonic() > deadline:
+                raise MatchTimeout(
+                    f"matching ran past {LIMITS.seconds}s and was abandoned — "
+                    "narrow the pattern, or use a literal query"
+                )
+            pos = m.end() if m.end() > m.start() else m.start() + 1
 
     def findall(self, source: str) -> list[_re.Match]:
-        return list(self._rx.finditer(source))
+        return list(self.finditer(source))
 
     def replace(self, source: str, replacement: str, *, count: int = 0) -> str:
         """Replace matches. `count=0` means every match, as `re.sub` does."""
+        self._check_input(source)
         return self._rx.sub(lambda m: expand_replacement(replacement, m, source), source, count=count)
 
     def __repr__(self) -> str:  # pragma: no cover - display only
