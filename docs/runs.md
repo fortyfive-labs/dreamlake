@@ -83,7 +83,7 @@ To check this SDK contract from a checkout:
 
 ```shell
 uv run --extra dev python scripts/test_run_recovery_http.py
-uv run --extra dev pytest -q test/test_run_recovery_http.py test/test_runs.py
+uv run --extra dev pytest -q test/test_run_recovery_contract.py test/test_runs.py
 ```
 
 The manual script starts and closes an owned loopback HTTP server with synthetic
