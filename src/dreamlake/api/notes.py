@@ -530,12 +530,18 @@ class Note:
             )
         return Doc(self, self._text or "", self.etag)
 
-    def write(self, text: str, *, force: bool = False) -> str:
+    def write(self, text: str, *, if_match: str | None = None, force: bool = False) -> str:
         """Replace the whole body.
 
         The counterpart of `write_section`, which replaces one part of it.
+
+        `if_match` names the revision to write against. Without it the note's
+        own cached revision is used — which is right for a caller that only
+        ever writes through this object, and wrong for one holding a snapshot
+        taken earlier: the cache moves on every write, so a draft read before
+        one of them would be checked against a revision it never saw.
         """
-        return self._send("PUT", "/body", {"text": text}, force)["etag"]
+        return self._send("PUT", "/body", {"text": text}, force, if_match)["etag"]
 
     def patch(
         self, diff: str, *, if_match: str | None = None, force: bool = False
