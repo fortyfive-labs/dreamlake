@@ -45,6 +45,53 @@ belongs to the workload, including `--json`, `--help`, spaces, and empty strings
 Python accepts that argument vector directly and never evaluates a shell string.
 The remote timeout is `timeout_seconds` on submission (default 3600 seconds).
 
+## Optional recovery observations
+
+`status()` and `wait()` preserve the server's run dictionary, including optional
+`recoveryObservation` and `recoveryRevision`. A version-1 observation with
+`state="reconciliation_required"` and `reason="prior_boot_admission"` means a
+previous daemon admitted the execution and its outcome is unresolved. It is
+additional diagnostic information, not a terminal status or permission to retry
+execution. These fields depend on server support; older responses can omit them.
+Absence alone does not establish that execution is safe to repeat.
+
+```python
+from dreamlake.api.runs import RunWaitTimeout
+
+run = client.runs.status("fortyfive", run_id)
+observation = run.get("recoveryObservation")
+if (isinstance(observation, dict)
+        and observation.get("version") == 1
+        and observation.get("state") == "reconciliation_required"
+        and observation.get("reason") == "prior_boot_admission"):
+    print("A previous daemon admitted this run; its outcome is unresolved.")
+
+try:
+    result = client.runs.wait("fortyfive", run_id, timeout_seconds=30)
+except RunWaitTimeout:
+    # Inspect the same run; local timeout does not cancel or resubmit it.
+    run = client.runs.status("fortyfive", run_id)
+```
+
+`wait()` continues until the existing terminal status or its local timeout. It
+returns the terminal dictionary unchanged, including an explicit null observation
+and updated revision when the server clears it. The SDK does not interpret unknown
+future observation versions, print raw diagnostics, cancel, or resubmit on your
+behalf. Cancellation intent is separate from confirmed cancellation.
+
+To check this SDK contract from a checkout:
+
+```shell
+uv run --extra dev python scripts/test_run_recovery_http.py
+uv run --extra dev pytest -q test/test_run_recovery_contract.py test/test_runs.py
+```
+
+The manual script starts and closes an owned loopback HTTP server with synthetic
+responses and a fixture-only token. It asserts six GET requests, zero writes,
+field preservation, nonterminal waiting and cleanup. It requires no cloud account
+or running service. This verifies actual HTTP client behavior; it does not claim
+worker crash recovery or deployment of server support.
+
 ## Status, logs, and cancellation
 
 ```python
