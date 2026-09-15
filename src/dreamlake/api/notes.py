@@ -448,6 +448,22 @@ class Note:
         """
         return self._send("PUT", f"/sections/{_seg(anchor)}", {"text": text}, force)["etag"]
 
+    @property
+    def files(self) -> "NoteFiles":
+        """Files attached to this note.
+
+            note.files.list("assets/*.png")
+            note.files.upload(Path("diagram.png"), path="assets/diagram.png")
+
+        Distinct from note MEDIA, which is the image-embedding path: a media
+        URL is its own credential and readable by anyone holding it, which is
+        right for a picture in a public note and wrong for an attachment. These
+        inherit the note's permissions on every read.
+        """
+        from ._files import NoteFiles
+
+        return NoteFiles(self)
+
     def read_lines(
         self,
         start_line: int | None = None,
