@@ -1,0 +1,716 @@
+{
+  "_comment": [
+    "Shared fixtures for the editing contract. Read by BOTH the TypeScript",
+    "suite in this repo and the Python suite in the dreamlake SDK, so the two",
+    "implementations of one rule are checked against the same data rather than",
+    "against each other's prose.",
+    "",
+    "`op` is the operation, `args` its arguments, and either `out` (expected",
+    "document) or `error` (the class of refusal). Documents are written with",
+    "real newlines via \\n so both languages read them identically.",
+    "",
+    "When this file changes, both suites change with it. That is the point:",
+    "there is one place to state what an edit means."
+  ],
+  "cases": [
+    {
+      "name": "replace-one-match",
+      "doc": "# Title\n\nDraft one\n",
+      "op": "replace",
+      "args": {
+        "text": "Published",
+        "query": "Draft"
+      },
+      "out": "# Title\n\nPublished one\n"
+    },
+    {
+      "name": "replace-ambiguous-is-refused",
+      "doc": "Draft one\nDraft two\n",
+      "op": "replace",
+      "args": {
+        "text": "X",
+        "query": "Draft"
+      },
+      "error": "AmbiguousMatch"
+    },
+    {
+      "name": "replace-all",
+      "doc": "Draft one\nDraft two\n",
+      "op": "replace",
+      "args": {
+        "text": "Published",
+        "query": "Draft",
+        "all": true
+      },
+      "out": "Published one\nPublished two\n"
+    },
+    {
+      "name": "replace-count-exact",
+      "doc": "a a a\n",
+      "op": "replace",
+      "args": {
+        "text": "b",
+        "query": "a",
+        "count": 3
+      },
+      "out": "b b b\n"
+    },
+    {
+      "name": "replace-count-wrong",
+      "doc": "a a a\n",
+      "op": "replace",
+      "args": {
+        "text": "b",
+        "query": "a",
+        "count": 2
+      },
+      "error": "AmbiguousMatch"
+    },
+    {
+      "name": "replace-zero-matches",
+      "doc": "abc\n",
+      "op": "replace",
+      "args": {
+        "text": "X",
+        "query": "zzz"
+      },
+      "error": "NoMatch"
+    },
+    {
+      "name": "count-and-all-conflict",
+      "doc": "a a\n",
+      "op": "replace",
+      "args": {
+        "text": "b",
+        "query": "a",
+        "count": 2,
+        "all": true
+      },
+      "error": "EditError"
+    },
+    {
+      "name": "conflicting-targets",
+      "doc": "a\n",
+      "op": "replace",
+      "args": {
+        "text": "b",
+        "query": "a",
+        "line": 1
+      },
+      "error": "EditError"
+    },
+    {
+      "name": "regex-numbered-groups",
+      "doc": "a=1 b=22\n",
+      "op": "replace",
+      "args": {
+        "text": "$1: $2",
+        "regex": "(\\w+)=(\\d+)",
+        "all": true
+      },
+      "out": "a: 1 b: 22\n"
+    },
+    {
+      "name": "regex-named-groups",
+      "doc": "timeout=30 retries=5\n",
+      "op": "replace",
+      "args": {
+        "text": "$<key>: $<value>",
+        "regex": "(?<key>timeout|retries)=(?<value>\\d+)",
+        "all": true
+      },
+      "out": "timeout: 30 retries: 5\n"
+    },
+    {
+      "name": "regex-whole-match-token",
+      "doc": "TODO here\n",
+      "op": "replace",
+      "args": {
+        "text": "[$&]",
+        "regex": "TODO"
+      },
+      "out": "[TODO] here\n"
+    },
+    {
+      "name": "regex-literal-dollar",
+      "doc": "price\n",
+      "op": "replace",
+      "args": {
+        "text": "$$9",
+        "regex": "price"
+      },
+      "out": "$9\n"
+    },
+    {
+      "name": "regex-flags-ignorecase",
+      "doc": "TODO todo\n",
+      "op": "replace",
+      "args": {
+        "text": "X",
+        "regex": "todo",
+        "flags": "i",
+        "all": true
+      },
+      "out": "X X\n"
+    },
+    {
+      "name": "regex-zero-width-refused",
+      "doc": "abc\n",
+      "op": "replace",
+      "args": {
+        "text": "-",
+        "regex": "(?=b)",
+        "all": true
+      },
+      "error": "EditError"
+    },
+    {
+      "name": "regex-g-flag-refused",
+      "doc": "aa\n",
+      "op": "replace",
+      "args": {
+        "text": "b",
+        "regex": "a",
+        "flags": "g",
+        "all": true
+      },
+      "error": "EditError"
+    },
+    {
+      "name": "replacements-use-the-pre-edit-snapshot",
+      "doc": "aa",
+      "op": "replace",
+      "args": {
+        "text": "aa",
+        "query": "a",
+        "all": true
+      },
+      "out": "aaaa"
+    },
+    {
+      "name": "replace-by-line",
+      "doc": "one\ntwo\nthree\n",
+      "op": "replace",
+      "args": {
+        "text": "TWO",
+        "line": 2
+      },
+      "out": "one\nTWO\nthree\n"
+    },
+    {
+      "name": "replace-by-line-range",
+      "doc": "one\ntwo\nthree\nfour\n",
+      "op": "replace",
+      "args": {
+        "text": "BLOCK",
+        "line": [
+          2,
+          3
+        ]
+      },
+      "out": "one\nBLOCK\nfour\n"
+    },
+    {
+      "name": "line-edit-does-not-double-newline",
+      "doc": "one\ntwo\n",
+      "op": "replace",
+      "args": {
+        "text": "TWO\n",
+        "line": 2
+      },
+      "out": "one\nTWO\n"
+    },
+    {
+      "name": "line-edit-follows-crlf",
+      "doc": "a\r\nb\r\n",
+      "op": "replace",
+      "args": {
+        "text": "Z",
+        "line": 2
+      },
+      "out": "a\r\nZ\r\n"
+    },
+    {
+      "name": "line-range-reversed",
+      "doc": "a\nb\n",
+      "op": "replace",
+      "args": {
+        "text": "X",
+        "line": [
+          2,
+          1
+        ]
+      },
+      "error": "InvalidRange"
+    },
+    {
+      "name": "line-past-end",
+      "doc": "a\n",
+      "op": "replace",
+      "args": {
+        "text": "X",
+        "line": 9
+      },
+      "error": "InvalidRange"
+    },
+    {
+      "name": "replace-by-char-range",
+      "doc": "abcdef",
+      "op": "replace",
+      "args": {
+        "text": "X",
+        "ind": [
+          2,
+          4
+        ]
+      },
+      "out": "abXef"
+    },
+    {
+      "name": "char-edit-adds-no-newline",
+      "doc": "abc",
+      "op": "replace",
+      "args": {
+        "text": "Z",
+        "ind": [
+          0,
+          1
+        ]
+      },
+      "out": "Zbc"
+    },
+    {
+      "name": "char-range-past-end",
+      "doc": "abc",
+      "op": "replace",
+      "args": {
+        "text": "X",
+        "ind": [
+          0,
+          99
+        ]
+      },
+      "error": "InvalidRange"
+    },
+    {
+      "name": "char-range-is-code-points-not-utf16",
+      "doc": "a😀b",
+      "op": "replace",
+      "args": {
+        "text": "X",
+        "ind": [
+          1,
+          2
+        ]
+      },
+      "out": "aXb"
+    },
+    {
+      "name": "insert-before-line",
+      "doc": "one\ntwo\n",
+      "op": "insert",
+      "args": {
+        "text": "NEW",
+        "line": 2
+      },
+      "out": "one\nNEW\ntwo\n"
+    },
+    {
+      "name": "insert-at-char",
+      "doc": "abc",
+      "op": "insert",
+      "args": {
+        "text": "X",
+        "ind": 0
+      },
+      "out": "Xabc"
+    },
+    {
+      "name": "insert-at-end-of-file",
+      "doc": "abc",
+      "op": "insert",
+      "args": {
+        "text": "X",
+        "ind": 3
+      },
+      "out": "abcX"
+    },
+    {
+      "name": "insert-into-empty-document",
+      "doc": "",
+      "op": "insert",
+      "args": {
+        "text": "first",
+        "line": 1
+      },
+      "out": "first\n"
+    },
+    {
+      "name": "insert-past-a-file-with-no-final-newline",
+      "doc": "a\nb",
+      "op": "insert",
+      "args": {
+        "text": "c",
+        "line": 3
+      },
+      "out": "a\nb\nc\n"
+    },
+    {
+      "name": "insert-char-out-of-range",
+      "doc": "abc",
+      "op": "insert",
+      "args": {
+        "text": "X",
+        "ind": 4
+      },
+      "error": "InvalidRange"
+    },
+    {
+      "name": "delete-by-query",
+      "doc": "one\ntwo\nthree\n",
+      "op": "delete",
+      "args": {
+        "query": "two\n"
+      },
+      "out": "one\nthree\n"
+    },
+    {
+      "name": "delete-by-line-range",
+      "doc": "one\ntwo\nthree\n",
+      "op": "delete",
+      "args": {
+        "line": [
+          1,
+          2
+        ]
+      },
+      "out": "three\n"
+    },
+    {
+      "name": "delete-ambiguous-is-refused",
+      "doc": "a a\n",
+      "op": "delete",
+      "args": {
+        "query": "a"
+      },
+      "error": "AmbiguousMatch"
+    },
+    {
+      "name": "find-literal-count",
+      "doc": "a\na\nb\n",
+      "op": "find",
+      "args": {
+        "query": "a"
+      },
+      "matches": [
+        {
+          "text": "a",
+          "ind": [
+            0,
+            1
+          ],
+          "line": [
+            1,
+            1
+          ]
+        },
+        {
+          "text": "a",
+          "ind": [
+            2,
+            3
+          ],
+          "line": [
+            2,
+            2
+          ]
+        }
+      ]
+    },
+    {
+      "name": "find-regex-multiline-span",
+      "doc": "start\nmid\nend\n",
+      "op": "find",
+      "args": {
+        "regex": "start[\\s\\S]*?end"
+      },
+      "matches": [
+        {
+          "text": "start\nmid\nend",
+          "ind": [
+            0,
+            13
+          ],
+          "line": [
+            1,
+            3
+          ]
+        }
+      ]
+    },
+    {
+      "name": "find-emoji-ranges-are-code-points",
+      "doc": "a😀b",
+      "op": "find",
+      "args": {
+        "query": "b"
+      },
+      "matches": [
+        {
+          "text": "b",
+          "ind": [
+            2,
+            3
+          ],
+          "line": [
+            1,
+            1
+          ]
+        }
+      ]
+    },
+    {
+      "name": "find-nothing-is-not-an-error",
+      "doc": "abc",
+      "op": "find",
+      "args": {
+        "query": "zzz"
+      },
+      "matches": []
+    },
+    {
+      "name": "find-empty-query-refused",
+      "doc": "abc",
+      "op": "find",
+      "args": {
+        "query": ""
+      },
+      "error": "EditError"
+    },
+    {
+      "name": "bnd-insert-into-empty-by-line",
+      "doc": "",
+      "op": "insert",
+      "args": {
+        "text": "hi",
+        "line": 1
+      },
+      "out": "hi\n"
+    },
+    {
+      "name": "bnd-insert-into-empty-by-ind",
+      "doc": "",
+      "op": "insert",
+      "args": {
+        "text": "hi",
+        "ind": 0
+      },
+      "out": "hi"
+    },
+    {
+      "name": "bnd-find-in-empty",
+      "doc": "",
+      "op": "find",
+      "args": {
+        "query": "x"
+      },
+      "matches": []
+    },
+    {
+      "name": "bnd-replace-last-line-no-final-newline",
+      "doc": "a\nb",
+      "op": "replace",
+      "args": {
+        "text": "B",
+        "line": 2
+      },
+      "out": "a\nB\n"
+    },
+    {
+      "name": "bnd-append-past-last-line-no-final-newline",
+      "doc": "a\nb",
+      "op": "insert",
+      "args": {
+        "text": "c",
+        "line": 3
+      },
+      "out": "a\nb\nc\n"
+    },
+    {
+      "name": "bnd-delete-last-line-no-final-newline",
+      "doc": "a\nb",
+      "op": "delete",
+      "args": {
+        "line": 2
+      },
+      "out": "a\n"
+    },
+    {
+      "name": "bnd-crlf-insert-keeps-crlf",
+      "doc": "a\r\nb\r\n",
+      "op": "insert",
+      "args": {
+        "text": "X",
+        "line": 2
+      },
+      "out": "a\r\nX\r\nb\r\n"
+    },
+    {
+      "name": "bnd-crlf-replace-keeps-crlf",
+      "doc": "a\r\nb\r\n",
+      "op": "replace",
+      "args": {
+        "text": "B",
+        "line": 2
+      },
+      "out": "a\r\nB\r\n"
+    },
+    {
+      "name": "bnd-adjacent-literal-matches",
+      "doc": "aaaa",
+      "op": "find",
+      "args": {
+        "query": "aa"
+      },
+      "matches": [
+        {
+          "text": "aa",
+          "ind": [
+            0,
+            2
+          ],
+          "line": [
+            1,
+            1
+          ]
+        },
+        {
+          "text": "aa",
+          "ind": [
+            2,
+            4
+          ],
+          "line": [
+            1,
+            1
+          ]
+        }
+      ]
+    },
+    {
+      "name": "bnd-replace-all-adjacent",
+      "doc": "aaaa",
+      "op": "replace",
+      "args": {
+        "text": "X",
+        "query": "aa",
+        "all": true
+      },
+      "out": "XX"
+    },
+    {
+      "name": "bnd-zero-width-regex-is-refused",
+      "doc": "abc",
+      "op": "replace",
+      "args": {
+        "text": "X",
+        "regex": "x*",
+        "all": true
+      },
+      "error": "EditError"
+    },
+    {
+      "name": "bnd-zero-width-ind-inserts",
+      "doc": "abcd",
+      "op": "replace",
+      "args": {
+        "text": "X",
+        "ind": [
+          2,
+          2
+        ]
+      },
+      "out": "abXcd"
+    },
+    {
+      "name": "bnd-count-zero-is-refused",
+      "doc": "aa",
+      "op": "replace",
+      "args": {
+        "text": "X",
+        "query": "a",
+        "count": 0
+      },
+      "error": "EditError"
+    },
+    {
+      "name": "bnd-literal-replacement-keeps-dollar-one",
+      "doc": "abc",
+      "op": "replace",
+      "args": {
+        "text": "$1",
+        "query": "b"
+      },
+      "out": "a$1c"
+    },
+    {
+      "name": "bnd-replace-after-emoji",
+      "doc": "😀abc",
+      "op": "replace",
+      "args": {
+        "text": "X",
+        "query": "abc"
+      },
+      "out": "😀X"
+    },
+    {
+      "name": "bnd-ind-counts-code-points-not-utf16",
+      "doc": "😀abc",
+      "op": "replace",
+      "args": {
+        "text": "X",
+        "ind": [
+          0,
+          1
+        ]
+      },
+      "out": "Xabc"
+    },
+    {
+      "name": "bnd-line-zero-is-refused",
+      "doc": "a\nb",
+      "op": "replace",
+      "args": {
+        "text": "X",
+        "line": 0
+      },
+      "error": "InvalidRange"
+    },
+    {
+      "name": "bnd-negative-ind-is-refused",
+      "doc": "abc",
+      "op": "replace",
+      "args": {
+        "text": "X",
+        "ind": [
+          -1,
+          2
+        ]
+      },
+      "error": "InvalidRange"
+    },
+    {
+      "name": "bnd-line-range-past-end-is-refused",
+      "doc": "a\nb\nc\n",
+      "op": "replace",
+      "args": {
+        "text": "X",
+        "line": [
+          2,
+          99
+        ]
+      },
+      "error": "InvalidRange"
+    }
+  ]
+}

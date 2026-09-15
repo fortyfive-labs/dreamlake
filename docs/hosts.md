@@ -202,3 +202,7 @@ declines; `--quiet` suppresses progress only. Python never prompts implicitly.
 Interrupting an entry write preserves `unknown` and its request ID; interrupting
 a binding preserves `saved_unbound` and exact recovery arguments. A missing write
 receipt does not establish failure; do not blindly resubmit with a fresh ID.
+
+Enrolled hosts use a persistent user service with `runtime.keep_alive_s = -1`, so an idle host remains available instead of exiting after five minutes. Re-enrolling the same host with the fixed client updates the generated configuration. Nymph’s default idle policy for other launch modes is unchanged. This fix is unreleased; deployed hosts require the updated client and reconfiguration.
+
+Re-enrollment regenerates the service configuration. Restore any reviewed custom settings, including `private_tracked`, after re-enrollment and verify a fresh signed capability poll before private submission. Re-enrollment does not preserve custom configuration.

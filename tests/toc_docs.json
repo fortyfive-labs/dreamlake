@@ -1,0 +1,18 @@
+[
+ {"n":"basic","s":"# Title\n\nintro\n\n## Setup\n\nsteps\n\n## Usage\n\nmore\n"},
+ {"n":"preamble","s":"words before any heading\n\n# First\n\nbody\n"},
+ {"n":"duplicate-titles","s":"## Notes\n\na\n\n## Notes\n\nb\n\n## Notes\n\nc\n"},
+ {"n":"nested-subtree","s":"# A\n\n## A1\n\nx\n\n### A1a\n\ny\n\n## A2\n\nz\n\n# B\n\nw\n"},
+ {"n":"fenced-code-hash","s":"# Real\n\n```sh\n# not a heading\necho hi\n```\n\n## After\n\nx\n"},
+ {"n":"tilde-fence","s":"# Real\n\n~~~\n# nope\n~~~\n\n## After\n"},
+ {"n":"setext","s":"Title\n=====\n\nbody\n\nSub\n---\n\nmore\n"},
+ {"n":"inline-markers","s":"## `code` and **bold** and [link](http://x)\n\nbody\n"},
+ {"n":"punctuation-only","s":"## ???\n\nbody\n"},
+ {"n":"unicode-title","s":"## 中文标题\n\nbody\n\n## Café\n\nx\n"},
+ {"n":"trailing-hashes","s":"## Closed ##\n\nbody\n"},
+ {"n":"indented-heading","s":"   ## Indented\n\nbody\n"},
+ {"n":"no-headings","s":"just text\nmore text\n"},
+ {"n":"empty","s":""},
+ {"n":"heading-at-eof","s":"# A\n\nbody\n\n## Last\n"},
+ {"n":"crlf","s":"# A\r\n\r\nbody\r\n\r\n## B\r\n"}
+]

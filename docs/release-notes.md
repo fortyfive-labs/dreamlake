@@ -1,12 +1,30 @@
 # Release notes
 
-## Unreleased — password reservation and recovery
+## Unreleased
 
-Six paired SDK/CLI reservation methods retain exact recovery revisions, freeze the dedicated replacement and expose explicit owner-only pending snapshot reads. Real HTTP/native Mongo cross-client metadata flows passed for target and jump roles. Requires backend #370; privileged remote mutation and explicit rollback-resolution remain unfinished. [Guide](vault-passwords.md#reserve-and-recover-a-password-rotation).
+- Keep enrolled user-systemd hosts available while idle by explicitly setting `keep_alive_s = -1`. Existing hosts require re-enrollment with this fix. Paired CLI/Python bootstrap tests parse the generated TOML and verify re-enrollment repairs the old configuration. Package publication and a fresh remote idle window longer than 300 seconds remain pending.
 
-## Unreleased — password-only SSH verification
+## 0.16.0 — 2026-09-15
 
-`Vault.verify_host_password` pairs with CLI `vault verify-password`. A private one-shot askpass channel and parent-client authentication evidence verify the exact saved binding without password arguments, plaintext journals or unexpected prompts. Password changes and reservation APIs remain separate unfinished work. [Guide and reusable tests](vault-passwords.md).
+**Published to PyPI.** Release [#57](https://github.com/fortyfive-labs/dreamlake/pull/57) includes reviewed Python #50/#51/#55/#56; tag `v0.16.0` pins source `ce428dc`. Public PyPI distributions and GitHub release assets match the hashes below. The older password-only candidate #52 was superseded.
+
+- `client.runs.submit(setup=..., allow_vault_delivery=True, ...)` submits an explicitly reviewed, pinned repository and selected credential mappings. Repeating the exact request ID recovers uncertain submissions. Private output is discarded; Python never prompts or implicitly reads a setup file. [Paired CLI/Python guide](runs.md).
+- `client.runs.capabilities(namespace)` reports authenticated server support and limits, separately from fresh host readiness. Unknown response fields are excluded and repository origins are validated. The CLI counterpart is `dreamlake runs capabilities`.
+- `client.vault.verify_host_password` verifies a saved binding with a private one-shot password channel. Reservation/recovery methods preserve the immutable replacement and provide owner-only pending snapshot reads. [Password guide](vault-passwords.md).
+- KMS migration acknowledges retained-record schema 2, including password snapshots. The compatible backend must be deployed before those operations; older clients remain safely gated. [KMS guide](vault-kms.md).
+
+Private execution requires matching backend configuration and a verified worker. Nymph #45 and optional private-API CA support #47 are merged. [Ordinary-daemon acceptance #492](https://github.com/dreamlake-ai/dreamlake-workspace/pull/492) records real bos14 success, cancellation and expired-permit refusal with fresh published CLI 0.20.0/Python 0.16.0 and an unpublished post-47 daemon. That fixture uses isolated API/control-plane services and a synthetic encryption provider; hosted activation and shared-worker deployment remain separate. Remote password mutation and rollback resolution remain unfinished.
+
+### Validation
+
+Python 3.12 source suite: 667 passed, 60 skipped. A fresh wheel environment outside the source checkout passed all 63 run/capability/password tests. Sphinx HTML builds successfully; existing documentation warnings remain. Fresh sdist and no-cache PyPI installations passed version/API checks. These checks do not establish hosted acceptance.
+
+Public artifact SHA256:
+
+- Wheel: `910a4491868a9e1f2e4f34d9b7b226e2402e05b83177de02ab13af9eab148c2d`
+- Source distribution: `471e5d88051952a3dfaaab917e74e72b84092f87a356302b4763d78ca6a91810`
+
+[Release and assets](https://github.com/fortyfive-labs/dreamlake/releases/tag/v0.16.0) · [CLI/Python command guide](https://docs.dreamlake.ai/hosts/private-runs/).
 
 ## 0.15.0 — 2026-09-13
 
@@ -68,9 +86,3 @@ merged in [Python #34](https://github.com/fortyfive-labs/dreamlake/pull/34),
 [backend #336](https://github.com/dreamlake-ai/dreamlake-workspace/pull/336).
 Published on PyPI and GitHub; wheel/sdist downloads match the release artifacts. A fresh PyPI installation passed version/API/redaction checks. Hosted acceptance remains pending. The earlier bos14 snapshot is
 separate evidence; see the [Vault Dev Note](https://docs.dreamlake.ai/dev/notes/vault-runtime/).
-
-## Unreleased — populated-prefix KMS migration
-
-`client.vault.kms.migrate`, bounded `resume`, and shared `status` pair with CLI commands. Preview counts retained entry and recovery records; response metadata strips secret/ciphertext fields. Unknown outcomes preserve the immutable operation ID. No hosted or package release is claimed.
-
-Password reservation candidates also acknowledge retained-record schema 2 on KMS migration start/resume and preserve separate password-snapshot/total counts in metadata. Compatible backend deployment must precede these commands. Source validation: target/jump cross-client reservation and snapshot reads over real loopback HTTP/Mongo; published CLI 0.17/Python 0.14–0.15 are safely gated, new clients advance the same migration. No remote password changes are included.

@@ -7,7 +7,7 @@ import time
 import uuid
 from collections.abc import Mapping, Sequence
 from pathlib import Path
-from urllib.parse import quote, urlencode
+from urllib.parse import quote, urlencode, urlsplit
 
 import httpx
 
@@ -90,7 +90,8 @@ class Runs:
                include: Sequence[str] = (), cwd: str | Path | None = None,
                request_id: str | None = None, enrollment_id: str | None = None,
                timeout_seconds: int = 3600, placement: Mapping | None = None,
-               resources: Mapping | None = None) -> dict:
+               resources: Mapping | None = None, setup: Mapping | None = None,
+               allow_vault_delivery: bool = False) -> dict:
         """Submit and immediately return a durable run record; call wait explicitly.
 
         Only include paths are read/uploaded. argv is passed unchanged to uv run
@@ -128,9 +129,26 @@ class Runs:
             for key, low, high in (("cpus", 1, 65535), ("memoryMib", 1, 4294967295), ("gpus", 0, 65535)):
                 if type(limits[key]) is not int or not low <= limits[key] <= high:
                     raise RunConfigurationError("Invalid resource limit")
+        private_setup = None
+        if setup is not None or allow_vault_delivery is not False:
+            if setup is None or allow_vault_delivery is not True or kind != "uv-run" or include or placement is not None or resources is not None or not isinstance(enrollment_id, str) or not re.fullmatch(r"[a-f0-9]{24}", enrollment_id):
+                raise RunConfigurationError("Private setup requires explicit consent, enrollment and uv-run; include/placement are incompatible")
+            if not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", request_id) or len(argv) > 128 or not argv[0] or argv[0].startswith("-"):
+                raise RunConfigurationError("Invalid private request ID or workload arguments")
+            try:
+                if any(len(a.encode("utf-8")) > 8192 for a in argv):
+                    raise ValueError
+            except (ValueError, UnicodeError):
+                raise RunConfigurationError("Invalid private workload arguments") from None
+            from ._run_setup import validate_setup
+            private_setup = validate_setup(setup)
         body = {"requestId": request_id, "target": target,
                 "execution": {"kind": kind, "argv": list(argv)},
-                "source": {"files": collect_source(include, cwd)}, "timeoutSeconds": timeout_seconds}
+                "timeoutSeconds": timeout_seconds}
+        if private_setup is not None:
+            body.update(setup=private_setup, allowVaultDelivery=True)
+        else:
+            body["source"] = {"files": collect_source(include, cwd)}
         if selected is not None:
             body["placement"] = selected
         if limits is not None:
@@ -139,6 +157,30 @@ class Runs:
             body["enrollmentId"] = enrollment_id
         return self._run(self._request("POST", _path(target.split("/")[0]), body=body,
                                        request_id=request_id), request_id=request_id)
+
+    def capabilities(self, namespace: str) -> dict:
+        """Inspect server support; this does not assert a target host is ready."""
+        data = self._request("GET", _path(namespace) + "/capabilities")
+        p = data.get("privateSetup")
+        def check(condition):
+            if not condition:
+                raise ValueError
+        try:
+            check(type(data.get("version")) is int and data.get("version") == 1 and isinstance(data.get("executionKinds"), list))
+            check(all(isinstance(k, str) and re.fullmatch(r"[a-z0-9-]{1,64}", k) for k in data["executionKinds"]))
+            check(isinstance(p, dict) and type(p.get("enabled")) is bool and isinstance(p.get("repositoryOrigins"), list))
+            for origin in p["repositoryOrigins"]:
+                check(isinstance(origin, str) and origin.isascii() and len(origin) <= 2048)
+                u = urlsplit(origin)
+                u.port  # Validate port syntax/range even when no connection is made.
+                check(str(httpx.URL(origin)) == origin)
+                check(u.netloc == u.netloc.lower() and u.scheme == "https" and u.netloc and not u.username and not u.password and not u.path and not u.query and not u.fragment and origin == "https://" + u.netloc)
+            check(all(type(p.get(k)) is int and 1 <= p[k] <= 9007199254740991 for k in ("maxMappings", "maxArgv", "maxArgBytes", "maxTimeoutSeconds")))
+            check(p.get("requiresConsent") is True and p.get("requiresExplicitEnrollment") is True)
+            check(p.get("outputPolicy") == "discard-at-source-v1" and p.get("hostReadiness") == "verified-on-submit")
+        except (AssertionError, TypeError, ValueError, KeyError, httpx.InvalidURL):
+            raise RunError("Run API returned invalid capability metadata") from None
+        return {"version": 1, "executionKinds": data["executionKinds"], "privateSetup": {k: p[k] for k in ("enabled", "repositoryOrigins", "maxMappings", "maxArgv", "maxArgBytes", "maxTimeoutSeconds", "requiresConsent", "requiresExplicitEnrollment", "outputPolicy", "hostReadiness")}}
 
     def status(self, namespace: str, run_id: str) -> dict:
         """Return the persisted run state; connectivity is not terminal success."""

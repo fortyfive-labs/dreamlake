@@ -64,7 +64,7 @@ def main():
         config = '\n'.join([
             '[server]', 'url = ' + q(p['controlPlaneUrl']), 'namespace = ' + q(p['namespace']),
             '[daemon]', 'machine_id = ' + q(p['machineId']), 'label = ' + q(p['name']),
-            '[runtime]', 'workdir = ' + q(str(root / 'work')), 'runners = ["process"]', 'default_runner = "process"',
+            '[runtime]', 'keep_alive_s = -1', 'workdir = ' + q(str(root / 'work')), 'runners = ["process"]', 'default_runner = "process"',
             '[identity]', 'enabled = true', 'key_file = ' + q(str(key)), 'enroll_token_file = ' + q(str(grant)),
         ]) + '\n'
         (root / 'work').mkdir(exist_ok=True)

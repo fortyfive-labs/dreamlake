@@ -101,3 +101,61 @@ remove only their dedicated test data after reviewing results.
 
 See [provider checks and placed runs](providers.md) for the check, placement and
 resource arguments. They require the draft server API in workspace PR #389.
+
+
+## Private repository setup (requires an enabled compatible server)
+
+Private setup delegates only reviewed vault entry IDs, exact revisions and selections to the enrolled host. It uses a pinned public HTTPS repository and `uv-lock` dependencies. The server controls allowed repository origins. Setup contains metadata only: never include credential values, access keys or credential-bearing URLs. This client interface does not enable the server feature or prove hosted availability.
+
+```json
+{
+  "repository": "https://github.com/example/task.git",
+  "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "destination": "repo",
+  "dependencies": "uv-lock",
+  "mappings": [{
+    "id": "api", "entryId": "REVIEWED_ENTRY_ID", "revision": 1,
+    "valueShape": "map", "selection": {"kind": "fields", "names": ["token"]},
+    "output": {"kind": "env", "name": "SERVICE_TOKEN"}
+  }]
+}
+```
+
+Replace the illustrative repository, commit, entry and enrollment with reviewed values. CLI options precede the execution selector:
+
+```shell
+dreamlake run --target alice/research/host --enrollment-id REVIEWED_ENROLLMENT_ID \
+  --setup setup.json --allow-vault-delivery --request-id research-check-001 \
+  --no-wait --uv-run python verify_service.py
+dreamlake runs status alice/RUN_ID --json
+dreamlake runs cancel alice/RUN_ID --json
+```
+
+```python
+run = client.runs.submit(
+    "alice/research/host", enrollment_id="REVIEWED_ENROLLMENT_ID",
+    kind="uv-run", argv=["python", "verify_service.py"],
+    setup=reviewed_metadata, allow_vault_delivery=True,
+    request_id="research-check-001", timeout_seconds=3600,
+)
+status = client.runs.status("alice", run["id"])
+client.runs.cancel("alice", run["id"])
+```
+
+Private setup rejects inline includes, provider placement and `uvx`. Python never reads a setup file implicitly or prompts. CLI reads only the explicitly named bounded metadata file. Status reports mapping progress; private workload logs are discarded at the source. Reuse the exact request ID and payload after an uncertain submission; changing revisions requires a new reviewed request. Cancellation intent is not proof that a remote process stopped. Mapping retry is not implemented.
+
+## Discover server support
+
+Discovery requires account authorization. It reports server support and limits;
+it does not assert that an enrolled host is online or authorized for a run.
+Private setup remains subject to fresh checks when submitted.
+
+```shell
+dreamlake runs capabilities alice --json
+```
+
+```python
+capabilities = client.runs.capabilities("alice")
+```
+
+Production activation remains blocked pending the reviewed/live-tested private-runner termination-refusal fix. Server capability discovery is not a deployment-readiness guarantee.

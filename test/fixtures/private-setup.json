@@ -1,0 +1,270 @@
+[
+  {
+    "name": "valid",
+    "valid": true,
+    "setup": {
+      "repository": "https://github.com/example/task.git",
+      "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "destination": "repo",
+      "dependencies": "uv-lock",
+      "mappings": [
+        {
+          "id": "token",
+          "entryId": "entry_1",
+          "revision": 1,
+          "valueShape": "map",
+          "selection": {
+            "kind": "fields",
+            "names": [
+              "token"
+            ]
+          },
+          "output": {
+            "kind": "env",
+            "name": "API_TOKEN"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "name": "unknown-secret",
+    "valid": false,
+    "setup": {
+      "repository": "https://github.com/example/task.git",
+      "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "destination": "repo",
+      "dependencies": "uv-lock",
+      "mappings": [
+        {
+          "id": "token",
+          "entryId": "entry_1",
+          "revision": 1,
+          "valueShape": "map",
+          "selection": {
+            "kind": "fields",
+            "names": [
+              "token"
+            ]
+          },
+          "output": {
+            "kind": "env",
+            "name": "API_TOKEN"
+          }
+        }
+      ],
+      "value": "DO_NOT_ECHO"
+    }
+  },
+  {
+    "name": "url-credentials",
+    "valid": false,
+    "setup": {
+      "repository": "https://password@github.com/example/task.git",
+      "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "destination": "repo",
+      "dependencies": "uv-lock",
+      "mappings": [
+        {
+          "id": "token",
+          "entryId": "entry_1",
+          "revision": 1,
+          "valueShape": "map",
+          "selection": {
+            "kind": "fields",
+            "names": [
+              "token"
+            ]
+          },
+          "output": {
+            "kind": "env",
+            "name": "API_TOKEN"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "name": "revision-bool",
+    "valid": false,
+    "setup": {
+      "repository": "https://github.com/example/task.git",
+      "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "destination": "repo",
+      "dependencies": "uv-lock",
+      "mappings": [
+        {
+          "id": "token",
+          "entryId": "entry_1",
+          "revision": true,
+          "valueShape": "map",
+          "selection": {
+            "kind": "fields",
+            "names": [
+              "token"
+            ]
+          },
+          "output": {
+            "kind": "env",
+            "name": "API_TOKEN"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "name": "protected-env",
+    "valid": false,
+    "setup": {
+      "repository": "https://github.com/example/task.git",
+      "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "destination": "repo",
+      "dependencies": "uv-lock",
+      "mappings": [
+        {
+          "id": "token",
+          "entryId": "entry_1",
+          "revision": 1,
+          "valueShape": "map",
+          "selection": {
+            "kind": "fields",
+            "names": [
+              "token"
+            ]
+          },
+          "output": {
+            "kind": "env",
+            "name": "PATH"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "name": "duplicate",
+    "valid": false,
+    "setup": {
+      "repository": "https://github.com/example/task.git",
+      "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "destination": "repo",
+      "dependencies": "uv-lock",
+      "mappings": [
+        {
+          "id": "token",
+          "entryId": "entry_1",
+          "revision": 1,
+          "valueShape": "map",
+          "selection": {
+            "kind": "fields",
+            "names": [
+              "token"
+            ]
+          },
+          "output": {
+            "kind": "env",
+            "name": "API_TOKEN"
+          }
+        },
+        {
+          "id": "token",
+          "entryId": "entry_1",
+          "revision": 1,
+          "valueShape": "map",
+          "selection": {
+            "kind": "fields",
+            "names": [
+              "token"
+            ]
+          },
+          "output": {
+            "kind": "env",
+            "name": "API_TOKEN"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "name": "whole-env",
+    "valid": false,
+    "setup": {
+      "repository": "https://github.com/example/task.git",
+      "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "destination": "repo",
+      "dependencies": "uv-lock",
+      "mappings": [
+        {
+          "id": "token",
+          "entryId": "entry_1",
+          "revision": 1,
+          "valueShape": "map",
+          "selection": {
+            "kind": "whole"
+          },
+          "output": {
+            "kind": "env",
+            "name": "API_TOKEN"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "name": "nested-path",
+    "valid": false,
+    "setup": {
+      "repository": "https://github.com/example/task.git",
+      "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "destination": "repo",
+      "dependencies": "uv-lock",
+      "mappings": [
+        {
+          "id": "token",
+          "entryId": "entry_1",
+          "revision": 1,
+          "valueShape": "map",
+          "selection": {
+            "kind": "fields",
+            "names": [
+              "token"
+            ]
+          },
+          "output": {
+            "kind": "file",
+            "path": "../secret",
+            "format": "json"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "name": "payload",
+    "valid": false,
+    "setup": {
+      "repository": "https://github.com/example/task.git",
+      "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "destination": "repo",
+      "dependencies": "uv-lock",
+      "mappings": [
+        {
+          "id": "token",
+          "entryId": "entry_1",
+          "revision": 1,
+          "valueShape": "map",
+          "selection": {
+            "kind": "fields",
+            "names": [
+              "token"
+            ]
+          },
+          "output": {
+            "kind": "env",
+            "name": "API_TOKEN"
+          },
+          "value": "DO_NOT_ECHO"
+        }
+      ]
+    }
+  }
+]
