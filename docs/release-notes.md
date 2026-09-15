@@ -4,6 +4,23 @@
 
 - Keep enrolled user-systemd hosts available while idle by explicitly setting `keep_alive_s = -1`. Existing hosts require re-enrollment with this fix. Paired CLI/Python bootstrap tests parse the generated TOML and verify re-enrollment repairs the old configuration. Package publication and a fresh remote idle window longer than 300 seconds remain pending.
 
+## 0.16.2 — 2026-09-15
+
+**Published to PyPI.** [Release #62](https://github.com/fortyfive-labs/dreamlake/pull/62) is isolated from published v0.16.1 plus the reviewed SSH fix in #54; tag `v0.16.2` pins `b398f2c`. Unreleased Notes API changes on main are excluded and dependency metadata is unchanged.
+
+Python enrollment starts SSH in a separate session and disables askpass. Password-only ProxyJump fails without prompting; configured key/agent access continues to work. CLI password interaction is unchanged. v0.16.1's persistent enrolled-host configuration is retained.
+
+Validation: 669 source tests passed, 60 skipped. Fresh wheel/sdist installations each passed 20 host tests. A fresh no-cache PyPI installation passed those tests and the actual OpenSSH loopback matrix (CLI target/jump passwords, SDK no-prompt rejection, configured key and isolated-agent direct/jump access). Systemd is stubbed in that transport matrix; shared-worker rollout and machine reboot recovery remain separate.
+
+Published Python 0.16.2 also completed a tracked process on the retained staging host `ge-yang-d4c5da/demo/dev-runner`: run `6aa90495100be79cea5a92bf` succeeded with exit 0 and stdout `DreamLake Python 0.16.2 live acceptance`. The host had a fresh verified heartbeat. This did not re-enroll or reboot it and does not establish production acceptance.
+
+Registry hashes and downloaded archive bytes match the reviewed candidates:
+
+- Wheel: `17d33ef57e0aa140a30d76656cdd61418f2c3402e340de5cc824332a71d2a423`
+- Source distribution: `16f90b06e620958b7be5f41e2d2241355271b5d289431dedb09380323b3ba4ca`
+
+[Release assets](https://github.com/fortyfive-labs/dreamlake/releases/tag/v0.16.2) · [Manual SSH test](https://github.com/fortyfive-labs/dreamlake/blob/v0.16.2/scripts/HOST_NONINTERACTIVE_SSH.md).
+
 ## 0.16.0 — 2026-09-15
 
 **Published to PyPI.** Release [#57](https://github.com/fortyfive-labs/dreamlake/pull/57) includes reviewed Python #50/#51/#55/#56; tag `v0.16.0` pins source `ce428dc`. Public PyPI distributions and GitHub release assets match the hashes below. The older password-only candidate #52 was superseded.

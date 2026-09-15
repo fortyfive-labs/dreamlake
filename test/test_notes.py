@@ -490,12 +490,13 @@ class TestSearchMatches:
 class TestTheNamingRule:
     """One rule, so a reader never has to check the signature.
 
-    `_section` in the name means it works on one part of the note; no `_section`
-    means the whole thing. The rule only helps if it holds without exception —
-    a single method that breaks it puts every other name back in doubt.
+    `_section` methods address stable section anchors. Whole-document methods,
+    explicit line-range reads and the file accessor are separate public surfaces.
     """
 
-    WHOLE = {"text", "refresh", "sections", "write", "append", "patch"}
+    WHOLE = {"text", "refresh", "sections", "read", "write", "append", "patch"}
+    RANGE = {"read_lines"}
+    ACCESSORS = {"files"}
     PART = {"read_section", "write_section", "insert_section", "delete_section"}
 
     def test_every_public_method_is_on_one_side_of_the_rule(self):
@@ -504,7 +505,7 @@ class TestTheNamingRule:
             for m in dir(Note)
             if not m.startswith("_") and m not in {"id", "namespace", "etag"}
         }
-        assert public == self.WHOLE | self.PART
+        assert public == self.WHOLE | self.PART | self.RANGE | self.ACCESSORS
 
     def test_nothing_named_section_operates_on_the_whole_note(self):
         for name in self.WHOLE:
