@@ -7,7 +7,7 @@ import time
 import uuid
 from collections.abc import Mapping, Sequence
 from pathlib import Path
-from urllib.parse import quote, urlencode
+from urllib.parse import quote, urlencode, urlsplit
 
 import httpx
 
@@ -157,6 +157,28 @@ class Runs:
             body["enrollmentId"] = enrollment_id
         return self._run(self._request("POST", _path(target.split("/")[0]), body=body,
                                        request_id=request_id), request_id=request_id)
+
+    def capabilities(self, namespace: str) -> dict:
+        """Inspect server support; this does not assert a target host is ready."""
+        data = self._request("GET", _path(namespace) + "/capabilities")
+        p = data.get("privateSetup")
+        def check(condition):
+            if not condition:
+                raise ValueError
+        try:
+            check(type(data.get("version")) is int and data.get("version") == 1 and isinstance(data.get("executionKinds"), list))
+            check(all(isinstance(k, str) and re.fullmatch(r"[a-z0-9-]{1,64}", k) for k in data["executionKinds"]))
+            check(isinstance(p, dict) and type(p.get("enabled")) is bool and isinstance(p.get("repositoryOrigins"), list))
+            for origin in p["repositoryOrigins"]:
+                check(isinstance(origin, str) and origin.isascii() and len(origin) <= 2048)
+                u = urlsplit(origin)
+                check(u.netloc == u.netloc.lower() and u.scheme == "https" and u.netloc and not u.username and not u.password and not u.path and not u.query and not u.fragment and origin == "https://" + u.netloc)
+            check(all(type(p.get(k)) is int and 1 <= p[k] <= 9007199254740991 for k in ("maxMappings", "maxArgv", "maxArgBytes", "maxTimeoutSeconds")))
+            check(p.get("requiresConsent") is True and p.get("requiresExplicitEnrollment") is True)
+            check(p.get("outputPolicy") == "discard-at-source-v1" and p.get("hostReadiness") == "verified-on-submit")
+        except (AssertionError, TypeError, ValueError, KeyError):
+            raise RunError("Run API returned invalid capability metadata") from None
+        return {"version": 1, "executionKinds": data["executionKinds"], "privateSetup": {k: p[k] for k in ("enabled", "repositoryOrigins", "maxMappings", "maxArgv", "maxArgBytes", "maxTimeoutSeconds", "requiresConsent", "requiresExplicitEnrollment", "outputPolicy", "hostReadiness")}}
 
     def status(self, namespace: str, run_id: str) -> dict:
         """Return the persisted run state; connectivity is not terminal success."""
