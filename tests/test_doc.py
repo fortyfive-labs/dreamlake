@@ -31,9 +31,14 @@ class FakeNote:
         self._text = text
         self.etag = etag
         self.writes: list[str] = []
+        self.preconditions: list[str | None] = []
         self.stale = False
 
-    def write(self, text: str, *, force: bool = False) -> str:
+    def write(self, text: str, *, if_match: str | None = None, force: bool = False) -> str:
+        # The precondition is recorded, because "save sends the revision the
+        # DRAFT was read at" is a claim only visible here — a fake that
+        # accepted any if_match would pass whether or not one was sent.
+        self.preconditions.append(if_match)
         if self.stale and not force:
             from dreamlake.api.notes import NoteChanged
 
@@ -453,3 +458,25 @@ def test_mutating_the_returned_attrs_does_not_change_the_document():
     doc.select("a").attrs["href"] = "/hacked"
     assert doc.text == '<a href="/a">x</a>'
     assert doc.dirty is False
+
+
+def test_save_is_conditional_on_the_revision_the_draft_was_read_at():
+    # Not on whatever the note object currently holds. Those differ the moment
+    # anything else writes through the same note, and then the precondition
+    # passes against a revision this draft never saw — a silent overwrite of
+    # somebody else's work, reported as success.
+    doc, note = doc_of("one\n")
+    read_at = doc.etag
+
+    note.write("somebody else\n")          # the note object's cache moves on
+    doc.replace("mine", query="one")
+    doc.save()
+
+    assert note.preconditions[-1] == read_at
+
+
+def test_force_sends_no_precondition_at_all():
+    doc, note = doc_of("one\n")
+    doc.replace("mine", query="one")
+    doc.save(force=True)
+    assert note.preconditions[-1] is None

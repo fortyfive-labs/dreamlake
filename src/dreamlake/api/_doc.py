@@ -414,7 +414,12 @@ class Doc:
             # useful than a write that changes nothing, and it means a caller
             # can save unconditionally without checking `dirty` first.
             return SaveResult(etag=self._etag or "", size_bytes=len(self._text.encode()))
-        etag = self._note.write(self._text, force=force)
+        # The revision THIS DRAFT was read at, not whatever the note object
+        # currently holds. Those differ the moment anything else writes through
+        # the same note — and then the precondition passes against a revision
+        # this draft never saw, which is precisely the silent overwrite the
+        # docstring above promises to prevent.
+        etag = self._note.write(self._text, if_match=None if force else self._etag, force=force)
         self._original = self._text
         self._etag = etag
         return SaveResult(etag=etag, size_bytes=len(self._text.encode()))
