@@ -97,6 +97,27 @@ class Element:
         parsed, el = self._resolve()
         return "".join(r.decoded for r in _h.text_runs(parsed, el))
 
+    @property
+    def tag(self) -> str:
+        """Lower-cased tag name."""
+        _, el = self._resolve()
+        return el.tag
+
+    @property
+    def attrs(self) -> dict[str, str | None]:
+        """Current attributes, decoded. `None` for one written without a value.
+
+        A copy, and re-read from the CURRENT draft each time — so it cannot go
+        stale behind an edit, and mutating it cannot silently diverge from the
+        document. Use `update(attrs=...)` to change one.
+
+        Readable as well as writable because the common edit is conditional:
+        changing a link only if it still points where you thought it did is not
+        expressible if you can only write.
+        """
+        _, el = self._resolve()
+        return dict(el.attrs)
+
     def find(self, query: str | None = None, *, regex: str | None = None, flags: str = ""):
         """Matches inside this element's text, reported as SOURCE ranges."""
         return self._matches(query, regex, flags)

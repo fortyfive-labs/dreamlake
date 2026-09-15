@@ -117,17 +117,60 @@ _ASCII_CLASS = {
 }
 
 
+#: Names declared by `(?<name>` — not `(?<=` or `(?<!`, which are lookbehinds.
+_NAMED_GROUP = _re.compile(r"\(\?<(?![=!])([^>]*)>")
+
+
+def _named_groups(pattern: str) -> set[str]:
+    """Which named groups a pattern declares.
+
+    Needed because `\k<name>` means two different things in JavaScript
+    depending on the answer, and picking the wrong one silently changes what
+    the pattern matches.
+    """
+    return {m.group(1) for m in _NAMED_GROUP.finditer(pattern)}
+
+
 def _translate(pattern: str, *, unicode_mode: bool) -> str:
     """Rewrite a JavaScript pattern into one `regex` reads the same way."""
     out: list[str] = []
     i, n = 0, len(pattern)
     in_class = False
+    declared = _named_groups(pattern)
 
     while i < n:
         ch = pattern[i]
 
         if ch == "\\" and i + 1 < n:
             nxt = pattern[i + 1]
+            # `\k<name>`: a named backreference, but ONLY when that group
+            # exists. JavaScript otherwise reads it as the literal text
+            # "k<name>" without the `u` flag, and rejects it with one — and a
+            # pattern that quietly matches different text in each client is
+            # exactly what this module exists to prevent.
+            if nxt == "k" and in_class:
+                # A backreference cannot appear in a character class, so
+                # JavaScript reads this as the literal letter. Python rejects
+                # the escape outright, which would fail a pattern that works.
+                out.append("k")
+                i += 2
+                continue
+            if nxt == "k" and not in_class and pattern.startswith("<", i + 2):
+                close = pattern.find(">", i + 2)
+                name = pattern[i + 3 : close] if close != -1 else None
+                if name in declared:
+                    out.append(f"(?P={name})")
+                    i = close + 1
+                    continue
+                if unicode_mode and close != -1:
+                    raise InvalidPattern(
+                        f"invalid named capture referenced: \\k<{name}> — "
+                        "no group of that name is declared"
+                    )
+                # Literal, the way JavaScript reads it without `u`.
+                out.append("k")
+                i += 2
+                continue
             if not unicode_mode and nxt in _ASCII_CLASS:
                 # Inside a character class the bracketed form would nest, so
                 # emit the bare ranges instead.

@@ -335,3 +335,121 @@ def test_read_lines_reports_what_it_left_out():
     # into a whole-document overwrite.
     assert part.etag == "rev-whole"
     assert "truncated" in repr(part)
+
+
+# ── Boundaries ───────────────────────────────────────────────────────────────
+#
+# Every case here is one where a wrong answer is SILENT: the edit succeeds and
+# lands on the wrong characters, or a refusal that should have happened did
+# not. They are the ones worth spending tests on.
+
+def test_an_element_handle_survives_an_edit_that_moved_it():
+    # The trap: the handle stored offsets when it was made, an earlier edit
+    # shifted everything after it, and the handle now points into the middle of
+    # different text. Nothing about the result would say so.
+    doc, _ = doc_of("<p id=a>one</p><p id=b>two</p>")
+    later = doc.select("#b")
+    doc.replace("ONE!!!!!!!!!!", query="one")
+
+    assert later.text == "two"
+    later.replace("TWO", query="two")
+    assert doc.text == "<p id=a>ONE!!!!!!!!!!</p><p id=b>TWO</p>"
+
+
+def test_a_handle_to_something_since_deleted_refuses_rather_than_guessing():
+    doc, _ = doc_of("<p id=a>one</p><p id=b>two</p>")
+    gone = doc.select("#b")
+    doc.replace("", query="<p id=b>two</p>")
+
+    with pytest.raises(NoElement):
+        gone.text
+
+
+def test_a_failed_edit_leaves_the_draft_byte_for_byte_unchanged():
+    doc, _ = doc_of("x\n")
+    with pytest.raises(NoMatch):
+        doc.replace("Z", query="not here")
+    assert doc.text == "x\n"
+    assert doc.dirty is False
+
+
+def test_an_ambiguous_edit_says_how_many_it_found_and_how_to_proceed():
+    # Editing the first of several is the failure an agent cannot see and a
+    # reviewer cannot spot in a diff.
+    doc, _ = doc_of("dup dup\n")
+    with pytest.raises(AmbiguousMatch, match="found 2"):
+        doc.replace("X", query="dup")
+    assert doc.text == "dup dup\n"
+
+
+def test_count_must_match_exactly_in_both_directions():
+    doc, _ = doc_of("dup dup\n")
+    with pytest.raises(AmbiguousMatch):
+        doc.replace("X", query="dup", count=3)
+    doc.replace("X", query="dup", count=2)
+    assert doc.text == "X X\n"
+
+
+def test_revert_restores_the_source_as_read():
+    doc, _ = doc_of("a\nb\n")
+    doc.replace("B", query="b")
+    assert doc.dirty is True
+    doc.revert()
+    assert doc.text == "a\nb\n"
+    assert doc.dirty is False
+    assert doc.diff() == ""
+
+
+def test_attribute_values_are_escaped_so_a_value_cannot_close_its_own_tag():
+    # An unescaped quote ends the attribute and everything after it becomes
+    # markup — which is how an attribute update turns into an injection.
+    doc, _ = doc_of('<a>x</a>')
+    doc.select("a").update(attrs={"t": 'he said "hi" <b>'})
+    assert "&quot;" in doc.text
+    assert "&lt;b&gt;" in doc.text
+    # And the element still parses as one element with that attribute — which
+    # is the actual claim; escaping that produced broken markup would pass the
+    # two assertions above and still be wrong.
+    assert doc.select("a").attrs["t"] == 'he said "hi" <b>'
+
+
+def test_removing_an_attribute_removes_it_rather_than_emptying_it():
+    doc, _ = doc_of('<a id="n">x</a>')
+    doc.select("a").update(attrs={"id": None})
+    assert doc.text == "<a>x</a>"
+
+
+def test_successive_edits_each_see_the_previous_result():
+    doc, _ = doc_of("a a a\n")
+    doc.replace("b", query="a", all=True)
+    assert doc.text == "b b b\n"
+    doc.replace("c", query="b", all=True)
+    assert doc.text == "c c c\n"
+
+
+def test_an_element_handle_can_be_read_as_well_as_written():
+    # The common edit is conditional — change this link only if it still points
+    # where you thought. Not expressible if attributes are write-only.
+    doc, _ = doc_of('<a href="/a" download>x</a>')
+    el = doc.select("a")
+    assert el.tag == "a"
+    assert el.attrs["href"] == "/a"
+    # An attribute written without a value reads as None, not "" — the two mean
+    # different things in HTML and conflating them changes the markup on write.
+    assert el.attrs["download"] is None
+
+
+def test_attrs_are_read_from_the_current_draft_not_from_when_the_handle_was_made():
+    doc, _ = doc_of('<a href="/a">x</a>')
+    el = doc.select("a")
+    el.update(attrs={"href": "/b"})
+    assert el.attrs["href"] == "/b"
+
+
+def test_mutating_the_returned_attrs_does_not_change_the_document():
+    # It is a copy. Otherwise a caller "trying something" silently edits the
+    # draft without going through update(), and the change never reaches save().
+    doc, _ = doc_of('<a href="/a">x</a>')
+    doc.select("a").attrs["href"] = "/hacked"
+    assert doc.text == '<a href="/a">x</a>'
+    assert doc.dirty is False
