@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- KMS preview accepts optional `affected_limit`/`affected_cursor` for one bounded retained-entry metadata page, matching the CLI. Ordinary calls remain unchanged; stale policy cursors and missing/oversized pages are refused. No values or mutation are involved. [Guide](vault-kms.md#affected-entry-preview--unreleased-2026-09-15).
+- KMS preview accepts optional `affected_limit`/`affected_cursor` for one bounded retained-entry metadata page, matching the CLI. Ordinary calls remain unchanged; stale policy cursors and missing/oversized pages are refused. No values or mutation are involved. [Guide](vault-kms.md).
 
 - Keep enrolled user-systemd hosts available while idle by explicitly setting `keep_alive_s = -1`. Existing hosts require re-enrollment with this fix. Paired CLI/Python bootstrap tests parse the generated TOML and verify re-enrollment repairs the old configuration. Package publication and a fresh remote idle window longer than 300 seconds remain pending.
 
