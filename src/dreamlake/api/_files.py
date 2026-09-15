@@ -25,11 +25,20 @@ from typing import TYPE_CHECKING, Any, Iterator
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from .notes import Note
 
-__all__ = ["NoteFile", "NoteFiles", "FileExists", "NotTextFile"]
+__all__ = ["NoteFile", "NoteFiles", "FileExists", "NotTextFile", "NotPreviewable"]
 
 
 class FileExists(Exception):
     """A path is already taken, and the call did not say to replace it."""
+
+
+class NotPreviewable(Exception):
+    """This file has no rendered form.
+
+    Its own type because the remedy differs from every other refusal here:
+    nothing is wrong with the file or the request, there is simply nothing to
+    look at. Download it.
+    """
 
 
 class NotTextFile(Exception):
@@ -141,6 +150,33 @@ class NoteFile:
     def purge(self, *, if_match: str | None = None) -> None:
         """Delete the stored bytes. Not recoverable — hence a separate call."""
         self._owner()._delete(self.id, purge=True, if_match=if_match)
+
+    def preview_url(self, *, share: bool = False) -> str:
+        """A link that renders this file.
+
+            print(note.files.find("report.html").preview_url())
+
+        The default needs you signed in: it opens a dashboard page that reads
+        with your own login, so the note's permissions decide what it shows and
+        the link grants nothing by itself.
+
+        `share=True` returns a link that works WITHOUT signing in, for sending
+        someone something they can look at. It does not expire — a link you
+        hand over has to still work when they get round to opening it — and it
+        keeps returning the same URL, so asking again never breaks a copy
+        already given away. `unshare()` withdraws it, at once and for everyone.
+
+        Minting one takes permission to share the note, not merely to read it:
+        somebody who was given access must not be able to pass it on.
+
+        Raises if the file has no rendered form; check `preview_kind` first, or
+        download it instead.
+        """
+        return self._owner()._preview(self.id, share=share)["url"]
+
+    def unshare(self) -> None:
+        """Withdraw the shared preview link. Every copy stops working."""
+        self._owner()._unshare(self.id)
 
     def refresh(self) -> "NoteFile":
         """Re-read the metadata."""
@@ -349,6 +385,23 @@ class NoteFiles:
                 json={"path": path, "overwrite": overwrite},
             )
         return _view(self._checked(r, f"copy {file_id}"), self)
+
+    def _preview(self, file_id: str, *, share: bool) -> dict:
+        with self._note._client.http() as http:
+            r = http.get(
+                f"{self._base()}/{file_id}/preview",
+                params={"share": "true"} if share else {},
+            )
+        if r.status_code == 400:
+            body = r.json() if r.content else {}
+            if body.get("error") == "not_previewable":
+                raise NotPreviewable(body.get("message") or f"{file_id} has no rendered form")
+        return self._checked(r, f"preview {file_id}")
+
+    def _unshare(self, file_id: str) -> None:
+        with self._note._client.http() as http:
+            r = http.delete(f"{self._base()}/{file_id}/preview")
+        self._checked(r, f"unshare {file_id}")
 
     def _restore(self, file_id: str, path: str | None) -> NoteFile:
         with self._note._client.http() as http:
