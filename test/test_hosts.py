@@ -285,3 +285,23 @@ def test_bootstrap_prerequisite_failure_preserves_request_id(monkeypatch):
     with pytest.raises(HostError, match="user lingering") as error:
         hosts.enroll(NAME, ssh="ctrl", request_id="retry-id")
     assert error.value.request_id == "retry-id"
+
+
+def test_remote_detaches_ssh_tree_and_disables_askpass(tmp_path, monkeypatch):
+    """ProxyJump children must inherit no caller terminal or GUI password prompt."""
+    from dreamlake.api.hosts import _remote
+    if os.name != "posix":
+        pytest.skip("POSIX session boundary")
+    ssh = tmp_path / "ssh"
+    ssh.write_text(
+        f"#!{sys.executable}\n"
+        "import json,os,sys\n"
+        "json.load(sys.stdin)\n"
+        "print(json.dumps({'session':os.getsid(0),'askpass':os.environ.get('SSH_ASKPASS_REQUIRE')}))\n"
+    )
+    ssh.chmod(0o700)
+    monkeypatch.setenv("PATH", str(tmp_path) + os.pathsep + os.environ["PATH"])
+    monkeypatch.setenv("SSH_ASKPASS_REQUIRE", "force")
+    result = _remote(["-J", "jump", "host"], {"action": "probe"})
+    assert result["session"] != os.getsid(0)
+    assert result["askpass"] == "never"

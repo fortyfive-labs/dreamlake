@@ -9,6 +9,7 @@ import base64
 import copy
 import json
 import math
+import os
 import re
 import subprocess
 import tempfile
@@ -191,12 +192,15 @@ def _remote(args: list[str], payload: dict) -> dict:
     source = files("dreamlake.api").joinpath("_host_bootstrap.py").read_bytes()
     encoded = base64.b64encode(source).decode("ascii")
     command = f"python3 -c 'import base64;exec(base64.b64decode(\"{encoded}\"))'"
-    # First-value-wins OpenSSH options prohibit prompts even if config requests them.
+    # Target options do not propagate to ProxyJump. Detach the whole SSH tree
+    # from the caller TTY and prohibit askpass so jump hosts cannot prompt either.
     argv = ["ssh", "-T", "-o", "BatchMode=yes", "-o", "NumberOfPasswordPrompts=0", *args, command]
     try:
         with tempfile.TemporaryFile() as output:
             result = subprocess.run(argv, input=json.dumps(payload).encode(), stdout=output,
-                                    stderr=subprocess.DEVNULL, timeout=180, check=False)
+                                    stderr=subprocess.DEVNULL, timeout=180, check=False,
+                                    start_new_session=True,
+                                    env={**os.environ, "SSH_ASKPASS_REQUIRE": "never"})
             output.seek(0)
             raw = output.read(64001)
         if len(raw) > 64000:
