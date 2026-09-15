@@ -111,6 +111,33 @@ class PatchFailed(NoteError):
 # ── Values ───────────────────────────────────────────────────────────────────
 
 
+class PatchResult(str):
+    """What a patch committed.
+
+    Subclasses `str` and equals its own ETag, so `note.patch(...)` can grow
+    fields without breaking a caller that treated the old return value as the
+    revision string — comparisons, formatting and `if_match=` all still work.
+    """
+
+    __slots__ = ("_size_bytes",)
+
+    def __new__(cls, etag: str, size_bytes: int = 0) -> "PatchResult":
+        self = super().__new__(cls, etag)
+        self._size_bytes = size_bytes
+        return self
+
+    @property
+    def etag(self) -> str:
+        return str(self)
+
+    @property
+    def size_bytes(self) -> int:
+        return self._size_bytes
+
+    def __repr__(self) -> str:  # pragma: no cover - display only
+        return f"PatchResult(etag={str(self)!r}, size_bytes={self.size_bytes})"
+
+
 @dataclass(frozen=True)
 class LineRange:
     """Part of a body, with enough context to know it is a part.
@@ -455,12 +482,23 @@ class Note:
             truncated=bool(d.get("truncated", False)),
         )
 
-    def read(self) -> "Doc":
+    def read(self, *, if_match: str | None = None) -> "Doc":
         """Load the source and its revision as an editable snapshot.
 
             doc = dl.note("<uuid>").read()
             doc.replace("Published", query="Draft", all=True)
             doc.save()
+
+        `if_match` makes this a VERIFICATION read: the note must still be at
+        that revision, and `NoteChanged` is raised if it is not. The use is
+        read-after-write —
+
+            rev = note.patch(diff, if_match=doc.etag)
+            check = note.read(if_match=rev.etag)   # the version just committed
+
+        — where returning whatever happens to be there now would quietly
+        validate a different snapshot than the one being checked, and report
+        success for someone else's document.
 
         A separate entry point from `text`, which returns a plain string and
         has callers — changing what that returns to hand back an object would
@@ -469,6 +507,11 @@ class Note:
         from ._doc import Doc
 
         self.refresh()
+        if if_match is not None and self.etag != if_match:
+            raise NoteChanged(
+                f"note is at {self.etag}, not {if_match} — it changed since that revision",
+                etag=self.etag,
+            )
         return Doc(self, self._text or "", self.etag)
 
     def write(self, text: str, *, force: bool = False) -> str:
@@ -478,8 +521,14 @@ class Note:
         """
         return self._send("PUT", "/body", {"text": text}, force)["etag"]
 
-    def patch(self, diff: str, *, if_match: str | None = None, force: bool = False) -> str:
-        """Apply a unified diff. Returns the note's new ETag.
+    def patch(
+        self, diff: str, *, if_match: str | None = None, force: bool = False
+    ) -> "PatchResult":
+        """Apply a unified diff. Returns the commit's `etag` and `size_bytes`.
+
+        The result compares and prints as the ETag string, so code written
+        against the older `str` return keeps working while `result.etag` — the
+        spelling the documented recipes use — also resolves.
 
         Self-verifying in one sense: the diff's context is its own
         precondition, so a document that moved refuses the patch (PatchFailed)
@@ -493,7 +542,8 @@ class Note:
         """
         if if_match is not None and force:
             raise ValueError("if_match names a revision and force says to ignore one; give one")
-        return self._send("PATCH", "/body", {"diff": diff}, force, if_match)["etag"]
+        data = self._send("PATCH", "/body", {"diff": diff}, force, if_match)
+        return PatchResult(etag=data["etag"], size_bytes=data.get("sizeBytes", 0))
 
     def insert_section(
         self,

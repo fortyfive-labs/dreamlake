@@ -15,6 +15,8 @@ from __future__ import annotations
 
 import pytest
 
+from dreamlake.api.notes import Note
+
 from dreamlake.api._doc import Doc
 
 from .test_doc import FakeNote
@@ -174,3 +176,74 @@ def test_saving_is_separate_from_editing():
     assert note.writes == []
     doc.save()
     assert note.writes == ["Published\n"]
+
+
+# ── The conditional verification read ────────────────────────────────────────
+#
+# From the issue's "complex Markdown workflow": after committing a patch you
+# read the note back to check the surrounding source survived. The requirement
+# is stated there explicitly — the verification read "must return the committed
+# version or report that it has already changed; it must not silently validate
+# a different snapshot."
+
+def test_read_if_match_returns_the_named_revision():
+    note = _FakeReadNote("body", "rev-7")
+    doc = note.read(if_match="rev-7")
+    assert doc.text == "body"
+    assert doc.etag == "rev-7"
+
+
+def test_read_if_match_refuses_a_note_that_has_since_moved():
+    # Without this the read succeeds against whatever is there now, the
+    # assertions in the recipe pass, and what they checked is someone else's
+    # document.
+    from dreamlake.api.notes import NoteChanged
+
+    note = _FakeReadNote("someone else's body", "rev-9")
+    with pytest.raises(NoteChanged) as exc:
+        note.read(if_match="rev-7")
+    assert "rev-7" in str(exc.value)
+    assert exc.value.etag == "rev-9"
+
+
+def test_read_without_if_match_is_unconditional():
+    # The plain read must keep working; the guard is opt-in.
+    note = _FakeReadNote("body", "rev-9")
+    assert note.read().etag == "rev-9"
+
+
+def test_a_snapshot_says_whether_it_is_the_whole_note():
+    # The recipe opens with `if snapshot.truncated: raise`. It has to be
+    # something you can write, and it has to be false for a whole read.
+    note = _FakeReadNote("body", "rev-1")
+    assert note.read().truncated is False
+
+
+def test_patch_result_carries_the_revision_and_still_equals_it():
+    # The recipes say `result.etag`; older code treated the return value as the
+    # revision string. Both have to work, or one of them silently breaks.
+    from dreamlake.api.notes import PatchResult
+
+    r = PatchResult('"abc"', 42)
+    assert r.etag == '"abc"'
+    assert r == '"abc"'
+    assert r.size_bytes == 42
+    assert f"{r}" == '"abc"'
+
+
+class _FakeReadNote(Note):
+    """A Note whose refresh() loads from memory instead of the network."""
+
+    def __init__(self, text: str, etag: str) -> None:
+        self._stored, self._stored_etag = text, etag
+        self._id, self._ns, self._client = "651111111111111111111111", "ns", None
+        self._text = self._etag = None
+        self._meta = {}
+
+    @property
+    def etag(self):
+        return self._etag
+
+    def refresh(self):
+        self._text, self._etag = self._stored, self._stored_etag
+        return self

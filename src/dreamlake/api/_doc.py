@@ -281,6 +281,23 @@ class Doc:
         return self._etag
 
     @property
+    def truncated(self) -> bool:
+        """Whether this snapshot is only part of the note.
+
+        Always False: `read()` fetches the whole body, so an edit computed
+        against it covers everything. It exists so the documented guard
+
+            if doc.truncated:
+                raise ValueError("fetch the complete snapshot first")
+
+        is something you can write, and so that a future partial read cannot be
+        introduced without every caller's guard starting to fire. Use
+        `note.read_lines()` when you deliberately want a part; that one reports
+        its own `truncated` and is not a basis for a write.
+        """
+        return False
+
+    @property
     def dirty(self) -> bool:
         return self._text != self._original
 
