@@ -1,5 +1,6 @@
 """Metadata-only personal prefix KMS management; operator provisioning is separate."""
 import re
+from .vault_affected_preview import affected_options, affected_view
 from datetime import datetime
 from .vault import VaultError, VaultWriteError, VaultHttpError, _write_request_id
 
@@ -66,6 +67,8 @@ def _view(value, operation=False):
             if not isinstance(key, dict) or key.get("provider") not in ("aws-kms", "gcp-kms"):
                 raise VaultError("Invalid KMS registry")
             result["availableKeys"].append({"ref": _ref(key.get("ref")), "provider": key["provider"]})
+    if "affectedEntries" in value:
+        result["affectedEntries"] = affected_view(value["affectedEntries"], result["prefix"], _ref(value.get("selectedKeyRef")))
     return result
 
 
@@ -98,10 +101,17 @@ class VaultKms:
             raise VaultError("Mismatched KMS response")
         return result
 
-    def preview(self, *, prefix, key_ref):
-        """Read-only eligibility; does not probe KMS or reserve the prefix."""
+    def preview(self, *, prefix, key_ref, affected_limit=None, affected_cursor=None):
+        """Read-only eligibility, optionally one retained-entry page (limit 1-200).
+
+        Each page is a snapshot, not a frozen traversal or mutation permission.
+        Policy comparison does not inspect ciphertext; blocked proposals are null.
+        """
         prefix, key_ref = _prefix(prefix), _ref(key_ref)
-        result = _view(self._vault._request("POST", "/v1/vault/kms/preview", json={"prefix": prefix, "keyRef": key_ref}))
+        affected = affected_options(affected_limit, affected_cursor)
+        result = _view(self._vault._request("POST", "/v1/vault/kms/preview", json={"prefix": prefix, "keyRef": key_ref, **({"affectedEntries": affected} if affected is not None else {})}))
+        if affected is not None and ("affectedEntries" not in result or len(result["affectedEntries"]["entries"]) > affected_limit):
+            raise VaultError("Missing or oversized affected-entry page")
         if result["prefix"] != prefix or result.get("selectedKeyRef") != key_ref:
             raise VaultError("Mismatched KMS response")
         return result

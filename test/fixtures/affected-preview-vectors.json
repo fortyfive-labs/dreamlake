@@ -1,0 +1,66 @@
+[
+  {
+    "prefix": "alice/project",
+    "keyRef": "selected",
+    "value": {
+      "schemaVersion": 1,
+      "consistency": "page-snapshot",
+      "includesRetired": true,
+      "comparison": "policy-only",
+      "blockedReason": null,
+      "entries": [
+        {
+          "id": "entry-1",
+          "name": "alice/project/one",
+          "revision": 3,
+          "type": "string",
+          "deleteAt": "2026-09-15T00:00:00.000Z",
+          "purgeAt": "2026-10-15T00:00:00.000Z",
+          "expiresAt": null,
+          "currentPolicy": {
+            "prefix": null,
+            "keyRef": "managed",
+            "provider": "aws-kms",
+            "epoch": null
+          },
+          "proposedPolicy": {
+            "prefix": "alice/project",
+            "keyRef": "selected",
+            "provider": "gcp-kms"
+          }
+        }
+      ],
+      "nextCursor": null
+    }
+  },
+  {
+    "prefix": "alice/project",
+    "keyRef": "selected",
+    "value": {
+      "schemaVersion": 1,
+      "consistency": "page-snapshot",
+      "includesRetired": true,
+      "comparison": "policy-only",
+      "blockedReason": "active-migration",
+      "entries": [
+        {
+          "id": "entry-1",
+          "name": "alice/project/one",
+          "revision": 3,
+          "type": "string",
+          "deleteAt": "2026-09-15T00:00:00.000Z",
+          "purgeAt": "2026-10-15T00:00:00.000Z",
+          "expiresAt": null,
+          "currentPolicy": {
+            "prefix": null,
+            "keyRef": "managed",
+            "provider": "aws-kms",
+            "epoch": null
+          },
+          "proposedPolicy": null
+        }
+      ],
+      "nextCursor": null
+    }
+  }
+]
