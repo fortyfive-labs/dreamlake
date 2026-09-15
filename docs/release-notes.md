@@ -1,5 +1,9 @@
 # Release notes
 
+## Unreleased
+
+- Keep enrolled user-systemd hosts available while idle by explicitly setting `keep_alive_s = -1`. Existing hosts require re-enrollment with this fix. Paired CLI/Python bootstrap tests parse the generated TOML and verify re-enrollment repairs the old configuration. Package publication and a fresh remote idle window longer than 300 seconds remain pending.
+
 ## 0.16.0 — 2026-09-15
 
 **Published to PyPI.** Release [#57](https://github.com/fortyfive-labs/dreamlake/pull/57) includes reviewed Python #50/#51/#55/#56; tag `v0.16.0` pins source `ce428dc`. Public PyPI distributions and GitHub release assets match the hashes below. The older password-only candidate #52 was superseded.
