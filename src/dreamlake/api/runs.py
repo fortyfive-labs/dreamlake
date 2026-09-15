@@ -90,7 +90,8 @@ class Runs:
                include: Sequence[str] = (), cwd: str | Path | None = None,
                request_id: str | None = None, enrollment_id: str | None = None,
                timeout_seconds: int = 3600, placement: Mapping | None = None,
-               resources: Mapping | None = None) -> dict:
+               resources: Mapping | None = None, setup: Mapping | None = None,
+               allow_vault_delivery: bool = False) -> dict:
         """Submit and immediately return a durable run record; call wait explicitly.
 
         Only include paths are read/uploaded. argv is passed unchanged to uv run
@@ -128,9 +129,26 @@ class Runs:
             for key, low, high in (("cpus", 1, 65535), ("memoryMib", 1, 4294967295), ("gpus", 0, 65535)):
                 if type(limits[key]) is not int or not low <= limits[key] <= high:
                     raise RunConfigurationError("Invalid resource limit")
+        private_setup = None
+        if setup is not None or allow_vault_delivery is not False:
+            if setup is None or allow_vault_delivery is not True or kind != "uv-run" or include or placement is not None or resources is not None or not isinstance(enrollment_id, str) or not re.fullmatch(r"[a-f0-9]{24}", enrollment_id):
+                raise RunConfigurationError("Private setup requires explicit consent, enrollment and uv-run; include/placement are incompatible")
+            if not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", request_id) or len(argv) > 128 or not argv[0] or argv[0].startswith("-"):
+                raise RunConfigurationError("Invalid private request ID or workload arguments")
+            try:
+                if any(len(a.encode("utf-8")) > 8192 for a in argv):
+                    raise ValueError
+            except (ValueError, UnicodeError):
+                raise RunConfigurationError("Invalid private workload arguments") from None
+            from ._run_setup import validate_setup
+            private_setup = validate_setup(setup)
         body = {"requestId": request_id, "target": target,
                 "execution": {"kind": kind, "argv": list(argv)},
-                "source": {"files": collect_source(include, cwd)}, "timeoutSeconds": timeout_seconds}
+                "timeoutSeconds": timeout_seconds}
+        if private_setup is not None:
+            body.update(setup=private_setup, allowVaultDelivery=True)
+        else:
+            body["source"] = {"files": collect_source(include, cwd)}
         if selected is not None:
             body["placement"] = selected
         if limits is not None:
