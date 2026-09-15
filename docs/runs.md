@@ -143,3 +143,19 @@ client.runs.cancel("alice", run["id"])
 ```
 
 Private setup rejects inline includes, provider placement and `uvx`. Python never reads a setup file implicitly or prompts. CLI reads only the explicitly named bounded metadata file. Status reports mapping progress; private workload logs are discarded at the source. Reuse the exact request ID and payload after an uncertain submission; changing revisions requires a new reviewed request. Cancellation intent is not proof that a remote process stopped. Mapping retry is not implemented.
+
+## Discover server support
+
+Discovery requires account authorization. It reports server support and limits;
+it does not assert that an enrolled host is online or authorized for a run.
+Private setup remains subject to fresh checks when submitted.
+
+```shell
+dreamlake runs capabilities alice --json
+```
+
+```python
+capabilities = client.runs.capabilities("alice")
+```
+
+Production activation remains blocked pending the reviewed/live-tested private-runner termination-refusal fix. Server capability discovery is not a deployment-readiness guarantee.

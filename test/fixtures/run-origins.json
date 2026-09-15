@@ -1,0 +1,42 @@
+[
+  {
+    "origin": "https://github.com",
+    "valid": true
+  },
+  {
+    "origin": "https://example.com:8443",
+    "valid": true
+  },
+  {
+    "origin": "https://[::1]",
+    "valid": true
+  },
+  {
+    "origin": "https://github.com:443",
+    "valid": false
+  },
+  {
+    "origin": "https://github.com:abc",
+    "valid": false
+  },
+  {
+    "origin": "https://github.com:65536",
+    "valid": false
+  },
+  {
+    "origin": "https://GitHub.com",
+    "valid": false
+  },
+  {
+    "origin": "https://DO_NOT_ECHO@github.com",
+    "valid": false
+  },
+  {
+    "origin": "http://github.com",
+    "valid": false
+  },
+  {
+    "origin": "https://github.com/",
+    "valid": false
+  }
+]
