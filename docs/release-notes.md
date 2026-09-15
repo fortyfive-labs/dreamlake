@@ -1,19 +1,26 @@
 # Release notes
 
-## 0.16.0 — unpublished candidate
+## 0.16.0 — 2026-09-15
 
-Built from current main, including reviewed Python #50/#51/#55/#56. This replaces the older password-only release candidate #52; its frozen artifacts must not be published. No package upload, tag or hosted activation is claimed.
+**Published to PyPI.** Release [#57](https://github.com/fortyfive-labs/dreamlake/pull/57) includes reviewed Python #50/#51/#55/#56; tag `v0.16.0` pins source `ce428dc`. Public PyPI distributions and GitHub release assets match the hashes below. The older password-only candidate #52 was superseded.
 
 - `client.runs.submit(setup=..., allow_vault_delivery=True, ...)` submits an explicitly reviewed, pinned repository and selected credential mappings. Repeating the exact request ID recovers uncertain submissions. Private output is discarded; Python never prompts or implicitly reads a setup file. [Paired CLI/Python guide](runs.md).
 - `client.runs.capabilities(namespace)` reports authenticated server support and limits, separately from fresh host readiness. Unknown response fields are excluded and repository origins are validated. The CLI counterpart is `dreamlake runs capabilities`.
 - `client.vault.verify_host_password` verifies a saved binding with a private one-shot password channel. Reservation/recovery methods preserve the immutable replacement and provide owner-only pending snapshot reads. [Password guide](vault-passwords.md).
 - KMS migration acknowledges retained-record schema 2, including password snapshots. The compatible backend must be deployed before those operations; older clients remain safely gated. [KMS guide](vault-kms.md).
 
-Private execution requires the matching backend configuration and a verified worker. Production activation remains blocked pending Nymph #45 termination handling and fresh acceptance. Source bos14 success/cancel/expiry evidence for earlier pins does not establish installed-package or hosted acceptance of this candidate. Remote password mutation and rollback resolution remain unfinished.
+Private execution requires matching backend configuration and a verified worker. Nymph #45 and optional private-API CA support #47 are merged. [Ordinary-daemon acceptance #492](https://github.com/dreamlake-ai/dreamlake-workspace/pull/492) records real bos14 success, cancellation and expired-permit refusal with fresh published CLI 0.20.0/Python 0.16.0 and an unpublished post-47 daemon. That fixture uses isolated API/control-plane services and a synthetic encryption provider; hosted activation and shared-worker deployment remain separate. Remote password mutation and rollback resolution remain unfinished.
 
 ### Validation
 
-Python 3.12 source suite: 667 passed, 60 skipped. A fresh wheel environment outside the source checkout passed all 63 run/capability/password tests. Sphinx HTML builds successfully; existing documentation warnings remain. Final artifact hashes and sdist installation checks are recorded in the release PR. These checks do not establish hosted acceptance.
+Python 3.12 source suite: 667 passed, 60 skipped. A fresh wheel environment outside the source checkout passed all 63 run/capability/password tests. Sphinx HTML builds successfully; existing documentation warnings remain. Fresh sdist and no-cache PyPI installations passed version/API checks. These checks do not establish hosted acceptance.
+
+Public artifact SHA256:
+
+- Wheel: `910a4491868a9e1f2e4f34d9b7b226e2402e05b83177de02ab13af9eab148c2d`
+- Source distribution: `471e5d88051952a3dfaaab917e74e72b84092f87a356302b4763d78ca6a91810`
+
+[Release and assets](https://github.com/fortyfive-labs/dreamlake/releases/tag/v0.16.0) · [CLI/Python command guide](https://docs.dreamlake.ai/hosts/private-runs/).
 
 ## 0.15.0 — 2026-09-13
 
