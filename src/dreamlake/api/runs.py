@@ -172,11 +172,13 @@ class Runs:
             for origin in p["repositoryOrigins"]:
                 check(isinstance(origin, str) and origin.isascii() and len(origin) <= 2048)
                 u = urlsplit(origin)
+                u.port  # Validate port syntax/range even when no connection is made.
+                check(str(httpx.URL(origin)) == origin)
                 check(u.netloc == u.netloc.lower() and u.scheme == "https" and u.netloc and not u.username and not u.password and not u.path and not u.query and not u.fragment and origin == "https://" + u.netloc)
             check(all(type(p.get(k)) is int and 1 <= p[k] <= 9007199254740991 for k in ("maxMappings", "maxArgv", "maxArgBytes", "maxTimeoutSeconds")))
             check(p.get("requiresConsent") is True and p.get("requiresExplicitEnrollment") is True)
             check(p.get("outputPolicy") == "discard-at-source-v1" and p.get("hostReadiness") == "verified-on-submit")
-        except (AssertionError, TypeError, ValueError, KeyError):
+        except (AssertionError, TypeError, ValueError, KeyError, httpx.InvalidURL):
             raise RunError("Run API returned invalid capability metadata") from None
         return {"version": 1, "executionKinds": data["executionKinds"], "privateSetup": {k: p[k] for k in ("enabled", "repositoryOrigins", "maxMappings", "maxArgv", "maxArgBytes", "maxTimeoutSeconds", "requiresConsent", "requiresExplicitEnrollment", "outputPolicy", "hostReadiness")}}
 

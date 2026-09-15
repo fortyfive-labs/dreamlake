@@ -157,3 +157,5 @@ dreamlake runs capabilities alice --json
 ```python
 capabilities = client.runs.capabilities("alice")
 ```
+
+Production activation remains blocked pending the reviewed/live-tested private-runner termination-refusal fix. Server capability discovery is not a deployment-readiness guarantee.

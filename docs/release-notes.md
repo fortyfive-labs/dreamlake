@@ -1,5 +1,9 @@
 # Release notes
 
+## Unreleased — run capability discovery
+
+Adds `client.runs.capabilities(namespace)` with CLI parity and validated metadata. Reports server support, not fresh host readiness. Private production activation remains blocked pending the termination-refusal fix and live acceptance.
+
 ## Unreleased — password reservation and recovery
 
 Six paired SDK/CLI reservation methods retain exact recovery revisions, freeze the dedicated replacement and expose explicit owner-only pending snapshot reads. Real HTTP/native Mongo cross-client metadata flows passed for target and jump roles. Requires backend #370; privileged remote mutation and explicit rollback-resolution remain unfinished. [Guide](vault-passwords.md#reserve-and-recover-a-password-rotation).

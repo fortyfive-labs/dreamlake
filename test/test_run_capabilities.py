@@ -1,3 +1,5 @@
+import json
+from pathlib import Path
 import httpx
 import pytest
 from dreamlake import DreamLakeClient
@@ -25,3 +27,12 @@ def test_capability_projection_and_invalid_responses():
         values[0]={**CAPS,"privateSetup":{**CAPS["privateSetup"],**patch}}
         with pytest.raises(RunError) as e:runs.capabilities("alice")
         assert "secret" not in str(e.value)
+
+@pytest.mark.parametrize("v", json.loads((Path(__file__).parent/"fixtures/run-origins.json").read_text()))
+def test_canonical_origins(v):
+    data={**CAPS,"privateSetup":{**CAPS["privateSetup"],"repositoryOrigins":[v["origin"]]}}
+    runs=DreamLakeClient(token="synthetic",transport=httpx.MockTransport(lambda r:httpx.Response(200,json=data))).runs
+    if v["valid"]: assert runs.capabilities("alice")==data
+    else:
+        with pytest.raises(RunError) as e:runs.capabilities("alice")
+        assert "DO_NOT_ECHO" not in str(e.value)
