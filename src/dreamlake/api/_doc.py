@@ -173,6 +173,50 @@ class Element:
 
     # ── attributes ──────────────────────────────────────────────────────────
 
+    def insert(self, text: str, *, position: str = "append") -> str:
+        """Insert markup relative to this element. Returns the whole document.
+
+        `position` is one of:
+
+            before    immediately before this element's opening tag
+            after     immediately after its closing tag
+            prepend   as this element's first child
+            append    as its last child (the default)
+
+        The text is inserted as MARKUP, not escaped — this is how you add a
+        `<li>` or a `<p>`, and escaping it would insert the tags as visible
+        text. Use `replace()` when what you have is prose.
+
+        No newline is added. HTML is not line-oriented, and inserting one would
+        change the rendering of anything inside a `<pre>`.
+        """
+        _parsed, el = self._resolve()
+        src = self._doc.text
+
+        if position == "before":
+            at = el.outer[0]
+        elif position == "after":
+            at = el.outer[1]
+        elif position == "prepend":
+            at = el.inner[0]
+        elif position == "append":
+            at = el.inner[1]
+        else:
+            raise _ed.EditError(
+                f"unknown position {position!r}; use before, after, prepend or append"
+            )
+
+        if position in ("prepend", "append") and el.inner[0] == el.inner[1] and el.outer[1] == el.inner[1]:
+            # A void element (`<br>`, `<img>`) has no inside to put anything
+            # in. Appending "into" one silently places the text AFTER it, which
+            # renders as if it worked and is not what was asked for.
+            raise _ed.EditError(
+                f"<{el.tag}> cannot have children; use position='before' or 'after'"
+            )
+
+        self._doc._set(src[:at] + text + src[at:])
+        return self._doc.text
+
     def update(self, attrs: dict[str, str | None]) -> str:
         """Set or remove attributes on this element. Returns the whole document.
 

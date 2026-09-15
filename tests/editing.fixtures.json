@@ -700,7 +700,7 @@
       "error": "InvalidRange"
     },
     {
-      "name": "bnd-line-range-past-end-clamps",
+      "name": "bnd-line-range-past-end-is-refused",
       "doc": "a\nb\nc\n",
       "op": "replace",
       "args": {
@@ -710,7 +710,7 @@
           99
         ]
       },
-      "out": "a\nX\n"
+      "error": "InvalidRange"
     }
   ]
 }

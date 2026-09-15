@@ -138,14 +138,26 @@ def line_of(source: str, ind: int) -> int:
 
 
 def line_span(source: str, first: int, last: int) -> tuple[int, int]:
-    """Character range covering lines `first`..`last`, inclusive, with their newline."""
+    """Character range covering lines `first`..`last`, inclusive, with their newline.
+
+    A range past the end is REFUSED, not clamped. Clamping makes
+    `line=(10, 400)` on a 12-line document mean "lines 10 to the end", which is
+    a reasonable thing to want and a terrible thing to guess: the caller who
+    wrote 400 because they misread the length gets the same silent success as
+    the one who meant it, and the difference is the lines that got deleted.
+    Read `totalLines` and say what you mean.
+    """
     starts = _line_starts(source)
     total = len(starts)
     if first < 1 or last < first:
         raise InvalidRange(f"line range ({first}, {last}) is not a range; lines are 1-based and inclusive")
     if first > total:
         raise InvalidRange(f"line {first} is past the end of a {total}-line document")
-    last = min(last, total)
+    if last > total:
+        raise InvalidRange(
+            f"line {last} is past the end of a {total}-line document; "
+            f"to reach the end, say last={total}"
+        )
     start = starts[first - 1]
     end = starts[last] if last < total else len(source)
     return start, end

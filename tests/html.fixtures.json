@@ -117,55 +117,158 @@
       "select": "[href^=/s]",
       "error": "SelectorError"
     },
-
     {
       "name": "replace-keeps-entity-spelling",
       "doc": "<p>Contact us &amp; more</p>",
       "select": "p",
-      "replaceIn": { "query": "Contact us", "text": "Talk to sales" },
+      "replaceIn": {
+        "query": "Contact us",
+        "text": "Talk to sales"
+      },
       "out": "<p>Talk to sales &amp; more</p>"
     },
     {
       "name": "replace-keeps-attribute-quoting",
       "doc": "<div id='a' class=card><p>old</p></div>",
       "select": "p",
-      "replaceIn": { "query": "old", "text": "new" },
+      "replaceIn": {
+        "query": "old",
+        "text": "new"
+      },
       "out": "<div id='a' class=card><p>new</p></div>"
     },
     {
       "name": "replace-escapes-the-new-text",
       "doc": "<p>body</p>",
       "select": "p",
-      "replaceIn": { "query": "body", "text": "a & b <tag>" },
+      "replaceIn": {
+        "query": "body",
+        "text": "a & b <tag>"
+      },
       "out": "<p>a &amp; b &lt;tag&gt;</p>"
     },
     {
       "name": "replace-inside-one-element-only",
       "doc": "<p>x</p><p>x</p>",
       "select": "p:nth-of-type(1)",
-      "replaceIn": { "query": "x", "text": "y" },
+      "replaceIn": {
+        "query": "x",
+        "text": "y"
+      },
       "out": "<p>y</p><p>x</p>"
     },
     {
       "name": "replace-ambiguous-within-element",
       "doc": "<p>x x</p>",
       "select": "p",
-      "replaceIn": { "query": "x", "text": "y" },
+      "replaceIn": {
+        "query": "x",
+        "text": "y"
+      },
       "error": "AmbiguousMatch"
     },
     {
       "name": "replace-all-within-element",
       "doc": "<p>x x</p>",
       "select": "p",
-      "replaceIn": { "query": "x", "text": "y", "all": true },
+      "replaceIn": {
+        "query": "x",
+        "text": "y",
+        "all": true
+      },
       "out": "<p>y y</p>"
     },
     {
       "name": "replace-no-match-within-element",
       "doc": "<p>body</p>",
       "select": "p",
-      "replaceIn": { "query": "zzz", "text": "y" },
+      "replaceIn": {
+        "query": "zzz",
+        "text": "y"
+      },
       "error": "NoMatch"
+    }
+  ],
+  "elementInserts": [
+    {
+      "name": "before",
+      "doc": "<ul id=\"l\"><li>a</li></ul>",
+      "select": "#l",
+      "text": "<li>N</li>",
+      "position": "before",
+      "out": "<li>N</li><ul id=\"l\"><li>a</li></ul>"
+    },
+    {
+      "name": "after",
+      "doc": "<ul id=\"l\"><li>a</li></ul>",
+      "select": "#l",
+      "text": "<li>N</li>",
+      "position": "after",
+      "out": "<ul id=\"l\"><li>a</li></ul><li>N</li>"
+    },
+    {
+      "name": "prepend",
+      "doc": "<ul id=\"l\"><li>a</li></ul>",
+      "select": "#l",
+      "text": "<li>N</li>",
+      "position": "prepend",
+      "out": "<ul id=\"l\"><li>N</li><li>a</li></ul>"
+    },
+    {
+      "name": "append",
+      "doc": "<ul id=\"l\"><li>a</li></ul>",
+      "select": "#l",
+      "text": "<li>N</li>",
+      "position": "append",
+      "out": "<ul id=\"l\"><li>a</li><li>N</li></ul>"
+    },
+    {
+      "name": "append-into-empty-element",
+      "doc": "<ul id=\"l\"></ul>",
+      "select": "#l",
+      "text": "<li>N</li>",
+      "position": "append",
+      "out": "<ul id=\"l\"><li>N</li></ul>"
+    },
+    {
+      "name": "markup-is-not-escaped",
+      "doc": "<div id=\"d\"></div>",
+      "select": "#d",
+      "text": "<b>&amp;</b>",
+      "position": "append",
+      "out": "<div id=\"d\"><b>&amp;</b></div>"
+    },
+    {
+      "name": "no-newline-is-added",
+      "doc": "<pre id=\"p\">a</pre>",
+      "select": "#p",
+      "text": "b",
+      "position": "append",
+      "out": "<pre id=\"p\">ab</pre>"
+    },
+    {
+      "name": "void-element-cannot-have-children",
+      "doc": "<p>x<br id=\"b\">y</p>",
+      "select": "#b",
+      "text": "<i>z</i>",
+      "position": "append",
+      "error": true
+    },
+    {
+      "name": "void-element-before-is-fine",
+      "doc": "<p>x<br id=\"b\">y</p>",
+      "select": "#b",
+      "text": "<i>z</i>",
+      "position": "before",
+      "out": "<p>x<i>z</i><br id=\"b\">y</p>"
+    },
+    {
+      "name": "unknown-position-is-refused",
+      "doc": "<p id=\"p\">x</p>",
+      "select": "#p",
+      "text": "y",
+      "position": "sideways",
+      "error": true
     }
   ]
 }

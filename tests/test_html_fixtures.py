@@ -24,7 +24,9 @@ from dreamlake.api._html import (
 
 from .test_doc import FakeNote
 
-CASES = json.loads((Path(__file__).parent / "html.fixtures.json").read_text())["cases"]
+_DATA = json.loads((Path(__file__).parent / "html.fixtures.json").read_text())
+CASES = _DATA["cases"]
+ELEMENT_INSERTS = _DATA["elementInserts"]
 
 ERRORS = {
     "NoElement": NoElement,
@@ -61,3 +63,24 @@ def test_html_fixture(case):
     el = select(parsed, case["select"])
     assert case["doc"][slice(*el.inner)] == case["inner"], "inner source"
     assert "".join(r.decoded for r in text_runs(parsed, el)) == case["text"], "decoded text"
+
+
+# ── Element-relative insertion ───────────────────────────────────────────────
+#
+# The same cases the CLI suite runs. Two implementations of "put this markup
+# next to that element" is exactly the pair that drifts, and the drift shows up
+# as markup in the wrong place rather than as an error.
+
+@pytest.mark.parametrize("case", ELEMENT_INSERTS, ids=lambda c: c["name"])
+def test_element_insert_fixture(case):
+    from dreamlake.api._editing import EditError
+
+    doc = Doc(FakeNote(case["doc"]), case["doc"], "rev-1")
+    el = doc.select(case["select"])
+
+    if case.get("error"):
+        with pytest.raises(EditError):
+            el.insert(case["text"], position=case["position"])
+        return
+
+    assert el.insert(case["text"], position=case["position"]) == case["out"]
