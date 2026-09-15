@@ -307,3 +307,23 @@ only talks to a renamed server).
 - Everything from the third-party `dreamdb` package (`dreamdb.Dataset`,
   the `dreamlake.db` forwarding of it, and the dreamdb-backed CLI plumbing
   in `artifact`/`workflow`).
+
+## Unreleased — owner-only Vault tree metadata
+
+`Vault.tree(prefix=..., limit=100, cursor=None)` reads one paginated policy/entry
+metadata page from workspace PR576. It never prompts or reads values. Strict
+response validation rejects foreign paths and unexpected payload fields; unknown
+policy/migration states remain unknown. The CLI counterpart is `dreamlake vault
+list --tree -p ...`, with `--to-json` for one page. Neither client performs policy
+changes or move previews. Local actual HTTP/Mongo and CLI PTY parity passed; this
+is candidate source, not a package publication or hosted deployment.
+
+```python
+page = vault.tree(prefix="alice/research", limit=100)
+if page["nextCursor"]:
+    following = vault.tree(prefix="alice/research", limit=100,
+                           cursor=page["nextCursor"])
+```
+
+Page observations are independent; the cursor is not a frozen whole-tree
+snapshot. The current policy key may differ from retained ciphertext keys.

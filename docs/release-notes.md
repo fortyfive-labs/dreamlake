@@ -1,10 +1,16 @@
 # Release notes
 
-## 0.16.2 — unpublished patch candidate
+## 0.17.0 — published 2026-09-15
+
+Adds `Vault.tree(prefix=..., limit=100, cursor=None)` for one owner-only metadata page. Based on published 0.16.2 plus the reviewed tree-only change from PR66; unrelated Notes work on main is excluded. No prompting, secret reads, automatic pagination or policy mutation.
+
+Requires an authenticated owner and `GET /v1/vault/tree`; older servers return 404, which is not an empty tree. Both public PyPI archives match the frozen release hashes. A fresh no-cache PyPI installation verified version 0.17.0 and an authenticated production metadata-only tree page, with no remote writes or secret reads. CLI 0.22.0 provides the paired `vault list --tree` interface; its publication is tracked separately. [Publication receipt](releases/0.17.0/publication.json). [GitHub v0.17.0](https://github.com/fortyfive-labs/dreamlake/releases/tag/v0.17.0) is published at release source `a1450d4`, with both attached archives downloaded and hash-verified; this SDK check does not establish every API operation or fleet provenance.
+
+## 0.16.2 — published 2026-09-15
 
 Based on published `v0.16.1` plus the reviewed host SSH fix from [#54](https://github.com/fortyfive-labs/dreamlake/pull/54). Python enrollment detaches its SSH process tree and disables askpass so password-only ProxyJump fails without prompting. Configured key/agent access remains available; CLI interactive password behavior is unchanged. No dependency changes or unrelated Notes API changes are included.
 
-Validation and artifact checks are recorded in the release PR. This candidate is not published and does not change any shared service.
+Validation and artifact checks are recorded in the release PR. PyPI 0.16.2 is published; its GitHub release preserves the reviewed artifacts. This does not imply a shared-service deployment.
 
 ## 0.16.1 — published 2026-09-15
 
