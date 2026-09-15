@@ -21,10 +21,10 @@ def test_enrolled_service_stays_available_when_idle(tmp_path):
         script = bin_dir / name
         script.write_text(body)
         script.chmod(0o700)
-    env = {**os.environ, 'HOME': str(tmp_path), 'PATH': f'{bin_dir}:{os.environ["PATH"]}'}
+    env = {**os.environ, 'PATH': f'{bin_dir}:{os.environ["PATH"]}'}
     name = 'alice/acceptance/persistent'
     def bootstrap(payload):
-        result = subprocess.run([sys.executable, str(BOOTSTRAP)],
+        result = subprocess.run([sys.executable, '-c', "import pathlib,runpy,sys; from unittest.mock import patch; root=pathlib.Path(sys.argv[1]); source=sys.argv[2]; patcher=patch.object(pathlib.Path,'home',return_value=root); patcher.start(); runpy.run_path(source,run_name='__main__')", str(tmp_path), str(BOOTSTRAP)],
                                 input=json.dumps(payload), text=True, capture_output=True, env=env, check=True)
         return json.loads(result.stdout)
     probe = bootstrap({'action': 'probe', 'name': name})
