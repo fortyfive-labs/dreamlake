@@ -26,6 +26,8 @@
   "publicationByVerifier": false,
   "artifactBuildSource": "09d2af5b397f66b1f42c254a80134c77d44b43d5",
   "reviewedReleaseSource": "a1450d425a2520e42cc72cf0789aa1f28302d122",
-  "githubTagStatus": "not created; awaiting root approval",
-  "sourceBaseline": "v0.16.2 plus tree-only PR66; no additional main Notes changes"
+  "githubTagStatus": "annotated v0.17.0 created and peeled target verified",
+  "sourceBaseline": "v0.16.2 plus tree-only PR66; no additional main Notes changes",
+  "githubRelease": "https://github.com/fortyfive-labs/dreamlake/releases/tag/v0.17.0",
+  "githubAssetsDownloadedAndHashesVerified": true
 }
