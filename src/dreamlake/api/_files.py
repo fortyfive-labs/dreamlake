@@ -25,11 +25,20 @@ from typing import TYPE_CHECKING, Any, Iterator
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from .notes import Note
 
-__all__ = ["NoteFile", "NoteFiles", "FileExists", "NotTextFile"]
+__all__ = ["NoteFile", "NoteFiles", "FileExists", "NotTextFile", "NotPreviewable"]
 
 
 class FileExists(Exception):
     """A path is already taken, and the call did not say to replace it."""
+
+
+class NotPreviewable(Exception):
+    """This file has no rendered form.
+
+    Its own type because the remedy differs from every other refusal here:
+    nothing is wrong with the file or the request, there is simply nothing to
+    look at. Download it.
+    """
 
 
 class NotTextFile(Exception):
@@ -85,6 +94,8 @@ class NoteFile:
     def download(self, dest: str | os.PathLike[str], *, overwrite: bool = False) -> Path:
         """Write the content to a local path. Returns the path written.
 
+        Streamed to disk in chunks, so the file never has to fit in memory.
+
         `overwrite` defaults to False and raises on a collision. A download
         that silently replaces a local file is the one operation here that
         destroys something DreamLake cannot restore.
@@ -95,7 +106,19 @@ class NoteFile:
         if p.exists() and not overwrite:
             raise FileExists(f"{p} already exists; pass overwrite=True to replace it")
         p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_bytes(self.bytes())
+
+        # Written to a neighbouring temporary file and moved into place, so an
+        # interrupted download leaves the destination untouched rather than
+        # half a file that looks complete.
+        tmp = p.with_name(p.name + ".part")
+        try:
+            with tmp.open("wb") as fh:
+                for chunk in self._owner().iter_bytes(self.id):
+                    fh.write(chunk)
+            tmp.replace(p)
+        finally:
+            if tmp.exists():
+                tmp.unlink()
         return p
 
     # ── changing ────────────────────────────────────────────────────────────
@@ -141,6 +164,33 @@ class NoteFile:
     def purge(self, *, if_match: str | None = None) -> None:
         """Delete the stored bytes. Not recoverable — hence a separate call."""
         self._owner()._delete(self.id, purge=True, if_match=if_match)
+
+    def preview_url(self, *, share: bool = False) -> str:
+        """A link that renders this file.
+
+            print(note.files.find("report.html").preview_url())
+
+        The default needs you signed in: it opens a dashboard page that reads
+        with your own login, so the note's permissions decide what it shows and
+        the link grants nothing by itself.
+
+        `share=True` returns a link that works WITHOUT signing in, for sending
+        someone something they can look at. It does not expire — a link you
+        hand over has to still work when they get round to opening it — and it
+        keeps returning the same URL, so asking again never breaks a copy
+        already given away. `unshare()` withdraws it, at once and for everyone.
+
+        Minting one takes permission to share the note, not merely to read it:
+        somebody who was given access must not be able to pass it on.
+
+        Raises if the file has no rendered form; check `preview_kind` first, or
+        download it instead.
+        """
+        return self._owner()._preview(self.id, share=share)["url"]
+
+    def unshare(self) -> None:
+        """Withdraw the shared preview link. Every copy stops working."""
+        self._owner()._unshare(self.id)
 
     def refresh(self) -> "NoteFile":
         """Re-read the metadata."""
@@ -260,12 +310,16 @@ class NoteFiles:
         Read as bytes, so the upload is exact for any content.
         """
         src = Path(source)
-        return self.put(
-            path or src.name,
-            data=src.read_bytes(),
-            content_type=content_type,
-            overwrite=overwrite,
-        )
+        # Streamed from disk rather than read into memory. A 500 MB attachment
+        # should cost a buffer, not half a gigabyte of resident memory — and
+        # `read_bytes()` on something larger than RAM simply fails.
+        with src.open("rb") as fh:
+            return self.put(
+                path or src.name,
+                stream=fh,
+                content_type=content_type,
+                overwrite=overwrite,
+            )
 
     def put(
         self,
@@ -273,13 +327,19 @@ class NoteFiles:
         *,
         text: str | None = None,
         data: bytes | None = None,
+        stream: Any | None = None,
         content_type: str | None = None,
         overwrite: bool = False,
         if_match: str | None = None,
     ) -> NoteFile:
-        """Write a file, from text or bytes. The one write path."""
-        if (text is None) == (data is None):
-            raise ValueError("give exactly one of text or data")
+        """Write a file, from text, bytes, or a binary file object.
+
+        `stream` is any object with `.read()` opened in binary mode. It is
+        handed to the transport as-is, so the file never has to fit in memory.
+        """
+        given = [x is not None for x in (text, data, stream)]
+        if sum(given) != 1:
+            raise ValueError("give exactly one of text, data or stream")
 
         headers = {"If-Match": if_match} if if_match else {}
 
@@ -298,7 +358,9 @@ class NoteFiles:
             r = http.put(
                 f"{self._base()}/content",
                 params=params,
-                content=data,
+                # httpx streams a file object and sends bytes as they are;
+                # either way nothing is decoded on the way out.
+                content=data if data is not None else stream,
                 headers={
                     # Declared so the server does not have to guess, and so the
                     # client never tries to encode the body as anything.
@@ -309,6 +371,19 @@ class NoteFiles:
         return _view(self._checked(r, f"upload {path}"), self)
 
     # ── content ─────────────────────────────────────────────────────────────
+
+    def iter_bytes(self, file_id: str, chunk_size: int = 1 << 20):
+        """The content, a chunk at a time. Nothing is held whole in memory."""
+        with self._note._client.http() as http:
+            with http.stream(
+                "GET",
+                f"{self._base()}/{file_id}/content",
+                params={"redirect": "false"},
+            ) as r:
+                if r.status_code >= 400:
+                    r.read()
+                    self._checked(r, f"download {file_id}", json=False)
+                yield from r.iter_bytes(chunk_size)
 
     def read_bytes(self, file_id: str) -> bytes:
         """Exact content. `redirect=false` so the bytes come back here rather
@@ -349,6 +424,23 @@ class NoteFiles:
                 json={"path": path, "overwrite": overwrite},
             )
         return _view(self._checked(r, f"copy {file_id}"), self)
+
+    def _preview(self, file_id: str, *, share: bool) -> dict:
+        with self._note._client.http() as http:
+            r = http.get(
+                f"{self._base()}/{file_id}/preview",
+                params={"share": "true"} if share else {},
+            )
+        if r.status_code == 400:
+            body = r.json() if r.content else {}
+            if body.get("error") == "not_previewable":
+                raise NotPreviewable(body.get("message") or f"{file_id} has no rendered form")
+        return self._checked(r, f"preview {file_id}")
+
+    def _unshare(self, file_id: str) -> None:
+        with self._note._client.http() as http:
+            r = http.delete(f"{self._base()}/{file_id}/preview")
+        self._checked(r, f"unshare {file_id}")
 
     def _restore(self, file_id: str, path: str | None) -> NoteFile:
         with self._note._client.http() as http:

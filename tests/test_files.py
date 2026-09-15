@@ -16,7 +16,13 @@ from pathlib import Path
 import httpx
 import pytest
 
-from dreamlake.api._files import FileExists, NoteFile, NoteFiles, NotTextFile
+from dreamlake.api._files import (
+    FileExists,
+    NoteFile,
+    NoteFiles,
+    NotPreviewable,
+    NotTextFile,
+)
 from dreamlake.api.notes import Note
 
 # Every byte value, including NUL and sequences that are not valid UTF-8. If
@@ -53,11 +59,50 @@ class FakeHttp:
     def delete(self, url, params=None, headers=None, **kw):
         return self._go("DELETE", url, params=params, headers=headers, **kw)
 
+    def stream(self, method, url, params=None, **kw):  # noqa: D401
+        """A context manager yielding a streamed response, as httpx does.
+
+        Present at all because download() streams to disk rather than reading
+        the whole file — a fake that only offered .get() would make that
+        change untestable, and the test would have to be written against the
+        old shape.
+        """
+        resp = self._go(method, url, params=params, **kw)
+        limit = self._s.fail_stream_after
+
+        class _Streamed:
+            status_code = resp.status_code
+
+            def iter_bytes(self_inner, size=None):
+                data = resp.content
+                if limit is None:
+                    yield data
+                    return
+                yield data[:limit]
+                raise OSError("connection reset")
+
+            def read(self_inner):
+                return resp.content
+
+        class _Ctx:
+            def __enter__(self_inner):
+                return _Streamed()
+
+            def __exit__(self_inner, *a):
+                return False
+
+        return _Ctx()
+
 
 class FakeServer:
     """Enough of the file API to exercise the client, storing bytes as bytes."""
 
     remote = "https://example.test"
+
+    preview: dict | None = None
+    preview_status: int = 200
+    #: Raise partway through a streamed download, after this many bytes.
+    fail_stream_after: int | None = None
 
     def __init__(self) -> None:
         self.calls: list = []
@@ -106,11 +151,17 @@ class FakeServer:
 
         if url.endswith("/files/content") and method == "PUT":
             params = kw["params"]
+            body = kw["content"]
+            # httpx sends a file object as a stream; here it is drained, which
+            # is also the assertion that upload() handed over a stream at all
+            # rather than a bytes buffer it had already read.
+            if hasattr(body, "read"):
+                body = body.read()
             return self._resp(
                 url, 201,
                 self._row(params["path"],
                           params.get("contentType", "application/octet-stream"),
-                          kw["content"]),
+                          body),
             )
 
         if url.endswith("/content") and method == "GET":
@@ -133,6 +184,11 @@ class FakeServer:
             fid = url.split("/files/")[1].split("/")[0]
             self.rows[fid]["trashed"] = False
             return self._resp(url, 200, self.rows[fid])
+
+        if url.endswith("/preview") and method == "GET":
+            return self._resp(url, self.preview_status, self.preview or {})
+        if url.endswith("/preview") and method == "DELETE":
+            return self._resp(url, 200, {"id": "f", "shared": False})
 
         if method == "DELETE":
             fid = url.split("/files/")[1]
@@ -342,3 +398,131 @@ def test_preview_kind_travels_so_a_caller_knows_what_can_be_rendered():
     page = note.files.create("page.html", text="<b>hi</b>", content_type="text/html")
     assert page.preview_kind == "html"
     assert note.files.create("a.bin", data=BLOB).preview_kind is None
+
+
+# ── Preview links ────────────────────────────────────────────────────────────
+
+def test_preview_url_defaults_to_the_session_link():
+    # The default grants nothing: it opens a page that reads with the caller's
+    # own login, so the note's permissions still decide.
+    s = FakeServer()
+    s.preview = {"url": "https://dreamlake.ai/preview/note-file?ns=me&note=n&file=f",
+                 "kind": "session", "previewKind": "html"}
+    note = note_with(s)
+    f = note.files.create("a.html", text="<p>x</p>", content_type="text/html")
+    assert "preview/note-file" in f.preview_url()
+    assert s.calls[-1][2]["params"] == {}
+
+
+def test_preview_url_share_asks_for_the_shared_kind():
+    s = FakeServer()
+    s.preview = {"url": "https://dreamlake.ai/preview/note-file?t=tok",
+                 "kind": "shared", "previewKind": "html"}
+    note = note_with(s)
+    f = note.files.create("a.html", text="<p>x</p>", content_type="text/html")
+    url = f.preview_url(share=True)
+    assert s.calls[-1][2]["params"] == {"share": "true"}
+    assert "t=tok" in url
+
+
+def test_a_shared_link_carries_no_expiry():
+    # The correction this replaced: a link that expires on its own may be dead
+    # before the person you sent it to opens it.
+    s = FakeServer()
+    s.preview = {"url": "https://dreamlake.ai/preview/note-file?t=tok", "kind": "shared"}
+    note = note_with(s)
+    f = note.files.create("a.html", text="<p>x</p>", content_type="text/html")
+    from urllib.parse import urlparse, parse_qs
+
+    q = parse_qs(urlparse(f.preview_url(share=True)).query)
+    assert set(q) == {"t"}
+
+
+def test_a_file_with_no_rendered_form_says_so():
+    # Not a link to a page that would only offer a download — "why is this
+    # blank" is a worse answer than "there is nothing to look at".
+    s = FakeServer()
+    s.preview_status = 400
+    s.preview = {"error": "not_previewable", "message": "a.zip is application/zip"}
+    note = note_with(s)
+    f = note.files.create("a.zip", data=b"PK")
+    with pytest.raises(NotPreviewable, match="application/zip"):
+        f.preview_url()
+
+
+def test_unshare_withdraws_the_link():
+    s = FakeServer()
+    s.preview = {"url": "x", "kind": "shared"}
+    note = note_with(s)
+    f = note.files.create("a.html", text="<p>x</p>", content_type="text/html")
+    f.unshare()
+    method, url, _ = s.calls[-1]
+    assert method == "DELETE"
+    assert url.endswith("/preview")
+
+
+# ── streaming ────────────────────────────────────────────────────────────────
+#
+# The issue asks for "streaming and resumable transport where supported". The
+# tests below are about the first half, and about what it is FOR: a file larger
+# than memory has to be movable at all, and `read_bytes()` on one simply fails.
+
+def test_upload_hands_over_a_stream_rather_than_a_buffer(tmp_path: Path):
+    src = tmp_path / "big.bin"
+    src.write_bytes(BLOB)
+
+    s = FakeServer()
+    note_with(s).files.upload(src)
+
+    _, _, kw = s.calls[-1]
+    # A file object, not bytes: the transport reads it as it sends, so the
+    # file never has to fit in memory.
+    assert hasattr(kw["content"], "read"), "upload buffered the file instead of streaming it"
+
+
+def test_upload_still_accepts_bytes_when_that_is_what_the_caller_has():
+    s = FakeServer()
+    note_with(s).files.create("a.bin", data=BLOB)
+    assert s.calls[-1][2]["content"] == BLOB
+
+
+def test_put_refuses_more_than_one_source():
+    note = note_with(FakeServer())
+    with pytest.raises(ValueError, match="exactly one"):
+        note.files.put("a", text="x", data=b"y")
+    with pytest.raises(ValueError, match="exactly one"):
+        note.files.put("a")
+
+
+def test_download_streams_to_disk_in_chunks(tmp_path: Path):
+    s = FakeServer()
+    note = note_with(s)
+    f = note.files.create("a.bin", data=BLOB)
+    out = f.download(tmp_path / "out.bin")
+
+    assert out.read_bytes() == BLOB
+    # Through the streaming path: a plain .get() would not have been recorded
+    # as a stream call.
+    assert any(m == "GET" and u.endswith("/content") for m, u, _ in s.calls)
+
+
+def test_an_interrupted_download_leaves_the_destination_untouched(tmp_path: Path):
+    # Written beside the target and moved into place. Otherwise a dropped
+    # connection leaves half a file that looks complete, and the next reader
+    # has no way to tell.
+    dest = tmp_path / "keep.bin"
+    dest.write_bytes(b"original")
+
+    s = FakeServer()
+    note = note_with(s)
+    f = note.files.create("a.bin", data=BLOB)
+
+    # The transport fails partway, which is the case that matters: some bytes
+    # arrived, so a writer that wrote straight to the destination would have
+    # already clobbered it.
+    s.fail_stream_after = 8
+
+    with pytest.raises(OSError):
+        f.download(dest, overwrite=True)
+    assert dest.read_bytes() == b"original"
+    assert not (tmp_path / "keep.bin.part").exists()
