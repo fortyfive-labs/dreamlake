@@ -1,0 +1,31 @@
+{
+  "verifiedAt": "2026-09-15T14:02:54.999116+00:00",
+  "version": "0.17.0",
+  "archives": [
+    {
+      "filename": "dreamlake-0.17.0-py3-none-any.whl",
+      "sha256": "2b0d3daf2d573e178a23042a82ca59a2d0e81d7e5d56cc74fd8327333c1d1989",
+      "size": 256900
+    },
+    {
+      "filename": "dreamlake-0.17.0.tar.gz",
+      "sha256": "30bb2f1a49c2c8416a244ad25555a4e1f033a76ad2189d6972cb4cb9101e2b3f",
+      "size": 214400
+    }
+  ],
+  "freshNoCachePyPIInstall": true,
+  "initialInstallFailure": "nonzero with suppressed diagnostics; no cause established; read-only retry succeeded",
+  "productionTree": {
+    "ownerVerified": true,
+    "schemaVersion": 1,
+    "pageLimit": 1,
+    "metadataOnly": true,
+    "writes": 0,
+    "secretReads": 0
+  },
+  "publicationByVerifier": false,
+  "artifactBuildSource": "09d2af5b397f66b1f42c254a80134c77d44b43d5",
+  "reviewedReleaseSource": "a1450d425a2520e42cc72cf0789aa1f28302d122",
+  "githubTagStatus": "not created; awaiting root approval",
+  "sourceBaseline": "v0.16.2 plus tree-only PR66; no additional main Notes changes"
+}
