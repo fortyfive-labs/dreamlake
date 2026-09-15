@@ -76,3 +76,39 @@ Completion covers the active database, not retained backups or remote credential
 Optional `prefix=` on resume is asserted by the server against the original operation before any mutation. Omit it for ID-only recovery. CLI `--prefix` behaves identically; status also rejects a mismatched explicit prefix.
 
 Migration routes require the operator flag `DREAMLAKE_VAULT_KMS_MIGRATION_ENABLED=true`, default off. Enable it only after every backend writer is verified epoch-aware. Disabling it preserves policies and completed progress; it does not authorize rolling back to old writers.
+
+## Affected-entry preview — Unreleased, 2026-09-15
+
+`affectedEntries.observedAt` is the application's UTC wall-clock observation when
+that page read completes, not a Mongo cluster timestamp or a guarantee spanning
+multiple pages. `contextFingerprint` identifies the policy/owner/tenant/key/schema
+context also bound into continuation cursors. Equal fingerprints do not freeze
+entry revisions between observations. All opt-in metadata probes have a 10-second
+Mongo operation limit; ordinary preview timeout behavior is preserved.
+
+```python
+page = client.vault.kms.preview(
+    prefix="alice/project", key_ref="managed", affected_limit=100,
+)
+# Explicit continuation of the same prefix/key observation:
+next_cursor = page["affectedEntries"]["nextCursor"]
+if next_cursor is not None:
+    page = client.vault.kms.preview(
+        prefix="alice/project", key_ref="managed",
+        affected_limit=100, affected_cursor=next_cursor,
+    )
+```
+
+Limits are 1–200. The existing endpoint and ordinary call remain unchanged. The
+optional page includes retained soft-deleted entries, IDs, revisions, types and
+lifecycle dates. Current/proposed policy metadata does not inspect ciphertext.
+A blocked proposed comparison is null. Each page is a new snapshot; cursors are
+not reservations, and policy/key changes require re-inspection. Receipt and
+snapshot counts are not entry rows. No values, crypto calls or mutations occur.
+An older server that silently omits the requested page is rejected.
+
+The paired CLI uses `vault kms preview --affected-limit 100` and explicit
+`--affected-cursor`. Shared JSON vectors validate identical safe projections;
+`examples/vault-tree/affected-acceptance.py` in the paired CLI checkout exercises
+both source clients against actual local Vault HTTP/Mongo routes. Hosted
+acceptance, publication and cross-boundary moves remain separate.
