@@ -270,5 +270,42 @@
       "position": "sideways",
       "error": true
     }
+  ],
+  "elementHtml": [
+    {
+      "name": "html-is-not-escaped",
+      "doc": "<p id=\"p\">x</p>",
+      "select": "#p",
+      "html": "<b>y</b>",
+      "out": "<p id=\"p\"><b>y</b></p>"
+    },
+    {
+      "name": "html-replaces-all-contents",
+      "doc": "<div id=\"d\">a<span>b</span>c</div>",
+      "select": "#d",
+      "html": "<i>z</i>",
+      "out": "<div id=\"d\"><i>z</i></div>"
+    },
+    {
+      "name": "html-into-empty-element",
+      "doc": "<div id=\"d\"></div>",
+      "select": "#d",
+      "html": "<i>z</i>",
+      "out": "<div id=\"d\"><i>z</i></div>"
+    },
+    {
+      "name": "html-leaves-the-open-tag-alone",
+      "doc": "<p id=\"p\" class=\"a b\">x</p>",
+      "select": "#p",
+      "html": "y",
+      "out": "<p id=\"p\" class=\"a b\">y</p>"
+    },
+    {
+      "name": "html-can-be-empty",
+      "doc": "<p id=\"p\">x</p>",
+      "select": "#p",
+      "html": "",
+      "out": "<p id=\"p\"></p>"
+    }
   ]
 }

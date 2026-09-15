@@ -226,3 +226,60 @@ def test_limits_are_generous_enough_for_real_documents():
     assert LIMITS.input >= 1_000_000
     rx = JsRegex(r"\bTODO\b")
     assert len(rx.findall("TODO x " * 5000)) == 5000
+
+
+# ── Zero-width matches and the scan cursor ───────────────────────────────────
+
+def test_a_zero_width_match_at_end_of_input_does_not_repeat_forever():
+    # `search(s, pos)` CLAMPS a position past the end back to the end, so a
+    # zero-width match at EOF is found again at every step after it. The symptom
+    # is not a hang: it is the SAME span returned up to the result limit, and as
+    # edits those would all overlap.
+    #
+    # Checked against Node below; this states the span list directly so the
+    # failure names the shape rather than just "diverged".
+    from dreamlake.api._jsregex import JsRegex
+
+    spans = [m.span() for m in JsRegex("x*").finditer("ab")]
+    assert spans == [(0, 0), (1, 1), (2, 2)]
+
+
+def test_zero_width_scanning_terminates_on_an_empty_input():
+    from dreamlake.api._jsregex import JsRegex
+
+    assert [m.span() for m in JsRegex("x*").finditer("")] == [(0, 0)]
+
+
+@pytest.mark.skipif(NODE is None, reason="node not on PATH")
+def test_zero_width_spans_agree_with_javascript():
+    # The same scan JavaScript performs, asked of Node directly — `replace`
+    # goes through a different code path and would not have caught this.
+    script = """
+    const cs = JSON.parse(process.argv[1]);
+    const out = {};
+    for (const c of cs) {
+      const rx = new RegExp(c.p, c.f.includes('g') ? c.f : c.f + 'g');
+      const spans = []; let m;
+      while ((m = rx.exec(c.s)) !== null) {
+        spans.push([m.index, m.index + m[0].length]);
+        if (m.index === rx.lastIndex) rx.lastIndex++;
+      }
+      out[c.n] = spans;
+    }
+    process.stdout.write(JSON.stringify(out));
+    """
+    cases = [
+        {"n": "eof", "p": "x*", "f": "g", "s": "ab"},
+        {"n": "empty", "p": "x*", "f": "g", "s": ""},
+        {"n": "anchors", "p": "^", "f": "gm", "s": "a\nb\n"},
+        {"n": "boundaries", "p": r"\b", "f": "g", "s": "ab cd"},
+    ]
+    proc = subprocess.run(
+        [NODE, "-e", script, json.dumps(cases)], capture_output=True, text=True, timeout=60
+    )
+    proc.check_returncode()
+    truth = json.loads(proc.stdout)
+
+    for case in cases:
+        ours = [list(m.span()) for m in JsRegex(case["p"], case["f"].replace("g", "")).finditer(case["s"])]
+        assert ours == truth[case["n"]], f"{case['n']}: node={truth[case['n']]} ours={ours}"

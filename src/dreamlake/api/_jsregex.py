@@ -316,7 +316,8 @@ class JsRegex:
         self._check_input(source)
         deadline = _time.monotonic() + LIMITS.seconds
         pos = 0
-        while True:
+        n = len(source)
+        while pos <= n:
             m = self._rx.search(source, pos)
             if m is None:
                 return
@@ -326,6 +327,12 @@ class JsRegex:
                     f"matching ran past {LIMITS.seconds}s and was abandoned — "
                     "narrow the pattern, or use a literal query"
                 )
+            # A zero-width match advances by one, or the same position matches
+            # forever. The `pos <= n` guard is the other half of that: `search`
+            # CLAMPS a position past the end back to the end, so a zero-width
+            # match at EOF is found again at every step after it — the loop
+            # never terminates and the caller receives the same span a thousand
+            # times, which as edits would all overlap.
             pos = m.end() if m.end() > m.start() else m.start() + 1
 
     def findall(self, source: str) -> list[_re.Match]:

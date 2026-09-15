@@ -27,6 +27,7 @@ from .test_doc import FakeNote
 _DATA = json.loads((Path(__file__).parent / "html.fixtures.json").read_text())
 CASES = _DATA["cases"]
 ELEMENT_INSERTS = _DATA["elementInserts"]
+ELEMENT_HTML = _DATA["elementHtml"]
 
 ERRORS = {
     "NoElement": NoElement,
@@ -84,3 +85,12 @@ def test_element_insert_fixture(case):
         return
 
     assert el.insert(case["text"], position=case["position"]) == case["out"]
+
+
+@pytest.mark.parametrize("case", ELEMENT_HTML, ids=lambda c: c["name"])
+def test_element_html_fixture(case):
+    # The counterpart of escaped text replacement, run from the same cases as
+    # the CLI: a caller who reaches for the wrong one should get visibly wrong
+    # RENDERING, not an injection that renders correctly.
+    doc = Doc(FakeNote(case["doc"]), case["doc"], "rev-1")
+    assert doc.select(case["select"]).replace(html=case["html"]) == case["out"]

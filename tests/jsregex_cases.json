@@ -320,5 +320,33 @@
     "f": "g",
     "s": "aa a",
     "r": "Z"
+  },
+  {
+    "n": "zero-width-at-eof",
+    "p": "x*",
+    "f": "g",
+    "s": "ab",
+    "r": "-"
+  },
+  {
+    "n": "zero-width-empty-input",
+    "p": "x*",
+    "f": "g",
+    "s": "",
+    "r": "-"
+  },
+  {
+    "n": "zero-width-multiline-anchor",
+    "p": "^",
+    "f": "gm",
+    "s": "a\nb\n",
+    "r": "-"
+  },
+  {
+    "n": "zero-width-word-boundary",
+    "p": "\\b",
+    "f": "g",
+    "s": "ab cd",
+    "r": "|"
   }
 ]

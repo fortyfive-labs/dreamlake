@@ -143,15 +143,43 @@ class Element:
 
     def replace(
         self,
-        text: str,
+        text: str | None = None,
         *,
+        html: str | None = None,
         query: str | None = None,
         regex: str | None = None,
         flags: str = "",
         count: int | None = None,
         all: bool = False,  # noqa: A002
     ) -> str:
-        """Replace text inside this element. Returns the whole document."""
+        """Replace text inside this element. Returns the whole document.
+
+        `text=` is prose and is ESCAPED, so "a < b" arrives as a less-than
+        sign rather than the start of a tag. `html=` is markup and is not.
+
+        They are separate arguments rather than a flag because the escaping is
+        the whole difference between them, and a caller who passes the wrong
+        one should get the wrong RENDERING — visible immediately — rather than
+        an injection that renders correctly. Passing both is refused.
+        """
+        if text is not None and html is not None:
+            raise _ed.EditError("text= is escaped and html= is not; give one")
+        if text is None and html is None:
+            raise _ed.EditError("give text= (escaped) or html= (markup)")
+
+        if html is not None:
+            if query is not None or regex is not None:
+                # A query matches DECODED text and maps back to a source span;
+                # splicing markup into one of those spans can land inside a tag.
+                raise _ed.EditError(
+                    "html= replaces the whole element's contents; it cannot be "
+                    "combined with query= or regex="
+                )
+            _parsed, el = self._resolve()
+            src = self._doc.text
+            self._doc._set(src[: el.inner[0]] + html + src[el.inner[1] :])
+            return self._doc.text
+
         if query is None and regex is None:
             # Selector-only: the element's contents become this text, escaped.
             _parsed, el = self._resolve()
