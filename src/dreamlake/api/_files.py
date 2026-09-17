@@ -50,6 +50,15 @@ class NotTextFile(Exception):
     """
 
 
+# `NoteFile.bytes()` is a method, and inside the class body that name shadows
+# the builtin — so an annotation written as `bytes` there means the method, not
+# the type. Runtime is unaffected (annotations are strings under
+# `from __future__ import annotations`, resolved against module globals), but a
+# type checker reads the class scope and refuses it. The alias says which one is
+# meant without renaming a public method.
+_Bytes = bytes
+
+
 @dataclass(frozen=True)
 class NoteFile:
     """One attached file, and the operations that act on it.
@@ -78,7 +87,7 @@ class NoteFile:
 
     # ── reading ─────────────────────────────────────────────────────────────
 
-    def bytes(self) -> bytes:
+    def bytes(self) -> _Bytes:
         """The file's exact content. Works for anything."""
         return self._owner().read_bytes(self.id)
 
@@ -143,7 +152,7 @@ class NoteFile:
         self,
         *,
         text: str | None = None,
-        data: bytes | None = None,
+        data: _Bytes | None = None,
         if_match: str | None = None,
     ) -> "NoteFile":
         """Replace this file's content, keeping its path and id."""
