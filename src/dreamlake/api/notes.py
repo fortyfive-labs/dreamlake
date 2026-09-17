@@ -38,7 +38,12 @@ import httpx
 from ._client import DreamLakeClient, get_client
 
 if TYPE_CHECKING:  # pragma: no cover
-    pass
+    # Both are quoted in return annotations and imported inside the methods
+    # that build them, to keep the import cycle broken at runtime. The block was
+    # empty, so a type checker had nothing to resolve those annotations against
+    # and reported `Doc` and `NoteFiles` as undefined names.
+    from ._doc import Doc
+    from ._files import NoteFiles
 
 __all__ = [
     "Note",
@@ -118,6 +123,11 @@ class PatchResult(str):
     fields without breaking a caller that treated the old return value as the
     revision string — comparisons, formatting and `if_match=` all still work.
     """
+
+    # Annotated as well as slotted. `__slots__` reserves the storage; without
+    # the annotation a type checker does not know the attribute exists and
+    # flags every read of it.
+    _size_bytes: int
 
     __slots__ = ("_size_bytes",)
 
