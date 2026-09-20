@@ -24,11 +24,11 @@ one agent silently reverts another.
 
 from __future__ import annotations
 
-import difflib
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from . import _editing as _ed
+from ._diff import apply_diff, unified_diff
 from . import _html as _h
 from ._toc import TocEntry, toc as _toc
 
@@ -282,11 +282,12 @@ class Element:
 class Doc:
     """A loaded snapshot of a note's source, and the edits made to it."""
 
-    __slots__ = ("_note", "_original", "_text", "_etag", "_element_epoch")
+    __slots__ = ("_note", "_original", "_text", "_etag", "_element_epoch", "_previous")
 
     def __init__(self, note: "Note", text: str, etag: str | None) -> None:
         self._note = note
         self._original = text
+        self._previous = text
         self._text = text
         self._etag = etag
         self._element_epoch = 0
@@ -330,6 +331,9 @@ class Doc:
         return self._text != self._original
 
     def _set(self, text: str) -> None:
+        if text == self._text:
+            return
+        self._previous = self._text
         self._text = text
         self._element_epoch += 1
 
@@ -362,20 +366,29 @@ class Doc:
         """The outline of the current draft, with line and character ranges."""
         return _toc(self._text, html=html)
 
-    def diff(self, *, context: int = 3) -> str:
-        """A unified diff from the source as read to the current draft."""
-        if not self.dirty:
-            return ""
-        label = f"{self._note.namespace}/{self._note.id}"
-        return "".join(
-            difflib.unified_diff(
-                self._original.splitlines(keepends=True),
-                self._text.splitlines(keepends=True),
-                fromfile=f"a/{label}",
-                tofile=f"b/{label}",
-                n=context,
-            )
-        )
+    def diff(self, *, since: Literal["read", "last_edit"] = "read", context: int = 3) -> str:
+        """Return a unified diff of all unsaved changes or the last local edit.
+
+        ``since="read"`` compares with the last read/successful save.
+        ``since="last_edit"`` compares with the draft before its last change,
+        including element edits and revert. No-op edits and saves preserve it.
+        This is local draft history, not other collaborators' remote history.
+        """
+        if since not in ("read", "last_edit"):
+            raise ValueError('since must be "read" or "last_edit"')
+        if isinstance(context, bool) or not isinstance(context, int) or context < 0:
+            raise ValueError("context must be a non-negative integer")
+        base = self._original if since == "read" else self._previous
+        return unified_diff(base, self._text, f"{self._note.namespace}/{self._note.id}", context)
+
+    def patch(self, diff: str) -> str:
+        """Apply a single-file unified diff locally and return the updated source.
+
+        All hunks must match exactly. Invalid diffs raise EditError without
+        changing the draft. Call save() to commit against this draft's ETag.
+        """
+        self._set(apply_diff(self._text, diff))
+        return self._text
 
     # ── editing ─────────────────────────────────────────────────────────────
 

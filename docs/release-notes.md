@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- `note.diff(since=etag)` compares the current note with a retained content-hash reference from a read or successful edit, including across sessions. Omitting `since` uses the handle's last ETag. Requires the server revision-diff endpoint. [Guide](notes-diffs.md).
+
+- Notes drafts support `doc.diff(since="last_edit")` and `doc.patch(diff)` for inspecting and applying local unified diffs before a conditional save. Invalid patches leave the draft unchanged; missing-final-newline diffs now round-trip correctly. [Guide](notes-diffs.md).
+
 - KMS preview accepts optional `affected_limit`/`affected_cursor` for one bounded retained-entry metadata page, matching the CLI. Ordinary calls remain unchanged; stale policy cursors and missing/oversized pages are refused. No values or mutation are involved. [Guide](vault-kms.md).
 
 - Keep enrolled user-systemd hosts available while idle by explicitly setting `keep_alive_s = -1`. Existing hosts require re-enrollment with this fix. Paired CLI/Python bootstrap tests parse the generated TOML and verify re-enrollment repairs the old configuration. Package publication and a fresh remote idle window longer than 300 seconds remain pending.
