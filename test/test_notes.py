@@ -494,7 +494,7 @@ class TestTheNamingRule:
     explicit line-range reads and the file accessor are separate public surfaces.
     """
 
-    WHOLE = {"text", "refresh", "sections", "read", "write", "append", "patch"}
+    WHOLE = {"text", "refresh", "sections", "read", "write", "append", "patch", "diff"}
     RANGE = {"read_lines"}
     ACCESSORS = {"files"}
     PART = {"read_section", "write_section", "insert_section", "delete_section"}
@@ -578,3 +578,53 @@ class TestPicksUpTheCliLogin:
     def test_the_env_var_wins_over_the_saved_login(self, monkeypatch):
         monkeypatch.setenv("DREAMLAKE_API_KEY", "from-env")
         assert DreamLakeClient()._token == "from-env"
+
+
+def test_diff_uses_read_hash_without_advancing_write_validator():
+    calls = []
+    def handle(request):
+        calls.append(request)
+        if request.url.path.endswith('/diff'):
+            return httpx.Response(200, json={'diff': '+new\n', 'from': ETAG, 'to': ETAG2, 'etag': ETAG2})
+        return httpx.Response(200, json={'text': BODY, 'etag': ETAG})
+    c = DreamLakeClient(dl_url='https://api.test', token='tok', transport=httpx.MockTransport(handle))
+    n = Note(NOTE_ID, namespace='ns', client=c)
+    doc = n.read()
+    assert n.diff() == '+new\n'
+    assert calls[-1].url.params['since'] == doc.etag
+    assert n.etag == ETAG
+    assert n.text == BODY
+    assert n.diff(since=ETAG2, context=0) == '+new\n'
+    assert calls[-1].url.params['since'] == ETAG2
+    assert calls[-1].url.params['context'] == '0'
+
+
+def test_diff_defaults_to_successful_write_ref_and_supports_fresh_handles():
+    s = Server()
+    n = Note(NOTE_ID, namespace='ns', client=s.client())
+    n.write('new\n')
+    calls = []
+    def handle(request):
+        calls.append(request)
+        return httpx.Response(200, json={'diff': ''})
+    n._client = DreamLakeClient(dl_url='https://api.test', token='tok', transport=httpx.MockTransport(handle))
+    assert n.diff() == ''
+    assert calls[-1].url.params['since'] == ETAG2
+    fresh = Note(NOTE_ID, namespace='ns', client=n._client)
+    assert fresh.diff(since=ETAG) == ''
+    assert fresh.etag is None
+    assert calls[-1].url.params['since'] == ETAG
+
+
+def test_diff_validates_input_and_reports_unknown_refs():
+    s = Server()
+    n = Note(NOTE_ID, namespace='ns', client=s.client())
+    with pytest.raises(ValueError, match='read the note'):
+        n.diff()
+    for context in [-1, 101, 1.5, True]:
+        with pytest.raises(ValueError):
+            n.diff(since=ETAG, context=context)
+    assert not s.calls
+    s.status['GET'] = 404
+    with pytest.raises(NoteNotFound):
+        n.diff(since=ETAG)

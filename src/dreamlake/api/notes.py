@@ -407,6 +407,23 @@ class Note:
         self._etag = data.get("etag")
         return self
 
+    def diff(self, *, since: str | None = None, context: int = 3) -> str:
+        """Fetch a unified diff since a read/edit reference (the quoted ETag).
+
+        Defaults to this handle's last read or successful write. Inspection
+        does not advance the cached revision or the write precondition. Pass
+        a saved ETag explicitly to compare across handles or sessions.
+        """
+        from urllib.parse import urlencode
+
+        if isinstance(context, bool) or not isinstance(context, int) or not 0 <= context <= 100:
+            raise ValueError("context must be an integer between 0 and 100")
+        ref = self._etag if since is None else since
+        if not ref:
+            raise ValueError("read the note first or supply since=<etag>")
+        query = urlencode({"since": ref, "context": context})
+        return self._get(f"/diff?{query}")["diff"]
+
     @property
     def text(self) -> str:
         """The whole body. Fetched once, then cached — call ``refresh()`` for a
