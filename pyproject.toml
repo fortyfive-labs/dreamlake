@@ -1,6 +1,6 @@
 [project]
 name = "dreamlake"
-version = "0.18.0"
+version = "0.18.1"
 description = "ML experiment tracking and data storage"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -47,7 +47,7 @@ auth = [
 # CLI depends on dreamdb's private ingest surface, so the upper bound guards
 # against a 0.1 that reshapes it. ffmpeg must be on PATH separately.
 dreamdb = [
-    "dreamdb>=0.0.5,<0.1.0",
+    "dreamdb>=0.0.15,<0.1.0",
 ]
 dev = [
     "pytest>=8.0.0",

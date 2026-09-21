@@ -495,17 +495,17 @@ wheels = [
 
 [[package]]
 name = "dreamdb"
-version = "0.0.6"
+version = "0.0.15"
 source = { registry = "https://pypi.org/simple" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/68/e2/c65f76fdc5dd143f620ff4b3d3a302f0708fc7882003d92840873612b2eb/dreamdb-0.0.6-cp38-abi3-macosx_11_0_arm64.whl", hash = "sha256:409f35a9a2fb4101a4b193738ff4ac3d652628380097b1ac3d2b8a8b7b6e4581", size = 3600838, upload-time = "2026-07-31T05:32:21.281Z" },
-    { url = "https://files.pythonhosted.org/packages/4a/3c/18197c907f80815e159bbe38e11b13661b061ffab565c1b3dc3998d45eeb/dreamdb-0.0.6-cp38-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:5001642bdaa9a1d977641aba3838128780aece65fdc035877929bd7feb3bde3e", size = 3802054, upload-time = "2026-07-31T05:31:52.174Z" },
-    { url = "https://files.pythonhosted.org/packages/a6/04/2aee66d91c757142a2e4fb01e534a472851b2fc73f9ec37be8ad3e56612f/dreamdb-0.0.6-cp38-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:0011cce2ba3f81226ee298cb573132e4bf55c7cac17153118fc55396461d9d0a", size = 4079108, upload-time = "2026-07-31T05:32:06.568Z" },
+    { url = "https://files.pythonhosted.org/packages/84/63/94a3800290d3a0fdeae616386834bfecaee4d50cd2738d5a857d14d8977b/dreamdb-0.0.15-cp38-abi3-macosx_11_0_arm64.whl", hash = "sha256:ad22d03cf37f46c60884d6f1c43eaf1c02d48bf3b73096b6e6be25914511df77", size = 6542624, upload-time = "2026-09-18T10:11:45.896Z" },
+    { url = "https://files.pythonhosted.org/packages/63/12/4f3f123b3fee39e65d6f906eafb7ba331a97f55ce54805ba4f8e9149b823/dreamdb-0.0.15-cp38-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:96ac8f887962fb332390f063cde346848113d2a8a2048ccc1c5db62938a981e5", size = 6811421, upload-time = "2026-09-18T10:11:47.937Z" },
+    { url = "https://files.pythonhosted.org/packages/f5/34/a40f240c556a2424bdd154917f0eaacdb877986cb3f972aa3dd6aff4a66a/dreamdb-0.0.15-cp38-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:380aee81dacf611a3b780eb141b6a90d126f57ee19a300a4ce571ee5bf2d0bb1", size = 7329406, upload-time = "2026-09-18T10:11:50.238Z" },
 ]
 
 [[package]]
 name = "dreamlake"
-version = "0.16.0"
+version = "0.18.0"
 source = { editable = "." }
 dependencies = [
     { name = "httpx" },
@@ -566,7 +566,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "cryptography", marker = "extra == 'auth'", specifier = ">=42.0.0" },
-    { name = "dreamdb", marker = "extra == 'dreamdb'", specifier = ">=0.0.5,<0.1.0" },
+    { name = "dreamdb", marker = "extra == 'dreamdb'", specifier = ">=0.0.15,<0.1.0" },
     { name = "furo", marker = "extra == 'dev'", specifier = ">=2024.0.0" },
     { name = "httpx", specifier = ">=0.27.0" },
     { name = "jsonschema", specifier = ">=4.21.0" },
