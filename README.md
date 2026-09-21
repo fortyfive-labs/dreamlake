@@ -236,3 +236,46 @@ make clean         # Clean build files
 ```
 
 For maintainers, to build and publish a new release: `uv build && uv publish`
+
+## Automated publish
+
+`.github/workflows/publish.yml` publishes `dreamlake` to PyPI on a GitHub
+runner. It fires on one thing only — a push to the fixed branch
+`publish-production` — and there is no `workflow_dispatch`, no pull-request
+trigger and no approval gate. **Pushing an exact SHA to `publish-production`
+publishes it.** Treat that branch as the release button it is, and restrict
+who can push to it.
+
+The version comes from the committed `pyproject.toml`; the workflow never
+writes it, and refuses anything that is not a stable `x.y.z`. Everything is
+built from `github.sha`, so a moving `main` cannot change what ships.
+Concurrency is a repository-wide lock with `cancel-in-progress: false`.
+
+**One-time account setup**, which this repository cannot do for itself:
+
+| Where | What |
+|---|---|
+| GitHub → Settings → Environments | An environment named `production-publish`, **no required reviewers**, with its deployment-branch rule limited to `publish-production` |
+| pypi.org → project `dreamlake` → Publishing | A trusted publisher: owner `fortyfive-labs`, repository `dreamlake`, workflow `publish.yml`, environment `production-publish` |
+
+There is no API token and no secret: trusted publishing authenticates the
+job's OIDC token, which is why `id-token: write` is granted and why the
+runner must stay GitHub-hosted.
+
+### Partial publish, and why there is no skip
+
+`--skip-existing` is deliberately not used. A version already on PyPI is a
+clear stop — `scripts/check-pypi-version.py` asks before anything is built —
+not a green run that published nothing. Failing to *reach* PyPI is also a stop.
+
+A partial upload **is** reconcilable, but only by uploading the missing file;
+PyPI will not accept a second file under a name it already has. That is why
+the build job keeps `dist/` as an artifact for three days: if the sdist landed
+and the wheel did not, upload the wheel **from those retained bytes**, not from
+a rebuild — a rebuild is not guaranteed to reproduce them. Re-running the whole
+workflow will not do this for you: it stops at the version pre-check. If the
+retained artifact is gone, yank the incomplete version and release the next one.
+
+The build job holds no publishing credential, so the bytes exist before any
+credential is in play, and the workflow refuses a `dist/` holding anything
+other than exactly this version's wheel and sdist.
