@@ -1,0 +1,130 @@
+# Publish `dreamlake` to PyPI when a reviewed commit lands on
+# `publish-production`.
+#
+# There is no approval step and no `workflow_dispatch`: the push IS the
+# authorization, and a `production-publish` environment with no reviewers and a
+# branch restriction is what scopes the credential to this one branch. That
+# only holds if pushing to `publish-production` is itself restricted — see
+# README.md, "Automated publish".
+#
+# Built from `github.sha`, never from a branch name: a release must describe
+# one commit, and `main` can move while this runs.
+name: publish
+
+on:
+  push:
+    branches: [publish-production]
+
+# A repository-wide release lock, so two runs of this workflow cannot upload at
+# once. `cancel-in-progress: false` because a cancelled upload leaves a version
+# part-published, and finishing it needs the same artifacts this run built.
+# The lock binds this workflow only; anyone uploading by hand is outside it.
+concurrency:
+  group: dreamlake-release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  # Builds with no publishing credential at all, and keeps the artifacts. If an
+  # upload half-lands, the missing file must be uploaded from these exact bytes
+  # — a rebuild is not guaranteed to reproduce them, and PyPI will not accept a
+  # second file under a name it already has.
+  build:
+    name: build
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Refuse any ref but publish-production
+        run: |
+          if [ "${{ github.ref }}" != "refs/heads/publish-production" ]; then
+            echo "::error::refusing to publish from ${{ github.ref }}"
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@v6
+
+      # The version comes from the committed pyproject.toml and is never
+      # written here. A release is a commit that already says what it is.
+      - name: Read and check the version
+        id: version
+        run: |
+          set -euo pipefail
+          version="$(python3 -c '
+          import tomllib
+          print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])
+          ')"
+          if ! printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::pyproject.toml version '$version' is not a stable x.y.z release"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "publishing $version from ${{ github.sha }}"
+
+      # Before the build, not after: an already-published version is a clear
+      # stop, never a silent skip. `--skip-existing` is deliberately not used
+      # below for the same reason.
+      - name: Refuse a version PyPI already has
+        run: python3 scripts/check-pypi-version.py --project dreamlake --version "${{ steps.version.outputs.version }}"
+
+      - name: Build
+        run: uv build
+
+      # `uv build` writes into whatever is already in dist/, and a stale wheel
+      # from another version sitting there would be uploaded too.
+      - name: Require exactly this version's wheel and sdist
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          python3 - <<'PYEOF'
+          import os, sys
+          from pathlib import Path
+          version = os.environ["VERSION"]
+          expected = {f"dreamlake-{version}-py3-none-any.whl", f"dreamlake-{version}.tar.gz"}
+          found = {path.name for path in Path("dist").iterdir()}
+          if found != expected:
+              sys.exit(f"::error::dist/ holds {sorted(found)}, expected {sorted(expected)}")
+          print("dist/ holds exactly:", ", ".join(sorted(found)))
+          PYEOF
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dreamlake-${{ steps.version.outputs.version }}
+          path: dist/
+          retention-days: 3
+          if-no-files-found: error
+
+  publish:
+    name: PyPI
+    needs: build
+    runs-on: ubuntu-latest
+    environment: production-publish
+    permissions:
+      contents: read
+      # Trusted publishing authenticates this token; there is no API token.
+      # Only this job holds it — the build job has no use for one.
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: dreamlake-${{ needs.build.outputs.version }}
+          path: dist/
+
+      # Asked again here: the build job's answer is from before the queue wait,
+      # and this is the last point before bytes leave the runner.
+      - name: Refuse a version PyPI already has
+        run: python3 scripts/check-pypi-version.py --project dreamlake --version "${{ needs.build.outputs.version }}"
+
+      - uses: pypa/gh-action-pypi-publish@release/v1
