@@ -75,7 +75,12 @@ jobs:
         run: python3 scripts/check-pypi-version.py --project dreamlake --version "${{ steps.version.outputs.version }}"
 
       - name: Build
-        run: uv build
+        # uv build also stamps a dist/.gitignore ("*") alongside the
+        # artifacts; drop it or the exact-contents check below refuses the
+        # release.
+        run: |
+          uv build
+          rm -f dist/.gitignore
 
       # `uv build` writes into whatever is already in dist/, and a stale wheel
       # from another version sitting there would be uploaded too.
