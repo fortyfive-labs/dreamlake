@@ -49,6 +49,12 @@ auth = [
 dreamdb = [
     "dreamdb>=0.0.15,<0.1.0",
 ]
+# Env-layer composition engine (RFC 0007): materializes dreamlake.layers.json
+# stacks over MjSpec. mujoco is heavy and only env producers need it, so it
+# stays an extra; dreamlake.envlayer imports it lazily with a pointer here.
+compose = [
+    "mujoco>=3.2.0",
+]
 dev = [
     "pytest>=8.0.0",
     "pytest-asyncio>=0.23.0",
