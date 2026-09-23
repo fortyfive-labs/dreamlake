@@ -648,3 +648,25 @@ def test_main_help(tmp_path):
     proc = _run_cli("--help")
     assert proc.returncode == 0
     assert "compose" in proc.stdout
+
+
+def test_warns_on_sizeable_hidden_visual_geoms(tmp_path):
+    scene = _write_env(tmp_path, "hidden-decor", """
+<mujoco model="hidden-decor">
+  <worldbody>
+    <geom name="floor" type="plane" size="2 2 0.1"/>
+    <geom name="poster" type="box" size="0.3 0.02 0.4" pos="0 1 1"
+          contype="0" conaffinity="0" group="4"/>
+    <geom name="marker" type="box" size="0.001 0.001 0.001" pos="0 0 0.5"
+          contype="0" conaffinity="0" group="3"/>
+    <geom name="colproxy" type="box" size="0.2 0.2 0.2" pos="1 0 0.2" group="3"/>
+  </worldbody>
+</mujoco>
+""")
+    stack = _stack(tmp_path, [
+        {"source": {"path": str(scene)}, "compose": {"mode": "merge"}},
+    ])
+    report = compose_stack(stack, tmp_path / "out")
+    hits = [w for w in report.warnings if "groups 3-5" in w]
+    # only the poster counts: the marker is sub-centimeter, the proxy collides
+    assert hits and hits[0].startswith("1 visual-only geom")

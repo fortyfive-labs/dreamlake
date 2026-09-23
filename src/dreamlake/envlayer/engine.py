@@ -816,6 +816,23 @@ def compose_stack(resolved_stack: dict | str | Path, out_dir: Path) -> Report:
     except Exception as e:
         raise ComposeError(f"composed stack does not compile: {e}") from e
 
+    # MuJoCo-convention viewers render geom groups 0-2 only; sizeable
+    # visual-only geoms parked in 3-5 (a decor tier, say) silently vanish
+    # for every consumer. Collision proxies (nonzero contype/conaffinity)
+    # and sub-centimeter marker geoms are legitimately hidden -- skip them.
+    hidden_visual = sum(
+        1 for g in range(model.ngeom)
+        if model.geom_group[g] >= 3
+        and model.geom_contype[g] == 0 and model.geom_conaffinity[g] == 0
+        and float(max(model.geom_size[g])) > 0.01
+    )
+    if hidden_visual:
+        ctx.warnings.append(
+            f"{hidden_visual} visual-only geoms sit in geom groups 3-5, "
+            "which viewers hide by default -- put presentation content in "
+            "groups 0-2"
+        )
+
     ctx.spec.meshdir = "meshes/"
     ctx.spec.texturedir = "meshes/"
     ctx.spec.modelfiledir = str(out_dir) + os.sep
