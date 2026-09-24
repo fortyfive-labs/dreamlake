@@ -3,10 +3,12 @@
 Self-contained: importer smokes run on tiny synthetic repos built in
 tmp_path (a minimal one-geom MJCF + a dummy PNG) -- no dependency on a
 real asset_library checkout. Render tests skip cleanly when mujoco is
-not installed (it is only a tooling extra).
+not installed (it is only a tooling extra); yml round-trip checks skip
+without pyyaml (a dev-env transitive, never a base dep).
 """
 
 import hashlib
+import inspect
 import json
 import struct
 import subprocess
@@ -17,7 +19,6 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from dreamlake.assets_tools import embed as embed_mod
 from dreamlake.assets_tools import (
     SCHEMA,
     Asset,
@@ -25,6 +26,7 @@ from dreamlake.assets_tools import (
     LibraryInfo,
     LibraryManifest,
     ManifestError,
+    dump_yaml,
     file_entry,
     hash_file,
     load_manifest,
@@ -33,6 +35,8 @@ from dreamlake.assets_tools import (
     validate,
     write_manifest,
 )
+from dreamlake.assets_tools import embed as embed_mod
+from dreamlake.assets_tools import render_thumbnails as batch
 from dreamlake.assets_tools.importers import menagerie
 from dreamlake.assets_tools.importers import mujoco_scanned_objects as gso
 
@@ -278,47 +282,45 @@ def menagerie_repo(tmp_path):
 
 
 def test_menagerie_import(menagerie_repo, tmp_path):
+    yaml = pytest.importorskip("yaml")
     out = tmp_path / "lib"
-    manifest = menagerie.build_library(menagerie_repo, out)
+    doc = menagerie.build_library(menagerie_repo, out)
 
-    assert [a.id for a in manifest.assets] == ["tiny_bot"]
-    asset = manifest.assets[0]
-    assert asset.title == "Tiny Bot"
-    assert asset.kind == "mjcf"
-    assert asset.license == "Apache-2.0"
-    assert asset.entry == "tiny_bot/scene.xml"  # scene preferred
-    assert asset.entry_points == {
+    # source + dreamlake.yml, NOTHING generated
+    assert not (out / "assets.json").exists()
+    assert not (out / "thumbnails").exists()
+    assert sorted(p.name for p in out.iterdir()) == [
+        "dreamlake.yml", "tiny_bot"]
+
+    # the emitted yml parses back to exactly the returned document
+    parsed = yaml.safe_load(
+        (out / "dreamlake.yml").read_text(encoding="utf-8"))
+    assert parsed == doc
+
+    lib = doc["library"]
+    assert lib["title"] == "MuJoCo Menagerie"
+    assert lib["provider"] == "Google DeepMind"
+    assert lib["upstream"]["repo"] == menagerie.REPO_URL
+    assert "name" not in lib  # the push target names the library
+
+    assert list(doc["assets"]) == ["tiny_bot"]
+    asset = doc["assets"]["tiny_bot"]
+    assert asset["title"] == "Tiny Bot"
+    assert asset["license"] == "Apache-2.0"
+    assert asset["entry"] == "tiny_bot/scene.xml"  # scene preferred
+    assert asset["entryPoints"] == {
         "scene": {"kind": "scene", "file": "tiny_bot/scene.xml"},
         "tiny_bot": {"kind": "robot", "file": "tiny_bot/tiny_bot.xml"},
     }
-    # shipped preview re-encoded to thumbnails/<id>.webp, listed in
-    # files with the WebP's real size + sha256 (not the source PNG's)
-    assert asset.thumbnail == "thumbnails/tiny_bot.webp"
-    paths = {f.path for f in asset.files}
-    assert "thumbnails/tiny_bot.webp" in paths
-    assert "tiny_bot/assets/arm.obj" in paths
-    assert "tiny_bot/fragment.xml" in paths  # shipped even if not an entry
-    thumb_path = out / "thumbnails" / "tiny_bot.webp"
-    with Image.open(thumb_path) as img:
-        assert img.format == "WEBP"
-        assert img.size == (2, 2)  # small preview: never upscaled
-    thumb_entry = next(
-        f for f in asset.files if f.path == "thumbnails/tiny_bot.webp")
-    assert thumb_entry.size == thumb_path.stat().st_size
-    assert thumb_entry.sha256 == hashlib.sha256(
-        thumb_path.read_bytes()).hexdigest()
+    assert "thumbnail" not in asset  # thumbnails are render-time now
 
-    # files copied verbatim, hashes match the source bytes
+    # source files copied verbatim; the shipped preview PNG stays a
+    # plain source file (no re-encode, no thumbnails/ dir), include
+    # fragments ship even though they are not entry points
     assert (out / "tiny_bot" / "tiny_bot.xml").read_text() == MINIMAL_MJCF
-    entry = next(f for f in asset.files
-                 if f.path == "tiny_bot/tiny_bot.xml")
-    assert entry.sha256 == hashlib.sha256(
-        MINIMAL_MJCF.encode()).hexdigest()
-
-    # the written directory is a valid library
-    loaded = load_manifest(out / "assets.json")
-    assert loaded.library.name == "mujoco-menagerie"
-    assert loaded.library.upstream["repo"] == menagerie.REPO_URL
+    assert (out / "tiny_bot" / "assets" / "arm.obj").exists()
+    assert (out / "tiny_bot" / "fragment.xml").exists()
+    assert (out / "tiny_bot" / "tiny_bot.png").exists()
 
 
 def test_menagerie_subset_unknown_name(menagerie_repo, tmp_path):
@@ -332,7 +334,8 @@ def test_menagerie_cli_main(menagerie_repo, tmp_path):
     rc = menagerie.main(
         [str(menagerie_repo), str(out), "--subset", "tiny_bot", "--link"])
     assert rc == 0
-    assert (out / "assets.json").exists()
+    assert (out / "dreamlake.yml").exists()
+    assert not (out / "assets.json").exists()
 
 
 def test_menagerie_module_entrypoint(menagerie_repo, tmp_path):
@@ -345,7 +348,8 @@ def test_menagerie_module_entrypoint(menagerie_repo, tmp_path):
         env={"PYTHONPATH": str(src_root), "PATH": "/usr/bin:/bin"},
     )
     assert proc.returncode == 0, proc.stderr
-    assert (out / "assets.json").exists()
+    assert (out / "dreamlake.yml").exists()
+    assert not (out / "assets.json").exists()
 
 
 # ─── mujoco_scanned_objects importer ─────────────────────────────────
@@ -364,28 +368,37 @@ def gso_repo(tmp_path):
 
 
 def test_gso_import(gso_repo, tmp_path):
+    yaml = pytest.importorskip("yaml")
     out = tmp_path / "lib"
-    manifest = gso.build_library(gso_repo, out)
+    doc = gso.build_library(gso_repo, out)
 
-    assert manifest.library.name == "mujoco-scanned-objects"
-    assert manifest.library.license == "CC-BY-4.0"
-    assert manifest.library.provider == "Google Scanned Objects"
-    assert [a.id for a in manifest.assets] == ["Toy_Fire_Truck"]
-    asset = manifest.assets[0]
-    assert asset.title == "Toy Fire Truck"
-    assert asset.category == "object"
-    assert asset.entry == "Toy_Fire_Truck/model.xml"
-    assert asset.thumbnail is None  # no --thumbnails, GSO ships none
-    assert {f.path for f in asset.files} == {
-        "Toy_Fire_Truck/model.xml",
-        "Toy_Fire_Truck/model.obj",
-        "Toy_Fire_Truck/model_collision_0.obj",
-        "Toy_Fire_Truck/texture.png",
-    }
-    load_manifest(out / "assets.json")  # round-trips strictly
+    lib = doc["library"]
+    assert lib["title"] == "MuJoCo Scanned Objects"
+    assert lib["license"] == "CC-BY-4.0"
+    assert lib["provider"] == "Google Scanned Objects"
+    assert "name" not in lib
+
+    # the uniform category hoists into defaults
+    assert doc["defaults"] == {"category": "object"}
+    assert list(doc["assets"]) == ["Toy_Fire_Truck"]
+    asset = doc["assets"]["Toy_Fire_Truck"]
+    assert asset["title"] == "Toy Fire Truck"
+    assert "category" not in asset
+    assert asset["entry"] == "Toy_Fire_Truck/model.xml"
+
+    # source + dreamlake.yml, nothing generated
+    assert not (out / "assets.json").exists()
+    assert not (out / "thumbnails").exists()
+    for rel in ("model.xml", "model.obj", "model_collision_0.obj",
+                "texture.png"):
+        assert (out / "Toy_Fire_Truck" / rel).exists()
+    parsed = yaml.safe_load(
+        (out / "dreamlake.yml").read_text(encoding="utf-8"))
+    assert parsed == doc
 
 
 def test_gso_sanitizes_non_ascii_ids(gso_repo, tmp_path):
+    yaml = pytest.importorskip("yaml")
     # the real dataset ships two Pokémon_* dirs whose names violate
     # the asset-id charset; ids (and paths) are transliterated, the
     # original name preserved in upstream.id
@@ -393,15 +406,17 @@ def test_gso_sanitizes_non_ascii_ids(gso_repo, tmp_path):
     obj.mkdir()
     (obj / "model.xml").write_text(MINIMAL_MJCF)
     out = tmp_path / "lib"
-    manifest = gso.build_library(gso_repo, out)
-    ids = {a.id for a in manifest.assets}
-    assert ids == {"Toy_Fire_Truck", "Pokemon_Yellow"}
-    poke = next(a for a in manifest.assets if a.id == "Pokemon_Yellow")
-    assert poke.title == "Pokémon Yellow"
-    assert poke.upstream == {"id": "Pokémon_Yellow"}
-    assert poke.entry == "Pokemon_Yellow/model.xml"
+    doc = gso.build_library(gso_repo, out)
+    assert set(doc["assets"]) == {"Toy_Fire_Truck", "Pokemon_Yellow"}
+    poke = doc["assets"]["Pokemon_Yellow"]
+    assert poke["title"] == "Pokémon Yellow"
+    assert poke["upstream"] == {"id": "Pokémon_Yellow"}
+    assert poke["entry"] == "Pokemon_Yellow/model.xml"
     assert (out / "Pokemon_Yellow" / "model.xml").exists()
-    load_manifest(out / "assets.json")
+    # non-ASCII titles survive the emit -> parse round trip
+    parsed = yaml.safe_load(
+        (out / "dreamlake.yml").read_text(encoding="utf-8"))
+    assert parsed == doc
 
 
 def test_gso_cli_main(gso_repo, tmp_path, capsys):
@@ -409,6 +424,55 @@ def test_gso_cli_main(gso_repo, tmp_path, capsys):
     rc = gso.main([str(gso_repo), str(out)])
     assert rc == 0
     assert "1 assets" in capsys.readouterr().out
+    assert (out / "dreamlake.yml").exists()
+
+
+# ─── dreamlake.yml emission ──────────────────────────────────────────
+
+
+def test_dump_yaml_roundtrip():
+    yaml = pytest.importorskip("yaml")
+    doc = {
+        "library": {
+            "title": "Lib: tricky title",
+            "description": 'She said "hi"\nsecond line',
+            "homepage": "https://example.com/repo",
+            "license": "CC-BY-4.0",
+            "tags": ["robots", "mujoco", "3.14", "true", "白菜"],
+            "upstream": {"repo": "https://x.example/z", "commit": "0123abc"},
+        },
+        "defaults": {"category": "object"},
+        "assets": {
+            "2_of_Jenga_Classic_Game": {
+                "title": "2 of Jenga Classic Game",
+                "description": "Ends with a period.",
+                "entry": "2_of_Jenga_Classic_Game/model.xml",
+            },
+            "Pokemon_Yellow": {
+                "title": "Pokémon Yellow",
+                "upstream": {"id": "Pokémon_Yellow"},
+                "entryPoints": {
+                    "scene": {
+                        "kind": "scene",
+                        "file": "Pokemon_Yellow/scene.xml",
+                    },
+                },
+            },
+            "edge_cases": {"title": "x", "tags": []},
+        },
+    }
+    assert yaml.safe_load(dump_yaml(doc)) == doc
+
+
+def test_dump_yaml_quotes_ambiguous_scalars():
+    yaml = pytest.importorskip("yaml")
+    doc = {"a": "true", "b": "3.14", "c": "1_000", "d": "no",
+           "e": "trailing space ", "f": "0123abc", "g": "with: colon",
+           "h": "#comment-ish"}
+    parsed = yaml.safe_load(dump_yaml(doc))
+    assert parsed == doc
+    for value in parsed.values():
+        assert isinstance(value, str)  # nothing type-coerced
 
 
 # ─── thumbnails ──────────────────────────────────────────────────────
@@ -421,14 +485,25 @@ def test_pillow_ships_webp():
     assert features.check("webp")
 
 
+def test_thumbnail_defaults_are_640():
+    # the CLI contract: 640 max dimension, supersampled at 2x = 1280
+    from dreamlake.assets_tools.thumbnails import THUMBNAIL_MAX_DIM
+    assert THUMBNAIL_MAX_DIM == 640
+    assert inspect.signature(
+        save_thumbnail).parameters["max_dim"].default == 640
+    assert inspect.signature(
+        render_thumbnail).parameters["size"].default == 640
+
+
 def test_save_thumbnail_shrinks_big_rgba(tmp_path):
-    # a render-like 512x512 RGBA: noisy opaque disc on a transparent
-    # background (noise so neither codec gets a free lunch)
+    # a render-like 1280x1280 RGBA (the 2x supersample of the default
+    # 640): noisy opaque disc on a transparent background (noise so
+    # neither codec gets a free lunch)
     rng = np.random.default_rng(42)
-    rgba = rng.integers(0, 256, (512, 512, 4), dtype=np.uint8)
-    yy, xx = np.mgrid[:512, :512]
+    rgba = rng.integers(0, 256, (1280, 1280, 4), dtype=np.uint8)
+    yy, xx = np.mgrid[:1280, :1280]
     rgba[..., 3] = np.where(
-        (xx - 256) ** 2 + (yy - 256) ** 2 <= 220 ** 2, 255, 0)
+        (xx - 640) ** 2 + (yy - 640) ** 2 <= 550 ** 2, 255, 0)
     src = Image.fromarray(rgba, "RGBA")
     as_png = tmp_path / "big.png"
     src.save(as_png)  # what the old pipeline shipped
@@ -438,7 +513,7 @@ def test_save_thumbnail_shrinks_big_rgba(tmp_path):
     with Image.open(out) as img:
         assert img.format == "WEBP"
         assert img.mode == "RGBA"  # alpha preserved
-        assert img.size == (320, 320)
+        assert img.size == (640, 640)  # default max_dim
     assert out.stat().st_size < as_png.stat().st_size / 4
 
 
@@ -479,15 +554,97 @@ def test_render_thumbnail_bad_model_returns_false(tmp_path):
         assert render_thumbnail(xml, tmp_path / "t.webp") is False
 
 
-def test_gso_import_with_thumbnails(gso_repo, tmp_path):
+# ─── batch renderer (render_thumbnails) ──────────────────────────────
+
+
+@pytest.fixture
+def render_jobs_file(tmp_path):
+    """Good jobs bracketing a broken one, plus a urdf, a missing entry,
+    and an illegal id -- the failure-isolation menu."""
+    src = tmp_path / "src"
+    (src / "bot_one").mkdir(parents=True)
+    (src / "bot_one" / "model.xml").write_text(MINIMAL_MJCF)
+    (src / "bot_two").mkdir(parents=True)
+    (src / "bot_two" / "model.xml").write_text(MINIMAL_MJCF)
+    (src / "broken.xml").write_text("<mujoco><worldbody><geom type=")
+    jobs = [
+        {"id": "bot_one", "entry": str(src / "bot_one" / "model.xml"),
+         "kind": "mjcf"},
+        {"id": "broken_bot", "entry": str(src / "broken.xml"),
+         "kind": "mjcf"},
+        {"id": "bot_two", "entry": str(src / "bot_two" / "model.xml"),
+         "kind": "mjcf", "category": "object"},
+        {"id": "wheelie", "entry": str(src / "bot_one" / "model.xml"),
+         "kind": "urdf"},
+        {"id": "ghost", "entry": str(src / "missing.xml"), "kind": "mjcf"},
+        {"id": "bad/../id", "entry": str(src / "bot_one" / "model.xml"),
+         "kind": "mjcf"},
+    ]
+    jobs_path = tmp_path / "jobs.json"
+    jobs_path.write_text(json.dumps(jobs))
+    return jobs_path
+
+
+def test_render_thumbnails_batch(render_jobs_file, tmp_path, capsys):
     pytest.importorskip("mujoco")
-    out = tmp_path / "lib"
-    manifest = gso.build_library(gso_repo, out, thumbnails=True, size=64)
-    asset = manifest.assets[0]
-    assert asset.thumbnail == "thumbnails/Toy_Fire_Truck.webp"
-    assert (out / "thumbnails" / "Toy_Fire_Truck.webp").exists()
-    assert asset.thumbnail in {f.path for f in asset.files}
-    load_manifest(out / "assets.json")
+    out_dir = tmp_path / "thumbs"
+    rc = batch.main(["--jobs", str(render_jobs_file),
+                     "--out-dir", str(out_dir), "--size", "64"])
+    assert rc == 0  # per-job failures never abort the batch
+
+    captured = capsys.readouterr()
+    assert captured.out.count("\n") == 1  # EXACTLY one stdout line
+    report = json.loads(captured.out)
+    assert set(report) == {"rendered", "skipped", "failed"}
+
+    # failure isolation: the broken job sits BETWEEN the good ones,
+    # both still render
+    assert report["rendered"] == ["bot_one", "bot_two"]
+    assert [s["id"] for s in report["skipped"]] == ["wheelie"]
+    assert "urdf" in report["skipped"][0]["reason"]
+    failed = {f["id"]: f["reason"] for f in report["failed"]}
+    assert set(failed) == {"broken_bot", "ghost", "bad/../id"}
+    assert "entry not found" in failed["ghost"]
+    assert failed["bad/../id"] == "invalid asset id"
+
+    for asset_id in report["rendered"]:
+        with Image.open(out_dir / f"{asset_id}.webp") as img:
+            assert img.format == "WEBP"
+            assert img.size == (64, 64)
+    assert not (out_dir / "broken_bot.webp").exists()
+    # progress/warnings live on stderr only
+    assert "broken_bot" in captured.err
+
+
+def test_render_thumbnails_without_mujoco(
+        render_jobs_file, tmp_path, capsys, monkeypatch):
+    monkeypatch.setitem(sys.modules, "mujoco", None)  # import -> error
+    rc = batch.main(["--jobs", str(render_jobs_file),
+                     "--out-dir", str(tmp_path / "thumbs")])
+    assert rc == 0  # still a clean batch report, everything in failed[]
+    report = json.loads(capsys.readouterr().out)
+    assert report["rendered"] == []
+    failed = {f["id"]: f["reason"] for f in report["failed"]}
+    assert "mujoco is not installed" in failed["bot_one"]
+    assert [s["id"] for s in report["skipped"]] == ["wheelie"]
+
+
+def test_render_thumbnails_unreadable_jobs(tmp_path, capsys):
+    rc = batch.main(["--jobs", str(tmp_path / "nope.json"),
+                     "--out-dir", str(tmp_path / "o")])
+    assert rc == 1
+    captured = capsys.readouterr()
+    assert "error:" in captured.err
+    assert captured.out == ""  # fatal errors never fake a report
+
+    bad = tmp_path / "bad.json"
+    bad.write_text("{not json")
+    assert batch.main(
+        ["--jobs", str(bad), "--out-dir", str(tmp_path / "o")]) == 1
+    not_a_list = tmp_path / "obj.json"
+    not_a_list.write_text('{"id": "x"}')
+    assert batch.main(
+        ["--jobs", str(not_a_list), "--out-dir", str(tmp_path / "o")]) == 1
 
 
 # ─── embeddings sidecar (embed) ──────────────────────────────────────
@@ -703,3 +860,154 @@ def test_embed_cli_error(tmp_path, capsys):
     rc = embed_mod.main([str(tmp_path / "does-not-exist")])
     assert rc == 1
     assert "error:" in capsys.readouterr().err
+
+
+# ─── embeddings: manifest mode (the CLI's push-time step) ────────────
+
+
+@pytest.fixture
+def wire_manifest(tmp_path):
+    """A built wire manifest decoupled from the source layout:
+    bot_a: CLI-rendered thumbnail under .dreamlake/thumbnails/;
+    bot_b: user-authored preview inside the source tree;
+    bot_c: no thumbnail, title only."""
+    files_root = tmp_path / "src"
+    thumbs_dir = tmp_path / "cli-cache" / "thumbnails"
+    build_dir = tmp_path / "cli-cache" / "build"
+    thumbs_dir.mkdir(parents=True)
+
+    xml_a = _asset_file(files_root, "bot_a/model.xml", MINIMAL_MJCF.encode())
+    xml_b = _asset_file(files_root, "bot_b/model.xml", MINIMAL_MJCF.encode())
+    xml_c = _asset_file(files_root, "bot_c/model.xml", MINIMAL_MJCF.encode())
+
+    # the batch renderer's output: <thumbs-dir>/<id>.webp
+    Image.new("RGB", (2, 2), (200, 30, 30)).save(thumbs_dir / "bot_a.webp")
+    thumb_a = AssetFile(
+        path=".dreamlake/thumbnails/bot_a.webp",
+        size=(thumbs_dir / "bot_a.webp").stat().st_size,
+        sha256=hash_file(thumbs_dir / "bot_a.webp"))
+    # a user-authored preview, a plain source file
+    Image.new("RGB", (2, 2), (30, 30, 200)).save(
+        files_root / "bot_b" / "preview.png")
+    preview_b = file_entry(files_root, "bot_b/preview.png")
+
+    manifest = LibraryManifest(
+        library=LibraryInfo(name="wire-lib"),
+        assets=[
+            Asset(id="bot_a", title="Bot A", description="A red robot",
+                  tags=["robots", "red"], kind="mjcf",
+                  files=[xml_a, thumb_a],
+                  thumbnail=".dreamlake/thumbnails/bot_a.webp"),
+            Asset(id="bot_b", kind="mjcf", files=[xml_b, preview_b],
+                  thumbnail="bot_b/preview.png"),
+            Asset(id="bot_c", title="Bot C", kind="mjcf", files=[xml_c]),
+        ],
+    )
+    write_manifest(manifest, build_dir)
+    return build_dir / "assets.json", files_root, thumbs_dir
+
+
+def test_embed_manifest_mode_roundtrip(wire_manifest, tmp_path, monkeypatch):
+    manifest_path, files_root, thumbs_dir = wire_manifest
+    out_dir = tmp_path / "out"
+    fake = _FakeClip().install(monkeypatch)
+    stats = embed_mod.embed_manifest(
+        manifest_path, files_root=files_root, thumbs_dir=thumbs_dir,
+        out_dir=out_dir, cache_dir=tmp_path / "vec-cache")
+
+    # NEW names (no assets. prefix), in --out-dir; nothing lands next
+    # to the manifest or in the source tree
+    assert (out_dir / "vectors.json").exists()
+    assert (out_dir / "vectors.f32").exists()
+    assert not (manifest_path.parent / "assets.vectors.json").exists()
+    assert not list(files_root.rglob("*vectors*"))
+
+    doc = json.loads((out_dir / "vectors.json").read_text())
+    assert doc["schema"] == "dreamlake.assets.vectors/v1"  # same format
+    assert doc["model"] == "open_clip/ViT-L-14/openai"
+    assert doc["dim"] == 8
+    assert [it["id"] for it in doc["items"]] == ["bot_a", "bot_b", "bot_c"]
+    a, b, c = doc["items"]
+    assert (a["image"], a["text"]) == (0, 1)
+    assert (b["image"], b["text"]) == (2, None)  # no title/desc/tags
+    assert (c["image"], c["text"]) == (None, 3)  # no thumbnail
+
+    raw = (out_dir / "vectors.f32").read_bytes()
+    mat = np.frombuffer(raw, dtype="<f4").reshape(4, 8)
+    exp_rows = [
+        # .dreamlake/thumbnails/* resolves to <thumbs-dir>/<id>.webp
+        fake.expected_image(thumbs_dir / "bot_a.webp"),
+        fake.expected_text("Bot A. A red robot. robots, red"),
+        # anything else resolves under --files-root
+        fake.expected_image(files_root / "bot_b" / "preview.png"),
+        fake.expected_text("Bot C"),
+    ]
+    assert np.array_equal(mat, np.stack(exp_rows))
+    assert stats["json"] == str(out_dir / "vectors.json")
+    assert stats["f32"] == str(out_dir / "vectors.f32")
+    assert stats["rows"] == 4 and stats["dim"] == 8
+
+
+def test_embed_manifest_mode_shares_content_cache(
+        wire_manifest, tmp_path, monkeypatch):
+    manifest_path, files_root, thumbs_dir = wire_manifest
+    cache = tmp_path / "vec-cache"
+    _FakeClip().install(monkeypatch)
+    embed_mod.embed_manifest(
+        manifest_path, files_root=files_root, thumbs_dir=thumbs_dir,
+        out_dir=tmp_path / "out1", cache_dir=cache)
+
+    # second run into a fresh out-dir: pure cache hits, encoder unloaded
+    monkeypatch.setattr(embed_mod, "_load_encoder", _bomb_loader)
+    stats = embed_mod.embed_manifest(
+        manifest_path, files_root=files_root, thumbs_dir=thumbs_dir,
+        out_dir=tmp_path / "out2", cache_dir=cache)
+    assert stats["images"] == {
+        "embedded": 0, "cached": 2, "missing": 0, "failed": 0}
+    assert stats["texts"] == {
+        "embedded": 0, "cached": 2, "empty": 1, "failed": 0}
+    assert (tmp_path / "out1" / "vectors.f32").read_bytes() == \
+        (tmp_path / "out2" / "vectors.f32").read_bytes()
+
+
+def test_embed_manifest_cli_stdout_contract(
+        wire_manifest, tmp_path, monkeypatch, capsys):
+    manifest_path, files_root, thumbs_dir = wire_manifest
+    _FakeClip().install(monkeypatch)
+    out_dir = tmp_path / "out"
+    rc = embed_mod.main([
+        "--manifest", str(manifest_path),
+        "--files-root", str(files_root),
+        "--thumbs-dir", str(thumbs_dir),
+        "--out-dir", str(out_dir),
+        "--device", "cpu",
+        "--cache-dir", str(tmp_path / "vec-cache"),
+    ])
+    assert rc == 0
+    captured = capsys.readouterr()
+    # stdout: EXACTLY one JSON line -- the stats dict the CLI parses
+    assert captured.out.count("\n") == 1
+    stats = json.loads(captured.out)
+    assert stats["rows"] == 4 and stats["dim"] == 8
+    assert stats["assets"] == 3
+    assert stats["model"] == "open_clip/ViT-L-14/openai"
+    assert stats["json"] == str(out_dir / "vectors.json")
+    assert stats["f32"] == str(out_dir / "vectors.f32")
+    assert stats["images"] == {
+        "embedded": 2, "cached": 0, "missing": 0, "failed": 0}
+    assert stats["texts"] == {
+        "embedded": 2, "cached": 0, "empty": 1, "failed": 0}
+    # human chatter stays on stderr
+    assert "wrote" in captured.err
+
+
+def test_embed_cli_mode_validation(tmp_path):
+    with pytest.raises(SystemExit):  # neither mode
+        embed_mod.main([])
+    with pytest.raises(SystemExit):  # both modes
+        embed_mod.main([str(tmp_path), "--manifest",
+                        str(tmp_path / "m.json")])
+    with pytest.raises(SystemExit):  # manifest mode missing its dirs
+        embed_mod.main(["--manifest", str(tmp_path / "m.json")])
+    with pytest.raises(SystemExit):  # manifest-only flags in legacy mode
+        embed_mod.main([str(tmp_path), "--out-dir", str(tmp_path / "o")])

@@ -13,9 +13,10 @@ A port of the mujoco_menagerie ``generate_gallery.py`` approach:
 * transparent background via a segmentation-render alpha mask
   (chroma-keying the white skybox would eat white robot parts);
 * output through :func:`save_thumbnail`: rendered at 2x the requested
-  size, LANCZOS-downscaled, and saved as lossy WebP (alpha preserved)
-  -- 320px WebP thumbnails run 10-25KB where the old 512px PNGs ran
-  200-400KB, and library grids hold hundreds of them.
+  size (1280 for the default 640), LANCZOS-downscaled, and saved as
+  lossy WebP (alpha preserved) -- 640px WebP thumbnails run tens of KB
+  where 512px PNGs ran 200-400KB, and library grids hold hundreds of
+  them.
 
 ``mujoco`` is an optional dependency (the ``compose`` extra):
 :func:`render_thumbnail` warns and returns ``False`` without it, and on
@@ -43,9 +44,9 @@ DEFAULT_AZIMUTH = 70.0
 DEFAULT_ELEVATION = 25.0
 
 #: max(width, height) of a saved thumbnail; smaller inputs stay as-is
-THUMBNAIL_MAX_DIM = 320
+THUMBNAIL_MAX_DIM = 640
 #: lossy WebP settings shared by every thumbnail writer: quality 82 at
-#: the slowest/best encoding effort keeps grid thumbnails ~10-25KB
+#: the slowest/best encoding effort keeps grid thumbnails small
 WEBP_QUALITY = 82
 WEBP_METHOD = 6
 
@@ -132,9 +133,18 @@ def _parse_floats(value: Any) -> list[float]:
 
 
 def _posed_bounds(mujoco, model, data):
-    """World-frame AABB of visible geoms in the forward-evaluated pose."""
-    visible = np.where(model.geom_group != 3)[0]
+    """World-frame AABB of visible geoms in the forward-evaluated pose.
+
+    Plane geoms are excluded from FRAMING (they still render): their
+    AABB is effectively infinite, so a scene entry point with a floor
+    plane would push the auto-camera out beyond the clipping planes and
+    produce a blank render.
+    """
+    plane = model.geom_type == mujoco.mjtGeom.mjGEOM_PLANE
+    visible = np.where((model.geom_group != 3) & ~plane)[0]
     if visible.size == 0:  # collision-only model: frame everything
+        visible = np.where(~plane)[0]
+    if visible.size == 0:  # nothing but planes: frame them anyway
         visible = np.arange(model.ngeom)
     if visible.size == 0:
         raise ValueError("model has no geoms to frame")
