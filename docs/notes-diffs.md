@@ -1,6 +1,6 @@
 # Note diffs
 
-## MERGE and EXACT patches (Python 0.20.0 candidate)
+## MERGE and EXACT patches (Python 0.20.0)
 
 Read an original RTC snapshot, prepare a patch against its exact source, and
 keep that snapshot while submitting the patch. MERGE is the default and sends
@@ -53,8 +53,9 @@ separate HTTP requests do not share an idempotency receipt. Unknown baselines
 raise `NoteNotFound`; EXACT conflicts raise `NoteChanged`; source mismatches
 raise `PatchFailed`; unavailable RTC responses raise `NoteBusy`.
 
-This contract requires the matching deployed API. The package release, docs
-publication, and fresh public installation are separate release gates.
+Python 0.20.0 provides this contract with the matching Notes v2 API. Use
+`legacy=True` for the earlier ETag patch interface. Package and deployed
+acceptance receipts are tracked in [workspace #706](https://github.com/dreamlake-ai/dreamlake-workspace/issues/706).
 
 ## Concurrent edit walkthrough
 

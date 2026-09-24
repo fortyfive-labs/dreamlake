@@ -29,3 +29,10 @@ and actual candidate client replay, explicitly distinct from production.
 Legacy examples retain `legacy=True`; the old ETag comparison section and
 `PatchResult` docstring now explicitly identify the legacy contract.
 Validation: 89 Notes tests, two SDK receipt replays, and Sphinx build.
+
+## Release availability copy
+
+Prepare first 0.20.0 publication with owning docs that describe its available
+Notes contract and explicit legacy compatibility. Bounded fixture transcripts
+remain labelled as test evidence. Registry release and docs activation remain
+held for compatible production API verification; this commit is source only.
