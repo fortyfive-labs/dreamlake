@@ -1,9 +1,13 @@
 """Offscreen MJCF thumbnail rendering with gallery-style auto-framing.
 
-A port of the mujoco_menagerie ``generate_gallery.py`` approach:
+A port of the mujoco_menagerie ``generate_gallery.py`` approach, plus
+meshy.ai-style model staging:
 
-* white gradient skybox + strong headlight, model lights deleted
-  (unless ``keep_lights``) so every thumbnail shares one look;
+* studio three-point lighting (camera-relative key/fill/rim
+  directionals, weak headlight, moderate ambient), model lights
+  deleted (unless ``keep_lights``) so every thumbnail shares one look;
+  MuJoCo cast shadows stay off -- grounding comes from the baked
+  contact shadow below;
 * pose from the ``gallery_thumbnail`` keyframe if the model has one
   (or an injected ``qpos``), else keyframe 0, else the reset pose;
 * camera auto-placed to frame the posed AABB of the visible geoms
@@ -12,11 +16,18 @@ A port of the mujoco_menagerie ``generate_gallery.py`` approach:
   inside the perspective frustum;
 * transparent background via a segmentation-render alpha mask
   (chroma-keying the white skybox would eat white robot parts);
+* :func:`stage_thumbnail` (render path only): crop to the alpha bbox,
+  recenter on a square canvas at a consistent object scale, and bake a
+  soft elliptical contact shadow -- as ALPHA, under the object -- so
+  the frontend can draw any theme backdrop behind it and the model
+  still reads as grounded;
 * output through :func:`save_thumbnail`: rendered at 2x the requested
   size (1280 for the default 640), LANCZOS-downscaled, and saved as
   lossy WebP (alpha preserved) -- 640px WebP thumbnails run tens of KB
   where 512px PNGs ran 200-400KB, and library grids hold hundreds of
-  them.
+  them. User-provided preview images flow through the same writer with
+  ``stage=False``: photos with real backgrounds must never grow a fake
+  shadow.
 
 ``mujoco`` is an optional dependency (the ``compose`` extra):
 :func:`render_thumbnail` warns and returns ``False`` without it, and on
@@ -33,7 +44,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageDraw, ImageEnhance, ImageFilter
 
 AUTO_FOVY = 45
 #: padding around the projected model AABB; 1.0 = model touches the
@@ -49,6 +60,32 @@ THUMBNAIL_MAX_DIM = 640
 #: the slowest/best encoding effort keeps grid thumbnails small
 WEBP_QUALITY = 82
 WEBP_METHOD = 6
+
+# ─── staging (meshy.ai-style model presentation) ─────────────────────
+#: object width as a fraction of the square staged canvas
+STAGE_OBJECT_FRAC = 0.78
+#: canvas fraction kept clear UNDER the object -- room for the shadow
+STAGE_BOTTOM_FRAC = 0.13
+#: canvas fraction kept clear above the object
+STAGE_TOP_FRAC = 0.055
+#: contact-shadow peak opacity, measured AFTER the blur (0..1)
+STAGE_SHADOW_OPACITY = 0.36
+#: fraction of the object height (from the bottom) whose alpha counts
+#: as the ground footprint -- wide enough to catch all of a
+#: quadruped's feet, not just the lowest one
+STAGE_FOOT_BAND = 0.16
+#: shadow ellipse width relative to the object's ground footprint
+STAGE_SHADOW_SPREAD = 1.18
+#: shadow ellipse height relative to its width (flat = grounded)
+STAGE_SHADOW_FLATTEN = 0.19
+#: gaussian blur sigma for the shadow, relative to the object width --
+#: capped relative to the SHADOW width so an arm with a small base
+#: keeps a defined shadow instead of a wash
+STAGE_SHADOW_BLUR = 0.10
+STAGE_SHADOW_BLUR_CAP = 0.22
+#: subtle grade applied to the object layer while staging
+STAGE_CONTRAST = 1.04
+STAGE_COLOR = 1.05
 
 #: (azimuth_deg, elevation_deg) per asset category. Azimuth is measured
 #: from +X around +Z. Arms and end-effectors in Menagerie typically
@@ -91,10 +128,104 @@ def view_angles(category: str | None) -> tuple[float, float]:
     return (DEFAULT_AZIMUTH, DEFAULT_ELEVATION)
 
 
+def _merge_alpha(rgb: Image.Image, alpha: Image.Image) -> Image.Image:
+    """RGB channels of ``rgb`` + the given alpha channel, as RGBA."""
+    return Image.merge("RGBA", (*rgb.split()[:3], alpha))
+
+
+def stage_thumbnail(image: Image.Image) -> Image.Image:
+    """Stage a transparent render: recenter + bake a contact shadow.
+
+    Meshy.ai-style presentation for the render path, all in alpha so
+    the frontend keeps drawing its own theme-aware backdrop:
+
+    * crop to the alpha bounding box (small margin) so every asset
+      lands at the same scale regardless of how the camera framed it;
+    * place on a square canvas -- object :data:`STAGE_OBJECT_FRAC`
+      of the width, bottom anchored on a shared ground line with
+      :data:`STAGE_BOTTOM_FRAC` of the canvas left underneath;
+    * bake a soft elliptical contact shadow under the object's ground
+      footprint (the bottom ~10% of its alpha, projected to a width):
+      gaussian-blurred, normalized to :data:`STAGE_SHADOW_OPACITY`
+      peak opacity, composited BENEATH the object layer;
+    * grade the object slightly (:data:`STAGE_CONTRAST`,
+      :data:`STAGE_COLOR`) -- alpha untouched.
+
+    Runs before the downscale in :func:`save_thumbnail`; images with
+    no alpha coverage (or no alpha at all) pass through unstaged.
+    """
+    if image.mode != "RGBA":
+        image = image.convert("RGBA")
+    bbox = image.getchannel("A").getbbox()
+    if bbox is None:  # fully transparent: nothing to stage
+        return image
+
+    margin = max(2, round(0.01 * max(image.size)))
+    obj = image.crop((
+        max(0, bbox[0] - margin), max(0, bbox[1] - margin),
+        min(image.width, bbox[2] + margin),
+        min(image.height, bbox[3] + margin),
+    ))
+    ow, oh = obj.size
+
+    side = max(
+        round(ow / STAGE_OBJECT_FRAC),
+        round(oh / (1.0 - STAGE_TOP_FRAC - STAGE_BOTTOM_FRAC)),
+    )
+    ox = (side - ow) // 2
+    oy = side - round(STAGE_BOTTOM_FRAC * side) - oh  # shared ground line
+
+    # Ground footprint: the columns the bottom ~10% of the object's
+    # alpha actually covers -- a robot arm gets its shadow under the
+    # base, not under the reach of its elbow.
+    alpha_arr = np.asarray(obj.getchannel("A"), dtype=np.uint8)
+    band = alpha_arr[int(oh * (1.0 - STAGE_FOOT_BAND)):, :]
+    cols = np.flatnonzero(band.max(axis=0) > 32)
+    if cols.size:
+        foot_lo, foot_hi = int(cols[0]), int(cols[-1]) + 1
+    else:  # nothing near the bottom edge (concave base): whole width
+        foot_lo, foot_hi = 0, ow
+    foot_w = max(foot_hi - foot_lo, round(0.25 * ow))
+    foot_cx = ox + (foot_lo + foot_hi) / 2
+
+    # Contact shadow: flat ellipse just under the object bottom,
+    # blurred, then normalized so the post-blur PEAK sits exactly at
+    # STAGE_SHADOW_OPACITY (blur alone would leave the peak dependent
+    # on the footprint's aspect).
+    sw = foot_w * STAGE_SHADOW_SPREAD
+    sh = max(4.0, sw * STAGE_SHADOW_FLATTEN)
+    cy = oy + oh - 0.15 * sh  # tucked just under the ground line
+    shadow = Image.new("L", (side, side), 0)
+    ImageDraw.Draw(shadow).ellipse(
+        (foot_cx - sw / 2, cy - sh / 2, foot_cx + sw / 2, cy + sh / 2),
+        fill=255,
+    )
+    blur = max(3.0, min(ow * STAGE_SHADOW_BLUR, sw * STAGE_SHADOW_BLUR_CAP))
+    shadow = shadow.filter(ImageFilter.GaussianBlur(blur))
+    arr = np.asarray(shadow, dtype=np.float32)
+    peak = float(arr.max())
+    if peak > 0:
+        arr = arr * (STAGE_SHADOW_OPACITY * 255.0 / peak)
+    shadow = Image.fromarray(arr.astype(np.uint8), "L")
+
+    # Subtle grade on the object only (RGB channels; alpha untouched).
+    rgb = obj.convert("RGB")
+    rgb = ImageEnhance.Contrast(rgb).enhance(STAGE_CONTRAST)
+    rgb = ImageEnhance.Color(rgb).enhance(STAGE_COLOR)
+    obj = _merge_alpha(rgb, obj.getchannel("A"))
+
+    canvas = Image.new("RGBA", (side, side), (0, 0, 0, 0))
+    canvas.putalpha(shadow)  # black shadow layer, alpha-only
+    canvas.alpha_composite(obj, (ox, oy))
+    return canvas
+
+
 def save_thumbnail(
     image: Image.Image,
     out_path: str | Path,
     max_dim: int = THUMBNAIL_MAX_DIM,
+    *,
+    stage: bool = False,
 ) -> None:
     """Downscale ``image`` and save it as WebP at ``out_path``.
 
@@ -106,11 +237,18 @@ def save_thumbnail(
     dark fringes into edges; saves lossy WebP (:data:`WEBP_QUALITY`,
     ``method=6``) with the alpha channel preserved. Creates parent
     directories.
+
+    ``stage=True`` runs :func:`stage_thumbnail` before the downscale
+    and a gentle unsharp mask after it. ONLY the offscreen render path
+    sets it: user-provided preview images may be photos with real
+    backgrounds, and must never grow a fake contact shadow.
     """
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     if image.mode not in ("RGB", "RGBA"):
         image = image.convert("RGBA")
+    if stage and image.mode == "RGBA":
+        image = stage_thumbnail(image)
     scale = max_dim / max(image.size)
     if scale < 1.0:
         new_size = (
@@ -122,6 +260,12 @@ def save_thumbnail(
                 new_size, Image.Resampling.LANCZOS).convert("RGBA")
         else:
             image = image.resize(new_size, Image.Resampling.LANCZOS)
+    if stage and image.mode == "RGBA":
+        # crisp at grid size; RGB only -- sharpening alpha would put a
+        # ring on the soft shadow edge
+        rgb = image.convert("RGB").filter(
+            ImageFilter.UnsharpMask(radius=1.4, percent=65, threshold=2))
+        image = _merge_alpha(rgb, image.getchannel("A"))
     image.save(
         out_path, format="WEBP", quality=WEBP_QUALITY, method=WEBP_METHOD)
 
@@ -192,12 +336,26 @@ def _auto_camera(lo, hi, azimuth, elevation, fovy, padding) -> dict:
     }
 
 
+#: studio lights, camera-relative: (azimuth offset from the camera in
+#: degrees -- negative = screen-left, elevation degrees, diffuse,
+#: specular). Key models the form from upper-front-left, fill lifts
+#: the right side, rim separates the silhouette from behind.
+STUDIO_LIGHTS = (
+    ("key", -35.0, 52.0, 0.85, 0.22),
+    ("fill", 55.0, 18.0, 0.32, 0.04),
+    ("rim", 165.0, 40.0, 0.22, 0.10),
+)
+#: weak headlight + moderate ambient under the studio rig
+STUDIO_HEADLIGHT_DIFFUSE = 0.20
+STUDIO_HEADLIGHT_AMBIENT = 0.28
+STUDIO_HEADLIGHT_SPECULAR = 0.08
+
+
 def _apply_gallery_settings(mujoco, spec, size: int) -> None:
     """White-skybox look + offscreen buffer sized for the render."""
-    spec.visual.quality.shadowsize = 8192
-    spec.visual.headlight.diffuse = [0.6, 0.6, 0.6]
-    spec.visual.headlight.ambient = [0.3, 0.3, 0.3]
-    spec.visual.headlight.specular = [0.2, 0.2, 0.2]
+    spec.visual.headlight.diffuse = [STUDIO_HEADLIGHT_DIFFUSE] * 3
+    spec.visual.headlight.ambient = [STUDIO_HEADLIGHT_AMBIENT] * 3
+    spec.visual.headlight.specular = [STUDIO_HEADLIGHT_SPECULAR] * 3
     spec.visual.global_.offwidth = max(size, spec.visual.global_.offwidth)
     spec.visual.global_.offheight = max(size, spec.visual.global_.offheight)
     spec.add_texture(
@@ -209,6 +367,34 @@ def _apply_gallery_settings(mujoco, spec, size: int) -> None:
         rgb1=[1, 1, 1],
         rgb2=[1, 1, 1],
     )
+
+
+def _add_studio_lights(mujoco, spec, camera_azimuth: float) -> None:
+    """Three directional lights around the camera, cast shadows OFF.
+
+    The rig follows the camera azimuth so "upper-front-left" means the
+    same thing for a quadruped shot from -30 deg and an arm shot from
+    70 deg. MuJoCo shadows stay disabled -- grounding comes from the
+    baked contact shadow in :func:`stage_thumbnail`, and hard renderer
+    shadows would fight it.
+    """
+    for name, d_az, elevation, diffuse, specular in STUDIO_LIGHTS:
+        az = math.radians(camera_azimuth + d_az)
+        el = math.radians(elevation)
+        toward = np.array([
+            math.cos(el) * math.cos(az),
+            math.cos(el) * math.sin(az),
+            math.sin(el),
+        ])
+        spec.worldbody.add_light(
+            name=f"__studio_{name}",
+            type=mujoco.mjtLightType.mjLIGHT_DIRECTIONAL,
+            castshadow=False,
+            pos=(toward * 3.0).tolist(),
+            dir=(-toward).tolist(),
+            diffuse=[diffuse] * 3,
+            specular=[specular] * 3,
+        )
 
 
 GALLERY_KEYFRAME = "gallery_thumbnail"
@@ -303,6 +489,16 @@ def render_thumbnail(
                 lo, hi, azimuth, elevation, fovy, padding)
         spec.worldbody.add_camera(name="__thumbnail", **camera_kwargs)
 
+        if not keep_lights:
+            # studio rig oriented to the ACTUAL camera (manual
+            # ``camera`` dicts included): viewing azimuth from the
+            # camera frame's z axis (x cross y points at the camera)
+            x_cam = np.array(camera_kwargs["xyaxes"][:3], dtype=float)
+            y_cam = np.array(camera_kwargs["xyaxes"][3:], dtype=float)
+            z_cam = np.cross(x_cam, y_cam)
+            cam_azimuth = math.degrees(math.atan2(z_cam[1], z_cam[0]))
+            _add_studio_lights(mujoco, spec, cam_azimuth)
+
         model = spec.compile()
         data = mujoco.MjData(model)
         _reset_pose(mujoco, model, data)
@@ -326,7 +522,10 @@ def render_thumbnail(
             pixels = np.full((render_size, render_size, 3), 255,
                              dtype=np.uint8)
             pixels[mask] = img[mask]
-        save_thumbnail(Image.fromarray(pixels), out_path, max_dim=size)
+        # staging needs the alpha mask; opaque renders skip it
+        save_thumbnail(
+            Image.fromarray(pixels), out_path, max_dim=size,
+            stage=transparent)
         return True
     except Exception as e:
         warnings.warn(

@@ -32,6 +32,7 @@ from dreamlake.assets_tools import (
     load_manifest,
     render_thumbnail,
     save_thumbnail,
+    stage_thumbnail,
     validate,
     write_manifest,
 )
@@ -600,6 +601,79 @@ def test_save_thumbnail_never_upscales(tmp_path):
         assert img.size == (100, 80)
 
 
+def _synthetic_render(size=400, box=(120, 90), origin=(30, 40)):
+    """A transparent 'render': one opaque box, deliberately off-center
+    so staging has to recrop and recenter it."""
+    canvas = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    canvas.paste(Image.new("RGBA", box, (200, 60, 40, 255)), origin)
+    return canvas
+
+
+def test_stage_param_defaults_off():
+    # staging is OPT-IN: user-provided preview images (photos with
+    # real backgrounds) flow through save_thumbnail and must never
+    # grow a fake contact shadow
+    assert inspect.signature(
+        save_thumbnail).parameters["stage"].default is False
+
+
+def test_save_thumbnail_stage_adds_contact_shadow(tmp_path):
+    out = tmp_path / "staged.webp"
+    save_thumbnail(_synthetic_render(), out, stage=True)
+    a = np.asarray(Image.open(out).convert("RGBA"))[..., 3]
+    assert a.shape[0] == a.shape[1]  # square staged canvas
+    side = a.shape[0]
+
+    # recentered horizontally at a consistent scale (~78% of width)
+    cols = np.flatnonzero((a == 255).any(axis=0))
+    assert 0.66 <= (cols[-1] - cols[0] + 1) / side <= 0.82
+    assert abs((cols[0] + cols[-1] + 1) / 2 - side / 2) <= side * 0.03
+
+    # bottom anchored on the ground line, headroom left for the shadow
+    rows = np.flatnonzero((a == 255).any(axis=1))
+    bottom = rows[-1]
+    assert 0.80 <= bottom / side <= 0.90
+
+    # the contact shadow: a patch of SEMI-transparent alpha below the
+    # object -- soft (peak near STAGE_SHADOW_OPACITY), never opaque
+    below = a[bottom + 2:, :]
+    semi = below[(below > 20) & (below < 200)]
+    assert semi.size > 50
+    assert 0.20 <= below.max() / 255 <= 0.45
+    assert not (below > 220).any()
+    # and only under the object: top corners stay fully transparent
+    assert a[:10, :10].max() == 0
+    assert a[:10, -10:].max() == 0
+
+
+def test_save_thumbnail_unstaged_has_no_shadow(tmp_path):
+    # the same synthetic render WITHOUT stage=True: canvas untouched,
+    # not a single semi-transparent pixel appears below the object
+    out = tmp_path / "plain.webp"
+    img = _synthetic_render()
+    save_thumbnail(img, out)
+    with Image.open(out) as saved:
+        assert saved.size == img.size  # no recrop to a staged square
+        a = np.asarray(saved.convert("RGBA"))[..., 3]
+    assert a[131:, :].max() == 0  # nothing below the box (40 + 90 + 1)
+
+
+def test_save_thumbnail_stage_skips_images_without_alpha(tmp_path):
+    # belt and braces: even if a caller passes stage=True with a
+    # photo-like RGB image, staging cannot apply (no alpha footprint)
+    out = tmp_path / "photo.webp"
+    save_thumbnail(Image.new("RGB", (300, 200), (90, 120, 150)), out,
+                   stage=True)
+    with Image.open(out) as img:
+        assert img.size == (300, 200)  # not squared: staging skipped
+
+
+def test_stage_thumbnail_passthrough_when_fully_transparent():
+    empty = Image.new("RGBA", (50, 40), (0, 0, 0, 0))
+    staged = stage_thumbnail(empty)
+    assert staged.size == (50, 40)  # nothing to stage
+
+
 def test_render_skips_without_mujoco(tmp_path, monkeypatch):
     monkeypatch.setitem(sys.modules, "mujoco", None)  # import -> ImportError
     xml = tmp_path / "m.xml"
@@ -619,6 +693,16 @@ def test_render_thumbnail(tmp_path):
         assert img.format == "WEBP"
         assert img.size == (64, 64)  # rendered at 128, downscaled
         assert img.mode == "RGBA"
+        a = np.asarray(img)[..., 3]
+    # the render path STAGES: the sphere sits on the shared ground
+    # line with a soft (semi-transparent, never opaque) contact
+    # shadow baked below it
+    rows = np.flatnonzero((a == 255).any(axis=1))
+    bottom = rows[-1]
+    assert 0.78 <= bottom / a.shape[0] <= 0.92
+    below = a[bottom + 2:, :]
+    assert ((below > 20) & (below < 200)).sum() > 10
+    assert not (below > 220).any()
 
 
 def test_render_thumbnail_bad_model_returns_false(tmp_path):
