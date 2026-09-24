@@ -270,13 +270,13 @@ def test_patch_takes_the_revision_to_write_against():
     n = Note("651111111111111111111111", namespace="ns", client=FakeClient())
     n._etag = "rev-cached"
 
-    n.patch("--- a\n+++ b\n", if_match="rev-explicit")
+    n.patch("--- a\n+++ b\n", if_match="rev-explicit", legacy=True)
     assert sent["headers"]["If-Match"] == "rev-explicit"
 
-    n.patch("--- a\n+++ b\n")
+    n.patch("--- a\n+++ b\n", legacy=True)
     assert sent["headers"]["If-Match"] == "rev-9"  # adopted from the last write
 
-    n.patch("--- a\n+++ b\n", force=True)
+    n.patch("--- a\n+++ b\n", force=True, legacy=True)
     assert "If-Match" not in sent["headers"]
 
 
@@ -285,7 +285,7 @@ def test_patch_refuses_if_match_and_force_together():
 
     n = Note("651111111111111111111111", namespace="ns", client=object())
     with pytest.raises(ValueError, match="give one"):
-        n.patch("d", if_match="r", force=True)
+        n.patch("d", if_match="r", force=True, legacy=True)
 
 
 # ── Ranged reads ─────────────────────────────────────────────────────────────

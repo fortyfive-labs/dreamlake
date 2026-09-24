@@ -1,0 +1,26 @@
+name: tests
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+concurrency:
+  group: python-tests-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: '3.12'
+      - name: Install test dependencies
+        run: uv sync --frozen --extra dev --extra dreamdb
+      - name: Test
+        run: uv run --frozen --extra dev --extra dreamdb pytest -q tests test
+      - name: Build package
+        run: uv build
+      - name: Build docs
+        run: uv run --frozen --extra dev --extra dreamdb sphinx-build -b html docs docs/_build/html

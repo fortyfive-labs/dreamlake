@@ -264,7 +264,7 @@ class TestWriting:
     def test_write_and_patch_hit_the_right_routes(self, n, server):
         n.write("# A\n")
         assert server.calls[-1].method == "PUT" and server.calls[-1].url.path.endswith("/body")
-        n.patch("--- a\n+++ b\n")
+        n.patch("--- a\n+++ b\n", legacy=True)
         assert server.calls[-1].method == "PATCH" and server.calls[-1].url.path.endswith("/body")
 
     def test_append_keeps_the_write_conditional(self, n, server):
@@ -305,7 +305,7 @@ class TestErrors:
     def test_bad_patch_raises_patch_failed(self, n, server):
         server.status["PATCH"] = 422
         with pytest.raises(PatchFailed):
-            n.patch("--- a\n+++ b\n")
+            n.patch("--- a\n+++ b\n", legacy=True)
 
     def test_read_only_raises_note_read_only(self, n, server):
         server.status["PUT"] = 403
@@ -494,7 +494,7 @@ class TestTheNamingRule:
     explicit line-range reads and the file accessor are separate public surfaces.
     """
 
-    WHOLE = {"text", "refresh", "sections", "read", "write", "append", "patch", "diff"}
+    WHOLE = {"read_snapshot", "text", "refresh", "sections", "read", "write", "append", "patch", "diff"}
     RANGE = {"read_lines"}
     ACCESSORS = {"files"}
     PART = {"read_section", "write_section", "insert_section", "delete_section"}

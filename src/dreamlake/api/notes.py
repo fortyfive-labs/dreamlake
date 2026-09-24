@@ -1,35 +1,22 @@
-"""
-Notes — programmatic reading and writing of collaborative documents.
+"""Collaborative Notes reads and edits.
 
-Built for callers that read, think for a while, and write back: scripts, and
-coding agents driving this through bash or a tool call. The gap between the
-read and the write is where collaborative documents get destroyed, so the
-concurrency control is not optional here — it is on by default.
+``read_snapshot()`` returns exact v2 source, content hash, and the original RTC
+revision. ``patch(..., base_revision=snapshot.revision)`` validates that saved
+source and maps changes to its original RTC identities through ordinary CRDT
+synchronization. ``exact=True`` opts in to a revision check for one request; explicit
+``if_match=`` remains an exact-mode compatibility alias.
 
-    import dreamlake as dl
-
-    note = dl.note("<namespace>/design-doc")
-    note.sections()                       # what is in it
-    note.read("install")                  # one section
-    note.write("install", "## Install\\n…") # replace that section, safely
-
-Every write is a real-time collaborative edit: the server applies it inside
-the note's collaboration room, so anyone with it open watches the change
-appear, and it merges with their typing the way two people's edits merge.
-Nothing is locked and nobody has to close the note first.
-
-That settles two edits arriving at once. It does not settle an edit built
-from a document that has since moved — which is the other half. Every read
-records the note's ETag and every write sends it back; a note that changed in
-between raises NoteChanged rather than flattening whoever changed it, and
-`note.refresh()` gets you a current copy to redo the edit against. Pass
-``force=True`` to write unconditionally, which is occasionally what you want
-and never what you want by accident.
+The editable ``read()``/``Doc.save()`` workflow and whole-body/section writes
+retain their legacy ETag semantics. ``patch(..., legacy=True)`` explicitly
+selects the previous unified-diff interface and its cached-ETag guard. Neither
+path replaces an unavailable original baseline with a fresh read or retries an
+ambiguous HTTP patch automatically.
 """
 
 from __future__ import annotations
 
 import re
+import hashlib
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Iterator, Sequence
 
@@ -48,6 +35,9 @@ if TYPE_CHECKING:  # pragma: no cover
 __all__ = [
     "Note",
     "NoteRef",
+    "NoteSnapshot",
+    "PatchReceipt",
+    "PatchResult",
     "Section",
     "SectionMatch",
     "NoteError",
@@ -90,14 +80,15 @@ class NoteChanged(NoteError):
 
 
 class NoteBusy(NoteError):
-    """The realtime service could not take the write (HTTP 409).
+    """The realtime service could not acknowledge the write (HTTP 409/503).
 
     Not "someone is editing" — a write normally goes INTO the live
     collaboration room and appears on their screens. This means the room was
     unreachable AND people are connected, so the only fallback (replacing the
     archive) would reset the room and cost them unsaved work.
 
-    Transient: an infrastructure signal, worth retrying after a pause.
+    For a patch with an ambiguous acknowledgment, inspect current state before
+    resubmitting; separate HTTP requests do not share an idempotency receipt.
     """
 
 
@@ -106,14 +97,60 @@ class NoteReadOnly(NoteError):
 
 
 class PatchFailed(NoteError):
-    """The diff did not apply to the current body (HTTP 422).
+    """Patch source does not match its original baseline (HTTP 422).
 
-    The patch's own context is the precondition; a mismatch means the document
-    moved under it. Re-read and regenerate the diff.
+    The draft and saved baseline remain available for inspection. A mismatch
+    is never resolved by silently replacing the baseline with the current text.
     """
 
 
 # ── Values ───────────────────────────────────────────────────────────────────
+
+
+@dataclass(frozen=True)
+class NoteSnapshot:
+    """Exact v2 source and its original RTC identity baseline."""
+
+    note: str
+    content: str
+    hash: str
+    revision: str
+
+    def to_dict(self) -> dict[str, str]:
+        return {"note": self.note, "content": self.content, "hash": self.hash, "revision": self.revision}
+
+
+@dataclass(frozen=True)
+class PatchReceipt:
+    """V2 patch acknowledgment; content hash and RTC revision are distinct."""
+
+    note: str
+    mode: str
+    base_revision: str
+    hash: str
+    revision: str
+
+    def to_dict(self) -> dict[str, str]:
+        """Use the same field names as the API and CLI JSON response."""
+        return {"note": self.note, "mode": self.mode, "baseRevision": self.base_revision,
+                "hash": self.hash, "revision": self.revision}
+
+
+def _revision_token(value: Any, name: str) -> str:
+    if not isinstance(value, str) or not value.strip() or value == "*" or "\r" in value or "\n" in value:
+        raise ValueError(f"{name} must be an original saved revision")
+    return value
+
+
+def _v2_tokens(data: Any, note_id: str) -> None:
+    if (not isinstance(data, dict) or data.get("note") != note_id
+            or not isinstance(data.get("hash"), str)
+            or not re.fullmatch(r"sha256:[a-f0-9]{64}", data["hash"])):
+        raise NoteError("server did not return the Notes v2 contract; no legacy fallback was attempted")
+    try:
+        _revision_token(data.get("revision"), "server revision")
+    except ValueError as error:
+        raise NoteError(str(error)) from error
 
 
 class PatchResult(str):
@@ -231,7 +268,7 @@ class Hit:
                 document — what ``replace(ind=...)`` addresses
 
     ``etag`` is the revision these offsets were computed against. Pass it to
-    ``patch(if_match=...)`` and a note edited in between is refused rather than
+    ``patch(legacy=True, if_match=...)`` and a note edited in between is refused rather than
     overwritten at offsets that have since moved.
     """
 
@@ -303,7 +340,7 @@ def _raise_for(resp: httpx.Response, what: str) -> None:
     msg = body.get("message") or body.get("error") or resp.text or resp.reason_phrase
     if resp.status_code == 412:
         raise NoteChanged(f"{what}: {msg}", etag=body.get("etag") or resp.headers.get("etag"))
-    if resp.status_code == 409:
+    if resp.status_code in (409, 503):
         raise NoteBusy(f"{what}: {msg}")
     if resp.status_code == 422:
         raise PatchFailed(f"{what}: {msg}")
@@ -536,7 +573,7 @@ class Note:
         that revision, and `NoteChanged` is raised if it is not. The use is
         read-after-write —
 
-            rev = note.patch(diff, if_match=doc.etag)
+            rev = note.patch(diff, legacy=True, if_match=doc.etag)
             check = note.read(if_match=rev.etag)   # the version just committed
 
         — where returning whatever happens to be there now would quietly
@@ -570,29 +607,82 @@ class Note:
         """
         return self._send("PUT", "/body", {"text": text}, force, if_match)["etag"]
 
-    def patch(
-        self, diff: str, *, if_match: str | None = None, force: bool = False
-    ) -> "PatchResult":
-        """Apply a unified diff. Returns the commit's `etag` and `size_bytes`.
+    def read_snapshot(self, *, if_match: str | None = None) -> NoteSnapshot:
+        """Read exact v2 source and an original RTC baseline, without editing a Doc.
 
-        The result compares and prints as the ETag string, so code written
-        against the older `str` return keeps working while `result.etag` — the
-        spelling the documented recipes use — also resolves.
-
-        Self-verifying in one sense: the diff's context is its own
-        precondition, so a document that moved refuses the patch (PatchFailed)
-        rather than taking half of it. That is NOT the same as knowing the
-        source is current — a patch can apply cleanly after unrelated changes
-        elsewhere in the file — so the revision is still checked.
-
-        `if_match` names the revision to write against, for a caller holding
-        one from an earlier read. Without it the note's own cached revision is
-        used; `force` sends no precondition at all.
+        The legacy text/ETag cache is unchanged. ``if_match`` optionally verifies
+        this read against one explicit RTC revision; it is never filled from
+        the cached legacy ETag.
         """
-        if if_match is not None and force:
-            raise ValueError("if_match names a revision and force says to ignore one; give one")
-        data = self._send("PATCH", "/body", {"diff": diff}, force, if_match)
-        return PatchResult(etag=data["etag"], size_bytes=data.get("sizeBytes", 0))
+        if if_match is not None:
+            _revision_token(if_match, "if_match")
+        with self._client.http() as http:
+            response = http.get(f"{self._base}/body", params={"contract": "v2"},
+                                headers={} if if_match is None else {"If-Match": if_match})
+        _raise_for(response, f"read {self._ns}/{self._id}")
+        data = response.json()
+        _v2_tokens(data, self._id)
+        if not isinstance(data.get("content"), str) or data["hash"] != "sha256:" + hashlib.sha256(data["content"].encode("utf-8")).hexdigest():
+            raise NoteError("source does not match the returned hash")
+        if if_match is not None and data["revision"] != if_match:
+            raise NoteChanged("note changed since the acknowledged RTC revision")
+        return NoteSnapshot(note=self._id, content=data["content"], hash=data["hash"], revision=data["revision"])
+
+    def patch(
+        self, diff: str, *, base_revision: str | None = None,
+        if_match: str | None = None, format: str | None = None,
+        exact: bool = False, legacy: bool = False, force: bool = False,
+    ) -> PatchReceipt | PatchResult:
+        """Apply a patch against its original source and RTC identities.
+
+        Default requests send ``base_revision`` and no ``If-Match`` header.
+        ``exact=True`` requires the original revision to still be current.
+        Explicit ``if_match`` also selects exact mode and can supply the
+        baseline when used alone. Both tokens must match when provided.
+        ``format`` is ``inline-dff`` (default) or ``diff``. A successful v2
+        response is a structured ``PatchReceipt`` matching CLI/API JSON.
+
+        ``legacy=True`` preserves the prior unified-diff/cached-ETag interface
+        and its string-compatible ``PatchResult``. Local ``Doc`` editing and
+        save semantics are unchanged. Errors leave local drafts and caches
+        untouched; an ambiguous outcome requires inspection before resubmission.
+        """
+        if legacy:
+            if base_revision is not None or format is not None or exact:
+                raise ValueError("base_revision, format and exact require the v2 patch contract")
+            if if_match is not None and force:
+                raise ValueError("if_match names a revision and force says to ignore one; give one")
+            data = self._send("PATCH", "/body", {"diff": diff}, force, if_match)
+            return PatchResult(etag=data["etag"], size_bytes=data.get("sizeBytes", 0))
+        if force:
+            raise ValueError("v2 patch does not need force; omit exact and if_match for a merge patch")
+        baseline = _revision_token(base_revision if base_revision is not None else if_match, "base_revision")
+        if if_match is not None:
+            _revision_token(if_match, "if_match")
+            if baseline != if_match:
+                raise ValueError("base_revision and if_match must identify the same original snapshot")
+        selected_format = "inline-dff" if format is None else format
+        if selected_format not in ("inline-dff", "diff"):
+            raise ValueError("format must be inline-dff or diff")
+        if not isinstance(diff, str) or len(diff.encode("utf-8")) > 8_000_000:
+            raise ValueError("patch must be a UTF-8 string of at most 8000000 bytes")
+        mode = "exact" if exact or if_match is not None else "merge"
+        with self._client.http() as http:
+            response = http.request("PATCH", f"{self._base}/body",
+                json={"format": selected_format, "patch": diff, "baseRevision": baseline, "mode": mode},
+                headers={} if if_match is None else {"If-Match": if_match})
+        _raise_for(response, f"patch {self._ns}/{self._id}")
+        data = response.json()
+        _v2_tokens(data, self._id)
+        if data.get("mode") != mode or data.get("baseRevision") != baseline:
+            raise NoteError("server returned an inconsistent patch receipt; inspect the note before resubmitting")
+        receipt = PatchReceipt(note=self._id, mode=mode, base_revision=baseline,
+                               hash=data["hash"], revision=data["revision"])
+        # Keep the legacy cache in its content-hash domain. Never put an RTC
+        # revision into the ETag used by legacy Doc.save()/whole-body writes.
+        self._etag = '"' + data["hash"].removeprefix("sha256:") + '"'
+        self._text = None
+        return receipt
 
     def insert_section(
         self,
