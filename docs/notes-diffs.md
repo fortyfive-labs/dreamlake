@@ -97,6 +97,45 @@ identity preservation and zero patch writes after EXACT rejection are checked
 by the paired API/RTC acceptance fixture. The SDK does not fall back from EXACT
 to MERGE or overwrite the saved snapshot after a failure.
 
+### Recorded Python fixture values
+
+The following values were replayed through the candidate SDK from an isolated
+API + RTC + Mongo fixture. Authentication, catalog, and S3 projections were
+mocked. This is test evidence, not a released-package or production transcript.
+
+```text
+receipt.mode == "merge"
+receipt.base_revision == "rtc:9a67f239fc8b862aa557dd10dd6512a7669861287ac8fe262d9c80afebcd18e7"
+receipt.hash == "sha256:163af32ec4bc25f27e3b9ae68fe85c75e5b4436a769cc82a4050692643ce92cf"
+receipt.revision == "rtc:94c1a7696f6bcd27fa880e4b38b3f73cdd3971f28b44edf9018fadf817df0f3f"
+```
+
+`receipt.to_dict()` has the same field names as CLI/API JSON:
+
+```json
+{
+  "note": "507f1f77bcf86cd799439099",
+  "mode": "merge",
+  "baseRevision": "rtc:9a67f239fc8b862aa557dd10dd6512a7669861287ac8fe262d9c80afebcd18e7",
+  "hash": "sha256:163af32ec4bc25f27e3b9ae68fe85c75e5b4436a769cc82a4050692643ce92cf",
+  "revision": "rtc:94c1a7696f6bcd27fa880e4b38b3f73cdd3971f28b44edf9018fadf817df0f3f"
+}
+```
+
+EXACT raised `NoteChanged` with this message, after HTTP 412 and zero patch
+journal writes. The SDK emitted no stdout or stderr:
+
+```text
+patch fixture/507f1f77bcf86cd799439099: The RTC baseline changed
+```
+
+The fixture's missing-baseline response was HTTP 404 with
+`error="revision_not_found"`, `message="Original RTC baseline is not retained"`.
+Malformed inline input was HTTP 422 with `error="patch_failed"`,
+`message="Expected inline header and one record"`. The SDK raises `NoteNotFound`
+and `PatchFailed` respectively; it does not turn either response into a MERGE
+retry against newer source.
+
 ## Legacy ETag compatibility
 
 `read()` still returns the editable `Doc`; `Doc.save()`, whole-body writes, and
