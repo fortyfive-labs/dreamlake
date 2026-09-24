@@ -6,7 +6,8 @@ One asset per dir: ``id`` = dir name, ``title`` = dir name with
 underscores as spaces, ``entry`` = ``<dir>/model.xml``, category
 ``object``. The whole dataset is CC-BY-4.0, declared once at the
 library level. No shipped previews exist, so thumbnails only appear
-with ``--thumbnails`` (rendered offscreen; needs mujoco).
+with ``--thumbnails`` (rendered offscreen to
+``thumbnails/<id>.webp``; needs mujoco).
 
 Scale: ~36k files stream through hashing without ever holding file
 contents in memory.
@@ -25,7 +26,7 @@ from ..manifest import (
     file_entry,
     write_manifest,
 )
-from ..thumbnails import render_thumbnail, view_angles
+from ..thumbnails import THUMBNAIL_MAX_DIM, render_thumbnail, view_angles
 from ._common import git_head, iter_asset_files, place_file, sanitize_id
 
 REPO_URL = "https://github.com/kevinzakka/mujoco_scanned_objects"
@@ -55,7 +56,7 @@ def build_library(
     subset: list[str] | None = None,
     thumbnails: bool = False,
     link: bool = False,
-    size: int = 512,
+    size: int = THUMBNAIL_MAX_DIM,
 ) -> LibraryManifest:
     """Build the library directory at ``out`` from a GSO checkout.
 
@@ -109,7 +110,7 @@ def build_library(
         ]
 
         entry = f"{model_id}/model.xml"
-        thumb_rel = f"thumbnails/{model_id}.png"
+        thumb_rel = f"thumbnails/{model_id}.webp"
         have_thumb = False
         if thumbnails:
             kwargs = {"azimuth": azimuth, "elevation": elevation}
@@ -174,8 +175,9 @@ def main(argv: list[str] | None = None) -> int:
         "--link", dest="link", action="store_true",
         help="hardlink asset files instead of copying")
     parser.add_argument(
-        "--size", type=int, default=512,
-        help="rendered thumbnail size in pixels (default: 512)")
+        "--size", type=int, default=THUMBNAIL_MAX_DIM,
+        help="thumbnail max dimension in pixels (WebP output, rendered "
+             f"at 2x and downscaled; default: {THUMBNAIL_MAX_DIM})")
     args = parser.parse_args(argv)
 
     subset = None

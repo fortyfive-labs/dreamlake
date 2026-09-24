@@ -11,7 +11,11 @@ A port of the mujoco_menagerie ``generate_gallery.py`` approach:
   ``AUTO_FOVY``/``AUTO_PADDING`` margins -- every AABB corner is kept
   inside the perspective frustum;
 * transparent background via a segmentation-render alpha mask
-  (chroma-keying the white skybox would eat white robot parts).
+  (chroma-keying the white skybox would eat white robot parts);
+* output through :func:`save_thumbnail`: rendered at 2x the requested
+  size, LANCZOS-downscaled, and saved as lossy WebP (alpha preserved)
+  -- 320px WebP thumbnails run 10-25KB where the old 512px PNGs ran
+  200-400KB, and library grids hold hundreds of them.
 
 ``mujoco`` is an optional dependency (the ``compose`` extra):
 :func:`render_thumbnail` warns and returns ``False`` without it, and on
@@ -28,6 +32,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+from PIL import Image
 
 AUTO_FOVY = 45
 #: padding around the projected model AABB; 1.0 = model touches the
@@ -36,6 +41,13 @@ AUTO_PADDING = 1.08
 
 DEFAULT_AZIMUTH = 70.0
 DEFAULT_ELEVATION = 25.0
+
+#: max(width, height) of a saved thumbnail; smaller inputs stay as-is
+THUMBNAIL_MAX_DIM = 320
+#: lossy WebP settings shared by every thumbnail writer: quality 82 at
+#: the slowest/best encoding effort keeps grid thumbnails ~10-25KB
+WEBP_QUALITY = 82
+WEBP_METHOD = 6
 
 #: (azimuth_deg, elevation_deg) per asset category. Azimuth is measured
 #: from +X around +Z. Arms and end-effectors in Menagerie typically
@@ -76,6 +88,41 @@ def view_angles(category: str | None) -> tuple[float, float]:
     if category and category in VIEW_ANGLES:
         return VIEW_ANGLES[category]
     return (DEFAULT_AZIMUTH, DEFAULT_ELEVATION)
+
+
+def save_thumbnail(
+    image: Image.Image,
+    out_path: str | Path,
+    max_dim: int = THUMBNAIL_MAX_DIM,
+) -> None:
+    """Downscale ``image`` and save it as WebP at ``out_path``.
+
+    The one thumbnail writer: offscreen renders and shipped upstream
+    previews both funnel through here so every library thumbnail comes
+    out the same shape. Resizes so ``max(width, height) == max_dim``
+    (never upscales) with LANCZOS through premultiplied alpha
+    (``RGBa``), so the black of fully-transparent pixels cannot bleed
+    dark fringes into edges; saves lossy WebP (:data:`WEBP_QUALITY`,
+    ``method=6``) with the alpha channel preserved. Creates parent
+    directories.
+    """
+    out_path = Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    if image.mode not in ("RGB", "RGBA"):
+        image = image.convert("RGBA")
+    scale = max_dim / max(image.size)
+    if scale < 1.0:
+        new_size = (
+            max(1, round(image.width * scale)),
+            max(1, round(image.height * scale)),
+        )
+        if image.mode == "RGBA":
+            image = image.convert("RGBa").resize(
+                new_size, Image.Resampling.LANCZOS).convert("RGBA")
+        else:
+            image = image.resize(new_size, Image.Resampling.LANCZOS)
+    image.save(
+        out_path, format="WEBP", quality=WEBP_QUALITY, method=WEBP_METHOD)
 
 
 def _parse_floats(value: Any) -> list[float]:
@@ -172,8 +219,8 @@ def _reset_pose(mujoco, model, data) -> None:
 
 def render_thumbnail(
     xml_path: str | Path,
-    out_png: str | Path,
-    size: int = 512,
+    out_path: str | Path,
+    size: int = THUMBNAIL_MAX_DIM,
     azimuth: float = DEFAULT_AZIMUTH,
     elevation: float = DEFAULT_ELEVATION,
     *,
@@ -185,7 +232,13 @@ def render_thumbnail(
     transparent: bool = True,
     spec_hook: Callable[[Any], None] | None = None,
 ) -> bool:
-    """Render ``xml_path`` to ``out_png``; ``False`` + warning on failure.
+    """Render ``xml_path`` to a WebP at ``out_path``; ``False`` on failure.
+
+    Renders offscreen at ``2 * size`` and downscales through
+    :func:`save_thumbnail` -- a MuJoCo render costs the same order
+    either way, and supersampling beats MSAA-only edges at grid size.
+    ``out_path`` should end in ``.webp`` (the bytes are WebP whatever
+    the suffix says).
 
     ``qpos`` injects a ``gallery_thumbnail`` keyframe (the pose to
     render); a keyframe of that name already in the model wins anyway.
@@ -205,17 +258,17 @@ def render_thumbnail(
             stacklevel=2,
         )
         return False
-    from PIL import Image
 
     xml_path = Path(xml_path)
-    out_png = Path(out_png)
+    out_path = Path(out_path)
+    render_size = size * 2
     renderer = None
     try:
         # Absolute path so the XML's own directory resolves nested
         # includes and per-model meshdir (chdir-based loading collides
         # mesh caches across models sharing asset filenames).
         spec = mujoco.MjSpec.from_file(str(xml_path.resolve()))
-        _apply_gallery_settings(mujoco, spec, size)
+        _apply_gallery_settings(mujoco, spec, render_size)
         if not keep_lights:
             for light in list(spec.lights):
                 spec.delete(light)
@@ -244,7 +297,8 @@ def render_thumbnail(
         data = mujoco.MjData(model)
         _reset_pose(mujoco, model, data)
 
-        renderer = mujoco.Renderer(model, height=size, width=size)
+        renderer = mujoco.Renderer(
+            model, height=render_size, width=render_size)
         renderer.update_scene(data, camera="__thumbnail")
         img = renderer.render()
         # Alpha from a segmentation render, so background pixels go
@@ -254,15 +308,15 @@ def render_thumbnail(
         mask = renderer.render()[..., 0] != -1
         renderer.disable_segmentation_rendering()
 
-        out_png.parent.mkdir(parents=True, exist_ok=True)
         if transparent:
-            png = np.zeros((size, size, 4), dtype=np.uint8)
-            png[mask, :3] = img[mask]
-            png[mask, 3] = 255
+            pixels = np.zeros((render_size, render_size, 4), dtype=np.uint8)
+            pixels[mask, :3] = img[mask]
+            pixels[mask, 3] = 255
         else:
-            png = np.full((size, size, 3), 255, dtype=np.uint8)
-            png[mask] = img[mask]
-        Image.fromarray(png).save(out_png)
+            pixels = np.full((render_size, render_size, 3), 255,
+                             dtype=np.uint8)
+            pixels[mask] = img[mask]
+        save_thumbnail(Image.fromarray(pixels), out_path, max_dim=size)
         return True
     except Exception as e:
         warnings.warn(
