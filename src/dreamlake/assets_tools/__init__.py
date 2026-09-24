@@ -53,7 +53,12 @@ from .manifest import (
     validate,
     write_manifest,
 )
-from .thumbnails import mujoco_available, render_thumbnail, save_thumbnail
+from .thumbnails import (
+    mujoco_available,
+    render_thumbnail,
+    save_thumbnail,
+    stage_thumbnail,
+)
 
 __all__ = [
     "SCHEMA",
@@ -69,6 +74,7 @@ __all__ = [
     "mujoco_available",
     "render_thumbnail",
     "save_thumbnail",
+    "stage_thumbnail",
     "validate",
     "write_dreamlake_yml",
     "write_manifest",
