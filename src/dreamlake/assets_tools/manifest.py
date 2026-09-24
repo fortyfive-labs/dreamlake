@@ -1,11 +1,21 @@
 """The ``dreamlake.assets/v1`` manifest: dataclasses, validation, I/O.
 
-An asset library is a directory of files plus ``assets.json`` at its
-root. The server validates STRICTLY -- unknown keys are rejected -- so
-this module is the single place that knows the schema: the dataclasses
-carry exactly the allowed keys, :func:`validate` mirrors the server's
-rules, and :func:`load_manifest` refuses unknown keys the same way the
-server would.
+The wire manifest the CLI builds at push time and the server validates
+STRICTLY -- unknown keys are rejected -- so this module is the single
+place that knows the schema: the dataclasses carry exactly the allowed
+keys, :func:`validate` mirrors the server's rules
+(``dreamlake-server`` ``assetLibraryManifest.ts``), and
+:func:`load_manifest` refuses unknown keys the same way the server
+would.
+
+Generated artifacts (thumbnails, vectors) live under the reserved
+``.dreamlake/`` prefix and are declared in the OPTIONAL top-level
+``generated`` list -- canonical ``.dreamlake/...`` paths, no
+duplicates, never ``.dreamlake/manifest.json`` itself. Asset
+``files[].path`` must NOT sit under ``.dreamlake/``; an asset's
+``thumbnail`` may point either at one of its files or at a
+``generated`` entry, while ``entry``/``entryPoints[*].file`` stay
+files-only.
 
 Output is deterministic: ``json.dumps(..., sort_keys=True)`` (key order
 is not semantic) with asset order preserved as given (it is).
@@ -29,6 +39,7 @@ ENTRYPOINT_KINDS = ("scene", "robot")
 
 MAX_ASSETS = 20_000
 MAX_FILE_ENTRIES = 100_000
+MAX_GENERATED = 50_000
 MAX_MANIFEST_BYTES = 20 * 1024 * 1024
 MAX_META_BYTES = 8 * 1024
 MAX_TAGS = 32
@@ -43,7 +54,13 @@ _ASSET_ID_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$")
 _CATEGORY_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,31}$")
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
-_MANIFEST_KEYS = {"schema", "library", "assets"}
+_MANIFEST_KEYS = {"schema", "library", "assets", "generated"}
+
+#: the reserved prefix for CLI-generated artifacts; forbidden in asset
+#: files[], required on every generated[] entry
+GENERATED_PREFIX = ".dreamlake/"
+#: the wire manifest itself may never appear in generated[]
+_RESERVED_MANIFEST_PATH = ".dreamlake/manifest.json"
 _LIBRARY_KEYS = {
     "name", "type", "title", "description", "provider", "homepage",
     "license", "tags", "upstream",
@@ -154,18 +171,27 @@ class Asset:
 
 @dataclass
 class LibraryManifest:
-    """The full ``assets.json`` document."""
+    """The full ``assets.json`` document.
+
+    ``generated`` (optional) lists the canonical ``.dreamlake/...``
+    paths of CLI-generated artifacts uploaded alongside the library
+    (thumbnails, vectors); asset thumbnails may reference them.
+    """
 
     library: LibraryInfo = field(default_factory=LibraryInfo)
     assets: list[Asset] = field(default_factory=list)
+    generated: list[str] | None = None
     schema: str = SCHEMA
 
     def to_json(self) -> dict:
-        return {
+        doc = {
             "schema": self.schema,
             "library": self.library.to_json(),
             "assets": [a.to_json() for a in self.assets],
         }
+        if self.generated:
+            doc["generated"] = list(self.generated)
+        return doc
 
     def dumps(self) -> str:
         """Deterministic serialization (sorted keys, stable asset order)."""
@@ -238,13 +264,44 @@ def _validate_library(lib: LibraryInfo) -> None:
                         "library.upstream")
 
 
+def _validate_generated(generated: Any) -> set[str]:
+    """Validate the top-level ``generated`` list; returns it as a set.
+
+    Every entry must be a canonical path under ``.dreamlake/``, unique,
+    and never the wire manifest itself.
+    """
+    if not isinstance(generated, list):
+        raise ManifestError("generated: must be a list")
+    if len(generated) > MAX_GENERATED:
+        raise ManifestError(
+            f"generated: {len(generated)} entries exceed {MAX_GENERATED}")
+    seen: set[str] = set()
+    for i, path in enumerate(generated):
+        where = f"generated[{i}]"
+        _check_path(path, where)
+        if not path.startswith(GENERATED_PREFIX):
+            raise ManifestError(
+                f"{where}: {path!r} must start with {GENERATED_PREFIX!r}")
+        if path == _RESERVED_MANIFEST_PATH:
+            raise ManifestError(
+                f"{where}: {path!r} is reserved (the wire manifest "
+                f"itself)")
+        if path in seen:
+            raise ManifestError(f"{where}: duplicate path {path!r}")
+        seen.add(path)
+    return seen
+
+
 def _validate_asset(
     asset: Asset, index: int, shared: dict[str, tuple[int, str, str]],
+    generated: set[str],
 ) -> int:
     """Validate one asset; returns its file-entry count.
 
     ``shared`` accumulates path -> (size, sha256, owner-id) across assets
     to enforce that a path shared between assets is byte-identical.
+    ``generated`` is the (validated) top-level generated[] set --
+    thumbnails may point into it; entry/entryPoints may not.
     """
     where = f"assets[{index}]"
     _check_str(asset.id, f"{where}.id")
@@ -290,6 +347,11 @@ def _validate_asset(
         if not isinstance(f, AssetFile):
             raise ManifestError(f"{fwhere}: must be an AssetFile")
         _check_path(f.path, f"{fwhere}.path")
+        if f.path.startswith(GENERATED_PREFIX):
+            raise ManifestError(
+                f"{fwhere}.path: {f.path!r} is under the reserved "
+                f"{GENERATED_PREFIX!r} prefix (generated artifacts are "
+                f"declared in top-level generated[], never in files)")
         if not isinstance(f.size, int) or isinstance(f.size, bool) \
                 or f.size < 0:
             raise ManifestError(
@@ -340,10 +402,10 @@ def _validate_asset(
                     f"in files")
     if asset.thumbnail is not None:
         _check_str(asset.thumbnail, f"{where}.thumbnail")
-        if asset.thumbnail not in paths:
+        if asset.thumbnail not in paths and asset.thumbnail not in generated:
             raise ManifestError(
                 f"{where}.thumbnail: {asset.thumbnail!r} is not listed "
-                f"in files")
+                f"in files or generated")
     if asset.meta is not None:
         if not isinstance(asset.meta, dict):
             raise ManifestError(f"{where}.meta: must be an object")
@@ -370,6 +432,10 @@ def validate(manifest: LibraryManifest) -> None:
     if not isinstance(manifest.library, LibraryInfo):
         raise ManifestError("library: must be a LibraryInfo")
     _validate_library(manifest.library)
+    generated = (
+        _validate_generated(manifest.generated)
+        if manifest.generated is not None else set()
+    )
     if not isinstance(manifest.assets, list):
         raise ManifestError("assets: must be a list")
     if len(manifest.assets) > MAX_ASSETS:
@@ -383,7 +449,7 @@ def validate(manifest: LibraryManifest) -> None:
             raise ManifestError(f"assets[{i}]: must be an Asset")
         if asset.id in seen_ids:
             raise ManifestError(f"assets[{i}]: duplicate id {asset.id!r}")
-        total_files += _validate_asset(asset, i, shared)
+        total_files += _validate_asset(asset, i, shared, generated)
         seen_ids.add(asset.id)
     if total_files > MAX_FILE_ENTRIES:
         raise ManifestError(
@@ -485,6 +551,7 @@ def load_manifest(path: str | Path) -> LibraryManifest:
         schema=doc["schema"],
         library=_load_library(doc.get("library", {})),
         assets=[_load_asset(a, i) for i, a in enumerate(assets_doc)],
+        generated=doc.get("generated"),
     )
     validate(manifest)
     return manifest
