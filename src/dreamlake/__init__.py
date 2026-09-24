@@ -46,6 +46,9 @@ from .api import Video, VideoArray, TextTrack, VectorIndex, Prefix
 from .api import (
     Note,
     NoteRef,
+    NoteSnapshot,
+    PatchReceipt,
+    PatchResult,
     Section,
     SectionMatch,
     NoteError,

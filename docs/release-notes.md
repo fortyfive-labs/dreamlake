@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Python 0.20.0 candidate adds immutable `note.read_snapshot()` and structured
+  `PatchReceipt` values matching the Notes v2 API/CLI. `note.patch` defaults to
+  MERGE with an explicit original `base_revision`; `exact=True` selects EXACT
+  per request. Explicit `if_match` remains an EXACT compatibility alias.
+  `legacy=True` preserves the former string result and cached-ETag patch path;
+  `Doc.read/save` semantics are unchanged. Publication and matched server
+  acceptance remain pending. [Contract and migration](notes-diffs.md).
+
 - `note.diff(since=etag)` compares the current note with a retained content-hash reference from a read or successful edit, including across sessions. Omitting `since` uses the handle's last ETag. Requires the server revision-diff endpoint. [Guide](notes-diffs.md).
 
 - Notes drafts support `doc.diff(since="last_edit")` and `doc.patch(diff)` for inspecting and applying local unified diffs before a conditional save. Invalid patches leave the draft unchanged; missing-final-newline diffs now round-trip correctly. [Guide](notes-diffs.md).
