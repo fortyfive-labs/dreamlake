@@ -208,6 +208,81 @@ def test_validate_rejects_thumbnail_not_in_files(tmp_path):
         validate(manifest)
 
 
+# ─── manifest: generated[] (the reserved .dreamlake/ artifacts) ──────
+
+
+def test_manifest_generated_roundtrip(tmp_path):
+    # the wire shape the CLI builds: generated thumbnails declared at
+    # the top level, referenced by asset.thumbnail, absent from files[]
+    manifest = _manifest(tmp_path)
+    manifest.generated = [
+        ".dreamlake/thumbnails/bot_a.webp",
+        ".dreamlake/thumbnails/bot_b.webp",
+        ".dreamlake/vectors.json",
+        ".dreamlake/vectors.f32",
+    ]
+    manifest.assets[0].thumbnail = ".dreamlake/thumbnails/bot_a.webp"
+    manifest.assets[1].thumbnail = ".dreamlake/thumbnails/bot_b.webp"
+    path = write_manifest(manifest, tmp_path)
+    loaded = load_manifest(path)
+    assert loaded.generated == manifest.generated
+    assert loaded.to_json() == manifest.to_json()
+    doc = json.loads(path.read_text())
+    assert doc["generated"] == manifest.generated
+    # no .dreamlake/ path anywhere in files[]
+    for asset in doc["assets"]:
+        assert not any(
+            f["path"].startswith(".dreamlake/") for f in asset["files"])
+
+
+def test_validate_rejects_dreamlake_files_path(tmp_path):
+    manifest = _manifest(tmp_path)
+    manifest.assets[0].files[0].path = ".dreamlake/thumbnails/x.webp"
+    with pytest.raises(ManifestError, match="reserved"):
+        validate(manifest)
+
+
+def test_validate_generated_rules(tmp_path):
+    manifest = _manifest(tmp_path)
+    manifest.generated = ["thumbnails/x.webp"]  # not under .dreamlake/
+    with pytest.raises(ManifestError, match="must start with"):
+        validate(manifest)
+
+    manifest = _manifest(tmp_path)
+    manifest.generated = [".dreamlake/a.webp", ".dreamlake/a.webp"]
+    with pytest.raises(ManifestError, match="duplicate"):
+        validate(manifest)
+
+    manifest = _manifest(tmp_path)
+    manifest.generated = [".dreamlake/manifest.json"]  # the manifest itself
+    with pytest.raises(ManifestError, match="reserved"):
+        validate(manifest)
+
+    manifest = _manifest(tmp_path)
+    manifest.generated = [".dreamlake/../escape"]  # path rules still apply
+    with pytest.raises(ManifestError, match=r"\.\."):
+        validate(manifest)
+
+
+def test_thumbnail_in_generated_entry_still_files_only(tmp_path):
+    manifest = _manifest(tmp_path)
+    manifest.generated = [".dreamlake/thumbnails/bot_a.webp"]
+    manifest.assets[0].thumbnail = ".dreamlake/thumbnails/bot_a.webp"
+    validate(manifest)  # thumbnail may live in generated[]
+
+    # entry and entryPoints stay files-only
+    manifest.assets[0].entry = ".dreamlake/thumbnails/bot_a.webp"
+    with pytest.raises(ManifestError, match="not listed in files"):
+        validate(manifest)
+    manifest = _manifest(tmp_path)
+    manifest.generated = [".dreamlake/thumbnails/bot_a.webp"]
+    manifest.assets[0].entry_points = {
+        "model": {"kind": "robot",
+                  "file": ".dreamlake/thumbnails/bot_a.webp"}}
+    with pytest.raises(ManifestError, match="not listed in files"):
+        validate(manifest)
+
+
 def test_validate_rejects_bad_entrypoint(tmp_path):
     manifest = _manifest(tmp_path)
     manifest.assets[0].entry_points = {
@@ -880,12 +955,9 @@ def wire_manifest(tmp_path):
     xml_b = _asset_file(files_root, "bot_b/model.xml", MINIMAL_MJCF.encode())
     xml_c = _asset_file(files_root, "bot_c/model.xml", MINIMAL_MJCF.encode())
 
-    # the batch renderer's output: <thumbs-dir>/<id>.webp
+    # the batch renderer's output: <thumbs-dir>/<id>.webp -- declared
+    # in top-level generated[], NEVER in the asset's files[]
     Image.new("RGB", (2, 2), (200, 30, 30)).save(thumbs_dir / "bot_a.webp")
-    thumb_a = AssetFile(
-        path=".dreamlake/thumbnails/bot_a.webp",
-        size=(thumbs_dir / "bot_a.webp").stat().st_size,
-        sha256=hash_file(thumbs_dir / "bot_a.webp"))
     # a user-authored preview, a plain source file
     Image.new("RGB", (2, 2), (30, 30, 200)).save(
         files_root / "bot_b" / "preview.png")
@@ -893,10 +965,15 @@ def wire_manifest(tmp_path):
 
     manifest = LibraryManifest(
         library=LibraryInfo(name="wire-lib"),
+        generated=[
+            ".dreamlake/thumbnails/bot_a.webp",
+            ".dreamlake/vectors.json",
+            ".dreamlake/vectors.f32",
+        ],
         assets=[
             Asset(id="bot_a", title="Bot A", description="A red robot",
                   tags=["robots", "red"], kind="mjcf",
-                  files=[xml_a, thumb_a],
+                  files=[xml_a],
                   thumbnail=".dreamlake/thumbnails/bot_a.webp"),
             Asset(id="bot_b", kind="mjcf", files=[xml_b, preview_b],
                   thumbnail="bot_b/preview.png"),
