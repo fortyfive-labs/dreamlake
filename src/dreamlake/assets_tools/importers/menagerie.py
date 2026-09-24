@@ -9,10 +9,12 @@ One asset per model directory (a top-level dir containing ``*.xml``):
   ``entry`` = the first scene entry point, else the first XML;
 * ``files`` = every file in the dir (recursive), copied (or hardlinked)
   to the same relative path under the output library root;
-* thumbnail: the model's shipped preview PNG when one exists, else --
-  with ``--thumbnails`` -- rendered offscreen via
-  :mod:`~dreamlake.assets_tools.thumbnails`; either way it lands at
-  ``thumbnails/<id>.png`` and is listed in the asset's files.
+* thumbnail: the model's shipped preview PNG when one exists
+  (re-encoded through the shared downscale+WebP writer -- Menagerie
+  ships large PNGs), else -- with ``--thumbnails`` -- rendered
+  offscreen via :mod:`~dreamlake.assets_tools.thumbnails`; either way
+  it lands at ``thumbnails/<id>.webp`` and is listed in the asset's
+  files with the WebP's real size/sha256.
 
 When the checkout carries a ``catalog.py`` (the gallery's MODEL_MAP),
 categories and per-category view angles come from it; otherwise both
@@ -26,6 +28,8 @@ import importlib.util
 import sys
 from pathlib import Path
 
+from PIL import Image
+
 from ..manifest import (
     Asset,
     LibraryInfo,
@@ -33,7 +37,12 @@ from ..manifest import (
     file_entry,
     write_manifest,
 )
-from ..thumbnails import render_thumbnail, view_angles
+from ..thumbnails import (
+    THUMBNAIL_MAX_DIM,
+    render_thumbnail,
+    save_thumbnail,
+    view_angles,
+)
 from ._common import (
     git_head,
     iter_asset_files,
@@ -217,7 +226,7 @@ def build_library(
     subset: list[str] | None = None,
     thumbnails: bool = False,
     link: bool = False,
-    size: int = 512,
+    size: int = THUMBNAIL_MAX_DIM,
 ) -> LibraryManifest:
     """Build the library directory at ``out`` from a Menagerie checkout."""
     src = Path(src)
@@ -277,13 +286,23 @@ def build_library(
             None,
         )
 
-        thumb_rel = f"thumbnails/{model_id}.png"
+        thumb_rel = f"thumbnails/{model_id}.webp"
         have_thumb = False
         shipped = _existing_preview(model_dir, list(entry_points))
         if shipped is not None:
-            place_file(shipped, out / thumb_rel, link=link)
-            have_thumb = True
-        elif thumbnails:
+            # never copied verbatim: upstream previews are large PNGs,
+            # so they go through the same downscale+WebP writer as
+            # rendered thumbnails
+            try:
+                with Image.open(shipped) as img:
+                    save_thumbnail(
+                        img.convert("RGBA"), out / thumb_rel, max_dim=size)
+                have_thumb = True
+            except Exception as e:  # unreadable preview: fall through
+                print(
+                    f"bad shipped preview {shipped}: "
+                    f"{type(e).__name__}: {e}", file=sys.stderr)
+        if not have_thumb and thumbnails:
             xml_rel = _thumbnail_xml(model_id, entry_points, entry)
             have_thumb = render_thumbnail(
                 out / xml_rel,
@@ -346,8 +365,9 @@ def main(argv: list[str] | None = None) -> int:
         "--link", dest="link", action="store_true",
         help="hardlink asset files instead of copying")
     parser.add_argument(
-        "--size", type=int, default=512,
-        help="rendered thumbnail size in pixels (default: 512)")
+        "--size", type=int, default=THUMBNAIL_MAX_DIM,
+        help="thumbnail max dimension in pixels (WebP output, rendered "
+             f"at 2x and downscaled; default: {THUMBNAIL_MAX_DIM})")
     args = parser.parse_args(argv)
 
     subset = None

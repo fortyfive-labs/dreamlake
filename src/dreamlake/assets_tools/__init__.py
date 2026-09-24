@@ -11,7 +11,8 @@ Layout:
 * :mod:`~dreamlake.assets_tools.manifest` -- the ``dreamlake.assets/v1``
   schema as dataclasses, strict validation, deterministic read/write.
 * :mod:`~dreamlake.assets_tools.thumbnails` -- offscreen MJCF thumbnail
-  rendering (auto-framed, transparent background). Needs ``mujoco``
+  rendering (auto-framed, transparent background, downscaled WebP
+  output via the shared ``save_thumbnail``). Rendering needs ``mujoco``
   (``pip install 'dreamlake[compose]'``); degrades to a warning + skip
   without it.
 * :mod:`~dreamlake.assets_tools.importers` -- one module per upstream
@@ -39,7 +40,7 @@ from .manifest import (
     validate,
     write_manifest,
 )
-from .thumbnails import mujoco_available, render_thumbnail
+from .thumbnails import mujoco_available, render_thumbnail, save_thumbnail
 
 __all__ = [
     "SCHEMA",
@@ -53,6 +54,7 @@ __all__ = [
     "load_manifest",
     "mujoco_available",
     "render_thumbnail",
+    "save_thumbnail",
     "validate",
     "write_manifest",
 ]

@@ -29,6 +29,7 @@ from dreamlake.assets_tools import (
     hash_file,
     load_manifest,
     render_thumbnail,
+    save_thumbnail,
     validate,
     write_manifest,
 )
@@ -290,12 +291,22 @@ def test_menagerie_import(menagerie_repo, tmp_path):
         "scene": {"kind": "scene", "file": "tiny_bot/scene.xml"},
         "tiny_bot": {"kind": "robot", "file": "tiny_bot/tiny_bot.xml"},
     }
-    # shipped preview copied to thumbnails/<id>.png and listed in files
-    assert asset.thumbnail == "thumbnails/tiny_bot.png"
+    # shipped preview re-encoded to thumbnails/<id>.webp, listed in
+    # files with the WebP's real size + sha256 (not the source PNG's)
+    assert asset.thumbnail == "thumbnails/tiny_bot.webp"
     paths = {f.path for f in asset.files}
-    assert "thumbnails/tiny_bot.png" in paths
+    assert "thumbnails/tiny_bot.webp" in paths
     assert "tiny_bot/assets/arm.obj" in paths
     assert "tiny_bot/fragment.xml" in paths  # shipped even if not an entry
+    thumb_path = out / "thumbnails" / "tiny_bot.webp"
+    with Image.open(thumb_path) as img:
+        assert img.format == "WEBP"
+        assert img.size == (2, 2)  # small preview: never upscaled
+    thumb_entry = next(
+        f for f in asset.files if f.path == "thumbnails/tiny_bot.webp")
+    assert thumb_entry.size == thumb_path.stat().st_size
+    assert thumb_entry.sha256 == hashlib.sha256(
+        thumb_path.read_bytes()).hexdigest()
 
     # files copied verbatim, hashes match the source bytes
     assert (out / "tiny_bot" / "tiny_bot.xml").read_text() == MINIMAL_MJCF
@@ -403,23 +414,60 @@ def test_gso_cli_main(gso_repo, tmp_path, capsys):
 # ─── thumbnails ──────────────────────────────────────────────────────
 
 
+def test_pillow_ships_webp():
+    # save_thumbnail leans on Pillow's built-in webp codec; modern
+    # wheels always carry it, so no extra dependency is declared
+    from PIL import features
+    assert features.check("webp")
+
+
+def test_save_thumbnail_shrinks_big_rgba(tmp_path):
+    # a render-like 512x512 RGBA: noisy opaque disc on a transparent
+    # background (noise so neither codec gets a free lunch)
+    rng = np.random.default_rng(42)
+    rgba = rng.integers(0, 256, (512, 512, 4), dtype=np.uint8)
+    yy, xx = np.mgrid[:512, :512]
+    rgba[..., 3] = np.where(
+        (xx - 256) ** 2 + (yy - 256) ** 2 <= 220 ** 2, 255, 0)
+    src = Image.fromarray(rgba, "RGBA")
+    as_png = tmp_path / "big.png"
+    src.save(as_png)  # what the old pipeline shipped
+
+    out = tmp_path / "thumbs" / "big.webp"
+    save_thumbnail(src, out)
+    with Image.open(out) as img:
+        assert img.format == "WEBP"
+        assert img.mode == "RGBA"  # alpha preserved
+        assert img.size == (320, 320)
+    assert out.stat().st_size < as_png.stat().st_size / 4
+
+
+def test_save_thumbnail_never_upscales(tmp_path):
+    out = tmp_path / "small.webp"
+    save_thumbnail(Image.new("RGBA", (100, 80), (10, 200, 30, 255)), out)
+    with Image.open(out) as img:
+        assert img.format == "WEBP"
+        assert img.size == (100, 80)
+
+
 def test_render_skips_without_mujoco(tmp_path, monkeypatch):
     monkeypatch.setitem(sys.modules, "mujoco", None)  # import -> ImportError
     xml = tmp_path / "m.xml"
     xml.write_text(MINIMAL_MJCF)
     with pytest.warns(UserWarning, match="mujoco is not installed"):
-        assert render_thumbnail(xml, tmp_path / "t.png") is False
-    assert not (tmp_path / "t.png").exists()
+        assert render_thumbnail(xml, tmp_path / "t.webp") is False
+    assert not (tmp_path / "t.webp").exists()
 
 
 def test_render_thumbnail(tmp_path):
     pytest.importorskip("mujoco")
     xml = tmp_path / "m.xml"
     xml.write_text(MINIMAL_MJCF)
-    out = tmp_path / "thumbs" / "m.png"
+    out = tmp_path / "thumbs" / "m.webp"
     assert render_thumbnail(xml, out, size=64) is True
     with Image.open(out) as img:
-        assert img.size == (64, 64)
+        assert img.format == "WEBP"
+        assert img.size == (64, 64)  # rendered at 128, downscaled
         assert img.mode == "RGBA"
 
 
@@ -428,7 +476,7 @@ def test_render_thumbnail_bad_model_returns_false(tmp_path):
     xml = tmp_path / "broken.xml"
     xml.write_text("<mujoco><worldbody><geom type=")
     with pytest.warns(UserWarning, match="thumbnail render failed"):
-        assert render_thumbnail(xml, tmp_path / "t.png") is False
+        assert render_thumbnail(xml, tmp_path / "t.webp") is False
 
 
 def test_gso_import_with_thumbnails(gso_repo, tmp_path):
@@ -436,8 +484,8 @@ def test_gso_import_with_thumbnails(gso_repo, tmp_path):
     out = tmp_path / "lib"
     manifest = gso.build_library(gso_repo, out, thumbnails=True, size=64)
     asset = manifest.assets[0]
-    assert asset.thumbnail == "thumbnails/Toy_Fire_Truck.png"
-    assert (out / "thumbnails" / "Toy_Fire_Truck.png").exists()
+    assert asset.thumbnail == "thumbnails/Toy_Fire_Truck.webp"
+    assert (out / "thumbnails" / "Toy_Fire_Truck.webp").exists()
     assert asset.thumbnail in {f.path for f in asset.files}
     load_manifest(out / "assets.json")
 
