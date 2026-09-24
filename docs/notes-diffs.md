@@ -97,6 +97,33 @@ identity preservation and zero patch writes after EXACT rejection are checked
 by the paired API/RTC acceptance fixture. The SDK does not fall back from EXACT
 to MERGE or overwrite the saved snapshot after a failure.
 
+### Successful EXACT and the next MERGE request
+
+Continue from the merged fixture, taking a new snapshot for this separate edit.
+If a writer intervenes again, EXACT raises `NoteChanged`; retain this snapshot
+and draft and inspect the note before deciding on another request.
+
+```python
+exact_base = note.read_snapshot()
+assert exact_base.content == "Human: Hello team."
+exact_patch = "@@ chars 18:18 @@\n~ {+!+}\n"
+exact_receipt = note.patch(exact_patch, base_revision=exact_base.revision, exact=True)
+print(exact_receipt.mode)           # exact
+print(exact_receipt.base_revision)  # exact_base.revision
+print(exact_receipt.hash)           # content hash of the post-ACK observation
+print(exact_receipt.revision)       # RTC revision of that same observation
+print(exact_receipt.to_dict())      # note, mode, baseRevision, hash, revision
+assert note.read_snapshot().content == "Human: Hello team.!"
+
+# EXACT applies to one request. This separate no-op uses the MERGE default.
+next_base = note.read_snapshot()
+next_receipt = note.patch("", base_revision=next_base.revision)
+assert next_receipt.mode == "merge"
+assert next_receipt.base_revision == next_base.revision
+assert next_receipt.revision == next_base.revision
+print(next_receipt.to_dict())
+```
+
 ### Recorded Python fixture values
 
 The following values were replayed through the candidate SDK from an isolated
@@ -136,6 +163,44 @@ Malformed inline input was HTTP 422 with `error="patch_failed"`,
 and `PatchFailed` respectively; it does not turn either response into a MERGE
 retry against newer source.
 
+### Recorded successful EXACT return value
+
+A separate run of the same isolated API/RTC/Mongo fixture produced this receipt,
+replayed through the candidate SDK. The SDK emitted no stdout or stderr; these
+are returned attributes, not a published-package or production transcript.
+
+```text
+exact_receipt.mode == "exact"
+exact_receipt.base_revision == "rtc:71371be6e3227abca241161ebb7d8d65e2d851b8872b5a5d51ce7ec80369d95e"
+exact_receipt.hash == "sha256:2b8c0f5475f23494272f3800abb11a7680b3360bc2e927763c10aec9cf4398f5"
+exact_receipt.revision == "rtc:63834c3821f7b76779815f3a670449268711811e69f86f6b208fb52236713484"
+```
+
+`exact_receipt.to_dict()`:
+
+```json
+{
+  "note": "507f1f77bcf86cd799439099",
+  "mode": "exact",
+  "baseRevision": "rtc:71371be6e3227abca241161ebb7d8d65e2d851b8872b5a5d51ce7ec80369d95e",
+  "hash": "sha256:2b8c0f5475f23494272f3800abb11a7680b3360bc2e927763c10aec9cf4398f5",
+  "revision": "rtc:63834c3821f7b76779815f3a670449268711811e69f86f6b208fb52236713484"
+}
+```
+
+The next empty patch omitted `exact=True`, returned `mode == "merge"`, and kept
+the same hash and revision. Its `to_dict()` was:
+
+```json
+{
+  "note": "507f1f77bcf86cd799439099",
+  "mode": "merge",
+  "baseRevision": "rtc:63834c3821f7b76779815f3a670449268711811e69f86f6b208fb52236713484",
+  "hash": "sha256:2b8c0f5475f23494272f3800abb11a7680b3360bc2e927763c10aec9cf4398f5",
+  "revision": "rtc:63834c3821f7b76779815f3a670449268711811e69f86f6b208fb52236713484"
+}
+```
+
 ## Legacy ETag compatibility
 
 `read()` still returns the editable `Doc`; `Doc.save()`, whole-body writes, and
@@ -144,9 +209,9 @@ select `patch(..., legacy=True)` explicitly. That path continues to return
 `PatchResult(str)` with `.etag` and `.size_bytes`, and retains the previous cached
 ETag precondition. A legacy content ETag must not be passed as a v2 RTC baseline.
 
-## Compare against your own last read or edit
+## Legacy comparisons against your last read or edit
 
-Every body read returns `doc.etag`, a quoted SHA-256 hash of the complete text.
+The legacy `note.read()` body read returns `doc.etag`, a quoted SHA-256 hash of the complete text.
 Keep it as a revision reference, including across processes:
 
 ```python

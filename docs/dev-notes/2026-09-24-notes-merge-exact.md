@@ -19,3 +19,13 @@ cached legacy state. There is no automatic HTTP replay after an ambiguous ack.
 Publishing uses the repository's GitHub `publish-production` workflow and PyPI
 OIDC from the reviewed merged commit. Source tests, isolated built-package
 readback, docs build, publication, and live integration are separate gates.
+
+## Successful EXACT documentation follow-up
+
+The owning guide now demonstrates a successful EXACT append, all returned
+receipt attributes, and a subsequent default MERGE no-op proving request modes
+do not persist. Recorded values come from the isolated API/RTC/Mongo fixture
+and actual candidate client replay, explicitly distinct from production.
+Legacy examples retain `legacy=True`; the old ETag comparison section and
+`PatchResult` docstring now explicitly identify the legacy contract.
+Validation: 89 Notes tests, two SDK receipt replays, and Sphinx build.

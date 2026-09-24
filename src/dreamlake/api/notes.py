@@ -154,9 +154,9 @@ def _v2_tokens(data: Any, note_id: str) -> None:
 
 
 class PatchResult(str):
-    """What a patch committed.
+    """What an explicit legacy patch committed.
 
-    Subclasses `str` and equals its own ETag, so `note.patch(...)` can grow
+    Subclasses `str` and equals its own ETag, so `note.patch(..., legacy=True)` can grow
     fields without breaking a caller that treated the old return value as the
     revision string — comparisons, formatting and `if_match=` all still work.
     """
