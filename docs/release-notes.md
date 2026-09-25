@@ -1,5 +1,15 @@
 # Release notes
 
+## 0.21.0 — Explicit Notes agent activity
+
+Set `DREAMLAKE_AGENT_ID` to a task-specific ID and optional
+`DREAMLAKE_AGENT_NAME` to a printable ASCII label to attribute direct Notes
+reads and acknowledged edits. Ordinary clients remain unattributed. Headers
+are restricted to Notes operations on the configured API origin. Requires the
+matching server/UI for ephemeral read labels and insertion highlights.
+Canonical source, revision checks, and patch receipt behavior are unchanged.
+
+
 ## 0.20.0 — Notes MERGE and EXACT
 
 - Python 0.20.0 adds immutable `note.read_snapshot()` and structured
