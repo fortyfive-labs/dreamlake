@@ -99,7 +99,27 @@ class DreamLakeClient:
             headers=self._headers(),
             transport=self._transport,
             timeout=30,
+            event_hooks={"request": [self._note_agent_headers]},
         )
+
+    def _note_agent_headers(self, request: httpx.Request) -> None:
+        """Attribute explicit agent Notes operations; never infer from Python use."""
+        base = httpx.URL(self.dl_url)
+        if (request.url.scheme, request.url.host, request.url.port) != (base.scheme, base.host, base.port):
+            return
+        if not re.match(r"^/namespaces/[^/]+/notes/[^/]+/(body|diff|sections)(/|$)", request.url.path):
+            return
+        agent_id = os.getenv("DREAMLAKE_AGENT_ID")
+        if not agent_id:
+            return
+        name = os.getenv("DREAMLAKE_AGENT_NAME")
+        if not re.fullmatch(r"[a-zA-Z0-9_.:-]{1,128}", agent_id):
+            raise ValueError("DREAMLAKE_AGENT_ID must be a 1-128 character session identifier")
+        if name is not None and (len(name) > 64 or re.search(r"[^\x20-\x7e]", name)):
+            raise ValueError("DREAMLAKE_AGENT_NAME must be at most 64 printable ASCII characters")
+        request.headers["X-DreamLake-Agent-Id"] = agent_id
+        if name:
+            request.headers["X-DreamLake-Agent-Name"] = name
 
     def _headers(self) -> dict:
         h = {}
