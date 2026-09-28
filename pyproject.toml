@@ -78,6 +78,14 @@ search = [
     "transformers>=4.40",
     "pillow>=10",
 ]
+# Asset-library embeddings sidecar (assets_tools.embed): open_clip
+# ViT-L-14/openai, matching the query-time clip-service. torch is heavy,
+# so it stays an extra; embed.py imports it lazily with a pointer here.
+embed = [
+    "torch>=2.0",
+    "open-clip-torch>=2.24",
+    "pillow>=10",
+]
 
 # No console script: the user-facing CLI is the standalone DreamLake CLI
 # (curl -fsSL https://dl.dreamlake.ai/install.sh | bash), which owns the
