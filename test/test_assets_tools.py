@@ -898,7 +898,7 @@ def test_embed_sidecar_matches_server_contract(
 
     doc = json.loads((embed_lib / "assets.vectors.json").read_text())
     assert doc["schema"] == "dreamlake.assets.vectors/v1"
-    assert doc["model"] == "open_clip/ViT-L-14/openai"
+    assert doc["model"] == "open_clip/ViT-L-14-quickgelu/openai"
     assert doc["dim"] == 8
     # every asset present, manifest order; row indices in
     # assignment order; null image/text where the input is absent
@@ -1085,7 +1085,7 @@ def test_embed_manifest_mode_roundtrip(wire_manifest, tmp_path, monkeypatch):
 
     doc = json.loads((out_dir / "vectors.json").read_text())
     assert doc["schema"] == "dreamlake.assets.vectors/v1"  # same format
-    assert doc["model"] == "open_clip/ViT-L-14/openai"
+    assert doc["model"] == "open_clip/ViT-L-14-quickgelu/openai"
     assert doc["dim"] == 8
     assert [it["id"] for it in doc["items"]] == ["bot_a", "bot_b", "bot_c"]
     a, b, c = doc["items"]
@@ -1151,7 +1151,7 @@ def test_embed_manifest_cli_stdout_contract(
     stats = json.loads(captured.out)
     assert stats["rows"] == 4 and stats["dim"] == 8
     assert stats["assets"] == 3
-    assert stats["model"] == "open_clip/ViT-L-14/openai"
+    assert stats["model"] == "open_clip/ViT-L-14-quickgelu/openai"
     assert stats["json"] == str(out_dir / "vectors.json")
     assert stats["f32"] == str(out_dir / "vectors.f32")
     assert stats["images"] == {

@@ -31,11 +31,13 @@ Both write the layout the server parser (``dreamlake-server``
   float32 rows, each row L2-normalized, row *i* at byte ``i * dim * 4``.
 
 The embedding model is a COMPATIBILITY CONTRACT with the query-time
-encoder (``scripts/clip-service/server.py``): open_clip ``ViT-L-14``
-with the ``openai`` pretrained weights (768-dim), images through the
-model's own val preprocess (PIL, ``convert("RGB")``), texts through the
-model tokenizer. Change either side and image/text similarity turns to
-garbage.
+encoder (dreamlake-server ``services/clipText.ts`` -- the ONNX text
+tower of the SAME checkpoint, running in-process in the API server):
+open_clip ``ViT-L-14-quickgelu`` with the ``openai`` pretrained weights
+(768-dim, QuickGELU -- the activation the OpenAI weights were trained
+with), images through the model's own val preprocess (PIL,
+``convert("RGB")``), texts through the model tokenizer. Change either
+side and image/text similarity turns to garbage.
 
 Per-asset inputs: the image vector comes from the ``thumbnail`` file;
 the text vector from ``"{title}. {description}. {tags joined by ', '}"``
@@ -76,8 +78,13 @@ OUT_VECTORS_F32 = "vectors.f32"
 #: live at <thumbs-dir>/<asset id>.webp, not under the files root
 DREAMLAKE_THUMBS_PREFIX = ".dreamlake/thumbnails/"
 
-#: MUST match scripts/clip-service/server.py (the query-time encoder).
-DEFAULT_MODEL = "ViT-L-14"
+#: MUST stay in the same embedding space as the server's query-time
+#: encoder (dreamlake-server services/clipText.ts: the fp16 ONNX export
+#: of openai/clip-vit-large-patch14). "-quickgelu" is essential: the
+#: plain "ViT-L-14" config runs the OpenAI weights through nn.GELU,
+#: which lands in a measurably different space (cos as low as 0.5 vs
+#: the true QuickGELU on long texts).
+DEFAULT_MODEL = "ViT-L-14-quickgelu"
 DEFAULT_PRETRAINED = "openai"
 
 DEFAULT_CACHE_DIR = Path("~/.cache/dreamlake/assets-embed")
@@ -109,14 +116,13 @@ def asset_text(asset: Asset) -> str:
 def _load_encoder(model: str, pretrained: str, device: str):
     """``(encode_image(path), encode_text(str))``, each -> 1-D float32.
 
-    Mirrors scripts/clip-service/server.py: open_clip model + its own
-    val preprocess + its tokenizer. Raw (un-normalized) features out;
-    normalization happens once, at matrix-write time.
+    open_clip model + its own val preprocess + its tokenizer. Raw
+    (un-normalized) features out; normalization happens once, at
+    matrix-write time.
 
-    open_clip >= 2.24 warns "QuickGELU mismatch" for ViT-L-14/openai --
-    expected and harmless HERE ONLY BECAUSE the clip-service passes the
-    exact same identifiers to the same (recent) open_clip, so both
-    sides build the identical model either way.
+    The "-quickgelu" model name loads the openai checkpoint with its
+    trained activation (no "QuickGELU mismatch" warning) -- the exact
+    space the server's ONNX text tower (services/clipText.ts) lives in.
     """
     try:
         import open_clip
@@ -478,8 +484,8 @@ def main(argv: list[str] | None = None) -> int:
             "and prints one JSON stats line to stdout; legacy in-dir "
             "mode (a library directory argument) writes "
             "assets.vectors.json + assets.vectors.f32 next to its "
-            "assets.json. The model must match the query-time "
-            "clip-service (ViT-L-14/openai, 768-dim)."
+            "assets.json. The model must share the server's query "
+            "encoder space (ViT-L-14-quickgelu/openai, 768-dim)."
         ),
     )
     parser.add_argument(
