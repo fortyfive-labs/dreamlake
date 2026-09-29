@@ -1,15 +1,34 @@
-"""Parse + validate ``dreamlake.env-layers/v2`` stack files.
+"""Parse + validate ``dreamlake.env-layers/v3`` stack files.
+
+The v3 schema is a **component grammar** (RFC 0007): every stack entry is
+one flat object ``{"tag": ..., ...props}`` -- no ``source``/``compose``
+wrappers, no mode-specific sub-schemas. Five tags:
+
+* ``Merge``   ``{tag, src}`` -- union the env's MJCF into the stack;
+* ``Attach``  ``{tag, src, key, joint, at?, pos?, quat?}`` -- graft the
+  env's subtree under the identity root ``key`` (names become
+  ``<key>:<name>``);
+* ``Update``  ``{tag, key, ...attrs}`` -- inline sparse opinions: every
+  prop besides ``tag``/``key`` is an MJCF attribute opinion on the
+  addressed element;
+* ``Remove``  ``{tag, key}`` -- delete the addressed element + subtree;
+* ``Patch``   ``{tag, src}`` -- sparse-MJCF opinions from a file or env.
+
+``src`` is ONE string, ESM-style: a bare ``ns/name[@v]`` is a registry env
+ref; a string starting with ``./``, ``../`` or ``/`` is a local path (env
+directory or single MJCF file). Element addresses (``Update.key``,
+``Remove.key``, ``Attach.at``) share one syntax: ``kind:name``, or a bare
+``name`` when it is unambiguous across kinds; ``option`` alone addresses
+the singleton, ``visual:<sub>`` a visual sub-block.
 
 Two forms share the schema:
 
-* **authored** -- layer sources may be registry refs (``{"env": "ns/name"}``
-  or ``ns/name@3``) and versions may float;
-* **resolved** -- every source is a local ``{"path": "<abs>"}`` (optionally
-  carrying ``"pin": {"env": "ns/name", "version": N}`` recording where the
-  path was pulled from) or a ``{"file": "..."}`` inside the stack directory.
+* **authored** -- ``src`` may be a registry ref and versions may float;
+* **resolved** -- every ``src`` is a local path (optionally carrying
+  ``"pin": "ns/name@N"`` recording where it was pulled from).
 
 ``load_stack`` accepts both; the composition engine additionally calls
-:func:`require_resolved`, which rejects ``env`` sources -- resolution
+:func:`require_resolved`, which rejects registry refs -- resolution
 (registry -> cache -> path) is the CLI's job, the engine is network-free.
 
 Every validation error is a :class:`ComposeError` carrying the offending
@@ -19,29 +38,57 @@ layer index (``None`` for stack-level problems).
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
-SCHEMA = "dreamlake.env-layers/v2"
+SCHEMA = "dreamlake.env-layers/v3"
+#: The superseded schema id, recognized only to point at the migration map.
+SCHEMA_V2 = "dreamlake.env-layers/v2"
 SUBSTRATE = "mujoco"
 
-MODES = ("merge", "attach", "override")
+TAGS = ("Merge", "Attach", "Update", "Remove", "Patch")
 JOINT_MODES = ("rigid", "free", "free-anchored")
 
-#: Element kinds ``compose.delete`` may name (all have MjSpec finders and a
+#: Named-element kinds ``Update`` may address (all have MjSpec finders and
+#: settable attributes).
+UPDATE_KINDS = ("body", "geom", "joint", "site", "camera", "light", "material")
+#: Singleton kinds addressed by kind alone (``option``) or by sub-block
+#: (``visual:<sub>``).
+SINGLETON_KINDS = ("option", "visual")
+#: Element kinds ``Remove`` may address (all have MjSpec finders and a
 #: ``spec.delete`` overload).
 DELETE_KINDS = (
     "body", "geom", "joint", "site", "camera", "light", "material",
     "mesh", "texture", "actuator", "sensor", "tendon", "equality", "key",
 )
 
-_SOURCE_KEYS = {"env", "path", "file", "pin"}
-_COMPOSE_KEYS = {
-    "merge": {"mode"},
-    "attach": {"mode", "prefix", "at", "pos", "quat", "joint", "instances"},
-    "override": {"mode", "delete"},
+#: Update props that are identity/class plumbing, never opinions.
+RESERVED_UPDATE_PROPS = ("name", "class", "childclass")
+
+_TAG_KEYS = {
+    "Merge": {"tag", "src", "pin", "unpinned"},
+    "Attach": {"tag", "src", "key", "at", "pos", "quat", "joint",
+               "pin", "unpinned"},
+    "Remove": {"tag", "key"},
+    "Patch": {"tag", "src", "pin", "unpinned"},
+    # Update deliberately has no allow-list: its props ARE the opinions.
 }
-_INSTANCE_KEYS = {"prefix", "pos", "quat"}
+
+_ENV_REF_RE = re.compile(r"^[^\s/@]+/[^\s/@]+(@\d+)?$")
+_PIN_RE = re.compile(r"^[^\s/@]+/[^\s/@]+@\d+$")
+
+_V2_MIGRATION = (
+    "the v2 {source, compose} schema is superseded by the v3 component "
+    "grammar; migrate mechanically: merge -> {\"tag\": \"Merge\", \"src\"}; "
+    "attach+prefix -> {\"tag\": \"Attach\", \"src\", \"key\"} (key without "
+    "the trailing colon; one Attach entry per former instance); override "
+    "env/file sources -> {\"tag\": \"Patch\", \"src\"}; small sparse-XML "
+    "opinions -> inline {\"tag\": \"Update\", \"key\", ...attrs}; "
+    "compose.delete -> {\"tag\": \"Remove\", \"key\": \"kind:name\"}; "
+    "{\"env\"|\"path\"|\"file\"} sources -> one src string (local paths "
+    "start with ./)"
+)
 
 
 class ComposeError(Exception):
@@ -56,56 +103,86 @@ class ComposeError(Exception):
         self.layer = layer
 
 
-@dataclass(frozen=True)
-class Instance:
-    """One placement of an attach layer's source."""
+def src_is_local(src: str) -> bool:
+    """The ESM-style rule: local paths announce themselves with ``./``,
+    ``../`` or an absolute prefix; every bare string is a registry ref."""
+    return src.startswith(("./", "../")) or Path(src).is_absolute()
 
-    prefix: str
-    pos: tuple[float, float, float] = (0.0, 0.0, 0.0)
-    quat: tuple[float, float, float, float] = (1.0, 0.0, 0.0, 0.0)  # wxyz
+
+def parse_address(
+    key: str, kinds: tuple[str, ...], singletons: tuple[str, ...] = (),
+) -> tuple[str | None, str | None]:
+    """Split an element address into ``(kind, name)``.
+
+    ``"body:obj/mug"`` -> ``("body", "obj/mug")``; a bare name returns
+    ``(None, name)`` (the caller probes kinds and errors on ambiguity);
+    a singleton (``"option"``) returns ``(kind, None)``. Attach-made names
+    contain colons (``right:palm``) -- only a *known kind* before the first
+    colon is a qualifier, anything else is part of the name.
+    """
+    if key in singletons:
+        return key, None
+    head, sep, rest = key.partition(":")
+    if sep and rest and head in (*kinds, *singletons):
+        return head, rest
+    return None, key
 
 
 @dataclass(frozen=True)
 class Layer:
-    """One validated stack entry (raw dicts retained for re-embedding)."""
+    """One validated stack entry (the raw component retained for
+    re-embedding into the pinned artifact copy)."""
 
     index: int
-    source: dict
-    compose: dict
+    data: dict
 
     @property
-    def mode(self) -> str:
-        return self.compose["mode"]
+    def tag(self) -> str:
+        return self.data["tag"]
 
     @property
-    def instances(self) -> list[Instance]:
-        """The attach placements (a single-placement attach normalized to
-        a one-element list)."""
-        if "instances" in self.compose:
-            return [
-                Instance(
-                    prefix=inst["prefix"],
-                    pos=tuple(inst.get("pos", (0.0, 0.0, 0.0))),
-                    quat=tuple(inst.get("quat", (1.0, 0.0, 0.0, 0.0))),
-                )
-                for inst in self.compose["instances"]
-            ]
-        return [
-            Instance(
-                prefix=self.compose["prefix"],
-                pos=tuple(self.compose.get("pos", (0.0, 0.0, 0.0))),
-                quat=tuple(self.compose.get("quat", (1.0, 0.0, 0.0, 0.0))),
-            )
-        ]
+    def src(self) -> str | None:
+        return self.data.get("src")
+
+    @property
+    def pin(self) -> str | None:
+        """``"ns/name@N"`` on resolved stacks whose src came from the
+        registry."""
+        return self.data.get("pin")
+
+    @property
+    def key(self) -> str | None:
+        return self.data.get("key")
+
+    @property
+    def at(self) -> str:
+        return self.data.get("at", "world")
+
+    @property
+    def pos(self) -> tuple[float, float, float]:
+        return tuple(self.data.get("pos", (0.0, 0.0, 0.0)))
+
+    @property
+    def quat(self) -> tuple[float, float, float, float]:
+        return tuple(self.data.get("quat", (1.0, 0.0, 0.0, 0.0)))  # wxyz
+
+    @property
+    def joint(self) -> str:
+        return self.data["joint"]
+
+    @property
+    def props(self) -> dict:
+        """An Update's opinions: every prop besides the component plumbing."""
+        return {k: v for k, v in self.data.items() if k not in ("tag", "key")}
 
     def label(self) -> str:
         """Human-readable identity for warnings/errors."""
-        pin = self.source.get("pin")
-        if pin:
-            return f"{pin.get('env')}@{pin.get('version')}"
-        for key in ("env", "path", "file"):
-            if key in self.source:
-                return str(self.source[key])
+        if self.pin:
+            return self.pin
+        if self.src is not None:
+            return self.src
+        if self.key is not None:
+            return self.key
         return f"layer {self.index}"
 
 
@@ -117,14 +194,14 @@ class Stack:
     layers: list[Layer]
     name: str | None = None
     substrate: str = SUBSTRATE
-    #: Directory the stack file was loaded from (resolves ``file`` sources);
-    #: ``None`` when the stack came in as a plain dict.
+    #: Directory the stack file was loaded from (resolves relative local
+    #: srcs); ``None`` when the stack came in as a plain dict.
     base_dir: Path | None = None
     raw: dict = field(default_factory=dict)
 
     @property
     def has_attach(self) -> bool:
-        return any(layer.mode == "attach" for layer in self.layers)
+        return any(layer.tag == "Attach" for layer in self.layers)
 
 
 def _err(msg: str, layer: int | None = None) -> ComposeError:
@@ -142,108 +219,107 @@ def _check_vec(value, n: int, what: str, i: int) -> tuple[float, ...]:
     return tuple(float(v) for v in value)
 
 
-def _validate_source(source, i: int) -> dict:
-    if not isinstance(source, dict):
-        raise _err(f'"source" must be an object, got {type(source).__name__}', i)
-    unknown = set(source) - _SOURCE_KEYS
-    if unknown:
-        raise _err(f"unknown source keys {sorted(unknown)}", i)
-    forms = [k for k in ("env", "path", "file") if k in source]
-    if len(forms) != 1:
-        raise _err(
-            'source must carry exactly one of "env", "path", "file", '
-            f"got {forms or 'none'}", i,
-        )
-    key = forms[0]
-    if not isinstance(source[key], str) or not source[key]:
-        raise _err(f'source "{key}" must be a non-empty string', i)
-    pin = source.get("pin")
-    if pin is not None:
-        if key != "path":
-            raise _err('"pin" is only meaningful on a "path" source', i)
-        if (
-            not isinstance(pin, dict)
-            or not isinstance(pin.get("env"), str)
-            or not isinstance(pin.get("version"), int)
-        ):
+def _validate_src(layer: dict, i: int) -> None:
+    src = layer.get("src")
+    if not isinstance(src, str) or not src:
+        raise _err(f'{layer["tag"]} needs a non-empty "src" string', i)
+    if not src_is_local(src):
+        if not _ENV_REF_RE.match(src):
             raise _err(
-                'source "pin" must be {"env": "ns/name", "version": N}', i)
-    return source
+                f"src {src!r} is neither a registry ref (ns/name[@v]) nor a "
+                'local path -- local paths must start with "./", "../" or '
+                '"/"', i)
+    pin = layer.get("pin")
+    if pin is not None and (not isinstance(pin, str) or not _PIN_RE.match(pin)):
+        raise _err(f'"pin" must be "ns/name@N", got {pin!r}', i)
+    unpinned = layer.get("unpinned")
+    if unpinned is not None and not isinstance(unpinned, bool):
+        raise _err(f'"unpinned" must be a boolean, got {unpinned!r}', i)
 
 
-def _validate_attach(compose: dict, i: int) -> None:
-    at = compose.get("at", "world")
+def _validate_attach(layer: dict, i: int) -> None:
+    key = layer.get("key")
+    if not isinstance(key, str) or not key:
+        raise _err('Attach needs a non-empty "key" (the identity root: '
+                   '"right" makes right:palm)', i)
+    if ":" in key or any(c.isspace() for c in key):
+        raise _err(
+            f'Attach "key" must not contain ":" or whitespace, got {key!r} '
+            "(the separator is added by the composer)", i)
+    at = layer.get("at", "world")
     if not isinstance(at, str) or (
         at != "world"
         and not (at.startswith("body:") and len(at) > 5)
         and not (at.startswith("site:") and len(at) > 5)
     ):
         raise _err(
-            f'attach "at" must be "world", "body:<name>" or "site:<name>", '
+            f'Attach "at" must be "world", "body:<name>" or "site:<name>", '
             f"got {at!r}", i,
         )
-    joint = compose.get("joint", "rigid")
+    joint = layer.get("joint")
     if joint not in JOINT_MODES:
         raise _err(
-            f'attach "joint" must be one of {list(JOINT_MODES)}, got {joint!r}', i)
-
-    if "instances" in compose:
-        for key in ("prefix", "pos", "quat"):
-            if key in compose:
-                raise _err(
-                    f'attach "instances" replaces "{key}" -- move it into '
-                    "the instance entries", i,
-                )
-        instances = compose["instances"]
-        if not isinstance(instances, list) or not instances:
-            raise _err('attach "instances" must be a non-empty list', i)
-        for j, inst in enumerate(instances):
-            if not isinstance(inst, dict):
-                raise _err(f"instances[{j}] must be an object", i)
-            unknown = set(inst) - _INSTANCE_KEYS
-            if unknown:
-                raise _err(f"instances[{j}]: unknown keys {sorted(unknown)}", i)
-            if not isinstance(inst.get("prefix"), str) or not inst["prefix"]:
-                raise _err(
-                    f'instances[{j}] needs a non-empty "prefix"', i)
-            if "pos" in inst:
-                _check_vec(inst["pos"], 3, f'instances[{j}] "pos"', i)
-            if "quat" in inst:
-                _check_vec(inst["quat"], 4, f'instances[{j}] "quat"', i)
-    else:
-        if not isinstance(compose.get("prefix"), str) or not compose["prefix"]:
-            raise _err('attach needs a non-empty "prefix" (or "instances")', i)
-        if "pos" in compose:
-            _check_vec(compose["pos"], 3, 'attach "pos"', i)
-        if "quat" in compose:
-            _check_vec(compose["quat"], 4, 'attach "quat"', i)
+            f'Attach needs "joint", one of {list(JOINT_MODES)}, got '
+            f"{joint!r}", i)
+    if "pos" in layer:
+        _check_vec(layer["pos"], 3, 'Attach "pos"', i)
+    if "quat" in layer:
+        _check_vec(layer["quat"], 4, 'Attach "quat"', i)
 
 
-def _validate_override(compose: dict, i: int) -> None:
-    delete = compose.get("delete")
-    if delete is None:
-        return
-    if not isinstance(delete, list):
-        raise _err('override "delete" must be a list of {"elem", "name"}', i)
-    for j, entry in enumerate(delete):
-        if (
-            not isinstance(entry, dict)
-            or set(entry) != {"elem", "name"}
-            or entry["elem"] not in DELETE_KINDS
-            or not isinstance(entry["name"], str)
-            or not entry["name"]
-        ):
+def _validate_update(layer: dict, i: int) -> None:
+    key = layer.get("key")
+    if not isinstance(key, str) or not key:
+        raise _err('Update needs a non-empty "key" (the element address: '
+                   '"obj/mug", "body:obj/mug", "option", "visual:<sub>")', i)
+    if key == "visual":
+        raise _err(
+            'Update key "visual" needs a sub-block: "visual:<sub>" '
+            '(e.g. "visual:headlight")', i)
+    props = {k: v for k, v in layer.items() if k not in ("tag", "key")}
+    if not props:
+        raise _err(
+            "Update carries no opinions -- every prop besides tag/key is an "
+            "MJCF attribute to set", i)
+    for name in RESERVED_UPDATE_PROPS:
+        if name in props:
             raise _err(
-                f'delete[{j}] must be {{"elem": <kind>, "name": <name>}} with '
-                f"elem one of {list(DELETE_KINDS)}, got {entry!r}", i,
+                f"Update cannot set {name!r} (identity/class plumbing, not "
+                "an opinion)", i)
+    for attr, value in props.items():
+        ok = (
+            isinstance(value, (str, bool, int, float))
+            or (
+                isinstance(value, (list, tuple)) and value
+                and all(
+                    isinstance(v, (int, float)) and not isinstance(v, bool)
+                    for v in value
+                )
             )
+        )
+        if not ok:
+            raise _err(
+                f"Update {key!r} attr {attr!r}: unsupported value {value!r} "
+                "(want number, bool, string, or a list of numbers)", i)
+
+
+def _validate_remove(layer: dict, i: int) -> None:
+    key = layer.get("key")
+    if not isinstance(key, str) or not key:
+        raise _err('Remove needs a non-empty "key" (the element address: '
+                   '"fixture/plant" or "body:fixture/plant")', i)
+    kind, _name = parse_address(key, DELETE_KINDS)
+    head, sep, _rest = key.partition(":")
+    if kind is None and sep and head in SINGLETON_KINDS:
+        raise _err(f"Remove cannot address {head!r} (singletons are not "
+                   "removable)", i)
 
 
 def load_stack(stack: dict | str | Path, base_dir: Path | None = None) -> Stack:
     """Parse and validate a stack (authored or resolved form).
 
     ``stack`` is a dict, or a path to a JSON file (whose directory then
-    resolves relative ``file`` sources).
+    resolves relative local srcs).
     """
     if isinstance(stack, (str, Path)):
         path = Path(stack)
@@ -260,6 +336,8 @@ def load_stack(stack: dict | str | Path, base_dir: Path | None = None) -> Stack:
     if not isinstance(data, dict):
         raise ComposeError(f"stack must be a JSON object, got {type(data).__name__}")
     schema = data.get("schema")
+    if schema == SCHEMA_V2:
+        raise ComposeError(f'stack "schema" is {SCHEMA_V2!r}: {_V2_MIGRATION}')
     if schema != SCHEMA:
         raise ComposeError(
             f'stack "schema" must be "{SCHEMA}", got {schema!r}')
@@ -280,38 +358,34 @@ def load_stack(stack: dict | str | Path, base_dir: Path | None = None) -> Stack:
         raise ComposeError('stack needs a non-empty "layers" list')
 
     layers: list[Layer] = []
-    seen_prefixes: dict[str, int] = {}
+    seen_keys: dict[str, int] = {}
     for i, raw in enumerate(raw_layers):
         if not isinstance(raw, dict):
-            raise _err(f"layer must be an object, got {type(raw).__name__}", i)
-        source = _validate_source(raw.get("source"), i)
-        compose = raw.get("compose")
-        if not isinstance(compose, dict):
-            raise _err('layer needs a "compose" object', i)
-        mode = compose.get("mode")
-        if mode not in MODES:
             raise _err(
-                f'compose "mode" must be one of {list(MODES)}, got {mode!r}', i)
-        unknown = set(compose) - _COMPOSE_KEYS[mode]
-        if unknown:
-            raise _err(
-                f"unknown compose keys for mode {mode!r}: {sorted(unknown)}", i)
-        if mode == "attach":
-            _validate_attach(compose, i)
-        elif mode == "override":
-            _validate_override(compose, i)
-        layer = Layer(index=i, source=source, compose=compose)
-        if mode == "attach":
-            for inst in layer.instances:
-                prior = seen_prefixes.get(inst.prefix)
-                if prior is not None:
-                    raise _err(
-                        f"duplicate attach prefix {inst.prefix!r} (already "
-                        f"used by layer {prior}) -- attach names would clash",
-                        i,
-                    )
-                seen_prefixes[inst.prefix] = i
-        layers.append(layer)
+                f"layer must be a component object {{\"tag\": ...}}, got "
+                f"{type(raw).__name__}", i)
+        tag = raw.get("tag")
+        if tag not in TAGS:
+            raise _err(f'"tag" must be one of {list(TAGS)}, got {tag!r}', i)
+        if tag != "Update":
+            unknown = set(raw) - _TAG_KEYS[tag]
+            if unknown:
+                raise _err(f"unknown {tag} keys {sorted(unknown)}", i)
+        if tag in ("Merge", "Attach", "Patch"):
+            _validate_src(raw, i)
+        if tag == "Attach":
+            _validate_attach(raw, i)
+            prior = seen_keys.get(raw["key"])
+            if prior is not None:
+                raise _err(
+                    f"duplicate Attach key {raw['key']!r} (already used by "
+                    "layer {}) -- attach names would clash".format(prior), i)
+            seen_keys[raw["key"]] = i
+        elif tag == "Update":
+            _validate_update(raw, i)
+        elif tag == "Remove":
+            _validate_remove(raw, i)
+        layers.append(Layer(index=i, data=raw))
 
     return Stack(
         entry=entry,
@@ -324,13 +398,13 @@ def load_stack(stack: dict | str | Path, base_dir: Path | None = None) -> Stack:
 
 
 def require_resolved(stack: Stack) -> None:
-    """Reject registry-ref sources: the engine composes RESOLVED stacks only."""
+    """Reject registry-ref srcs: the engine composes RESOLVED stacks only."""
     for layer in stack.layers:
-        if "env" in layer.source:
+        if layer.src is not None and not src_is_local(layer.src):
             raise _err(
-                f"source {{\"env\": {layer.source['env']!r}}} is unresolved -- "
-                "resolve refs first: the engine composes only resolved stacks "
-                'where every source is a local {"path": ...} (the DreamLake '
-                "CLI pulls registry refs into the cache and rewrites them)",
+                f"src {layer.src!r} is unresolved -- resolve refs first: the "
+                "engine composes only resolved stacks where every src is a "
+                "local path (the DreamLake CLI pulls registry refs into the "
+                "cache and rewrites them)",
                 layer.index,
             )

@@ -25,9 +25,9 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="python3 -m dreamlake.envlayer",
         description=(
-            "Materialize a RESOLVED dreamlake.env-layers/v2 stack into a "
+            "Materialize a RESOLVED dreamlake.env-layers/v3 stack into a "
             "self-contained env directory (entry XML + flat meshes/ + "
-            "pinned dreamlake.layers.json). Every layer source must "
+            "pinned dreamlake.layers.json). Every layer src must "
             "already be a local path -- registry refs are resolved by the "
             "DreamLake CLI, not here. Requires mujoco "
             "(pip install 'dreamlake[compose]')."
@@ -38,8 +38,8 @@ def main(argv: list[str] | None = None) -> int:
         "compose",
         help="compose a resolved stack file into --out",
         description=(
-            "Execute the stack's layers (merge/attach/override) in order "
-            "over one MjSpec and write the compiled result. The last "
+            "Execute the stack's ops (Merge/Attach/Update/Remove/Patch) in "
+            "order over one MjSpec and write the compiled result. The last "
             "stdout line is a JSON report; exit 0 on success, 1 on any "
             "compose failure."
         ),
