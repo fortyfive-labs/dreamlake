@@ -514,7 +514,7 @@ wheels = [
 
 [[package]]
 name = "dreamlake"
-version = "0.22.0"
+version = "0.23.0"
 source = { editable = "." }
 dependencies = [
     { name = "httpx" },
@@ -590,7 +590,7 @@ requires-dist = [
     { name = "keyring", marker = "extra == 'auth'", specifier = ">=25.0.0" },
     { name = "linkify-it-py", marker = "extra == 'dev'", specifier = ">=2.0.0" },
     { name = "msgpack", specifier = ">=1.0.0" },
-    { name = "mujoco", marker = "extra == 'compose'", specifier = ">=3.2.0" },
+    { name = "mujoco", marker = "extra == 'compose'", specifier = ">=3.8" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.9.0" },
     { name = "myst-parser", marker = "extra == 'dev'", specifier = ">=2.0.0" },
     { name = "numpy", specifier = ">=2.4.3" },

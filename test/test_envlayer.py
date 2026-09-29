@@ -767,3 +767,191 @@ def test_warns_on_sizeable_hidden_visual_geoms(tmp_path):
     hits = [w for w in report.warnings if "groups 3-5" in w]
     # only the poster counts: the marker is sub-centimeter, the proxy collides
     assert hits and hits[0].startswith("1 visual-only geom")
+
+
+# ─── orientation opinions & runtime compatibility ────────────────────
+
+CAMERA_SCENE_XML = """
+<mujoco model="camera-scene">
+  <worldbody>
+    <geom name="floor" type="plane" size="2 2 0.1"/>
+    <light name="key" pos="0 0 3" dir="0 0 -1"/>
+    <camera name="hero" pos="1.5 -1.9 1.55" fovy="50"/>
+    <body name="obj/box" pos="0.3 0 0.05">
+      <geom name="obj/box_geom" type="box" size="0.05 0.05 0.05" mass="0.2"/>
+    </body>
+  </worldbody>
+</mujoco>
+"""
+
+_XYAXES = [0.807, 0.5905, 0.0, -0.203, 0.2775, 0.939]
+
+
+def _authored(xml_attr: str) -> "mujoco.MjModel":
+    """CAMERA_SCENE_XML with an attribute spliced into one element -- the
+    raw-MJCF authoring the opinion path must be indistinguishable from."""
+    return mujoco.MjModel.from_xml_string(
+        CAMERA_SCENE_XML.replace('fovy="50"', f'fovy="50" {xml_attr}'))
+
+
+def test_update_camera_xyaxes_matches_raw_authoring(tmp_path):
+    """An xyaxes opinion routes through mjsOrientation and compiles to the
+    exact quat raw authoring produces; neighbor fields stay untouched."""
+    import numpy as np
+
+    scene = _write_env(tmp_path, "scene", CAMERA_SCENE_XML)
+    report = _compose(tmp_path, [
+        _merge(scene),
+        {"tag": "Update", "key": "camera:hero", "xyaxes": _XYAXES},
+    ])
+    m = _model(report)
+    raw = _authored(f'xyaxes="{" ".join(str(v) for v in _XYAXES)}"')
+    # the artifact roundtrips through MuJoCo's XML writer, so compare at
+    # its serialization precision, not exactly
+    assert m.cam("hero").quat == pytest.approx(raw.cam("hero").quat, abs=1e-6)
+    # The compiled optical axis (-z of the camera frame) points where the
+    # authored x/y axes say it must (their cross product, negated).
+    rot = np.zeros(9)
+    mujoco.mju_quat2Mat(rot, m.cam("hero").quat)
+    optical = -rot.reshape(3, 3)[:, 2]
+    x, y = np.array(_XYAXES[:3]), np.array(_XYAXES[3:])
+    expected = -np.cross(x, y) / np.linalg.norm(np.cross(x, y))
+    assert optical == pytest.approx(expected, abs=1e-6)
+    assert m.cam("hero").fovy[0] == pytest.approx(50)
+    assert m.cam("hero").pos == pytest.approx([1.5, -1.9, 1.55])
+
+
+def test_patch_xyaxes_agrees_with_update(tmp_path):
+    """Patch and Update share one orientation path -- identical output."""
+    scene = _write_env(tmp_path, "scene", CAMERA_SCENE_XML)
+    patch_dir = tmp_path / "patches"
+    patch_dir.mkdir()
+    (patch_dir / "aim.xml").write_text(
+        '<mujoco><worldbody><camera name="hero" '
+        f'xyaxes="{" ".join(str(v) for v in _XYAXES)}"/>'
+        "</worldbody></mujoco>")
+    via_patch = _compose(
+        tmp_path, [_merge(scene), {"tag": "Patch", "src": "./patches/aim.xml"}],
+        out="out-patch")
+    via_update = _compose(
+        tmp_path,
+        [_merge(scene), {"tag": "Update", "key": "camera:hero", "xyaxes": _XYAXES}],
+        out="out-update")
+    assert _model(via_patch).cam("hero").quat == pytest.approx(
+        _model(via_update).cam("hero").quat, abs=1e-12)
+
+
+def test_body_xyaxes_opinion(tmp_path):
+    scene = _write_env(tmp_path, "scene", CAMERA_SCENE_XML)
+    report = _compose(tmp_path, [
+        _merge(scene),
+        {"tag": "Update", "key": "body:obj/box", "xyaxes": [0, 1, 0, -1, 0, 0]},
+    ])
+    m = _model(report)
+    raw = mujoco.MjModel.from_xml_string(CAMERA_SCENE_XML.replace(
+        'pos="0.3 0 0.05"', 'pos="0.3 0 0.05" xyaxes="0 1 0 -1 0 0"'))
+    assert m.body("obj/box").quat == pytest.approx(raw.body("obj/box").quat, abs=1e-6)
+    assert m.body("obj/box").pos == pytest.approx([0.3, 0, 0.05])
+
+
+def test_orientation_later_op_replaces_earlier(tmp_path):
+    """quat after xyaxes wins, and xyaxes after quat wins -- later wins,
+    with no stale alternate surviving a switch back to quat."""
+    scene = _write_env(tmp_path, "scene", CAMERA_SCENE_XML)
+    back_to_quat = _compose(tmp_path, [
+        _merge(scene),
+        {"tag": "Update", "key": "camera:hero", "xyaxes": _XYAXES},
+        {"tag": "Update", "key": "camera:hero", "quat": [1, 0, 0, 0]},
+    ], out="out-quat")
+    assert _model(back_to_quat).cam("hero").quat == pytest.approx(
+        [1, 0, 0, 0], abs=1e-12)
+    alt_wins = _compose(tmp_path, [
+        _merge(scene),
+        {"tag": "Update", "key": "camera:hero", "quat": [0, 0, 0, 1]},
+        {"tag": "Update", "key": "camera:hero", "xyaxes": _XYAXES},
+    ], out="out-alt")
+    raw = _authored(f'xyaxes="{" ".join(str(v) for v in _XYAXES)}"')
+    assert _model(alt_wins).cam("hero").quat == pytest.approx(
+        raw.cam("hero").quat, abs=1e-6)
+
+
+def test_contradictory_orientation_props_rejected(tmp_path):
+    scene = _write_env(tmp_path, "scene", CAMERA_SCENE_XML)
+    with pytest.raises(ComposeError, match="contradictory orientation"):
+        _compose(tmp_path, [
+            _merge(scene),
+            {"tag": "Update", "key": "camera:hero",
+             "quat": [1, 0, 0, 0], "xyaxes": _XYAXES},
+        ])
+    patch_dir = tmp_path / "patches"
+    patch_dir.mkdir()
+    (patch_dir / "bad.xml").write_text(
+        '<mujoco><worldbody><camera name="hero" euler="0 0 90" '
+        'xyaxes="1 0 0 0 1 0"/></worldbody></mujoco>')
+    with pytest.raises(ComposeError, match="euler, xyaxes"):
+        _compose(
+            tmp_path,
+            [_merge(scene), {"tag": "Patch", "src": "./patches/bad.xml"}],
+            out="out-patch")
+
+
+def test_orientation_vector_validation(tmp_path):
+    scene = _write_env(tmp_path, "scene", CAMERA_SCENE_XML)
+    with pytest.raises(ComposeError, match="want exactly 6 finite numbers"):
+        _compose(tmp_path, [
+            _merge(scene),
+            {"tag": "Update", "key": "camera:hero", "xyaxes": [1, 0, 0, 0, 1]},
+        ])
+    with pytest.raises(ComposeError, match="want exactly 6 finite numbers"):
+        _compose(tmp_path, [
+            _merge(scene),
+            {"tag": "Update", "key": "camera:hero",
+             "xyaxes": [float("nan"), 0, 0, 0, 1, 0]},
+        ], out="out-nan")
+
+
+def test_orientation_alt_unsupported_kind_still_errors(tmp_path):
+    """Lights have no orientation alternates -- the strict attribute error
+    stays, no silent widening."""
+    scene = _write_env(tmp_path, "scene", CAMERA_SCENE_XML)
+    with pytest.raises(ComposeError, match="no attribute 'xyaxes'"):
+        _compose(tmp_path, [
+            _merge(scene),
+            {"tag": "Update", "key": "light:key", "xyaxes": _XYAXES},
+        ])
+
+
+def test_legacy_bool_flags_coerce_without_widening(tmp_path):
+    """MJCF boolean flags accept true/false on int-typed (3.8) and
+    bool-typed (3.14) bindings alike; numeric ints keep rejecting them."""
+    scene = _write_env(tmp_path, "scene", CAMERA_SCENE_XML)
+    report = _compose(tmp_path, [
+        _merge(scene),
+        {"tag": "Update", "key": "light:key",
+         "active": False, "castshadow": False},
+    ])
+    m = _model(report)
+    assert int(m.light("key").active[0]) == 0
+    assert int(m.light("key").castshadow[0]) == 0
+    with pytest.raises(ComposeError, match="cannot parse 'false'"):
+        _compose(tmp_path, [
+            _merge(scene),
+            {"tag": "Update", "key": "geom:floor", "contype": "false"},
+        ], out="out-contype")
+
+
+def test_mujoco_version_guard(tmp_path):
+    """< 3.8 must fail up front with an actionable error and no partial
+    output; >= 3.8 passes the guard. (The negative arm is exercised for
+    real on a MuJoCo 3.2 environment.)"""
+    from dreamlake.envlayer import engine
+
+    found = tuple(int(p) for p in mujoco.__version__.split(".")[:2])
+    if found >= engine._MIN_MUJOCO:
+        assert engine._require_mujoco() is mujoco
+        return
+    scene = _write_env(tmp_path, "scene", CAMERA_SCENE_XML)
+    out = tmp_path / "out"
+    with pytest.raises(ComposeError, match="mujoco >= 3.8"):
+        compose_stack(_stack(tmp_path, [_merge(scene)]), out)
+    assert not out.exists() or not any(out.iterdir())
