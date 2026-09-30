@@ -107,6 +107,21 @@ _NAMED_COLLECTIONS = (
 _OVERRIDE_WRAPPERS = {"worldbody", "asset"}
 #: Update/Patch: attributes that are identity/class plumbing, not opinions.
 _OVERRIDE_META_ATTRS = {"name", "class", "childclass"}
+#: MuJoCo's alternative orientation specifiers (mjsOrientation fields) and
+#: the exact vector length each requires. Elements that carry an `alt`
+#: struct (body, geom, site, camera) accept these as opinions; the compiler
+#: resolves them into quat exactly as raw-MJCF authoring would.
+_ORIENTATION_ALT_SIZES = {"xyaxes": 6, "euler": 3, "axisangle": 4, "zaxis": 3}
+_ORIENTATION_ATTRS = ("quat", *_ORIENTATION_ALT_SIZES)
+#: MJCF boolean flags that older bindings (3.8) expose as plain ints on
+#: MjSpec. Only these accept true/false against an int field -- bitmask and
+#: enum ints (contype, condim, ...) keep rejecting boolean words.
+_MJCF_BOOL_INT_ATTRS = {"active", "castshadow", "mocap"}
+
+#: Composition drives the modern MjSpec class API (MjSpec.from_file /
+#: from_string as constructors); MuJoCo 3.2's early spec bindings are
+#: instance-mutating and fail mid-composition. Validated on 3.8.1 / 3.14.0.
+_MIN_MUJOCO = (3, 8)
 
 
 def _require_mujoco():
@@ -118,6 +133,18 @@ def _require_mujoco():
             "Install the compose extra: pip install 'dreamlake[compose]' "
             "(or: uv pip install mujoco)"
         ) from e
+    version = getattr(mujoco, "__version__", "0")
+    try:
+        found = tuple(int(part) for part in version.split(".")[:2])
+    except ValueError:
+        found = None
+    if found is not None and found < _MIN_MUJOCO:
+        raise ComposeError(
+            f"env-layer composition needs mujoco >= "
+            f"{'.'.join(map(str, _MIN_MUJOCO))}, found {version}: the engine "
+            "drives the modern MjSpec API, which older bindings lack. "
+            "Upgrade with: pip install -U 'mujoco>=3.8'"
+        )
     return mujoco
 
 
@@ -615,19 +642,64 @@ def _coerce(text: str, current, what: str, i: int):
         f"{type(current).__name__}", i)
 
 
+def _set_orientation_alt(
+    obj, kind: str, name: str, attr: str, text: str, i: int, op: str,
+) -> None:
+    """Route an alternative-orientation opinion through mjsOrientation, so
+    MuJoCo's own compiler resolves it -- identical to raw-MJCF authoring."""
+    import mujoco
+
+    want = _ORIENTATION_ALT_SIZES[attr]
+    what = f"{op} {kind} {name!r} attr {attr!r}"
+    try:
+        values = [float(v) for v in text.split()]
+    except ValueError:
+        values = []
+    if len(values) != want or not all(np.isfinite(v) for v in values):
+        raise ComposeError(
+            f"layer {i}: {what}: want exactly {want} finite numbers, "
+            f"got {text!r}", i)
+    alt = obj.alt
+    alt.type = getattr(mujoco.mjtOrientation, f"mjORIENTATION_{attr.upper()}")
+    setattr(alt, attr, values)
+
+
 def _set_stated_attr(
     obj, kind: str, name: str, attr: str, text: str, i: int, op: str,
 ) -> None:
+    if attr in _ORIENTATION_ALT_SIZES and hasattr(obj, "alt"):
+        _set_orientation_alt(obj, kind, name, attr, text, i, op)
+        return
     if not hasattr(obj, attr):
         raise ComposeError(
             f"layer {i}: {op}: {kind} {name!r} has no attribute "
             f"{attr!r} settable through MjSpec", i)
     current = getattr(obj, attr)
-    value = _coerce(text, current, f"{op} {kind} {name!r} attr {attr!r}", i)
+    what = f"{op} {kind} {name!r} attr {attr!r}"
+    if (attr in _MJCF_BOOL_INT_ATTRS and isinstance(current, int)
+            and not isinstance(current, bool)):
+        # MJCF boolean flag stored as int by the installed bindings (3.8):
+        # accept exactly the boolean words, nothing else.
+        if text in ("true", "1"):
+            setattr(obj, attr, 1)
+        elif text in ("false", "0"):
+            setattr(obj, attr, 0)
+        else:
+            raise ComposeError(
+                f"layer {i}: {what}: cannot parse {text!r} (want true|false)",
+                i)
+        return
+    value = _coerce(text, current, what, i)
     if isinstance(current, np.ndarray):
         current[:len(value)] = value  # XML allows partial vectors (e.g. size)
     else:
         setattr(obj, attr, value)
+    if attr == "quat" and hasattr(obj, "alt"):
+        # A stale alternative would silently win at compile time; a stated
+        # quat must replace any earlier xyaxes/euler/axisangle/zaxis opinion.
+        import mujoco
+
+        obj.alt.type = mujoco.mjtOrientation.mjORIENTATION_QUAT
 
 
 def _override_element(spec, el: ET.Element, i: int, finders, op: str) -> None:
@@ -643,6 +715,13 @@ def _override_element(spec, el: ET.Element, i: int, finders, op: str) -> None:
             f"layer {i}: {op}: no {kind} named {name!r} in the stack "
             "below (matching is strict -- check for typos or a stale stack)",
             i)
+    stated_orientations = sorted(a for a in _ORIENTATION_ATTRS if a in el.attrib)
+    if len(stated_orientations) > 1:
+        raise ComposeError(
+            f"layer {i}: {op}: {kind} {name!r} states contradictory "
+            f"orientation props ({', '.join(stated_orientations)}) -- an "
+            "orientation is one opinion, state exactly one of "
+            f"{', '.join(_ORIENTATION_ATTRS)}", i)
     for attr, text in el.attrib.items():
         if attr in _OVERRIDE_META_ATTRS:
             continue
