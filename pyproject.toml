@@ -79,11 +79,17 @@ search = [
     "pillow>=10",
 ]
 # Asset-library embeddings sidecar (assets_tools.embed): open_clip
-# ViT-L-14/openai, matching the query-time clip-service. torch is heavy,
-# so it stays an extra; embed.py imports it lazily with a pointer here.
+# ViT-L-14-quickgelu/openai (default) or ViT-B-16-SigLIP2/webli (opt-in),
+# matching the server's query-time encoders. open-clip-torch >= 2.31 is
+# the floor that knows the SigLIP2 configs; timm loads their hf-hub
+# vision towers; transformers backs open_clip's HFTokenizer (the Gemma
+# tokenizer -- imported lazily, only for SigLIP2). torch is heavy, so it
+# all stays an extra; embed.py imports lazily with a pointer here.
 embed = [
     "torch>=2.0",
-    "open-clip-torch>=2.24",
+    "open-clip-torch>=2.31",
+    "timm>=1.0.15",
+    "transformers>=4.49",
     "pillow>=10",
 ]
 

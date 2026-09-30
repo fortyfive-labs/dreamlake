@@ -1172,3 +1172,71 @@ def test_embed_cli_mode_validation(tmp_path):
         embed_mod.main(["--manifest", str(tmp_path / "m.json")])
     with pytest.raises(SystemExit):  # manifest-only flags in legacy mode
         embed_mod.main([str(tmp_path), "--out-dir", str(tmp_path / "o")])
+
+
+# ─── SigLIP2 model selection ─────────────────────────────────────────
+
+
+def test_model_id_strings_match_the_server_gate():
+    # These strings ARE the server's fusion-gate contract
+    # (dreamlake-server: CLIP_TEXT_MODEL_ID / SIGLIP2_TEXT_MODEL_ID).
+    # Change one and every sidecar it writes degrades to keyword-only.
+    assert embed_mod.model_id() == "open_clip/ViT-L-14-quickgelu/openai"
+    assert embed_mod.model_id(
+        embed_mod.SIGLIP2_MODEL, embed_mod.SIGLIP2_PRETRAINED
+    ) == "open_clip/ViT-B-16-SigLIP2/webli"
+    assert embed_mod.model_id() != embed_mod.model_id(
+        embed_mod.SIGLIP2_MODEL, embed_mod.SIGLIP2_PRETRAINED)
+
+
+def test_model_aliases_pin_their_pretrained_tag():
+    assert embed_mod.resolve_model("clip", "whatever") == (
+        embed_mod.DEFAULT_MODEL, embed_mod.DEFAULT_PRETRAINED)
+    assert embed_mod.resolve_model("siglip2", "whatever") == (
+        embed_mod.SIGLIP2_MODEL, embed_mod.SIGLIP2_PRETRAINED)
+    assert embed_mod.resolve_model("SigLIP2", "x") == (
+        embed_mod.SIGLIP2_MODEL, embed_mod.SIGLIP2_PRETRAINED)
+    # Explicit names pass through with their pretrained tag untouched.
+    assert embed_mod.resolve_model("ViT-B-32", "laion2b") == (
+        "ViT-B-32", "laion2b")
+    assert embed_mod.model_id("siglip2") == \
+        "open_clip/ViT-B-16-SigLIP2/webli"
+
+
+def test_siglip2_alias_reaches_the_sidecar_model_field(
+        embed_lib, tmp_path, monkeypatch):
+    # The alias must resolve BEFORE model_id is written: the sidecar has
+    # to carry the full open_clip id, never the alias.
+    _FakeClip().install(monkeypatch)
+    stats = embed_mod.embed_library(
+        embed_lib, model="siglip2", cache_dir=tmp_path / "cache")
+    assert stats["model"] == "open_clip/ViT-B-16-SigLIP2/webli"
+    doc = json.loads((embed_lib / "assets.vectors.json").read_text())
+    assert doc["model"] == "open_clip/ViT-B-16-SigLIP2/webli"
+
+
+def test_siglip2_registry_resolves_and_dims_are_768(monkeypatch):
+    # Skip-if-no-weights smoke for the REAL model: registry resolution is
+    # offline metadata; instantiation is attempted cache-only (no surprise
+    # 1.5GB download inside a unit run).
+    open_clip = pytest.importorskip("open_clip")
+    if (embed_mod.SIGLIP2_MODEL, embed_mod.SIGLIP2_PRETRAINED) \
+            not in open_clip.list_pretrained():
+        pytest.skip("open-clip-torch too old for SigLIP2 "
+                    "(the embed extra pins >=2.31)")
+    torch = pytest.importorskip("torch")
+    monkeypatch.setenv("HF_HUB_OFFLINE", "1")
+    try:
+        model, _, _ = open_clip.create_model_and_transforms(
+            embed_mod.SIGLIP2_MODEL,
+            pretrained=embed_mod.SIGLIP2_PRETRAINED, device="cpu")
+        tokenizer = open_clip.get_tokenizer(embed_mod.SIGLIP2_MODEL)
+    except Exception as e:
+        pytest.skip(f"SigLIP2 weights not in the local HF cache: "
+                    f"{type(e).__name__}")
+    model.eval()
+    with torch.no_grad():
+        text = model.encode_text(tokenizer(["a red coffee mug"]))
+        image = model.encode_image(torch.zeros(1, 3, 224, 224))
+    assert text.shape == (1, 768)
+    assert image.shape == (1, 768)
