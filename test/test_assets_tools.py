@@ -898,7 +898,7 @@ def test_embed_sidecar_matches_server_contract(
 
     doc = json.loads((embed_lib / "assets.vectors.json").read_text())
     assert doc["schema"] == "dreamlake.assets.vectors/v1"
-    assert doc["model"] == "open_clip/ViT-L-14-quickgelu/openai"
+    assert doc["model"] == "open_clip/ViT-B-16-SigLIP2/webli"
     assert doc["dim"] == 8
     # every asset present, manifest order; row indices in
     # assignment order; null image/text where the input is absent
@@ -1085,7 +1085,7 @@ def test_embed_manifest_mode_roundtrip(wire_manifest, tmp_path, monkeypatch):
 
     doc = json.loads((out_dir / "vectors.json").read_text())
     assert doc["schema"] == "dreamlake.assets.vectors/v1"  # same format
-    assert doc["model"] == "open_clip/ViT-L-14-quickgelu/openai"
+    assert doc["model"] == "open_clip/ViT-B-16-SigLIP2/webli"
     assert doc["dim"] == 8
     assert [it["id"] for it in doc["items"]] == ["bot_a", "bot_b", "bot_c"]
     a, b, c = doc["items"]
@@ -1151,7 +1151,7 @@ def test_embed_manifest_cli_stdout_contract(
     stats = json.loads(captured.out)
     assert stats["rows"] == 4 and stats["dim"] == 8
     assert stats["assets"] == 3
-    assert stats["model"] == "open_clip/ViT-L-14-quickgelu/openai"
+    assert stats["model"] == "open_clip/ViT-B-16-SigLIP2/webli"
     assert stats["json"] == str(out_dir / "vectors.json")
     assert stats["f32"] == str(out_dir / "vectors.f32")
     assert stats["images"] == {
@@ -1174,24 +1174,36 @@ def test_embed_cli_mode_validation(tmp_path):
         embed_mod.main([str(tmp_path), "--out-dir", str(tmp_path / "o")])
 
 
-# ─── SigLIP2 model selection ─────────────────────────────────────────
+# ─── Model selection (SigLIP2 default, legacy clip escape hatch) ─────
 
 
 def test_model_id_strings_match_the_server_gate():
     # These strings ARE the server's fusion-gate contract
-    # (dreamlake-server: CLIP_TEXT_MODEL_ID / SIGLIP2_TEXT_MODEL_ID).
-    # Change one and every sidecar it writes degrades to keyword-only.
-    assert embed_mod.model_id() == "open_clip/ViT-L-14-quickgelu/openai"
+    # (dreamlake-server: SIGLIP2_TEXT_MODEL_ID, and the grandfathered
+    # LEGACY_CLIP_TEXT_MODEL_ID it degrades to keyword-only). Change
+    # the default and every sidecar it writes stops fusing.
+    assert embed_mod.model_id() == "open_clip/ViT-B-16-SigLIP2/webli"
     assert embed_mod.model_id(
-        embed_mod.SIGLIP2_MODEL, embed_mod.SIGLIP2_PRETRAINED
-    ) == "open_clip/ViT-B-16-SigLIP2/webli"
+        embed_mod.LEGACY_CLIP_MODEL, embed_mod.LEGACY_CLIP_PRETRAINED
+    ) == "open_clip/ViT-L-14-quickgelu/openai"
     assert embed_mod.model_id() != embed_mod.model_id(
+        embed_mod.LEGACY_CLIP_MODEL, embed_mod.LEGACY_CLIP_PRETRAINED)
+
+
+def test_default_model_is_siglip2():
+    # The defaults contract: bare model_id() and the DEFAULT_* pair both
+    # land the SigLIP2 id in sidecars -- the only id the server fuses.
+    assert (embed_mod.DEFAULT_MODEL, embed_mod.DEFAULT_PRETRAINED) == (
         embed_mod.SIGLIP2_MODEL, embed_mod.SIGLIP2_PRETRAINED)
+    assert embed_mod.model_id(
+        embed_mod.DEFAULT_MODEL, embed_mod.DEFAULT_PRETRAINED
+    ) == "open_clip/ViT-B-16-SigLIP2/webli"
 
 
 def test_model_aliases_pin_their_pretrained_tag():
+    # "clip" stays only as the explicitly-legacy escape hatch.
     assert embed_mod.resolve_model("clip", "whatever") == (
-        embed_mod.DEFAULT_MODEL, embed_mod.DEFAULT_PRETRAINED)
+        embed_mod.LEGACY_CLIP_MODEL, embed_mod.LEGACY_CLIP_PRETRAINED)
     assert embed_mod.resolve_model("siglip2", "whatever") == (
         embed_mod.SIGLIP2_MODEL, embed_mod.SIGLIP2_PRETRAINED)
     assert embed_mod.resolve_model("SigLIP2", "x") == (
@@ -1201,6 +1213,18 @@ def test_model_aliases_pin_their_pretrained_tag():
         "ViT-B-32", "laion2b")
     assert embed_mod.model_id("siglip2") == \
         "open_clip/ViT-B-16-SigLIP2/webli"
+
+
+def test_legacy_clip_alias_reaches_the_sidecar_model_field(
+        embed_lib, tmp_path, monkeypatch):
+    # The escape hatch still works end to end -- and writes the legacy
+    # id the server no longer fuses (keyword-only on DreamLake).
+    _FakeClip().install(monkeypatch)
+    stats = embed_mod.embed_library(
+        embed_lib, model="clip", cache_dir=tmp_path / "cache")
+    assert stats["model"] == "open_clip/ViT-L-14-quickgelu/openai"
+    doc = json.loads((embed_lib / "assets.vectors.json").read_text())
+    assert doc["model"] == "open_clip/ViT-L-14-quickgelu/openai"
 
 
 def test_siglip2_alias_reaches_the_sidecar_model_field(
