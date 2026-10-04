@@ -106,3 +106,7 @@ Preserve exact metadata from the saving/binding receipt. Owner cleanup remains
 available after host deletion. Repeated release preserves the original timestamp.
 This releases a retention reference; it does not revoke remote SSH access, remove
 an active secret, or bypass the retired entry's retention deadline.
+
+## Proposed organization/team scopes (not released)
+
+`client.vault.scoped("team:<id>")` returns a separate immutable scope-bound client. Discover available IDs with `client.vault.scopes()`. Shared entry CRUD, pagination and write-status retain the selected scope on every request. Reuse that client and original request ID for recovery; failures never fall back to personal. Shared OTP, KMS, access keys, host delivery and machine credentials remain unsupported. Privileged export/reseal and audited policy changes await the ownership authority/epoch integration and are not enabled by this slice.
