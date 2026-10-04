@@ -137,8 +137,23 @@ def _host_binding(b):
 
 
 class Vault:
-    def __init__(self, http_client: httpx.Client):
+    def __init__(self, http_client: httpx.Client, *, scope=None):
+        if scope is not None and (not isinstance(scope, str) or not re.fullmatch(r"(org|team):[a-f0-9]{24}", scope)):
+            raise VaultError("Invalid vault scope")
         self._http = http_client
+        self.__scope = scope
+
+    @property
+    def scope(self):
+        return self.__scope
+
+    def scoped(self, scope):
+        """New immutable scope-bound client; never changes the original client."""
+        return Vault(self._http, scope=scope)
+
+    def scopes(self):
+        """Discover current direct-membership shared vault scopes."""
+        return self._request("GET", "/v1/vault/scopes")
 
     def bind_host_credential(self, *, host_id, enrollment_id, role, endpoint, kind, entry_id, entry_revision):
         """Bind an existing exact entry revision to this account's enrollment.
@@ -348,8 +363,21 @@ class Vault:
         return VaultKms(self)
 
     def _request(self, method, path, **kwargs):
+        if self.scope is not None:
+            route = path.split("?", 1)[0]
+            if route not in {"/v1/vault/scopes", "/v1/vault/entries", "/v1/vault/entries/read", "/v1/vault/entry", "/v1/vault/restore"} and not route.startswith("/v1/vault/write-operations/"):
+                raise VaultError("Shared vault operation unsupported")
+        headers = dict(kwargs.pop("headers", {}))
+        if any(key.lower() == "x-vault-scope" for key in headers):
+            raise VaultError("Use a scope-bound Vault client")
+        # Pin the header on every request, including pagination and recovery.
+        # An empty personal header prevents ambient shared headers being used.
+        if any(key.lower() == "x-vault-scope" for key in self._http.headers):
+            raise VaultError("Use a scope-bound Vault client")
+        if self.scope is not None:
+            headers["X-Vault-Scope"] = self.scope
         try:
-            response = self._http.request(method, path, follow_redirects=False, **kwargs)
+            response = self._http.request(method, path, follow_redirects=False, headers=headers, **kwargs)
             if not response.is_success:
                 raise VaultHttpError(response.status_code)
             return response.json()
@@ -497,7 +525,7 @@ class Vault:
     def list(self, *, prefix="", include_deleted=False):
         """Return all authorized metadata, draining bounded pages without reveals."""
         def authority():
-            return (id(self._http), id(self._http._transport_for_url(self._http.base_url)), str(self._http.base_url), tuple(self._http.headers.raw),
+            return (self.scope, id(self._http), id(self._http._transport_for_url(self._http.base_url)), str(self._http.base_url), tuple(self._http.headers.raw),
                     tuple((c.domain, c.path, c.name, c.value) for c in self._http.cookies.jar),
                     self._http.auth, tuple((key, tuple(value)) for key, value in self._http.event_hooks.items()))
         original_authority = authority()
