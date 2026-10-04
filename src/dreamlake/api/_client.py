@@ -75,6 +75,12 @@ class DreamLakeClient:
         self._token = token or os.environ.get("DREAMLAKE_API_KEY") or _saved_token()
 
     @property
+    def ownership(self):
+        """Server-authorized ownership previews and transfer inbox decisions."""
+        from .ownership import Ownership
+        return Ownership(self)
+
+    @property
     def providers(self):
         """Provider declarations, owned associations and recovery receipts."""
         from .providers import Providers
