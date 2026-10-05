@@ -1,4 +1,4 @@
-"""CLIP embedding sidecar for asset libraries.
+"""Embedding sidecar for asset libraries (SigLIP2 by default).
 
 Two modes, one wire format:
 
@@ -31,13 +31,30 @@ Both write the layout the server parser (``dreamlake-server``
   float32 rows, each row L2-normalized, row *i* at byte ``i * dim * 4``.
 
 The embedding model is a COMPATIBILITY CONTRACT with the query-time
-encoder (dreamlake-server ``services/clipText.ts`` -- the ONNX text
-tower of the SAME checkpoint, running in-process in the API server):
-open_clip ``ViT-L-14-quickgelu`` with the ``openai`` pretrained weights
-(768-dim, QuickGELU -- the activation the OpenAI weights were trained
-with), images through the model's own val preprocess (PIL,
-``convert("RGB")``), texts through the model tokenizer. Change either
-side and image/text similarity turns to garbage.
+encoder (dreamlake-server runs the ONNX text tower of the SAME
+checkpoint in-process). Since the single-encoder cleanup there is
+exactly ONE supported space:
+
+* **SigLIP 2 base (default)** -- open_clip ``ViT-B-16-SigLIP2``/
+  ``webli`` (768-dim, Gemma tokenizer, multilingual; server side:
+  ``services/siglip2Text.ts``; needs open-clip-torch >= 2.31, pinned by
+  the ``embed`` extra).
+
+``--model`` stays a generic open_clip passthrough (this is a general
+tool), and the ``clip`` alias survives as an EXPLICITLY-LEGACY escape
+hatch (``ViT-L-14-quickgelu``/``openai`` -- the pre-SigLIP2 space). The
+server no longer runs a CLIP query tower, so a clip-embedded sidecar --
+like any non-default model -- gets keyword-only search on DreamLake.
+
+Images go through the model's own val preprocess (PIL,
+``convert("RGB")``), texts through the model tokenizer (for SigLIP2
+that applies big_vision canonicalization -- the server query path
+mirrors it). Change either side and image/text similarity turns to
+garbage. The sidecar's ``model`` field carries
+``open_clip/<model>/<pretrained>``; the server only fuses a library's
+vectors when that string matches its ACTIVE query encoder (both spaces
+are 768-dim, so the dim check alone cannot tell them apart), otherwise
+that library degrades to keyword-only search until re-pushed.
 
 Per-asset inputs: the image vector comes from the ``thumbnail`` file;
 the text vector from ``"{title}. {description}. {tags joined by ', '}"``
@@ -79,20 +96,58 @@ OUT_VECTORS_F32 = "vectors.f32"
 DREAMLAKE_THUMBS_PREFIX = ".dreamlake/thumbnails/"
 
 #: MUST stay in the same embedding space as the server's query-time
-#: encoder (dreamlake-server services/clipText.ts: the fp16 ONNX export
-#: of openai/clip-vit-large-patch14). "-quickgelu" is essential: the
-#: plain "ViT-L-14" config runs the OpenAI weights through nn.GELU,
-#: which lands in a measurably different space (cos as low as 0.5 vs
-#: the true QuickGELU on long texts).
-DEFAULT_MODEL = "ViT-L-14-quickgelu"
-DEFAULT_PRETRAINED = "openai"
+#: encoder (dreamlake-server services/siglip2Text.ts: the fp16 ONNX
+#: text tower of this exact checkpoint). Requires open-clip-torch >=
+#: 2.31 (+ timm >= 1.0.15, transformers for the Gemma tokenizer) -- all
+#: pinned by the ``embed`` extra.
+SIGLIP2_MODEL = "ViT-B-16-SigLIP2"
+SIGLIP2_PRETRAINED = "webli"
+DEFAULT_MODEL = SIGLIP2_MODEL
+DEFAULT_PRETRAINED = SIGLIP2_PRETRAINED
+
+#: LEGACY: the pre-SigLIP2 space (CLIP ViT-L-14 QuickGELU, 768-dim like
+#: SigLIP2 -- the sidecar ``model`` string is what keeps the two spaces
+#: apart server-side). The server's CLIP query tower is GONE, so this
+#: only makes sense for non-DreamLake uses of the tool; on DreamLake a
+#: clip-embedded library degrades to keyword-only search. "-quickgelu"
+#: is essential when using it: the plain "ViT-L-14" config runs the
+#: OpenAI weights through nn.GELU, which lands in a measurably
+#: different space (cos as low as 0.5 vs the true QuickGELU on long
+#: texts).
+LEGACY_CLIP_MODEL = "ViT-L-14-quickgelu"
+LEGACY_CLIP_PRETRAINED = "openai"
+
+#: accepted ``--model`` aliases -> the exact (model, pretrained) pair.
+#: An alias PINS pretrained too: the contract is with a checkpoint, not
+#: an architecture. "clip" is the explicitly-legacy escape hatch (see
+#: LEGACY_CLIP_MODEL above).
+MODEL_ALIASES: dict[str, tuple[str, str]] = {
+    "clip": (LEGACY_CLIP_MODEL, LEGACY_CLIP_PRETRAINED),
+    "siglip2": (SIGLIP2_MODEL, SIGLIP2_PRETRAINED),
+}
 
 DEFAULT_CACHE_DIR = Path("~/.cache/dreamlake/assets-embed")
 
 
+def resolve_model(model: str, pretrained: str) -> tuple[str, str]:
+    """Expand a model alias ("clip", "siglip2") to its pinned
+    ``(model, pretrained)`` pair; explicit open_clip names pass through
+    with the given pretrained tag untouched."""
+    return MODEL_ALIASES.get(model.lower(), (model, pretrained))
+
+
 def model_id(model: str = DEFAULT_MODEL,
              pretrained: str = DEFAULT_PRETRAINED) -> str:
-    """The identifier written to the sidecar's ``model`` field."""
+    """The identifier written to the sidecar's ``model`` field.
+
+    The server's fusion gate compares this string against its query
+    encoder id, so it must stay ``open_clip/<model>/<pretrained>``
+    verbatim -- the default resolves to
+    ``open_clip/ViT-B-16-SigLIP2/webli``, the only id the server fuses
+    (``open_clip/ViT-L-14-quickgelu/openai`` is the legacy CLIP-era
+    string the gate now degrades to keyword-only).
+    """
+    model, pretrained = resolve_model(model, pretrained)
     return f"open_clip/{model}/{pretrained}"
 
 
@@ -120,9 +175,12 @@ def _load_encoder(model: str, pretrained: str, device: str):
     (un-normalized) features out; normalization happens once, at
     matrix-write time.
 
-    The "-quickgelu" model name loads the openai checkpoint with its
-    trained activation (no "QuickGELU mismatch" warning) -- the exact
-    space the server's ONNX text tower (services/clipText.ts) lives in.
+    ``ViT-B-16-SigLIP2`` (open_clip >= 2.31, hf-hub weights) matches
+    the server's ONNX text tower (services/siglip2Text.ts), its
+    tokenizer canonicalizing text the way the server's query path does.
+    (For the legacy clip alias, the "-quickgelu" model name loads the
+    openai checkpoint with its trained activation -- no "QuickGELU
+    mismatch" warning.)
     """
     try:
         import open_clip
@@ -237,6 +295,7 @@ def _embed_assets(
     Returns ``{"items", "matrix", "dim", "images", "texts"}``; raises
     :class:`ValueError` when there is nothing at all to embed.
     """
+    model, pretrained = resolve_model(model, pretrained)
     mid = model_id(model, pretrained)
     cache_ns = (
         Path(cache_dir) if cache_dir is not None else DEFAULT_CACHE_DIR
@@ -478,14 +537,17 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="python -m dreamlake.assets_tools.embed",
         description=(
-            "Generate the CLIP embeddings sidecar for an asset library. "
+            "Generate the embeddings sidecar for an asset library. "
             "Manifest mode (--manifest + --files-root + --thumbs-dir + "
             "--out-dir) writes vectors.json + vectors.f32 into --out-dir "
             "and prints one JSON stats line to stdout; legacy in-dir "
             "mode (a library directory argument) writes "
             "assets.vectors.json + assets.vectors.f32 next to its "
-            "assets.json. The model must share the server's query "
-            "encoder space (ViT-L-14-quickgelu/openai, 768-dim)."
+            "assets.json. DreamLake semantic search needs the server's "
+            "query-encoder space: siglip2 (ViT-B-16-SigLIP2/webli, the "
+            "default). Any other model -- including the explicitly-"
+            "legacy clip alias (ViT-L-14-quickgelu/openai) -- writes a "
+            "valid sidecar the server degrades to keyword-only search."
         ),
     )
     parser.add_argument(
@@ -508,11 +570,16 @@ def main(argv: list[str] | None = None) -> int:
         help="manifest mode: directory receiving vectors.json + "
              "vectors.f32")
     parser.add_argument(
-        "--model", default=DEFAULT_MODEL,
-        help=f"open_clip model name (default: {DEFAULT_MODEL})")
+        "--model", default=os.environ.get(
+            "DREAMLAKE_EMBED_MODEL", DEFAULT_MODEL),
+        help=f"open_clip model name or alias ({'|'.join(MODEL_ALIASES)}; "
+             f"an alias pins its pretrained tag; clip is legacy -- the "
+             f"server no longer fuses it). Default: "
+             f"$DREAMLAKE_EMBED_MODEL or {DEFAULT_MODEL}")
     parser.add_argument(
         "--pretrained", default=DEFAULT_PRETRAINED,
-        help=f"open_clip pretrained tag (default: {DEFAULT_PRETRAINED})")
+        help=f"open_clip pretrained tag (default: {DEFAULT_PRETRAINED}; "
+             f"ignored when --model is an alias)")
     parser.add_argument(
         "--device", default="cpu", help="torch device (default: cpu)")
     parser.add_argument(

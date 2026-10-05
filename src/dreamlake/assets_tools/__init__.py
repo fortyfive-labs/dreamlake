@@ -31,7 +31,7 @@ Layout:
   ``build_library(src, out, ...)`` plus an argparse ``main``.
 * ``import_menagerie`` / ``import_mujoco_scanned_objects`` -- the
   ``python -m dreamlake.assets_tools.import_*`` entry points.
-* :mod:`~dreamlake.assets_tools.embed` -- the CLIP embeddings sidecar
+* :mod:`~dreamlake.assets_tools.embed` -- the embeddings sidecar (SigLIP2)
   (``dreamlake.assets.vectors/v1``). Manifest mode (the CLI step)
   writes ``vectors.json`` + ``vectors.f32`` into ``--out-dir``; legacy
   in-dir mode writes ``assets.vectors.*`` next to ``assets.json``.
