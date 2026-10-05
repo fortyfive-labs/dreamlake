@@ -109,4 +109,20 @@ an active secret, or bypass the retired entry's retention deadline.
 
 ## Proposed organization/team scopes (not released)
 
-`client.vault.scoped("team:<id>")` returns a separate immutable scope-bound client. Discover available IDs with `client.vault.scopes()`. Shared entry CRUD, pagination and write-status retain the selected scope on every request. Reuse that client and original request ID for recovery; failures never fall back to personal. Shared OTP, KMS, access keys, host delivery and machine credentials remain unsupported. Privileged export/reseal and audited policy changes await the ownership authority/epoch integration and are not enabled by this slice.
+`client.vault.scoped("team:<id>")` returns a separate immutable scope-bound client. Discover available IDs with `client.vault.scopes()`. Shared entry CRUD, pagination and write-status retain the selected scope on every request. Reuse that client and original request ID for recovery; failures never fall back to personal. Shared OTP, KMS, access keys, host delivery and machine credentials remain unsupported. Privileged copy/reseal and audited policy changes are described below; source retirement and customer-KMS destinations remain unsupported.
+
+## Scoped management preview (not released)
+
+Use `vault = client.vault.scoped("org:<id>")`. `vault.capabilities()`, `vault.policy()` and `vault.audit()` return metadata. Export/policy requires org OWNER or direct-team MAINTAINER; ordinary entry CRUD remains member-based.
+
+```python
+preview = vault.secret_copy_preview(
+    "org/path", destination_scope="team:<id>", destination_name="team/path",
+    expected_revision=1, request_id="copy-001",
+)
+result = vault.secret_copy(preview["operationId"], action="commit")
+recovered = vault.secret_copy_recover("copy-001")
+vault.policy(export_enabled=False, expected_revision=0, request_id="policy-001")
+```
+
+Explicit `destination_scope=None` selects Personal. Keep the original scope/request ID for recovery; denial never falls back. Copies retain the source, reseal a new destination identity, and expire pending previews after 24 hours. Moves require a complete consumer registry; customer-KMS destinations require policy-aware reseal recovery. Both remain rejected, along with shared OTP/KMS/keys/host/machine/delivery.
