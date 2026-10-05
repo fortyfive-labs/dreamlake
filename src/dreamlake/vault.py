@@ -136,9 +136,73 @@ def _host_binding(b):
         raise VaultError("Invalid host credential binding")
 
 
+def _management_metadata(raw):
+    if not isinstance(raw, dict):
+        raise VaultError("Invalid vault metadata")
+    def pick(row, keys):
+        return {key: row[key] for key in keys if key in row}
+    if "operationId" in raw:
+        if not isinstance(raw["operationId"], str) or not re.fullmatch(r"[a-f0-9-]{36}", raw["operationId"]) or raw.get("state") not in {"pending", "completed", "cancelled", "expired"}:
+            raise VaultError("Invalid copy receipt")
+        return pick(raw, ("apiVersion", "operationId", "requestId", "state", "sourceScope", "destinationScope", "sourceName", "destinationName", "sourceRevision", "sourcePolicyRevision", "sourceEntryId", "destinationEntryId", "expiresAt", "mode", "sourceRetained", "destinationResealed"))
+    if "events" in raw:
+        if not isinstance(raw["events"], list) or any(not isinstance(row, dict) for row in raw["events"]):
+            raise VaultError("Invalid audit metadata")
+        return {"events": [pick(row, ("tenantId", "actorId", "operationId", "action", "createdAt")) for row in raw["events"]]}
+    if "policy" in raw:
+        return {"capabilities": raw.get("capabilities", []), "policy": _management_metadata(raw["policy"])}
+    if "capabilities" in raw:
+        return pick(raw, ("apiVersion", "capabilities", "authorizationEpoch"))
+    if type(raw.get("revision")) is not int or type(raw.get("exportEnabled")) is not bool:
+        raise VaultError("Invalid policy metadata")
+    return pick(raw, ("revision", "exportEnabled"))
+
+
 class Vault:
-    def __init__(self, http_client: httpx.Client):
+    def __init__(self, http_client: httpx.Client, *, scope=None):
+        if scope is not None and (not isinstance(scope, str) or not re.fullmatch(r"(org|team):[a-f0-9]{24}", scope)):
+            raise VaultError("Invalid vault scope")
         self._http = http_client
+        self.__scope = scope
+
+    @property
+    def scope(self):
+        return self.__scope
+
+    def scoped(self, scope):
+        """New immutable scope-bound client; never changes the original client."""
+        return Vault(self._http, scope=scope)
+
+    def scopes(self):
+        """Discover current direct-membership shared vault scopes."""
+        return self._request("GET", "/v1/vault/scopes")
+
+    def capabilities(self):
+        return _management_metadata(self._request("GET", "/v1/vault/capabilities"))
+
+    def secret_copy_preview(self, name, *, destination_scope, destination_name, expected_revision, request_id):
+        """Explicit privileged server-side copy; preview contains no secret value."""
+        return _management_metadata(self._request("POST", "/v1/vault/secret-transfers/preview", json=dict(name=name, destinationScope=destination_scope, destinationName=destination_name, expectedRevision=expected_revision, requestId=_write_request_id(request_id), mode="copy")))
+
+    def secret_copy(self, operation_id, *, action="status"):
+        if not isinstance(operation_id, str) or not re.fullmatch(r"[a-f0-9-]{36}", operation_id) or action not in {"status", "commit", "cancel"}:
+            raise VaultError("Invalid secret copy operation")
+        suffix = "" if action == "status" else "/" + action
+        return _management_metadata(self._request("GET" if action == "status" else "POST", "/v1/vault/secret-transfers/" + operation_id + suffix))
+
+    def secret_copy_recover(self, request_id):
+        return _management_metadata(self._request("GET", "/v1/vault/secret-transfer-requests/" + _write_request_id(request_id)))
+
+    def policy(self, *, export_enabled=None, expected_revision=None, request_id=None):
+        if export_enabled is None:
+            return _management_metadata(self._request("GET", "/v1/vault/policy"))
+        if type(export_enabled) is not bool or type(expected_revision) is not int or expected_revision < 0:
+            raise VaultError("Invalid policy operation")
+        return _management_metadata(self._request("PUT", "/v1/vault/policy", json=dict(exportEnabled=export_enabled, expectedRevision=expected_revision, requestId=_write_request_id(request_id))))
+
+    def audit(self):
+        return _management_metadata(self._request("GET", "/v1/vault/audit"))
+
 
     def bind_host_credential(self, *, host_id, enrollment_id, role, endpoint, kind, entry_id, entry_revision):
         """Bind an existing exact entry revision to this account's enrollment.
@@ -348,8 +412,21 @@ class Vault:
         return VaultKms(self)
 
     def _request(self, method, path, **kwargs):
+        if self.scope is not None:
+            route = path.split("?", 1)[0]
+            if route not in {"/v1/vault/scopes", "/v1/vault/entries", "/v1/vault/entries/read", "/v1/vault/entry", "/v1/vault/restore", "/v1/vault/capabilities", "/v1/vault/policy", "/v1/vault/audit", "/v1/vault/secret-transfers/preview"} and not route.startswith(("/v1/vault/write-operations/", "/v1/vault/secret-transfers/", "/v1/vault/secret-transfer-requests/")):
+                raise VaultError("Shared vault operation unsupported")
+        headers = dict(kwargs.pop("headers", {}))
+        if any(key.lower() == "x-vault-scope" for key in headers):
+            raise VaultError("Use a scope-bound Vault client")
+        # Pin the header on every request, including pagination and recovery.
+        # An empty personal header prevents ambient shared headers being used.
+        if any(key.lower() == "x-vault-scope" for key in self._http.headers):
+            raise VaultError("Use a scope-bound Vault client")
+        if self.scope is not None:
+            headers["X-Vault-Scope"] = self.scope
         try:
-            response = self._http.request(method, path, follow_redirects=False, **kwargs)
+            response = self._http.request(method, path, follow_redirects=False, headers=headers, **kwargs)
             if not response.is_success:
                 raise VaultHttpError(response.status_code)
             return response.json()
@@ -497,7 +574,7 @@ class Vault:
     def list(self, *, prefix="", include_deleted=False):
         """Return all authorized metadata, draining bounded pages without reveals."""
         def authority():
-            return (id(self._http), id(self._http._transport_for_url(self._http.base_url)), str(self._http.base_url), tuple(self._http.headers.raw),
+            return (self.scope, id(self._http), id(self._http._transport_for_url(self._http.base_url)), str(self._http.base_url), tuple(self._http.headers.raw),
                     tuple((c.domain, c.path, c.name, c.value) for c in self._http.cookies.jar),
                     self._http.auth, tuple((key, tuple(value)) for key, value in self._http.event_hooks.items()))
         original_authority = authority()

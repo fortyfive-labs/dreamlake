@@ -46,3 +46,23 @@ def test_invalid_direction_does_not_send_request():
     client = DreamLakeClient(token="synthetic", transport=httpx.MockTransport(lambda _: pytest.fail("unexpected request")))
     with pytest.raises(ValueError):
         client.ownership.list("acme", "invalid")
+
+
+def test_resource_inspection_manifest_and_restore_gates():
+    calls = []
+    def serve(request):
+        calls.append(request)
+        if request.method == "POST":
+            return httpx.Response(422, json={"apiVersion": 1, "code": "SOURCE_DELETE_TERMINAL"})
+        return httpx.Response(200, json={"apiVersion": 1, "ownerNamespaceId": "owner"})
+    client = DreamLakeClient(token="synthetic", transport=httpx.MockTransport(serve))
+    resource_id = "000000000000000000000001"
+    assert client.ownership.inspect("a/b", "source", resource_id)["ownerNamespaceId"] == "owner"
+    client.ownership.manifest("a/b", "source", resource_id)
+    with pytest.raises(OwnershipError, match="SOURCE_DELETE_TERMINAL"):
+        client.ownership.restore("a/b", "source", resource_id)
+    with pytest.raises(ValueError):
+        client.ownership.inspect("a/b", "note", resource_id)
+    assert len(calls) == 3
+    assert calls[0].url.raw_path == b"/namespaces/a%2Fb/ownership/resources/source/000000000000000000000001"
+    assert calls[1].url.raw_path.endswith(b"/manifest")

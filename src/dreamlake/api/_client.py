@@ -75,6 +75,12 @@ class DreamLakeClient:
         self._token = token or os.environ.get("DREAMLAKE_API_KEY") or _saved_token()
 
     @property
+    def sources(self):
+        """Source management, access and terminal deletion under server authority."""
+        from .sources import Sources
+        return Sources(self)
+
+    @property
     def ownership(self):
         """Server-authorized ownership previews and transfer inbox decisions."""
         from .ownership import Ownership

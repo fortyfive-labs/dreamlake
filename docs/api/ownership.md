@@ -28,3 +28,25 @@ After `STALE_PREVIEW`, obtain another preview. Lost authority must be resolved b
 a current owner. Preparing cancellation stays fenced through cleanup. A
 post-commit recovery rolls forward; reversal requires a new authorized transfer.
 This draft does not prove deployed server or installed SDK availability.
+
+## Project/source preflight (package C draft)
+
+`client.ownership.inspect(namespace, resource_type, resource_id)` returns the
+current owner and server capabilities. `manifest(...)` requires namespace owner
+and returns a bounded filing/structure inventory and source version. `resource_type`
+is `project` or `source`; other types are rejected before transport. Use these
+facts in the existing version 1 preview request. Filing never chooses ownership:
+select resources explicitly and approve cross-owner detachments.
+
+C execution remains gated on writer epochs, atomic cutover and storage recovery.
+A preview has no byte/owner/credential side effects. Destination Connections must
+be independently authorized. B supports separately authorized source-retaining
+credential copies, destination reseal and recovery; credential moves still require
+consumer inventory and customer-KMS destination reseal remains gated. C never
+implicitly copies credentials or changes the original Connection.
+
+`restore(...)` reports structured unsupported responses for live resources:
+`PROJECT_SNAPSHOT_REQUIRED` for projects with no retained snapshot and
+`SOURCE_DELETE_TERMINAL` for sources. Deleted resources can return `NOT_FOUND`.
+Existing Source disable/enable is reversible; deletion is terminal. Archive is
+unsupported. The proposed project retention window is not shipped recovery.
