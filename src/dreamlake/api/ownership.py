@@ -58,3 +58,24 @@ class Ownership:
 
     def cancel(self, namespace, operation_id):
         return self._decide(namespace, operation_id, "cancel")
+
+    def _resource(self, namespace, resource_type, resource_id, action=None):
+        if resource_type not in {"project", "source"}:
+            raise ValueError("Resource type must be project or source")
+        import re
+        if not re.fullmatch(r"[a-fA-F0-9]{24}", resource_id):
+            raise ValueError("A valid resource ID is required")
+        suffix = "resources/" + resource_type + "/" + quote(resource_id, safe="")
+        if action:
+            suffix += "/" + action
+        return self._request(namespace, "POST" if action == "restore" else "GET", suffix)
+
+    def inspect(self, namespace, resource_type, resource_id):
+        return self._resource(namespace, resource_type, resource_id)
+
+    def manifest(self, namespace, resource_type, resource_id):
+        return self._resource(namespace, resource_type, resource_id, "manifest")
+
+    def restore(self, namespace, resource_type, resource_id):
+        """Explicit unsupported response until project snapshots exist; Source deletion is terminal."""
+        return self._resource(namespace, resource_type, resource_id, "restore")
