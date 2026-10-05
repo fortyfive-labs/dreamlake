@@ -40,7 +40,10 @@ select resources explicitly and approve cross-owner detachments.
 
 C execution remains gated on writer epochs, atomic cutover and storage recovery.
 A preview has no byte/owner/credential side effects. Destination Connections must
-be independently authorized; shared credential export/reseal remains gated on B.
+be independently authorized. B supports separately authorized source-retaining
+credential copies, destination reseal and recovery; credential moves still require
+consumer inventory and customer-KMS destination reseal remains gated. C never
+implicitly copies credentials or changes the original Connection.
 
 `restore(...)` reports structured unsupported responses for live resources:
 `PROJECT_SNAPSHOT_REQUIRED` for projects with no retained snapshot and
