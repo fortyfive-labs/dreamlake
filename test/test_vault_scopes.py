@@ -34,3 +34,25 @@ def test_malformed_and_ambient_scopes_rejected():
         Vault(client, scope='team:bad')
     with pytest.raises(VaultError, match='scope-bound'):
         Vault(client)._request('GET', '/v1/vault/entries')
+
+def test_management_metadata_never_exposes_unsolicited_values():
+    from dreamlake.vault import _management_metadata
+    receipt = dict(operationId='a'*8+'-'+ 'b'*4+'-'+ 'c'*4+'-'+ 'd'*4+'-'+ 'e'*12, state='pending', value='SYNTHETIC_PRIVATE', encrypted={'ciphertext':'SYNTHETIC_PRIVATE'})
+    assert 'SYNTHETIC_PRIVATE' not in str(_management_metadata(receipt))
+    assert 'SYNTHETIC_PRIVATE' not in str(_management_metadata({'events':[{'action':'secret.copy.preview','value':'SYNTHETIC_PRIVATE'}]}))
+    assert _management_metadata({'revision':1,'exportEnabled':False,'value':'SYNTHETIC_PRIVATE'}) == {'revision':1,'exportEnabled':False}
+
+def test_copy_recovery_and_policy_remain_in_original_scope():
+    seen=[]
+    operation_id='a'*8+'-'+ 'b'*4+'-'+ 'c'*4+'-'+ 'd'*4+'-'+ 'e'*12
+    def handler(request):
+        seen.append(request)
+        if request.url.path.endswith('/policy'):
+            return httpx.Response(200,json={'revision':1,'exportEnabled':False})
+        return httpx.Response(200,json={'operationId':operation_id,'state':'pending','value':'SYNTHETIC_PRIVATE'})
+    vault=Vault(httpx.Client(base_url='https://fixture.test',transport=httpx.MockTransport(handler)),scope=SCOPE)
+    vault.secret_copy_preview('org/token',destination_scope=None,destination_name='alice/token',expected_revision=1,request_id='fixture')
+    vault.secret_copy(operation_id,action='commit')
+    vault.secret_copy_recover('fixture')
+    vault.policy(export_enabled=False,expected_revision=0,request_id='policy')
+    assert all(request.headers['x-vault-scope']==SCOPE for request in seen)
