@@ -154,6 +154,12 @@ def _v2_tokens(data: Any, note_id: str) -> None:
         raise NoteError(str(error)) from error
 
 
+def _escape_inline(value: str) -> str:
+    """Escape Notes inline framing and record control characters."""
+    return "".join("\\" + c if c in "\\[]{}" else "\\n" if c == "\n" else
+                   "\\r" if c == "\r" else "\\t" if c == "\t" else c for c in value)
+
+
 class PatchResult(str):
     """What an explicit legacy patch committed.
 
@@ -606,12 +612,10 @@ class Note:
         edits = character_diff(original.content, text)
         if not edits and not exact:
             return PatchReceipt(self._id, "merge", original.revision, original.hash, original.revision)
-        def escape(value):
-            return "".join("\\" + c if c in "\\[]{}" else "\\n" if c == "\n" else "\\r" if c == "\r" else "\\t" if c == "\t" else c for c in value)
         records = []
         for edit in edits:
-            body = ("[-" + escape(edit['expectedText']) + "-]" if edit['expectedText'] else "")
-            body += ("{+" + escape(edit['replacementText']) + "+}" if edit['replacementText'] else "")
+            body = ("[-" + _escape_inline(edit['expectedText']) + "-]" if edit['expectedText'] else "")
+            body += ("{+" + _escape_inline(edit['replacementText']) + "+}" if edit['replacementText'] else "")
             records.append(f"@@ chars {edit['start']}:{edit['end']} @@\n~ {body}\n")
         return self.patch("".join(records), base_revision=original.revision, exact=exact)
 
@@ -800,8 +804,7 @@ class Note:
         if not suffix and not exact:
             return PatchReceipt(note=self._id, mode="merge", base_revision=original.revision,
                                 hash=original.hash, revision=original.revision)
-        escaped = "".join("\\" + char if char in "\\[]{}" else
-                          "\\n" if char == "\n" else "\\r" if char == "\r" else char for char in suffix)
+        escaped = _escape_inline(suffix)
         patch = f"@@ chars {len(original.content)}:{len(original.content)} @@\n~ {{+{escaped}+}}\n" if suffix else ""
         return self.patch(patch, base_revision=original.revision, exact=exact)
 

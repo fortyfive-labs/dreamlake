@@ -2,6 +2,9 @@
 
 ## Unreleased — Native Notes body drafts
 
+Native append also escapes literal TAB characters in inline records; 0.26.0
+append could be refused by the backend for raw TAB input.
+
 `Note.write` plans bounded disjoint original-revision edits; modern `Note.read`
 retains the original snapshot for `Doc.save`. Acknowledged merged source becomes
 the next draft only after retained revision/hash readback. Known receipts survive
