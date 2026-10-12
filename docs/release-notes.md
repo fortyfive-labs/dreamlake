@@ -1,6 +1,6 @@
 # Release notes
 
-## Unreleased — Native Notes body drafts
+## 0.27.0 — Native Notes body drafts (release candidate)
 
 Native append also escapes literal TAB characters in inline records; 0.26.0
 append could be refused by the backend for raw TAB input.

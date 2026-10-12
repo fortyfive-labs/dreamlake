@@ -324,9 +324,9 @@ For previous cached-text/LF/ETag PUT behavior and string return values, choose
 path. Combining either with `at` or `exact` is rejected before HTTP. `Doc.save()`,
 whole-body writes and section APIs retain their existing behavior.
 
-## Native body drafts (unreleased source candidate)
+## Native body drafts (Python 0.27.0 release candidate)
 
-The next candidate changes `note.write(text)` from whole-body PUT to disjoint
+Python 0.27.0 changes `note.write(text)` from whole-body PUT to disjoint
 Unicode-codepoint patches against original RTC source. `at=original_snapshot`
 pins identity and source without GET; without it one verified snapshot is read
 before planning. Unchanged gaps remain untouched, and alignment work/trace/source
@@ -353,6 +353,6 @@ PATCH failures retain drafts and snapshots without adopting a newer baseline.
 For legacy editable drafts, choose `note.read(legacy=True)` or the legacy ETag
 verification `if_match=etag`; their save behavior and `SaveResult` are retained.
 `doc.save(legacy=True)` / `force=True` explicitly choose legacy body behavior.
-This source candidate is not published. Partial reads, section writes and section
+Publication acceptance remains separate. Partial reads, section writes and section
 selector mapping remain legacy and are a separate pending migration; their
 ranges must not be guessed into original native snapshot coordinates.
