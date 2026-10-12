@@ -624,8 +624,11 @@ class Note:
             _revision_token(if_match, "if_match")
         with self._client.http() as http:
             response = http.get(f"{self._base}/body", params={"contract": "v2", **({"at": at} if at is not None else {})},
-                                headers={} if if_match is None else {"If-Match": if_match})
+                                headers={} if if_match is None else {"If-Match": if_match},
+                                follow_redirects=False)
         _raise_for(response, f"read {self._ns}/{self._id}")
+        if response.status_code != 200:
+            raise NoteError("unexpected snapshot response; original source was not adopted")
         data = response.json()
         _v2_tokens(data, self._id)
         if not isinstance(data.get("content"), str) or data["hash"] != "sha256:" + hashlib.sha256(data["content"].encode("utf-8")).hexdigest():

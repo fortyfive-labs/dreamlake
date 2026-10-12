@@ -250,3 +250,34 @@ def test_malformed_json_ack_preserves_cache():
     with pytest.raises(NoteError, match='write outcome unknown'):
         note.append('tail', at=NoteSnapshot(**SNAPSHOT))
     assert (note._text, note._etag) == (SOURCE, 'legacy')
+
+@pytest.mark.parametrize('status', [201, 202, 204, 302, 307])
+@pytest.mark.parametrize('at', [None, BASE])
+def test_snapshot_requires_200_even_with_valid_envelope(status, at):
+    calls = []
+    def handler(req):
+        calls.append(req)
+        return httpx.Response(status, json=SNAPSHOT, headers={'location': 'https://other.test/SECRET'}, request=req)
+    note = Note(NOTE, namespace='ns', client=client(handler))
+    note._text, note._etag = 'cache', 'legacy'
+    with pytest.raises(NoteError, match='unexpected snapshot response') as error:
+        note.read_snapshot(at=at)
+    assert 'SECRET' not in str(error.value)
+    assert len(calls) == 1 and (note._text, note._etag) == ('cache', 'legacy')
+
+
+def test_snapshot_explicitly_disables_redirects_even_for_following_client():
+    from contextlib import contextmanager
+    requests = []
+    def handler(req):
+        requests.append(req)
+        return httpx.Response(302, json=SNAPSHOT, headers={'location': 'https://other.test/'}, request=req)
+    class FollowingClient:
+        @contextmanager
+        def http(self):
+            with httpx.Client(base_url='https://example.test', follow_redirects=True,
+                              transport=httpx.MockTransport(handler)) as http:
+                yield http
+    with pytest.raises(NoteError, match='unexpected snapshot response'):
+        Note(NOTE, namespace='ns', client=FollowingClient()).read_snapshot(at=BASE)
+    assert len(requests) == 1
