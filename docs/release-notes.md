@@ -1,12 +1,12 @@
 # Release notes
 
-## Unreleased — Original-revision Notes append
+## 0.26.0 — Original-revision Notes append (release candidate)
 
 `Note.append()` now returns a native `PatchReceipt`, using a saved hash-verified
 `NoteSnapshot` or one fresh source read and one EOF insertion PATCH. Retained
 `read_snapshot(at=revision)` verifies acknowledged historical source. Explicit
 `legacy=True` and compatible `force=True` retain the string-returning ETag PUT
-path. No version or publication is claimed; see [migration](notes-diffs.md).
+path. Publication acceptance remains pending; see [migration](notes-diffs.md).
 
 ## 0.21.0 — Explicit Notes agent activity
 

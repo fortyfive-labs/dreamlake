@@ -288,11 +288,12 @@ dreamlake notes patch "$NOTE_ID" --legacy --file change.patch --if-match '"<etag
 Remote writes reject stale revisions. A local patch is committed only when
 `doc.save()` succeeds; a rejected save retains the draft for inspection.
 
-## Original-revision append (source candidate, expected Python 0.26.0)
+## Original-revision append (Python 0.26.0 release candidate)
 
 This candidate changes `note.append(text)` from a cached whole-body PUT returning
 an ETag string to a native original-revision insertion returning `PatchReceipt`.
-Publication is not yet accepted. Read exact source once, retain it, and append:
+Requires Python 0.26.0; publication acceptance is tracked separately. Read exact
+source once, retain it, and append:
 
 ```python
 original = note.read_snapshot()
