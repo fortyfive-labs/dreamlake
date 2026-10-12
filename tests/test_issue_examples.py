@@ -244,6 +244,6 @@ class _FakeReadNote(Note):
     def etag(self):
         return self._etag
 
-    def refresh(self):
+    def refresh(self, *, legacy=False):
         self._text, self._etag = self._stored, self._stored_etag
         return self

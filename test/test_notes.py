@@ -188,21 +188,21 @@ def header(server: Server, method: str, name: str):
 
 class TestReading:
     def test_text_is_fetched_and_cached(self, n, server):
-        assert n.text == BODY
-        assert n.text == BODY
+        assert n.get_text(legacy=True) == BODY
+        assert n.get_text(legacy=True) == BODY
         # One request, not two: an agent touching .text in a loop should not
         # re-download the document each time.
         assert sum(1 for r in server.calls if r.url.path.endswith("/body")) == 1
 
     def test_refresh_rereads(self, n, server):
-        n.text
+        n.get_text(legacy=True)
         server.body = "# Changed\n"
-        assert n.text == BODY  # still the cached copy
-        assert n.refresh().text == "# Changed\n"
+        assert n.get_text(legacy=True) == BODY  # still the cached copy
+        assert n.refresh(legacy=True).get_text(legacy=True) == "# Changed\n"
 
     def test_reading_records_the_version(self, n):
         assert n.etag is None
-        n.text
+        n.get_text(legacy=True)
         assert n.etag == ETAG
 
     def test_sections(self, n):
@@ -245,21 +245,21 @@ class TestWriting:
         assert header(server, "PUT", "if-match") is None
 
     def test_force_skips_the_precondition(self, n, server):
-        n.text
+        n.get_text(legacy=True)
         n.write_section("install", "x", force=True)
         assert header(server, "PUT", "if-match") is None
 
     def test_a_write_adopts_the_new_version(self, n):
-        n.text
+        n.get_text(legacy=True)
         n.write_section("install", "x")
         # Consecutive edits must work without a re-read in between.
         assert n.etag == ETAG2
 
     def test_a_write_invalidates_the_cached_text(self, n, server):
-        n.text
+        n.get_text(legacy=True)
         n.write("# New\n", legacy=True)
         server.body = "# New\n"
-        assert n.text == "# New\n"
+        assert n.get_text(legacy=True) == "# New\n"
 
     def test_write_and_patch_hit_the_right_routes(self, n, server):
         n.write("# A\n", legacy=True)
@@ -289,7 +289,7 @@ class TestWriting:
 
 class TestErrors:
     def test_stale_write_raises_note_changed_with_the_current_etag(self, n, server):
-        n.text
+        n.get_text(legacy=True)
         server.status["PUT"] = 412
         with pytest.raises(NoteChanged) as e:
             n.write("# Clobber\n", legacy=True)
@@ -315,20 +315,20 @@ class TestErrors:
     def test_missing_note_raises_not_found(self, n, server):
         server.status["GET"] = 404
         with pytest.raises(NoteNotFound):
-            n.refresh()
+            n.refresh(legacy=True)
 
     def test_other_failures_are_not_swallowed(self, n, server):
         from dreamlake.api.notes import NoteError
 
         server.status["GET"] = 500
         with pytest.raises(NoteError) as e:
-            n.refresh()
+            n.refresh(legacy=True)
         assert "500" in str(e.value)
 
     def test_the_error_says_which_note(self, n, server):
         server.status["GET"] = 404
         with pytest.raises(NoteNotFound) as e:
-            n.refresh()
+            n.refresh(legacy=True)
         assert NOTE_ID in str(e.value) and "acme" in str(e.value)
 
 
@@ -380,11 +380,11 @@ class TestLookup:
 
 class TestTransport:
     def test_the_token_is_sent(self, n, server):
-        n.text
+        n.get_text(legacy=True)
         assert server.calls[-1].headers["authorization"] == "Bearer tok"
 
     def test_requests_go_to_the_configured_server(self, n, server):
-        n.text
+        n.get_text(legacy=True)
         assert str(server.calls[-1].url).startswith("https://api.test/")
 
 
@@ -494,7 +494,7 @@ class TestTheNamingRule:
     explicit line-range reads and the file accessor are separate public surfaces.
     """
 
-    WHOLE = {"read_snapshot", "text", "refresh", "sections", "read", "write", "append", "patch", "diff"}
+    WHOLE = {"get_text", "read_snapshot", "text", "refresh", "sections", "read", "write", "append", "patch", "diff"}
     RANGE = {"read_lines"}
     ACCESSORS = {"files"}
     PART = {"read_section", "write_section", "insert_section", "delete_section"}
@@ -590,11 +590,11 @@ def test_diff_uses_read_hash_without_advancing_write_validator():
     c = DreamLakeClient(dl_url='https://api.test', token='tok', transport=httpx.MockTransport(handle))
     n = Note(NOTE_ID, namespace='ns', client=c)
     doc = n.read(legacy=True)
-    assert n.diff() == '+new\n'
+    assert n.diff(legacy=True) == '+new\n'
     assert calls[-1].url.params['since'] == doc.etag
     assert n.etag == ETAG
-    assert n.text == BODY
-    assert n.diff(since=ETAG2, context=0) == '+new\n'
+    assert n.get_text(legacy=True) == BODY
+    assert n.diff(since=ETAG2, context=0, legacy=True) == '+new\n'
     assert calls[-1].url.params['since'] == ETAG2
     assert calls[-1].url.params['context'] == '0'
 
@@ -608,10 +608,10 @@ def test_diff_defaults_to_successful_write_ref_and_supports_fresh_handles():
         calls.append(request)
         return httpx.Response(200, json={'diff': ''})
     n._client = DreamLakeClient(dl_url='https://api.test', token='tok', transport=httpx.MockTransport(handle))
-    assert n.diff() == ''
+    assert n.diff(legacy=True) == ''
     assert calls[-1].url.params['since'] == ETAG2
     fresh = Note(NOTE_ID, namespace='ns', client=n._client)
-    assert fresh.diff(since=ETAG) == ''
+    assert fresh.diff(since=ETAG, legacy=True) == ''
     assert fresh.etag is None
     assert calls[-1].url.params['since'] == ETAG
 
@@ -620,11 +620,11 @@ def test_diff_validates_input_and_reports_unknown_refs():
     s = Server()
     n = Note(NOTE_ID, namespace='ns', client=s.client())
     with pytest.raises(ValueError, match='read the note'):
-        n.diff()
+        n.diff(legacy=True)
     for context in [-1, 101, 1.5, True]:
         with pytest.raises(ValueError):
-            n.diff(since=ETAG, context=context)
+            n.diff(since=ETAG, context=context, legacy=True)
     assert not s.calls
     s.status['GET'] = 404
     with pytest.raises(NoteNotFound):
-        n.diff(since=ETAG)
+        n.diff(since=ETAG, legacy=True)
