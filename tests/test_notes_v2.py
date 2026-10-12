@@ -165,6 +165,7 @@ def test_append_default_reads_once_then_patches():
         calls.append(req.method)
         if req.method == 'GET':
             return response(req, SNAPSHOT)
+        assert json.loads(req.content)['patch'] == f'@@ chars {len(SOURCE)}:{len(SOURCE)} @@\n~ {{+\\ntail+}}\n'
         return response(req, dict(note=NOTE, mode='exact', baseRevision=BASE, hash=HASH, revision=CURRENT))
     result = Note(NOTE, namespace='ns', client=client(handler)).append('tail', exact=True)
     assert result.mode == 'exact' and calls == ['GET', 'PATCH']

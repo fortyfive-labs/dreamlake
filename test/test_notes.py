@@ -267,8 +267,8 @@ class TestWriting:
         n.patch("--- a\n+++ b\n", legacy=True)
         assert server.calls[-1].method == "PATCH" and server.calls[-1].url.path.endswith("/body")
 
-    def test_append_keeps_the_write_conditional(self, n, server):
-        n.append("## New\ntail\n")
+    def test_legacy_append_keeps_the_write_conditional(self, n, server):
+        n.append("## New\ntail\n", legacy=True)
         # It read first, so the write carries a validator — two agents
         # appending at once cannot silently lose one of the additions.
         assert header(server, "PUT", "if-match") == ETAG
@@ -276,9 +276,9 @@ class TestWriting:
         assert sent.endswith("## New\ntail\n")
         assert "brew install x" in sent  # the existing body was kept
 
-    def test_append_does_not_glue_onto_the_last_line(self, n, server):
+    def test_legacy_append_does_not_glue_onto_the_last_line(self, n, server):
         server.body = "no trailing newline"
-        n.append("added\n")
+        n.append("added\n", legacy=True)
         # Without the inserted newline the addition would join the last line
         # and, if that line were a heading, stop being one.
         assert json.loads(server.calls[-1].read())["text"] == "no trailing newline\nadded\n"
