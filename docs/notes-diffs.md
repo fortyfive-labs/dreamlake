@@ -356,3 +356,32 @@ verification `if_match=etag`; their save behavior and `SaveResult` are retained.
 Publication acceptance remains separate. Partial reads, section writes and section
 selector mapping remain legacy and are a separate pending migration; their
 ranges must not be guessed into original native snapshot coordinates.
+
+## Full source reads and remote inspection (unreleased source candidate)
+
+Default `note.refresh()` and `note.text` read full source through verified Notes
+v2 snapshots. Cached ETags stay in the quoted content-hash domain; RTC revisions
+stay on immutable snapshots. `note.read()` also populates that verified cache,
+while existing Docs retain their own original snapshot even after another refresh.
+`read_snapshot()` itself still leaves caches unchanged. Explicit
+`refresh(legacy=True)` and `get_text(legacy=True)` preserve older body-read behavior.
+Legacy append and legacy editable reads select that path explicitly on cache miss.
+No v2 failure silently falls back to a legacy read.
+
+`note.diff(since=content_hash)` uses the shipped v2 body inspection endpoint and
+continues returning a diff string. It checks Note, base hash, format and revision,
+then reads the retained acknowledged revision to verify its source hash. Inspection
+updates no cache or draft baseline. `since` is a content hash (raw, quoted ETag or
+sha256-prefixed), never an RTC revision or a native patch baseRevision. Omitting
+since uses this handle's last full read/edit content-hash ETag. The returned string
+is inspection material; retaining only its hash does not establish a writable
+original identity snapshot.
+
+The v2 endpoint has fixed diff formatting and no context-selection parameter.
+Explicit nondefault context selects the retained compatibility `/diff` endpoint
+before transport, preserving existing calls; `legacy=True` also selects it. This
+is option-based compatibility, never a fallback after a failed v2 response. V2
+context selection remains an unresolved Namespace-owned endpoint capability. There is no existing Python DiffResult value; no new
+protocol or parser is introduced. Sections and partial reads still await their
+retained range/discovery contracts and remain an explicit separate migration.
+This candidate is not yet published.

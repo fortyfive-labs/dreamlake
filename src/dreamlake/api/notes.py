@@ -381,6 +381,7 @@ class Note:
         self._client = client or get_client()
         self._text: str | None = None
         self._etag: str | None = None
+        self._text_snapshot: NoteSnapshot | None = None
 
     # ── identity ────────────────────────────────────────────────────────────
 
@@ -444,38 +445,73 @@ class Note:
 
     # ── reading ─────────────────────────────────────────────────────────────
 
-    def refresh(self) -> "Note":
+    def refresh(self, *, legacy: bool = False) -> "Note":
         """Re-read the body. The thing to call after NoteChanged."""
-        data = self._get("/body")
-        self._text = data["text"]
-        self._etag = data.get("etag")
+        if legacy:
+            data = self._get("/body")
+            self._text = data["text"]
+            self._etag = data.get("etag")
+            self._text_snapshot = None
+        else:
+            original = self.read_snapshot()
+            self._text = original.content
+            self._text_snapshot = original
+            self._etag = '"' + original.hash.removeprefix('sha256:') + '"'
         return self
 
-    def diff(self, *, since: str | None = None, context: int = 3) -> str:
-        """Fetch a unified diff since a read/edit reference (the quoted ETag).
+    def diff(self, *, since: str | None = None, context: int = 3, legacy: bool = False) -> str:
+        """Inspect a remote source diff without moving saved draft baselines.
 
-        Defaults to this handle's last read or successful write. Inspection
-        does not advance the cached revision or the write precondition. Pass
-        a saved ETag explicitly to compare across handles or sessions.
+        Modern inspection uses the shipped v2 body diff and verifies its
+        acknowledged retained source. ``since`` is a content-hash reference,
+        never an RTC write baseline. Explicit legacy retains context selection.
         """
-        from urllib.parse import urlencode
-
         if isinstance(context, bool) or not isinstance(context, int) or not 0 <= context <= 100:
             raise ValueError("context must be an integer between 0 and 100")
         ref = self._etag if since is None else since
-        if not ref:
-            raise ValueError("read the note first or supply since=<etag>")
-        query = urlencode({"since": ref, "context": context})
-        return self._get(f"/diff?{query}")["diff"]
+        if not isinstance(ref, str) or not ref:
+            raise ValueError("read the note or refresh first, or supply since=<content hash>")
+        if legacy or context != 3:
+            from urllib.parse import urlencode
+            return self._get("/diff?" + urlencode({"since": ref, "context": context}))["diff"]
+        match = re.fullmatch(r'(?:sha256:([a-f0-9]{64})|"([a-f0-9]{64})"|([a-f0-9]{64}))', ref)
+        if not match:
+            raise ValueError("since must be a content hash; RTC revisions are not diff references")
+        base_hash = "sha256:" + next(value for value in match.groups() if value is not None)
+        with self._client.http() as http:
+            response = http.get(f"{self._base}/body", params={"contract": "v2", "since": base_hash, "format": "diff"}, follow_redirects=False)
+        _raise_for(response, f"diff {self._ns}/{self._id}")
+        if response.status_code != 200:
+            raise NoteError("unexpected diff response; source and draft baseline were not adopted")
+        try:
+            data = response.json()
+            _v2_tokens(data, self._id)
+            if data.get("base") != base_hash or data.get("format") != "diff" or not isinstance(data.get("patch"), str):
+                raise NoteError("inconsistent source diff")
+            if len(data['patch'].encode('utf-8')) > 8_000_000:
+                raise NoteError("source diff too large")
+        except (ValueError, NoteError):
+            raise NoteError("invalid source diff response; no cache or baseline was adopted") from None
+        acknowledged = self.read_snapshot(at=data["revision"])
+        if acknowledged.hash != data["hash"]:
+            raise NoteError("source diff does not match its acknowledged source hash")
+        return data["patch"]
+
+    def get_text(self, *, legacy: bool = False) -> str:
+        """Read cached full source; modern cache is a verified v2 snapshot.
+
+        Explicit legacy selects the previous body read on cache miss.
+        Refresh is explicit; cached source never moves an existing Doc baseline.
+        """
+        if self._text is None or (not legacy and getattr(self, "_text_snapshot", None) is None):
+            self.refresh(legacy=legacy)
+        assert self._text is not None
+        return self._text
 
     @property
     def text(self) -> str:
-        """The whole body. Fetched once, then cached — call ``refresh()`` for a
-        current copy."""
-        if self._text is None:
-            self.refresh()
-        assert self._text is not None
-        return self._text
+        """Full source through verified v2 cache; use refresh() to read current."""
+        return self.get_text()
 
     def sections(self) -> list[Section]:
         """The heading outline, as addressable sections.
@@ -579,12 +615,14 @@ class Note:
         if legacy or if_match is not None:
             if at is not None:
                 raise ValueError("at requires modern read; omit legacy and if_match")
-            self.refresh()
+            self.refresh(legacy=True)
             if if_match is not None and self.etag != if_match:
                 raise NoteChanged(f"note changed since legacy ETag {if_match}", etag=self.etag)
             return Doc(self, self._text or "", self.etag)
         original = self.read_snapshot(at=at)
-        return Doc(self, original.content, '"' + original.hash.removeprefix('sha256:') + '"', snapshot=original)
+        self._text, self._text_snapshot = original.content, original
+        self._etag = '"' + original.hash.removeprefix('sha256:') + '"'
+        return Doc(self, original.content, self._etag, snapshot=original)
 
     def write(self, text: str, *, at: NoteSnapshot | None = None, exact: bool = False,
               if_match: str | None = None, legacy: bool = False, force: bool = False) -> PatchReceipt | str:
@@ -641,10 +679,13 @@ class Note:
         _raise_for(response, f"read {self._ns}/{self._id}")
         if response.status_code != 200:
             raise NoteError("unexpected snapshot response; original source was not adopted")
-        data = response.json()
-        _v2_tokens(data, self._id)
-        if not isinstance(data.get("content"), str) or data["hash"] != "sha256:" + hashlib.sha256(data["content"].encode("utf-8")).hexdigest():
-            raise NoteError("source does not match the returned hash")
+        try:
+            data = response.json()
+            _v2_tokens(data, self._id)
+            if not isinstance(data.get("content"), str) or data["hash"] != "sha256:" + hashlib.sha256(data["content"].encode("utf-8")).hexdigest():
+                raise NoteError("source does not match the returned hash")
+        except ValueError:
+            raise NoteError("invalid snapshot source response; cache and baseline were not adopted") from None
         if at is not None and data["revision"] != at:
             raise NoteError("server did not return the requested retained RTC revision")
         if if_match is not None and data["revision"] != if_match:
@@ -789,7 +830,9 @@ class Note:
         if legacy or force:
             if at is not None or exact:
                 raise ValueError("at and exact require modern append; omit legacy and force")
-            current = self.text
+            if self._text is None:
+                self.refresh(legacy=True)
+            current = self._text or ""
             if current and not current.endswith("\n"):
                 current += "\n"
             return self.write(current + text, legacy=True, force=force)

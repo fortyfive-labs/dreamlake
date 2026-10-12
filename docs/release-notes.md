@@ -1,5 +1,13 @@
 # Release notes
 
+## Unreleased — Native full source reads and remote inspection
+
+Full refresh/text caches use verified v2 source and content-hash ETags without
+moving existing Doc baselines. Remote diff uses the existing v2 body endpoint
+and retained acknowledged hash verification, preserving string returns. Explicit
+legacy body/diff reads remain supported; section/partial mapping remains pending.
+[Migration](notes-diffs.md).
+
 ## 0.27.0 — Native Notes body drafts (release candidate)
 
 Native append also escapes literal TAB characters in inline records; 0.26.0
