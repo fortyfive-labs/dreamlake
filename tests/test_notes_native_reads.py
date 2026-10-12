@@ -99,14 +99,14 @@ def test_diff_status_or_retained_hash_mismatch_keeps_cache():
     assert (note._text,note._etag)==('cache','etag') and len(calls)==2
 
 
-def test_nondefault_context_selects_compatibility_before_transport():
+def test_explicit_legacy_context_selects_compatibility_before_transport():
     calls=[]
     def handler(req):
         calls.append(req)
         assert req.url.path.endswith('/diff') and req.url.params['context']=='0'
         assert 'contract' not in req.url.params
         return httpx.Response(200,json={'diff':'legacy context'})
-    assert make(handler).diff(since='"'+'a'*64+'"',context=0)=='legacy context'
+    assert make(handler).diff(since='"'+'a'*64+'"',context=0,legacy=True)=='legacy context'
     assert len(calls)==1
 
 
@@ -124,3 +124,39 @@ def test_modern_diff_rejects_unexpected_success_or_redirect_without_followup(sta
         return httpx.Response(status,json=dict(note=ID,hash=base['hash'],revision='rtc:current',base=base['hash'],format='diff',patch=''),headers={'location':'https://other.test/SECRET'})
     with pytest.raises(NoteError,match='unexpected diff') as error:make(handler).diff(since=base['hash'])
     assert 'SECRET' not in str(error.value) and len(calls)==1
+
+
+@pytest.mark.parametrize('context',[0,3,100])
+def test_candidate_native_context_wire(context):
+    original=snap('base');calls=[]
+    def handler(req):
+        calls.append(req)
+        if req.url.params.get('since'):
+            assert req.url.path.endswith('/body') and req.url.params['contract']=='v2'
+            assert req.url.params.get('context')==(None if context==3 else str(context))
+            return httpx.Response(200,json=dict(note=ID,hash=original['hash'],revision=original['revision'],base=original['hash'],format='diff',patch=''))
+        assert req.url.params['at']==original['revision']
+        return httpx.Response(200,json=original)
+    assert make(handler).diff(since=original['hash'],context=context)=='' and len(calls)==2
+
+@pytest.mark.parametrize('context',[-1,101,True,1.5,'3'])
+def test_candidate_native_context_invalid_before_http(context):
+    with pytest.raises(ValueError):Note(ID,namespace='ns',client=object()).diff(since=snap('base')['hash'],context=context)
+
+
+def test_native_context_unsupported_backend_refuses_without_legacy_fallback():
+    calls=[]
+    def handler(req):
+        calls.append(req);assert req.url.path.endswith('/body')
+        return httpx.Response(400,json={'message':'context unsupported'})
+    with pytest.raises(NoteError):make(handler).diff(since=snap('base')['hash'],context=0)
+    assert len(calls)==1
+
+@pytest.mark.parametrize('status',[201,202,302,307])
+def test_native_nondefault_context_refuses_status_redirect_without_replay(status):
+    original=snap('base');calls=[]
+    def handler(req):
+        calls.append(req);assert req.url.params['context']=='0'
+        return httpx.Response(status,json=dict(note=ID,hash=original['hash'],revision=original['revision'],base=original['hash'],format='diff',patch=''),headers={'location':'https://other.test'})
+    with pytest.raises(NoteError):make(handler).diff(since=original['hash'],context=0)
+    assert len(calls)==1

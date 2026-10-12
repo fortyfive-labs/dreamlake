@@ -486,7 +486,7 @@ class Note:
         ref = self._etag if since is None else since
         if not isinstance(ref, str) or not ref:
             raise ValueError("read the note or refresh first, or supply since=<content hash>")
-        if legacy or context != 3:
+        if legacy:
             from urllib.parse import urlencode
             return self._get("/diff?" + urlencode({"since": ref, "context": context}))["diff"]
         match = re.fullmatch(r'(?:sha256:([a-f0-9]{64})|"([a-f0-9]{64})"|([a-f0-9]{64}))', ref)
@@ -494,7 +494,10 @@ class Note:
             raise ValueError("since must be a content hash; RTC revisions are not diff references")
         base_hash = "sha256:" + next(value for value in match.groups() if value is not None)
         with self._client.http() as http:
-            response = http.get(f"{self._base}/body", params={"contract": "v2", "since": base_hash, "format": "diff"}, follow_redirects=False)
+            params = {"contract": "v2", "since": base_hash, "format": "diff"}
+            if context != 3:
+                params['context'] = str(context)
+            response = http.get(f"{self._base}/body", params=params, follow_redirects=False)
         _raise_for(response, f"diff {self._ns}/{self._id}")
         if response.status_code != 200:
             raise NoteError("unexpected diff response; source and draft baseline were not adopted")

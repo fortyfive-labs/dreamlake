@@ -456,3 +456,14 @@ Note text cache or move an existing Doc baseline. Explicit legacy=True retains
 existing ranged requests and metadata/cache behavior; at cannot mix with legacy.
 Actual ranged endpoint acceptance and installed-client runtime verification remain
 Namespace-owned backend prerequisites. No source tests establish deployment.
+
+## Native nondefault display context (unreleased backend-dependent candidate)
+
+Published Python 0.28.0 selects the retained legacy `/diff` path upfront when
+nondefault context is explicitly requested. The future scoped-read candidate
+instead sends validated context=0..100 to the native v2 body diff (omitting it
+for default 3). This query capability is not yet implemented/accepted/deployed;
+source-only tests do not prove runtime support. Explicit legacy=True retains
+old context behavior. Unsupported v2 responses fail without endpoint fallback.
+The same Note/base/format/revision envelope and retained acknowledged source hash
+checks remain mandatory; content hashes never become RTC write baselines.
