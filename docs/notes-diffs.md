@@ -357,7 +357,7 @@ Publication acceptance remains separate. Partial reads, section writes and secti
 selector mapping remain legacy and are a separate pending migration; their
 ranges must not be guessed into original native snapshot coordinates.
 
-## Full source reads and remote inspection (unreleased source candidate)
+## Full source reads and remote inspection (Python 0.28.0 release candidate)
 
 Default `note.refresh()` and `note.text` read full source through verified Notes
 v2 snapshots. Cached ETags stay in the quoted content-hash domain; RTC revisions
@@ -384,4 +384,4 @@ is option-based compatibility, never a fallback after a failed v2 response. V2
 context selection remains an unresolved Namespace-owned endpoint capability. There is no existing Python DiffResult value; no new
 protocol or parser is introduced. Sections and partial reads still await their
 retained range/discovery contracts and remain an explicit separate migration.
-This candidate is not yet published.
+Publication acceptance for Python 0.28.0 remains separate.

@@ -1,6 +1,6 @@
 # Release notes
 
-## Unreleased — Native full source reads and remote inspection
+## 0.28.0 — Native full source reads and remote inspection (release candidate)
 
 Full refresh/text caches use verified v2 source and content-hash ETags without
 moving existing Doc baselines. Remote diff uses the existing v2 body endpoint
