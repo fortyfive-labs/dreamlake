@@ -115,3 +115,29 @@ def test_write_mixed_options_rejected_before_io(kwargs):
 def test_work_limit_refuses_without_coarse_fallback():
     with pytest.raises(NotePatchError):
         Note(ID,namespace='ns',client=object()).write('b'*5000,at=snap('a'*5000))
+
+
+def test_write_escapes_tab_before_native_inline_transport():
+    def handler(req):
+        body=json.loads(req.content)
+        assert '\t' not in body['patch']
+        assert r'\t' in body['patch']
+        return ack(req,'a\tb')
+    assert make(handler).write('a\tb',at=snap('ab')).revision=='rtc:ack'
+
+
+@pytest.mark.parametrize('compatibility',[{'legacy':True},{'force':True}])
+def test_modern_doc_legacy_save_clears_stale_native_baseline(compatibility):
+    initial=snap('Draft');calls=[]
+    def handler(req):
+        calls.append(req)
+        if req.method=='GET':return httpx.Response(200,json=initial.to_dict())
+        assert req.method=='PUT'
+        return httpx.Response(200,json={'etag':'legacy-next'})
+    doc=make(handler).read();doc.replace('Done',query='Draft');doc.save(**compatibility)
+    assert doc.original=='Done' and doc._snapshot is None
+    doc.replace('Final',query='Done');result=doc.save()
+    assert result.etag=='legacy-next'
+    assert [r.method for r in calls]==['GET','PUT','PUT']
+    assert json.loads(calls[-1].content)=={'text':'Final'}
+    assert calls[-1].headers['if-match']=='legacy-next'

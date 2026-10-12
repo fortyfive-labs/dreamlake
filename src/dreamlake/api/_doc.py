@@ -463,4 +463,8 @@ class Doc:
         etag = self._note.write(self._text, if_match=None if force else self._etag, legacy=True, force=force)
         self._original = self._text
         self._etag = etag
+        # An explicit legacy body write acknowledges only an ETag, not a
+        # native identity snapshot. Keep this draft in the legacy domain until
+        # the caller explicitly creates a new modern read/draft.
+        self._snapshot = None
         return SaveResult(etag=etag, size_bytes=len(self._text.encode()))

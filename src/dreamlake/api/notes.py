@@ -607,7 +607,7 @@ class Note:
         if not edits and not exact:
             return PatchReceipt(self._id, "merge", original.revision, original.hash, original.revision)
         def escape(value):
-            return "".join("\\" + c if c in "\\[]{}" else "\\n" if c == "\n" else "\\r" if c == "\r" else c for c in value)
+            return "".join("\\" + c if c in "\\[]{}" else "\\n" if c == "\n" else "\\r" if c == "\r" else "\\t" if c == "\t" else c for c in value)
         records = []
         for edit in edits:
             body = ("[-" + escape(edit['expectedText']) + "-]" if edit['expectedText'] else "")
