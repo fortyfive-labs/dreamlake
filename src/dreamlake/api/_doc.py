@@ -282,10 +282,12 @@ class Element:
 class Doc:
     """A loaded snapshot of a note's source, and the edits made to it."""
 
-    __slots__ = ("_note", "_original", "_text", "_etag", "_element_epoch", "_previous")
+    __slots__ = ("_note", "_original", "_text", "_etag", "_element_epoch", "_previous", "_snapshot", "_pending_receipt")
 
-    def __init__(self, note: "Note", text: str, etag: str | None) -> None:
+    def __init__(self, note: "Note", text: str, etag: str | None, *, snapshot=None) -> None:
         self._note = note
+        self._snapshot = snapshot
+        self._pending_receipt = None
         self._original = text
         self._previous = text
         self._text = text
@@ -414,14 +416,40 @@ class Doc:
 
     # ── saving ──────────────────────────────────────────────────────────────
 
-    def save(self, *, force: bool = False) -> SaveResult:
-        """Commit the draft as one conditional patch.
+    def save(self, *, exact: bool = False, legacy: bool = False, force: bool = False):
+        """Commit disjoint edits against this draft's original native snapshot.
 
-        Refuses when the note changed since it was read. That is not a
-        transient error to retry: the edits were computed against text that is
-        no longer there, and writing them anyway is how one agent silently
-        undoes another. Read again and redo the edits on the current source.
+        Modern saves return PatchReceipt and adopt coherent acknowledged merged
+        source after retained readback. EXACT checks the original revision per
+        request. Explicit legacy/force and legacy-read drafts retain SaveResult.
+        Failed readback exposes the acknowledged receipt and fences resubmission.
         """
+        from .notes import NoteError
+        if self._pending_receipt is not None:
+            error = NoteError("previous write acknowledged but readback failed; reconcile before resubmit")
+            error.receipt = self._pending_receipt
+            raise error
+        if self._snapshot is not None and not legacy and not force:
+            receipt = self._note.write(self._text, at=self._snapshot, exact=exact)
+            if receipt.revision == self._snapshot.revision and not self.dirty:
+                return receipt
+            self._pending_receipt = receipt
+            try:
+                acknowledged = self._note.read_snapshot(at=receipt.revision)
+                if acknowledged.hash != receipt.hash:
+                    raise NoteError("acknowledged source hash mismatch")
+            except Exception:
+                error = NoteError("write acknowledged but readback failed; keep draft and original baseline, reconcile before resubmit")
+                error.receipt = receipt
+                raise error from None
+            self._snapshot = acknowledged
+            self._original = self._text = self._previous = acknowledged.content
+            self._etag = '"' + acknowledged.hash.removeprefix('sha256:') + '"'
+            self._element_epoch += 1
+            self._pending_receipt = None
+            return receipt
+        if exact:
+            raise ValueError("exact requires a modern original snapshot draft")
         if not self.dirty:
             # Nothing to commit. Reporting the revision already held is more
             # useful than a write that changes nothing, and it means a caller
@@ -432,7 +460,7 @@ class Doc:
         # the same note — and then the precondition passes against a revision
         # this draft never saw, which is precisely the silent overwrite the
         # docstring above promises to prevent.
-        etag = self._note.write(self._text, if_match=None if force else self._etag, force=force)
+        etag = self._note.write(self._text, if_match=None if force else self._etag, legacy=True, force=force)
         self._original = self._text
         self._etag = etag
         return SaveResult(etag=etag, size_bytes=len(self._text.encode()))

@@ -1,5 +1,13 @@
 # Release notes
 
+## Unreleased — Native Notes body drafts
+
+`Note.write` plans bounded disjoint original-revision edits; modern `Note.read`
+retains the original snapshot for `Doc.save`. Acknowledged merged source becomes
+the next draft only after retained revision/hash readback. Known receipts survive
+readback failures and block blind replay. Explicit legacy/force/ETag compatibility
+remains; section/partial range mapping remains pending. [Migration](notes-diffs.md).
+
 ## 0.26.0 — Original-revision Notes append (release candidate)
 
 `Note.append()` now returns a native `PatchReceipt`, using a saved hash-verified

@@ -257,12 +257,12 @@ class TestWriting:
 
     def test_a_write_invalidates_the_cached_text(self, n, server):
         n.text
-        n.write("# New\n")
+        n.write("# New\n", legacy=True)
         server.body = "# New\n"
         assert n.text == "# New\n"
 
     def test_write_and_patch_hit_the_right_routes(self, n, server):
-        n.write("# A\n")
+        n.write("# A\n", legacy=True)
         assert server.calls[-1].method == "PUT" and server.calls[-1].url.path.endswith("/body")
         n.patch("--- a\n+++ b\n", legacy=True)
         assert server.calls[-1].method == "PATCH" and server.calls[-1].url.path.endswith("/body")
@@ -292,7 +292,7 @@ class TestErrors:
         n.text
         server.status["PUT"] = 412
         with pytest.raises(NoteChanged) as e:
-            n.write("# Clobber\n")
+            n.write("# Clobber\n", legacy=True)
         # Not transient: retrying reproduces it. The ETag is what to re-read
         # against, so it has to survive onto the exception.
         assert e.value.etag == ETAG
@@ -300,7 +300,7 @@ class TestErrors:
     def test_busy_note_raises_note_busy(self, n, server):
         server.status["PUT"] = 409
         with pytest.raises(NoteBusy):
-            n.write("# x\n")
+            n.write("# x\n", legacy=True)
 
     def test_bad_patch_raises_patch_failed(self, n, server):
         server.status["PATCH"] = 422
@@ -310,7 +310,7 @@ class TestErrors:
     def test_read_only_raises_note_read_only(self, n, server):
         server.status["PUT"] = 403
         with pytest.raises(NoteReadOnly):
-            n.write("# x\n")
+            n.write("# x\n", legacy=True)
 
     def test_missing_note_raises_not_found(self, n, server):
         server.status["GET"] = 404
@@ -589,7 +589,7 @@ def test_diff_uses_read_hash_without_advancing_write_validator():
         return httpx.Response(200, json={'text': BODY, 'etag': ETAG})
     c = DreamLakeClient(dl_url='https://api.test', token='tok', transport=httpx.MockTransport(handle))
     n = Note(NOTE_ID, namespace='ns', client=c)
-    doc = n.read()
+    doc = n.read(legacy=True)
     assert n.diff() == '+new\n'
     assert calls[-1].url.params['since'] == doc.etag
     assert n.etag == ETAG
@@ -602,7 +602,7 @@ def test_diff_uses_read_hash_without_advancing_write_validator():
 def test_diff_defaults_to_successful_write_ref_and_supports_fresh_handles():
     s = Server()
     n = Note(NOTE_ID, namespace='ns', client=s.client())
-    n.write('new\n')
+    n.write('new\n', legacy=True)
     calls = []
     def handle(request):
         calls.append(request)
