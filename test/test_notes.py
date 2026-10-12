@@ -206,26 +206,26 @@ class TestReading:
         assert n.etag == ETAG
 
     def test_sections(self, n):
-        got = n.sections()
+        got = n.sections(legacy=True)
         assert [s.anchor for s in got] == ["title", "install"]
         assert got[1].level == 2
         assert got[1].title == "Install"
 
     def test_read_one_section(self, n):
-        assert n.read_section("install").startswith("## Install")
+        assert n.read_section("install", legacy=True).startswith("## Install")
 
     def test_unknown_section_raises_not_found(self, n):
         with pytest.raises(NoteNotFound):
-            n.read_section("nope")
+            n.read_section("nope", legacy=True)
 
     def test_sections_also_record_the_version(self, n):
         # So `sections()` then `write()` is safe without touching `.text`.
-        n.sections()
+        n.sections(legacy=True)
         assert n.etag == ETAG
 
     def test_anchor_is_url_encoded(self, n, server):
         # Headings are user text: slashes and spaces must not rewrite the path.
-        n.read_section("安装 / setup")
+        n.read_section("安装 / setup", legacy=True)
         assert "%E5%AE%89%E8%A3%85%20%2F%20setup" in str(server.calls[-1].url)
 
 
@@ -234,24 +234,24 @@ class TestReading:
 
 class TestWriting:
     def test_write_sends_if_match_from_the_read(self, n, server):
-        n.sections()
-        n.write_section("install", "## Install\npip install x\n")
+        n.sections(legacy=True)
+        n.write_section("install", "## Install\npip install x\n", legacy=True)
         assert header(server, "PUT", "if-match") == ETAG
 
     def test_write_without_a_prior_read_is_unconditional(self, n, server):
         # There is nothing to be stale against yet. Inventing a validator would
         # make the first write fail for no reason.
-        n.write_section("install", "x")
+        n.write_section("install", "x", legacy=True)
         assert header(server, "PUT", "if-match") is None
 
     def test_force_skips_the_precondition(self, n, server):
         n.get_text(legacy=True)
-        n.write_section("install", "x", force=True)
+        n.write_section("install", "x", force=True, legacy=True)
         assert header(server, "PUT", "if-match") is None
 
     def test_a_write_adopts_the_new_version(self, n):
         n.get_text(legacy=True)
-        n.write_section("install", "x")
+        n.write_section("install", "x", legacy=True)
         # Consecutive edits must work without a re-read in between.
         assert n.etag == ETAG2
 
@@ -416,58 +416,58 @@ class TestCreate:
 
 class TestSectionsInsertDelete:
     def test_insert_at_the_end_by_default(self, n, server):
-        out = n.insert_section("## Added\nbody\n")
+        out = n.insert_section("## Added\nbody\n", legacy=True)
         assert [s.anchor for s in out] == ["title", "added"]
         sent = json.loads(server.calls[-1].read())
         assert sent == {"text": "## Added\nbody\n"}
 
     def test_insert_after_a_named_section(self, n, server):
-        n.insert_section("## Added\n", after="install")
+        n.insert_section("## Added\n", after="install", legacy=True)
         assert json.loads(server.calls[-1].read())["after"] == "install"
 
     def test_insert_before_a_named_section(self, n, server):
-        n.insert_section("## Added\n", before="install")
+        n.insert_section("## Added\n", before="install", legacy=True)
         assert json.loads(server.calls[-1].read())["before"] == "install"
 
     def test_refuses_before_and_after_together(self, n, server):
         # Ambiguous, and the server would reject it — failing here saves the
         # round trip and says so more clearly.
         with pytest.raises(ValueError):
-            n.insert_section("## X\n", before="a", after="b")
+            n.insert_section("## X\n", before="a", after="b", legacy=True)
 
     def test_insert_returns_the_new_outline(self, n):
         # The new anchor is only knowable afterwards: a duplicate title takes
         # the next free suffix.
-        out = n.insert_section("## Added\n")
+        out = n.insert_section("## Added\n", legacy=True)
         assert any(s.anchor == "added" for s in out)
 
     def test_insert_carries_the_validator(self, n, server):
-        n.sections()
-        n.insert_section("## Added\n")
+        n.sections(legacy=True)
+        n.insert_section("## Added\n", legacy=True)
         assert server.calls[-1].headers.get("if-match") == ETAG
 
     def test_delete_section(self, n, server):
-        n.sections()
-        etag = n.delete_section("install")
+        n.sections(legacy=True)
+        etag = n.delete_section("install", legacy=True)
         assert etag == ETAG2
         assert server.calls[-1].method == "DELETE"
         assert server.calls[-1].url.path.endswith("/sections/install")
         assert server.calls[-1].headers.get("if-match") == ETAG
 
     def test_delete_adopts_the_new_version(self, n):
-        n.sections()
-        n.delete_section("install")
+        n.sections(legacy=True)
+        n.delete_section("install", legacy=True)
         assert n.etag == ETAG2
 
     def test_delete_force_skips_the_validator(self, n, server):
-        n.sections()
-        n.delete_section("install", force=True)
+        n.sections(legacy=True)
+        n.delete_section("install", force=True, legacy=True)
         assert server.calls[-1].headers.get("if-match") is None
 
     def test_a_missing_section_raises_not_found(self, n, server):
         server.status["DELETE"] = 404
         with pytest.raises(NoteNotFound):
-            n.delete_section("nope")
+            n.delete_section("nope", legacy=True)
 
 
 class TestSearchMatches:
@@ -484,7 +484,7 @@ class TestSearchMatches:
         c = server.client()
         [hit, _] = search_notes("install", namespace="acme", client=c)
         # The point of returning an anchor: go to the part, not the whole note.
-        assert hit.open(client=c).read_section(hit.matches[0].anchor).startswith("## Install")
+        assert hit.open(client=c).read_section(hit.matches[0].anchor, legacy=True).startswith("## Install")
 
 
 class TestTheNamingRule:
@@ -497,7 +497,7 @@ class TestTheNamingRule:
     WHOLE = {"get_text", "read_snapshot", "text", "refresh", "sections", "read", "write", "append", "patch", "diff"}
     RANGE = {"read_lines"}
     ACCESSORS = {"files"}
-    PART = {"read_section", "write_section", "insert_section", "delete_section"}
+    PART = {"read_section_snapshot", "read_section", "write_section", "insert_section", "delete_section"}
 
     def test_every_public_method_is_on_one_side_of_the_rule(self):
         public = {
@@ -513,11 +513,11 @@ class TestTheNamingRule:
 
     def test_every_section_method_takes_or_returns_an_anchor(self, n, server):
         # The rule has to be true of behaviour, not just spelling.
-        n.sections()
-        assert n.read_section("install").startswith("## Install")
-        n.write_section("install", "## Install\nx\n")
-        n.insert_section("## Added\n", after="install")
-        n.delete_section("install")
+        n.sections(legacy=True)
+        assert n.read_section("install", legacy=True).startswith("## Install")
+        n.write_section("install", "## Install\nx\n", legacy=True)
+        n.insert_section("## Added\n", after="install", legacy=True)
+        n.delete_section("install", legacy=True)
         anchored = [c for c in server.calls if "/sections" in c.url.path]
         assert len(anchored) >= 4
 

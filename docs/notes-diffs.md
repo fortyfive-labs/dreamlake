@@ -385,3 +385,85 @@ context selection remains an unresolved Namespace-owned endpoint capability. The
 protocol or parser is introduced. Sections and partial reads still await their
 retained range/discovery contracts and remain an explicit separate migration.
 Publication acceptance for Python 0.28.0 remains separate.
+
+## Native scoped section consumers (unreleased, backend capability pending)
+
+This source-only candidate requires new retained section and outline endpoints
+owned by Namespace Moves. They are not yet implemented/accepted/deployed. No
+publication or production section acceptance is claimed. Existing partial line
+reads and their scope mapping remain a separate required migration.
+
+Modern `sections(at=full_snapshot)` asks the backend's existing Markdown section
+parser for the exact retained original outline. Existing Section.start/end fields
+remain UTF-16 coordinates for compatibility; validated server codepoint ranges
+are converted explicitly rather than relabeled. `read_section` keeps its string
+return. `read_section_snapshot` additionally returns immutable SectionSnapshot
+(anchor,text,start,end,baseline), whose range uses codepoints and whose baseline
+is the FULL verified original NoteSnapshot, not a partial body snapshot.
+
+`write_section(anchor,text,at=scope)` plans disjoint changes only within the saved
+section, retaining unchanged gaps and outside identities. Heading source remains
+verbatim, including deliberate rename/removal; nonlast replacement gains a final
+LF if absent. `delete_section` removes exactly the backend-resolved full subtree.
+Both modern writes return PatchReceipt; explicit legacy/force retains ETag strings.
+`exact=True` checks the original baseline, including unchanged source. Unchanged
+MERGE remains observational and does not claim a new commit/current check.
+
+`insert_section` preserves its list[Section] return by reading the acknowledged
+full source and ACK-pinned outline after its native insertion. Before inserts at
+section start, after inserts after the whole subtree, and no anchor uses EOF.
+Supplied section text always ends with LF, with a leading LF only when preceding
+source lacks one; missing anchors never fall back to EOF. If acknowledged outline
+discovery fails, NoteError.receipt retains the known write acknowledgment and this
+Note handle refuses further section writes until explicit reconciliation/reopening.
+It does not roll back or replay the insertion. Draft/original source remain with
+the caller. Named section and outline ranges must be nonempty (empty full LineRange views
+remain valid); zero slices cannot masquerade as replacement scopes. Wrong scope
+identity/hash/revision/anchor/range, malformed success and
+redirects fail without legacy or fresh-source fallback.
+
+Default native calls accept at=original full snapshot or saved section scope;
+without one they read one fresh full source before backend scope discovery.
+Explicit `legacy=True` (or force for writes) preserves existing endpoints and
+outline/string contracts; mixing legacy/force with modern at/exact is refused.
+No client Markdown parser is introduced. Current Note authority, ownership,
+transfer/deletion fencing and deployed endpoint acceptance remain Namespace-owned
+prerequisites; client loopback tests do not prove those safeguards.
+
+## Native read-only line views (unreleased, ranged backend pending)
+
+The source candidate migrates read_lines to verified original full snapshots.
+`read_lines(at=original)` with NO line options creates a read-only full LineRange
+from that verified source, including empty-source success; it needs no new backend
+protocol or slice parser. Without at it reads one complete v2 snapshot first.
+Simple LF counting preserves existing total-line semantics: final LF terminates
+a line, it does not create another empty line. This full-source path is selected
+by omitted options, never as fallback after a failed partial response.
+
+With line options the candidate requires the unaccepted pinned partial envelope:
+Note/revision/FULL source hash, scope=lines, exact codepoint range, sliceHash,
+text and 1-based line metadata. It verifies fullSource[start:end] equals text,
+line boundaries and request/clamping/truncation metadata; malformed success,
+redirects and authority errors never fall back to current source. Unicode/CRLF
+and final-LF bytes remain intact. Requested start beyond the original source,
+empty-source ranges, invalid booleans/fractions and reversed ranges are refused.
+
+LineRange remains immutable and has no save/Doc semantics. Native values add
+baseline (the FULL original NoteSnapshot), codepoint start/end and slice_hash;
+legacy values leave those fields None. etag remains the FULL content-hash ETag,
+not the slice hash or RTC revision. Neither full nor partial views populate the
+Note text cache or move an existing Doc baseline. Explicit legacy=True retains
+existing ranged requests and metadata/cache behavior; at cannot mix with legacy.
+Actual ranged endpoint acceptance and installed-client runtime verification remain
+Namespace-owned backend prerequisites. No source tests establish deployment.
+
+## Native nondefault display context (unreleased backend-dependent candidate)
+
+Published Python 0.28.0 selects the retained legacy `/diff` path upfront when
+nondefault context is explicitly requested. The future scoped-read candidate
+instead sends validated context=0..100 to the native v2 body diff (omitting it
+for default 3). This query capability is not yet implemented/accepted/deployed;
+source-only tests do not prove runtime support. Explicit legacy=True retains
+old context behavior. Unsupported v2 responses fail without endpoint fallback.
+The same Note/base/format/revision envelope and retained acknowledged source hash
+checks remain mandatory; content hashes never become RTC write baselines.

@@ -329,7 +329,7 @@ def test_read_lines_reports_what_it_left_out():
             return FakeHttp()
 
     n = Note("651111111111111111111111", namespace="ns", client=FakeClient())
-    part = n.read_lines(1, 2)
+    part = n.read_lines(1, 2, legacy=True)
 
     assert captured["params"] == {"startLine": "1", "endLine": "2"}
     assert part.text == "one\ntwo\n"

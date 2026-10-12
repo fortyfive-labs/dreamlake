@@ -37,6 +37,7 @@ __all__ = [
     "Note",
     "NoteRef",
     "NoteSnapshot",
+    "SectionSnapshot",
     "PatchReceipt",
     "PatchResult",
     "Section",
@@ -119,6 +120,16 @@ class NoteSnapshot:
 
     def to_dict(self) -> dict[str, str]:
         return {"note": self.note, "content": self.content, "hash": self.hash, "revision": self.revision}
+
+
+@dataclass(frozen=True)
+class SectionSnapshot:
+    """A backend-resolved source scope bound to a full original native snapshot."""
+    anchor: str
+    text: str
+    start: int
+    end: int
+    baseline: NoteSnapshot
 
 
 @dataclass(frozen=True)
@@ -210,6 +221,10 @@ class LineRange:
     end_line: int
     total_lines: int
     truncated: bool
+    baseline: NoteSnapshot | None = None
+    start: int | None = None
+    end: int | None = None
+    slice_hash: str | None = None
 
     def __repr__(self) -> str:  # pragma: no cover - display only
         more = ", truncated" if self.truncated else ""
@@ -471,7 +486,7 @@ class Note:
         ref = self._etag if since is None else since
         if not isinstance(ref, str) or not ref:
             raise ValueError("read the note or refresh first, or supply since=<content hash>")
-        if legacy or context != 3:
+        if legacy:
             from urllib.parse import urlencode
             return self._get("/diff?" + urlencode({"since": ref, "context": context}))["diff"]
         match = re.fullmatch(r'(?:sha256:([a-f0-9]{64})|"([a-f0-9]{64})"|([a-f0-9]{64}))', ref)
@@ -479,7 +494,10 @@ class Note:
             raise ValueError("since must be a content hash; RTC revisions are not diff references")
         base_hash = "sha256:" + next(value for value in match.groups() if value is not None)
         with self._client.http() as http:
-            response = http.get(f"{self._base}/body", params={"contract": "v2", "since": base_hash, "format": "diff"}, follow_redirects=False)
+            params = {"contract": "v2", "since": base_hash, "format": "diff"}
+            if context != 3:
+                params['context'] = str(context)
+            response = http.get(f"{self._base}/body", params=params, follow_redirects=False)
         _raise_for(response, f"diff {self._ns}/{self._id}")
         if response.status_code != 200:
             raise NoteError("unexpected diff response; source and draft baseline were not adopted")
@@ -513,47 +531,121 @@ class Note:
         """Full source through verified v2 cache; use refresh() to read current."""
         return self.get_text()
 
-    def sections(self) -> list[Section]:
-        """The heading outline, as addressable sections.
+    def _section_original(self, at):
+        from ._character_plan import points
+        original = at.baseline if isinstance(at, SectionSnapshot) else at
+        if original is None:
+            if at is not None: raise ValueError("saved section requires a full original snapshot")
+            original = self.read_snapshot()
+        if not isinstance(original, NoteSnapshot) or original.note != self._id:
+            raise ValueError("at must retain this Note's original full snapshot")
+        _revision_token(original.revision, "at.revision")
+        points(original.content)
+        if original.hash != "sha256:" + hashlib.sha256(original.content.encode()).hexdigest():
+            raise ValueError("original source hash mismatch")
+        if isinstance(at, SectionSnapshot):
+            if not isinstance(at.text,str) or not isinstance(at.anchor,str) or not at.anchor:
+                raise ValueError("invalid saved section snapshot")
+            self._validate_section_range(original, {"start": at.start, "end": at.end}, at.text, nonempty=True)
+        return original
 
-        A section is a heading plus everything under it, up to the next heading
-        of the same or a higher level — so ``## Install`` contains its own
-        ``### macOS``. Text before the first heading is addressed as
-        ``preamble``.
+    @staticmethod
+    def _validate_section_range(original, value, text=None, *, nonempty=False):
+        if (not isinstance(value, dict) or type(value.get("start")) is not int or
+                type(value.get("end")) is not int or not 0 <= value['start'] <= value['end'] <= len(original.content)):
+            raise NoteError("invalid retained section range")
+        if nonempty and value['start']==value['end']:
+            raise NoteError("named section range must be nonempty")
+        if text is not None and (not isinstance(text, str) or original.content[value['start']:value['end']] != text):
+            raise NoteError("retained section source mismatch")
+        return value['start'], value['end']
+
+    def _read_section_envelope(self, path, original):
+        with self._client.http() as http:
+            response = http.get(f"{self._base}{path}", params={"contract": "v2", "at": original.revision}, follow_redirects=False)
+        _raise_for(response, "read retained section")
+        if response.status_code != 200:
+            raise NoteError("unexpected retained section response; no fallback")
+        try:
+            data = response.json()
+            _v2_tokens(data, self._id)
+            if data['revision'] != original.revision or data['hash'] != original.hash:
+                raise NoteError("retained section baseline mismatch")
+        except ValueError:
+            raise NoteError("invalid retained section response") from None
+        return data
+
+    def sections(self, *, at: NoteSnapshot | None = None, legacy: bool = False) -> list[Section]:
+        """Outline from retained original source; existing start/end stay UTF-16.
+
+        Native endpoint is a pending backend capability. No legacy fallback.
         """
-        data = self._get("/sections")
-        self._etag = data.get("etag")
-        return [
-            Section(
-                anchor=s["anchor"],
-                title=s.get("title", ""),
-                level=s.get("level", 0),
-                start=s.get("start", 0),
-                end=s.get("end", 0),
-            )
-            for s in data.get("sections", [])
-        ]
+        if legacy:
+            if at is not None: raise ValueError("at and legacy cannot be combined")
+            data = self._get("/sections"); self._etag = data.get("etag")
+            return [Section(anchor=x['anchor'],title=x.get('title',''),level=x.get('level',0),start=x.get('start',0),end=x.get('end',0)) for x in data.get('sections',[])]
+        original = self._section_original(at)
+        data = self._read_section_envelope('/sections', original)
+        rows = data.get('sections')
+        if not isinstance(rows,list) or len(rows)>10000: raise NoteError("invalid retained outline")
+        result=[]; seen=set(); previous=-1
+        for row in rows:
+            if (not isinstance(row,dict) or not isinstance(row.get('anchor'),str) or not row['anchor'] or row['anchor'] in seen or
+                    not isinstance(row.get('title'),str) or type(row.get('level')) is not int or not 0 <= row['level'] <= 6):
+                raise NoteError("invalid retained outline metadata")
+            start,end = self._validate_section_range(original,row.get('range'),nonempty=True)
+            if start<previous: raise NoteError("unordered retained outline")
+            previous=start;seen.add(row['anchor'])
+            result.append(Section(anchor=row['anchor'],title=row['title'],level=row['level'],
+                start=len(original.content[:start].encode('utf-16-le'))//2,end=len(original.content[:end].encode('utf-16-le'))//2))
+        return result
 
-    def read_section(self, anchor: str) -> str:
-        """One section's text, heading included.
+    def read_section_snapshot(self, anchor: str, *, at: NoteSnapshot | SectionSnapshot | None = None) -> SectionSnapshot:
+        if not isinstance(anchor,str) or not anchor: raise ValueError("anchor must be nonempty")
+        original=self._section_original(at)
+        if isinstance(at,SectionSnapshot):
+            if at.anchor!=anchor: raise ValueError("saved section anchor mismatch")
+            return at
+        data=self._read_section_envelope('/sections/'+_seg(anchor),original)
+        if data.get('anchor')!=anchor: raise NoteError("retained section anchor mismatch")
+        if not isinstance(data.get('text'),str): raise NoteError("invalid retained section text")
+        start,end=self._validate_section_range(original,data.get('range'),data['text'],nonempty=True)
+        return SectionSnapshot(anchor,data['text'],start,end,original)
 
-        Named for what it reads. `note.text` is the whole note; every method
-        with `_section` in its name works on one part of it, and every method
-        without works on all of it. There is no third rule.
-        """
-        data = self._get(f"/sections/{_seg(anchor)}")
-        self._etag = data.get("etag")
-        return data["text"]
+    def read_section(self, anchor: str, *, at: NoteSnapshot | SectionSnapshot | None = None, legacy: bool = False) -> str:
+        if legacy:
+            if at is not None: raise ValueError("at and legacy cannot be combined")
+            data=self._get('/sections/'+_seg(anchor));self._etag=data.get('etag');return data['text']
+        return self.read_section_snapshot(anchor,at=at).text
 
-    # ── writing ─────────────────────────────────────────────────────────────
+    def _assert_section_write_ready(self):
+        if getattr(self,'_pending_section_receipt',None) is not None:
+            error=NoteError("previous section write acknowledged; reconcile discovery before resubmit")
+            error.receipt=self._pending_section_receipt;raise error
 
-    def write_section(self, anchor: str, text: str, *, force: bool = False) -> str:
-        """Replace one section. Returns the note's new ETag.
+    def _submit_section_edits(self, original, edits, exact):
+        self._assert_section_write_ready()
+        if not edits and not exact:
+            return PatchReceipt(self._id,'merge',original.revision,original.hash,original.revision)
+        records=[]
+        for edit in edits:
+            body=('[-'+_escape_inline(edit['expectedText'])+'-]' if edit['expectedText'] else '')
+            body+=('{+'+_escape_inline(edit['replacementText'])+'+}' if edit['replacementText'] else '')
+            records.append(f"@@ chars {edit['start']}:{edit['end']} @@\n~ {body}\n")
+        return self.patch(''.join(records),base_revision=original.revision,exact=exact)
 
-        The text is taken verbatim, heading and all — which is how a section is
-        renamed. Omit the heading and the section stops being one.
-        """
-        return self._send("PUT", f"/sections/{_seg(anchor)}", {"text": text}, force)["etag"]
+    def write_section(self, anchor: str, text: str, *, at: NoteSnapshot | SectionSnapshot | None = None,
+                      exact: bool = False, legacy: bool = False, force: bool = False) -> PatchReceipt | str:
+        self._assert_section_write_ready()
+        if legacy or force:
+            if at is not None or exact: raise ValueError("at/exact cannot mix with legacy/force")
+            return self._send('PUT','/sections/'+_seg(anchor),{'text':text},force)['etag']
+        from ._character_plan import points,character_diff
+        points(text)
+        section=self.read_section_snapshot(anchor,at=at)
+        replacement=text if section.end==len(section.baseline.content) or text.endswith('\n') else text+'\n'
+        edits=character_diff(section.text,replacement,offset=section.start)
+        return self._submit_section_edits(section.baseline,edits,exact)
 
     @property
     def files(self) -> "NoteFiles":
@@ -575,6 +667,7 @@ class Note:
         self,
         start_line: int | None = None,
         end_line: int | None = None,
+        *, at: NoteSnapshot | None = None, legacy: bool = False,
     ) -> "LineRange":
         """Read part of the body, and say what was left out.
 
@@ -587,6 +680,50 @@ class Note:
         back as the body would delete everything outside the range. Use
         `read()` and edit the draft, or address the range with `line=`.
         """
+        if not legacy:
+            for value in (start_line,end_line):
+                if value is not None and (type(value) is not int or value<1):
+                    raise ValueError("line numbers must be positive integers")
+            if start_line is not None and end_line is not None and end_line<start_line:
+                raise ValueError("end_line precedes start_line")
+            if at is not None and not isinstance(at,NoteSnapshot):
+                raise ValueError("partial reads require a full original NoteSnapshot")
+            original=self._section_original(at)
+            total=original.content.count('\n') + (1 if original.content and not original.content.endswith('\n') else 0)
+            if start_line is None and end_line is None:
+                return LineRange(original.content,'"'+original.hash[7:]+'"',1,total,total,False,
+                    baseline=original,start=0,end=len(original.content),slice_hash=original.hash)
+            requested_start=1 if start_line is None else start_line
+            if total==0 or requested_start>total:
+                raise ValueError("requested start line is outside original source")
+            params={"contract":"v2","at":original.revision}
+            if start_line is not None:params['startLine']=str(start_line)
+            if end_line is not None:params['endLine']=str(end_line)
+            with self._client.http() as http:
+                response=http.get(f"{self._base}/body",params=params,follow_redirects=False)
+            _raise_for(response,"read retained partial source")
+            if response.status_code!=200:raise NoteError("unexpected partial source response; no fallback")
+            try:
+                data=response.json();_v2_tokens(data,self._id)
+                if data['revision']!=original.revision or data['hash']!=original.hash or data.get('scope')!='lines':
+                    raise NoteError("partial source baseline mismatch")
+                if not isinstance(data.get('text'),str):raise NoteError("invalid partial source text")
+                start,end=self._validate_section_range(original,data.get('range'),data['text'])
+                slice_hash='sha256:'+hashlib.sha256(data['text'].encode()).hexdigest()
+                actual_end=total if end_line is None else min(end_line,total)
+                if (data.get('sliceHash')!=slice_hash or any(type(data.get(k)) is not int for k in ('startLine','endLine','totalLines')) or
+                    data['startLine']!=requested_start or data['endLine']!=actual_end or data['totalLines']!=total or
+                    type(data.get('truncated')) is not bool or data['truncated']!=(actual_end<total)):
+                    raise NoteError("partial source metadata mismatch")
+                if (start and original.content[start-1]!='\n' or end<len(original.content) and (not end or original.content[end-1]!='\n') or
+                    original.content[:start].count('\n')!=requested_start-1 or
+                    data['text'].count('\n')+(1 if data['text'] and not data['text'].endswith('\n') else 0)!=actual_end-requested_start+1):
+                    raise NoteError("partial source line boundaries mismatch")
+            except ValueError:
+                raise NoteError("invalid partial source response") from None
+            return LineRange(data['text'],'"'+original.hash[7:]+'"',requested_start,actual_end,total,data['truncated'],
+                baseline=original,start=start,end=end,slice_hash=slice_hash)
+        if at is not None:raise ValueError("at and legacy cannot be combined")
         params = {}
         if start_line is not None:
             params["startLine"] = str(start_line)
@@ -764,7 +901,8 @@ class Note:
         *,
         before: str | None = None,
         after: str | None = None,
-        force: bool = False,
+        at: NoteSnapshot | SectionSnapshot | None = None,
+        exact: bool = False, legacy: bool = False, force: bool = False,
     ) -> list[Section]:
         """Add a section, and return the note's new outline.
 
@@ -776,8 +914,36 @@ class Note:
         under a `##`. The outline comes back because the new anchor is only
         knowable afterwards — a duplicate title takes the next free suffix.
         """
-        if before and after:
+        self._assert_section_write_ready()
+        both = bool(before and after) if legacy or force else before is not None and after is not None
+        if both:
             raise ValueError("pass before or after, not both")
+        if not legacy and not force:
+            for anchor_option in (before, after):
+                if anchor_option is not None and (not isinstance(anchor_option,str) or not anchor_option):
+                    raise ValueError("section placement anchor must be nonempty")
+            from ._character_plan import points
+            points(text)
+            original=self._section_original(at)
+            anchor=before if before is not None else after
+            if anchor is not None:
+                scope=self.read_section_snapshot(anchor,at=at if at is not None else original)
+                cut=scope.start if before is not None else scope.end
+            else: cut=len(original.content)
+            body=text if text.endswith('\n') else text+'\n'
+            lead='\n' if cut and original.content[cut-1]!='\n' else ''
+            receipt=self._submit_section_edits(original,[dict(start=cut,end=cut,expectedText='',replacementText=lead+body)],exact)
+            self._pending_section_receipt=receipt
+            try:
+                acknowledged=self.read_snapshot(at=receipt.revision)
+                if acknowledged.hash!=receipt.hash: raise NoteError("acknowledged section hash mismatch")
+                outline=self.sections(at=acknowledged)
+            except Exception:
+                error=NoteError("section write acknowledged but outline discovery failed; keep original source/draft and reconcile before resubmit")
+                error.receipt=receipt;raise error from None
+            self._pending_section_receipt=None
+            return outline
+        if at is not None or exact: raise ValueError("at/exact cannot mix with legacy/force")
         payload: dict[str, Any] = {"text": text}
         if before:
             payload["before"] = before
@@ -795,12 +961,19 @@ class Note:
             for s in out.get("sections", [])
         ]
 
-    def delete_section(self, anchor: str, *, force: bool = False) -> str:
+    def delete_section(self, anchor: str, *, at: NoteSnapshot | SectionSnapshot | None = None,
+                       exact: bool = False, legacy: bool = False, force: bool = False) -> PatchReceipt | str:
         """Remove a section and everything under it.
 
         The subtree goes because that is what the section is; leaving its
         subsections behind would promote them into the previous one.
         """
+        self._assert_section_write_ready()
+        if not legacy and not force:
+            section=self.read_section_snapshot(anchor,at=at)
+            edits=[] if not section.text else [dict(start=section.start,end=section.end,expectedText=section.text,replacementText='')]
+            return self._submit_section_edits(section.baseline,edits,exact)
+        if at is not None or exact: raise ValueError("at/exact cannot mix with legacy/force")
         headers = {}
         if not force and self._etag:
             headers["If-Match"] = self._etag

@@ -1,5 +1,17 @@
 # Release notes
 
+## Unreleased — Native scoped reads and display context (runtime pending)
+
+Source-only scoped section readers/writers use verified full snapshots and
+backend-derived original ranges; insert retains outline return via ACK-pinned
+discovery with receipt-preserving failure fencing. Requires unaccepted retained
+section/outline endpoints. Read-only line consumers are also prepared against
+the pending pinned partial envelope; no-option full views use existing verified
+v2 snapshots, preserve empty source, and do not become writable Docs. No publication or
+production acceptance is claimed. Native nondefault diff context is also a
+source-only backend-dependent candidate; explicit legacy remains available.
+[Contract](notes-diffs.md).
+
 ## 0.28.0 — Native full source reads and remote inspection (release candidate)
 
 Full refresh/text caches use verified v2 source and content-hash ETags without
