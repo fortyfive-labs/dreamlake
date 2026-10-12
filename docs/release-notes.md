@@ -1,5 +1,13 @@
 # Release notes
 
+## 0.26.0 — Original-revision Notes append (release candidate)
+
+`Note.append()` now returns a native `PatchReceipt`, using a saved hash-verified
+`NoteSnapshot` or one fresh source read and one EOF insertion PATCH. Retained
+`read_snapshot(at=revision)` verifies acknowledged historical source. Explicit
+`legacy=True` and compatible `force=True` retain the string-returning ETag PUT
+path. Publication acceptance remains pending; see [migration](notes-diffs.md).
+
 ## 0.21.0 — Explicit Notes agent activity
 
 Set `DREAMLAKE_AGENT_ID` to a task-specific ID and optional
