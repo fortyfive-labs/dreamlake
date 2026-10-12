@@ -417,7 +417,9 @@ source lacks one; missing anchors never fall back to EOF. If acknowledged outlin
 discovery fails, NoteError.receipt retains the known write acknowledgment and this
 Note handle refuses further section writes until explicit reconciliation/reopening.
 It does not roll back or replay the insertion. Draft/original source remain with
-the caller. Wrong scope identity/hash/revision/anchor/range, malformed success and
+the caller. Named section and outline ranges must be nonempty (empty full LineRange views
+remain valid); zero slices cannot masquerade as replacement scopes. Wrong scope
+identity/hash/revision/anchor/range, malformed success and
 redirects fail without legacy or fresh-source fallback.
 
 Default native calls accept at=original full snapshot or saved section scope;
@@ -427,3 +429,30 @@ outline/string contracts; mixing legacy/force with modern at/exact is refused.
 No client Markdown parser is introduced. Current Note authority, ownership,
 transfer/deletion fencing and deployed endpoint acceptance remain Namespace-owned
 prerequisites; client loopback tests do not prove those safeguards.
+
+## Native read-only line views (unreleased, ranged backend pending)
+
+The source candidate migrates read_lines to verified original full snapshots.
+`read_lines(at=original)` with NO line options creates a read-only full LineRange
+from that verified source, including empty-source success; it needs no new backend
+protocol or slice parser. Without at it reads one complete v2 snapshot first.
+Simple LF counting preserves existing total-line semantics: final LF terminates
+a line, it does not create another empty line. This full-source path is selected
+by omitted options, never as fallback after a failed partial response.
+
+With line options the candidate requires the unaccepted pinned partial envelope:
+Note/revision/FULL source hash, scope=lines, exact codepoint range, sliceHash,
+text and 1-based line metadata. It verifies fullSource[start:end] equals text,
+line boundaries and request/clamping/truncation metadata; malformed success,
+redirects and authority errors never fall back to current source. Unicode/CRLF
+and final-LF bytes remain intact. Requested start beyond the original source,
+empty-source ranges, invalid booleans/fractions and reversed ranges are refused.
+
+LineRange remains immutable and has no save/Doc semantics. Native values add
+baseline (the FULL original NoteSnapshot), codepoint start/end and slice_hash;
+legacy values leave those fields None. etag remains the FULL content-hash ETag,
+not the slice hash or RTC revision. Neither full nor partial views populate the
+Note text cache or move an existing Doc baseline. Explicit legacy=True retains
+existing ranged requests and metadata/cache behavior; at cannot mix with legacy.
+Actual ranged endpoint acceptance and installed-client runtime verification remain
+Namespace-owned backend prerequisites. No source tests establish deployment.

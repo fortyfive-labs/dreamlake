@@ -221,6 +221,10 @@ class LineRange:
     end_line: int
     total_lines: int
     truncated: bool
+    baseline: NoteSnapshot | None = None
+    start: int | None = None
+    end: int | None = None
+    slice_hash: str | None = None
 
     def __repr__(self) -> str:  # pragma: no cover - display only
         more = ", truncated" if self.truncated else ""
@@ -539,14 +543,16 @@ class Note:
         if isinstance(at, SectionSnapshot):
             if not isinstance(at.text,str) or not isinstance(at.anchor,str) or not at.anchor:
                 raise ValueError("invalid saved section snapshot")
-            self._validate_section_range(original, {"start": at.start, "end": at.end}, at.text)
+            self._validate_section_range(original, {"start": at.start, "end": at.end}, at.text, nonempty=True)
         return original
 
     @staticmethod
-    def _validate_section_range(original, value, text=None):
+    def _validate_section_range(original, value, text=None, *, nonempty=False):
         if (not isinstance(value, dict) or type(value.get("start")) is not int or
                 type(value.get("end")) is not int or not 0 <= value['start'] <= value['end'] <= len(original.content)):
             raise NoteError("invalid retained section range")
+        if nonempty and value['start']==value['end']:
+            raise NoteError("named section range must be nonempty")
         if text is not None and (not isinstance(text, str) or original.content[value['start']:value['end']] != text):
             raise NoteError("retained section source mismatch")
         return value['start'], value['end']
@@ -584,7 +590,7 @@ class Note:
             if (not isinstance(row,dict) or not isinstance(row.get('anchor'),str) or not row['anchor'] or row['anchor'] in seen or
                     not isinstance(row.get('title'),str) or type(row.get('level')) is not int or not 0 <= row['level'] <= 6):
                 raise NoteError("invalid retained outline metadata")
-            start,end = self._validate_section_range(original,row.get('range'))
+            start,end = self._validate_section_range(original,row.get('range'),nonempty=True)
             if start<previous: raise NoteError("unordered retained outline")
             previous=start;seen.add(row['anchor'])
             result.append(Section(anchor=row['anchor'],title=row['title'],level=row['level'],
@@ -600,7 +606,7 @@ class Note:
         data=self._read_section_envelope('/sections/'+_seg(anchor),original)
         if data.get('anchor')!=anchor: raise NoteError("retained section anchor mismatch")
         if not isinstance(data.get('text'),str): raise NoteError("invalid retained section text")
-        start,end=self._validate_section_range(original,data.get('range'),data['text'])
+        start,end=self._validate_section_range(original,data.get('range'),data['text'],nonempty=True)
         return SectionSnapshot(anchor,data['text'],start,end,original)
 
     def read_section(self, anchor: str, *, at: NoteSnapshot | SectionSnapshot | None = None, legacy: bool = False) -> str:
@@ -658,6 +664,7 @@ class Note:
         self,
         start_line: int | None = None,
         end_line: int | None = None,
+        *, at: NoteSnapshot | None = None, legacy: bool = False,
     ) -> "LineRange":
         """Read part of the body, and say what was left out.
 
@@ -670,6 +677,50 @@ class Note:
         back as the body would delete everything outside the range. Use
         `read()` and edit the draft, or address the range with `line=`.
         """
+        if not legacy:
+            for value in (start_line,end_line):
+                if value is not None and (type(value) is not int or value<1):
+                    raise ValueError("line numbers must be positive integers")
+            if start_line is not None and end_line is not None and end_line<start_line:
+                raise ValueError("end_line precedes start_line")
+            if at is not None and not isinstance(at,NoteSnapshot):
+                raise ValueError("partial reads require a full original NoteSnapshot")
+            original=self._section_original(at)
+            total=original.content.count('\n') + (1 if original.content and not original.content.endswith('\n') else 0)
+            if start_line is None and end_line is None:
+                return LineRange(original.content,'"'+original.hash[7:]+'"',1,total,total,False,
+                    baseline=original,start=0,end=len(original.content),slice_hash=original.hash)
+            requested_start=1 if start_line is None else start_line
+            if total==0 or requested_start>total:
+                raise ValueError("requested start line is outside original source")
+            params={"contract":"v2","at":original.revision}
+            if start_line is not None:params['startLine']=str(start_line)
+            if end_line is not None:params['endLine']=str(end_line)
+            with self._client.http() as http:
+                response=http.get(f"{self._base}/body",params=params,follow_redirects=False)
+            _raise_for(response,"read retained partial source")
+            if response.status_code!=200:raise NoteError("unexpected partial source response; no fallback")
+            try:
+                data=response.json();_v2_tokens(data,self._id)
+                if data['revision']!=original.revision or data['hash']!=original.hash or data.get('scope')!='lines':
+                    raise NoteError("partial source baseline mismatch")
+                if not isinstance(data.get('text'),str):raise NoteError("invalid partial source text")
+                start,end=self._validate_section_range(original,data.get('range'),data['text'])
+                slice_hash='sha256:'+hashlib.sha256(data['text'].encode()).hexdigest()
+                actual_end=total if end_line is None else min(end_line,total)
+                if (data.get('sliceHash')!=slice_hash or any(type(data.get(k)) is not int for k in ('startLine','endLine','totalLines')) or
+                    data['startLine']!=requested_start or data['endLine']!=actual_end or data['totalLines']!=total or
+                    type(data.get('truncated')) is not bool or data['truncated']!=(actual_end<total)):
+                    raise NoteError("partial source metadata mismatch")
+                if (start and original.content[start-1]!='\n' or end<len(original.content) and (not end or original.content[end-1]!='\n') or
+                    original.content[:start].count('\n')!=requested_start-1 or
+                    data['text'].count('\n')+(1 if data['text'] and not data['text'].endswith('\n') else 0)!=actual_end-requested_start+1):
+                    raise NoteError("partial source line boundaries mismatch")
+            except ValueError:
+                raise NoteError("invalid partial source response") from None
+            return LineRange(data['text'],'"'+original.hash[7:]+'"',requested_start,actual_end,total,data['truncated'],
+                baseline=original,start=start,end=end,slice_hash=slice_hash)
+        if at is not None:raise ValueError("at and legacy cannot be combined")
         params = {}
         if start_line is not None:
             params["startLine"] = str(start_line)

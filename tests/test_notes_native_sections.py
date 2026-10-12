@@ -150,3 +150,21 @@ def test_exact_unchanged_section_submits_empty_patch():
 @pytest.mark.parametrize('kwargs',[{'before':'','after':'draft'},{'before':'','at':ORIGINAL}])
 def test_ambiguous_or_empty_placement_refused_before_io(kwargs):
     with pytest.raises(ValueError):Note(ID,namespace='ns',client=object()).insert_section('new',**kwargs)
+
+
+def test_zero_saved_named_section_cannot_be_replacement_insertion_before_http():
+    zero=SectionSnapshot('draft','',START,START,ORIGINAL)
+    with pytest.raises(NoteError,match='nonempty'):
+        Note(ID,namespace='ns',client=object()).write_section('draft','fake replacement',at=zero)
+
+
+def test_zero_backend_named_section_refused_before_patch():
+    value=dict(envelope(),text='',range=dict(start=START,end=START));calls=[]
+    def handler(req):calls.append(req);return httpx.Response(200,json=value)
+    with pytest.raises(NoteError,match='nonempty'):make(handler).write_section('draft','fake replacement',at=ORIGINAL)
+    assert len(calls)==1 and calls[0].method=='GET'
+
+
+def test_zero_named_outline_scope_refused():
+    value=dict(note=ID,hash=ORIGINAL.hash,revision=ORIGINAL.revision,sections=[dict(anchor='draft',title='Draft',level=2,range=dict(start=START,end=START))])
+    with pytest.raises(NoteError,match='nonempty'):make(lambda req:httpx.Response(200,json=value)).sections(at=ORIGINAL)
