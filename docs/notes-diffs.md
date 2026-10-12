@@ -20,7 +20,7 @@ receipt = note.patch(patch, base_revision=snapshot.revision)
 assert receipt.mode == "merge"
 print(receipt.to_dict())
 # Optional verification of the revision acknowledged by this request:
-verified = note.read_snapshot(if_match=receipt.revision)
+verified = note.read_snapshot(at=receipt.revision)
 ```
 
 For a separate request that must refuse any intervening revision, select EXACT:
@@ -287,3 +287,38 @@ dreamlake notes patch "$NOTE_ID" --legacy --file change.patch --if-match '"<etag
 
 Remote writes reject stale revisions. A local patch is committed only when
 `doc.save()` succeeds; a rejected save retains the draft for inspection.
+
+## Original-revision append (source candidate, expected Python 0.26.0)
+
+This candidate changes `note.append(text)` from a cached whole-body PUT returning
+an ETag string to a native original-revision insertion returning `PatchReceipt`.
+Publication is not yet accepted. Read exact source once, retain it, and append:
+
+```python
+original = note.read_snapshot()
+receipt = note.append("New paragraph", at=original)
+verified = note.read_snapshot(at=receipt.revision)
+assert verified.hash == receipt.hash
+```
+
+Without `at`, append reads one fresh hash-verified snapshot. With `at`, it validates
+Note identity, source hash and the original opaque revision before any network
+request; it never substitutes current source. The insertion uses Unicode code
+point positions and escapes inline framing, preserving CRLF and LF bytes.
+An existing nonempty body lacking a final LF receives one LF before the addition,
+including when the addition is empty. A completely unchanged MERGE returns an
+observational receipt without PATCH or a new commit; it does not claim current
+revision verification. `exact=True` submits even an unchanged patch so the server
+checks the saved baseline. No request is automatically replayed.
+
+Retained `read_snapshot(at=revision)` verifies the returned revision and source
+hash even if another edit has since arrived. `if_match=revision` instead checks
+current source; combining the two is rejected. A successful patch updates the
+legacy cached ETag only in its content-hash domain, never to an RTC revision.
+Unknown write outcomes preserve caches and drafts: keep the original baseline
+and draft, inspect retained/current source, and reconcile before resubmitting.
+
+For previous cached-text/LF/ETag PUT behavior and string return values, choose
+`note.append(text, legacy=True)`. Existing `force=True` also selects that legacy
+path. Combining either with `at` or `exact` is rejected before HTTP. `Doc.save()`,
+whole-body writes and section APIs retain their existing behavior.

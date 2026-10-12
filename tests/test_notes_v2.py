@@ -139,3 +139,114 @@ def test_legacy_patch_retains_string_result_and_cached_guard():
     result = note.patch(PATCH, legacy=True)
     assert isinstance(result, PatchResult) and result == 'next-etag'
     assert result.etag == 'next-etag' and result.size_bytes == 42
+
+@pytest.mark.parametrize('source,addition,escaped', [
+    ('😀x', 'a{b}[c]\\\r\n', r'\na\{b\}\[c\]\\\r\n'),
+    ('a\r\n', 'b', 'b'), ('', '', ''), ('a', '', r'\n'),
+])
+def test_append_saved_original_single_patch(source, addition, escaped):
+    original = NoteSnapshot(NOTE, source, 'sha256:' + hashlib.sha256(source.encode()).hexdigest(), BASE)
+    calls = []
+    def handler(req):
+        calls.append(req)
+        assert req.method == 'PATCH'
+        data = json.loads(req.content)
+        assert data['baseRevision'] == BASE
+        assert data['patch'] == f'@@ chars {len(source)}:{len(source)} @@\n~ {{+{escaped}+}}\n'
+        return response(req, dict(note=NOTE, mode='merge', baseRevision=BASE, hash=HASH, revision=CURRENT))
+    result = Note(NOTE, namespace='ns', client=client(handler)).append(addition, at=original)
+    assert isinstance(result, PatchReceipt)
+    assert len(calls) == bool(escaped)
+
+
+def test_append_default_reads_once_then_patches():
+    calls = []
+    def handler(req):
+        calls.append(req.method)
+        if req.method == 'GET':
+            return response(req, SNAPSHOT)
+        return response(req, dict(note=NOTE, mode='exact', baseRevision=BASE, hash=HASH, revision=CURRENT))
+    result = Note(NOTE, namespace='ns', client=client(handler)).append('tail', exact=True)
+    assert result.mode == 'exact' and calls == ['GET', 'PATCH']
+
+
+@pytest.mark.parametrize('change', [dict(note='other'), dict(hash='sha256:'+'0'*64), dict(revision='bad\n')])
+def test_append_invalid_original_rejected_before_io(change):
+    data = dict(SNAPSHOT); data.update(change)
+    with pytest.raises(ValueError):
+        Note(NOTE, namespace='ns', client=object()).append('tail', at=NoteSnapshot(**data))
+
+
+@pytest.mark.parametrize('opts', [{'legacy': True, 'exact': True}, {'force': True, 'exact': True}, {'legacy': True, 'at': NoteSnapshot(**SNAPSHOT)}])
+def test_append_mixed_flags_rejected_before_io(opts):
+    with pytest.raises(ValueError):
+        Note(NOTE, namespace='ns', client=object()).append('tail', **opts)
+
+
+@pytest.mark.parametrize('status', [201, 202, 204, 302, 500, 408])
+def test_unknown_patch_status_preserves_cache_without_replay(status):
+    calls = []
+    def handler(req):
+        calls.append(req)
+        return response(req, {'message': 'SECRET RAW'}, status)
+    note = Note(NOTE, namespace='ns', client=client(handler))
+    note._text, note._etag = SOURCE, 'legacy'
+    with pytest.raises(NoteError, match='write outcome unknown') as error:
+        note.append('tail', at=NoteSnapshot(**SNAPSHOT))
+    assert 'SECRET' not in str(error.value)
+    assert len(calls) == 1 and (note._text, note._etag) == (SOURCE, 'legacy')
+
+
+def test_dropped_ack_is_unknown_no_retry():
+    calls = []
+    def handler(req):
+        calls.append(req)
+        raise httpx.ReadError('SECRET', request=req)
+    with pytest.raises(NoteError, match='write outcome unknown'):
+        Note(NOTE, namespace='ns', client=client(handler)).append('tail', at=NoteSnapshot(**SNAPSHOT))
+    assert len(calls) == 1
+
+
+def test_read_retained_ack_revision_after_later_edit():
+    def handler(req):
+        assert req.url.params['at'] == BASE
+        assert 'if-match' not in req.headers
+        return response(req, SNAPSHOT)
+    assert Note(NOTE, namespace='ns', client=client(handler)).read_snapshot(at=BASE).revision == BASE
+    with pytest.raises(ValueError):
+        Note(NOTE, namespace='ns', client=object()).read_snapshot(at=BASE, if_match=BASE)
+
+
+def test_exact_empty_append_checks_server_not_fake_success():
+    original = NoteSnapshot(NOTE, '', 'sha256:' + hashlib.sha256(b'').hexdigest(), BASE)
+    def handler(req):
+        assert json.loads(req.content)['patch'] == ''
+        return response(req, {'message': 'changed'}, 412)
+    with pytest.raises(NoteChanged):
+        Note(NOTE, namespace='ns', client=client(handler)).append('', at=original, exact=True)
+
+
+@pytest.mark.parametrize('opts', [{'legacy': True}, {'force': True}])
+def test_legacy_append_cache_put_string_semantics(opts):
+    def handler(req):
+        assert req.method == 'PUT' and json.loads(req.content) == {'text': 'cached\ntail'}
+        assert req.headers.get('if-match') == (None if opts.get('force') else 'legacy')
+        return response(req, {'etag': 'next'})
+    note = Note(NOTE, namespace='ns', client=client(handler))
+    note._text, note._etag = 'cached', 'legacy'
+    assert note.append('tail', **opts) == 'next'
+
+
+def test_retained_read_rejects_different_revision():
+    with pytest.raises(NoteError, match='requested retained'):
+        Note(NOTE, namespace='ns', client=client(lambda req: response(req, dict(SNAPSHOT, revision=CURRENT)))).read_snapshot(at=BASE)
+
+
+def test_malformed_json_ack_preserves_cache():
+    def handler(req):
+        return httpx.Response(200, text='SECRET malformed', request=req)
+    note = Note(NOTE, namespace='ns', client=client(handler))
+    note._text, note._etag = SOURCE, 'legacy'
+    with pytest.raises(NoteError, match='write outcome unknown'):
+        note.append('tail', at=NoteSnapshot(**SNAPSHOT))
+    assert (note._text, note._etag) == (SOURCE, 'legacy')

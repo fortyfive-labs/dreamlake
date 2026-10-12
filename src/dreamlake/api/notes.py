@@ -607,23 +607,31 @@ class Note:
         """
         return self._send("PUT", "/body", {"text": text}, force, if_match)["etag"]
 
-    def read_snapshot(self, *, if_match: str | None = None) -> NoteSnapshot:
+    def read_snapshot(self, *, at: str | None = None, if_match: str | None = None) -> NoteSnapshot:
         """Read exact v2 source and an original RTC baseline, without editing a Doc.
 
-        The legacy text/ETag cache is unchanged. ``if_match`` optionally verifies
+        ``at`` reads retained source at its original revision and verifies it.
+        It cannot be combined with ``if_match``. The legacy text/ETag cache is
+        unchanged. ``if_match`` optionally verifies
         this read against one explicit RTC revision; it is never filled from
         the cached legacy ETag.
         """
+        if at is not None:
+            _revision_token(at, "at")
+            if if_match is not None:
+                raise ValueError("at selects retained source; if_match checks current source; give one")
         if if_match is not None:
             _revision_token(if_match, "if_match")
         with self._client.http() as http:
-            response = http.get(f"{self._base}/body", params={"contract": "v2"},
+            response = http.get(f"{self._base}/body", params={"contract": "v2", **({"at": at} if at is not None else {})},
                                 headers={} if if_match is None else {"If-Match": if_match})
         _raise_for(response, f"read {self._ns}/{self._id}")
         data = response.json()
         _v2_tokens(data, self._id)
         if not isinstance(data.get("content"), str) or data["hash"] != "sha256:" + hashlib.sha256(data["content"].encode("utf-8")).hexdigest():
             raise NoteError("source does not match the returned hash")
+        if at is not None and data["revision"] != at:
+            raise NoteError("server did not return the requested retained RTC revision")
         if if_match is not None and data["revision"] != if_match:
             raise NoteChanged("note changed since the acknowledged RTC revision")
         return NoteSnapshot(note=self._id, content=data["content"], hash=data["hash"], revision=data["revision"])
@@ -667,15 +675,25 @@ class Note:
         if not isinstance(diff, str) or len(diff.encode("utf-8")) > 8_000_000:
             raise ValueError("patch must be a UTF-8 string of at most 8000000 bytes")
         mode = "exact" if exact or if_match is not None else "merge"
-        with self._client.http() as http:
-            response = http.request("PATCH", f"{self._base}/body",
-                json={"format": selected_format, "patch": diff, "baseRevision": baseline, "mode": mode},
-                headers={} if if_match is None else {"If-Match": if_match})
-        _raise_for(response, f"patch {self._ns}/{self._id}")
-        data = response.json()
-        _v2_tokens(data, self._id)
-        if data.get("mode") != mode or data.get("baseRevision") != baseline:
-            raise NoteError("server returned an inconsistent patch receipt; inspect the note before resubmitting")
+        unknown = "write outcome unknown; keep original baseline/draft, reconcile before resubmit"
+        try:
+            with self._client.http() as http:
+                response = http.request("PATCH", f"{self._base}/body",
+                    json={"format": selected_format, "patch": diff, "baseRevision": baseline, "mode": mode},
+                    headers={} if if_match is None else {"If-Match": if_match}, follow_redirects=False)
+        except httpx.TransportError:
+            raise NoteError(unknown) from None
+        if response.status_code != 200:
+            if response.status_code in (400, 401, 403, 404, 409, 412, 413, 415, 422, 503):
+                _raise_for(response, f"patch {self._ns}/{self._id}")
+            raise NoteError(unknown)
+        try:
+            data = response.json()
+            _v2_tokens(data, self._id)
+            if data.get("mode") != mode or data.get("baseRevision") != baseline:
+                raise NoteError("inconsistent receipt")
+        except (ValueError, NoteError):
+            raise NoteError(unknown) from None
         receipt = PatchReceipt(note=self._id, mode=mode, base_revision=baseline,
                                hash=data["hash"], revision=data["revision"])
         # Keep the legacy cache in its content-hash domain. Never put an RTC
@@ -738,16 +756,43 @@ class Note:
         self._text = None
         return out["etag"]
 
-    def append(self, text: str, *, force: bool = False) -> str:
-        """Add to the end of the note.
+    def append(
+        self, text: str, *, at: NoteSnapshot | None = None, exact: bool = False,
+        legacy: bool = False, force: bool = False,
+    ) -> PatchReceipt | str:
+        """Append against original RTC source; return its acknowledged receipt.
 
-        Reads first, so this is conditional like any other write — two agents
-        appending at once will not silently lose one of the additions.
+        Supply ``at`` to retain a previously read snapshot without fetching a
+        newer baseline. ``legacy=True`` (or compatible ``force=True``) retains
+        cached text, ETag PUT and string return semantics. An empty addition
+        preserves the LF separator behavior; an unchanged MERGE returns an
+        observational receipt without writing. EXACT no-ops go through PATCH
+        so the server checks their original precondition.
         """
-        current = self.text
-        if current and not current.endswith("\n"):
-            current += "\n"
-        return self.write(current + text, force=force)
+        if not isinstance(text, str):
+            raise ValueError("text must be a string")
+        if legacy or force:
+            if at is not None or exact:
+                raise ValueError("at and exact require modern append; omit legacy and force")
+            current = self.text
+            if current and not current.endswith("\n"):
+                current += "\n"
+            return self.write(current + text, force=force)
+        if at is not None:
+            if not isinstance(at, NoteSnapshot) or at.note != self._id or not isinstance(at.content, str):
+                raise ValueError("at must be this Note's original NoteSnapshot")
+            _revision_token(at.revision, "at.revision")
+            if at.hash != "sha256:" + hashlib.sha256(at.content.encode("utf-8")).hexdigest():
+                raise ValueError("at source does not match its content hash")
+        original = at if at is not None else self.read_snapshot()
+        suffix = ("\n" if original.content and not original.content.endswith("\n") else "") + text
+        if not suffix and not exact:
+            return PatchReceipt(note=self._id, mode="merge", base_revision=original.revision,
+                                hash=original.hash, revision=original.revision)
+        escaped = "".join("\\" + char if char in "\\[]{}" else
+                          "\\n" if char == "\n" else "\\r" if char == "\r" else char for char in suffix)
+        patch = f"@@ chars {len(original.content)}:{len(original.content)} @@\n~ {{+{escaped}+}}\n" if suffix else ""
+        return self.patch(patch, base_revision=original.revision, exact=exact)
 
 
 def _seg(value: str) -> str:
