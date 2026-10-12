@@ -1,5 +1,13 @@
 # Release notes
 
+## Unreleased — Native scoped section consumers (runtime pending)
+
+Source-only scoped section readers/writers use verified full snapshots and
+backend-derived original ranges; insert retains outline return via ACK-pinned
+discovery with receipt-preserving failure fencing. Requires unaccepted retained
+section/outline endpoints; partial ranges remain pending. No publication or
+production acceptance is claimed. [Contract](notes-diffs.md).
+
 ## 0.28.0 — Native full source reads and remote inspection (release candidate)
 
 Full refresh/text caches use verified v2 source and content-hash ETags without
