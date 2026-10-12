@@ -34,7 +34,7 @@ class FakeNote:
         self.preconditions: list[str | None] = []
         self.stale = False
 
-    def write(self, text: str, *, if_match: str | None = None, force: bool = False) -> str:
+    def write(self, text: str, *, if_match: str | None = None, legacy: bool = False, force: bool = False) -> str:
         # The precondition is recorded, because "save sends the revision the
         # DRAFT was read at" is a claim only visible here — a fake that
         # accepted any if_match would pass whether or not one was sent.

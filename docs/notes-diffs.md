@@ -323,3 +323,36 @@ For previous cached-text/LF/ETag PUT behavior and string return values, choose
 `note.append(text, legacy=True)`. Existing `force=True` also selects that legacy
 path. Combining either with `at` or `exact` is rejected before HTTP. `Doc.save()`,
 whole-body writes and section APIs retain their existing behavior.
+
+## Native body drafts (Python 0.27.0 release candidate)
+
+Python 0.27.0 changes `note.write(text)` from whole-body PUT to disjoint
+Unicode-codepoint patches against original RTC source. `at=original_snapshot`
+pins identity and source without GET; without it one verified snapshot is read
+before planning. Unchanged gaps remain untouched, and alignment work/trace/source
+limits fail before PATCH instead of replacing a coarse region. No automatic
+replay occurs. Explicit `legacy=True`, existing `force=True`, or legacy
+`if_match=etag` retain the ETag PUT/string contract; modern `at`/`exact` cannot
+be mixed with those compatibility options.
+
+`note.read()` creates a modern editable Doc retaining its original immutable
+snapshot. Edits remain local. `doc.save()` submits against that same snapshot,
+returns `PatchReceipt`, and reads the acknowledged retained revision to adopt
+its coherent merged content as the next draft/original. A different write through
+the Note handle does not move this draft's baseline. `exact=True` checks even
+unchanged drafts; unchanged MERGE returns an observational receipt without a new
+commit or a current-revision claim. `note.read(at=revision)` opens retained source.
+
+If post-ACK readback fails, the raised `NoteError.receipt` contains the known
+acknowledgment; draft and original source stay available. Further save calls are
+refused until the caller reconciles: inspect `note.read_snapshot(at=receipt.revision)`
+and current source, then explicitly open a new draft and reapply intended edits.
+This failure is not a rollback and must not be blindly resubmitted. Ambiguous
+PATCH failures retain drafts and snapshots without adopting a newer baseline.
+
+For legacy editable drafts, choose `note.read(legacy=True)` or the legacy ETag
+verification `if_match=etag`; their save behavior and `SaveResult` are retained.
+`doc.save(legacy=True)` / `force=True` explicitly choose legacy body behavior.
+Publication acceptance remains separate. Partial reads, section writes and section
+selector mapping remain legacy and are a separate pending migration; their
+ranges must not be guessed into original native snapshot coordinates.

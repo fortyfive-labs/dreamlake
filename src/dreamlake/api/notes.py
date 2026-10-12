@@ -6,8 +6,9 @@ source and maps changes to its original RTC identities through ordinary CRDT
 synchronization. ``exact=True`` opts in to a revision check for one request; explicit
 ``if_match=`` remains an exact-mode compatibility alias.
 
-The editable ``read()``/``Doc.save()`` workflow and whole-body/section writes
-retain their legacy ETag semantics. ``patch(..., legacy=True)`` explicitly
+Editable ``read()``/``Doc.save()`` drafts and whole-body edits use original
+native snapshots by default. Explicit legacy drafts/body writes and section
+writes retain ETag semantics. ``patch(..., legacy=True)`` explicitly
 selects the previous unified-diff interface and its cached-ETag guard. Neither
 path replaces an unavailable original baseline with a fresh read or retries an
 ambiguous HTTP patch automatically.
@@ -151,6 +152,12 @@ def _v2_tokens(data: Any, note_id: str) -> None:
         _revision_token(data.get("revision"), "server revision")
     except ValueError as error:
         raise NoteError(str(error)) from error
+
+
+def _escape_inline(value: str) -> str:
+    """Escape Notes inline framing and record control characters."""
+    return "".join("\\" + c if c in "\\[]{}" else "\\n" if c == "\n" else
+                   "\\r" if c == "\r" else "\\t" if c == "\t" else c for c in value)
 
 
 class PatchResult(str):
@@ -562,50 +569,55 @@ class Note:
             truncated=bool(d.get("truncated", False)),
         )
 
-    def read(self, *, if_match: str | None = None) -> "Doc":
-        """Load the source and its revision as an editable snapshot.
+    def read(self, *, at: str | None = None, if_match: str | None = None, legacy: bool = False) -> "Doc":
+        """Read an editable draft retaining its original native identity snapshot.
 
-            doc = dl.note("<uuid>").read()
-            doc.replace("Published", query="Draft", all=True)
-            doc.save()
-
-        `if_match` makes this a VERIFICATION read: the note must still be at
-        that revision, and `NoteChanged` is raised if it is not. The use is
-        read-after-write —
-
-            rev = note.patch(diff, legacy=True, if_match=doc.etag)
-            check = note.read(if_match=rev.etag)   # the version just committed
-
-        — where returning whatever happens to be there now would quietly
-        validate a different snapshot than the one being checked, and report
-        success for someone else's document.
-
-        A separate entry point from `text`, which returns a plain string and
-        has callers — changing what that returns to hand back an object would
-        break them silently, since a string and a Doc both print.
+        ``legacy=True`` or an explicit legacy ETag ``if_match`` preserves the
+        prior cached ETag draft. ``at`` selects an original retained RTC source.
         """
         from ._doc import Doc
+        if legacy or if_match is not None:
+            if at is not None:
+                raise ValueError("at requires modern read; omit legacy and if_match")
+            self.refresh()
+            if if_match is not None and self.etag != if_match:
+                raise NoteChanged(f"note changed since legacy ETag {if_match}", etag=self.etag)
+            return Doc(self, self._text or "", self.etag)
+        original = self.read_snapshot(at=at)
+        return Doc(self, original.content, '"' + original.hash.removeprefix('sha256:') + '"', snapshot=original)
 
-        self.refresh()
-        if if_match is not None and self.etag != if_match:
-            raise NoteChanged(
-                f"note is at {self.etag}, not {if_match} — it changed since that revision",
-                etag=self.etag,
-            )
-        return Doc(self, self._text or "", self.etag)
+    def write(self, text: str, *, at: NoteSnapshot | None = None, exact: bool = False,
+              if_match: str | None = None, legacy: bool = False, force: bool = False) -> PatchReceipt | str:
+        """Plan disjoint native edits against original source, without coarse fallback.
 
-    def write(self, text: str, *, if_match: str | None = None, force: bool = False) -> str:
-        """Replace the whole body.
-
-        The counterpart of `write_section`, which replaces one part of it.
-
-        `if_match` names the revision to write against. Without it the note's
-        own cached revision is used — which is right for a caller that only
-        ever writes through this object, and wrong for one holding a snapshot
-        taken earlier: the cache moves on every write, so a draft read before
-        one of them would be checked against a revision it never saw.
+        Explicit legacy/force/ETag selects the previous whole-body PUT. Modern
+        callers retain ``at``; absent it, one verified source snapshot is read.
         """
-        return self._send("PUT", "/body", {"text": text}, force, if_match)["etag"]
+        if legacy or force or if_match is not None:
+            if at is not None or exact:
+                raise ValueError("at and exact require modern write; omit legacy, force and if_match")
+            if if_match is not None and force:
+                raise ValueError("if_match and force cannot be combined")
+            return self._send("PUT", "/body", {"text": text}, force, if_match)["etag"]
+        from ._character_plan import character_diff, points
+        points(text)  # Reject invalid source before any transport.
+        if at is not None:
+            if not isinstance(at, NoteSnapshot) or at.note != self._id or not isinstance(at.content, str):
+                raise ValueError("at must be this Note's original NoteSnapshot")
+            _revision_token(at.revision, "at.revision")
+            points(at.content)
+            if at.hash != "sha256:" + hashlib.sha256(at.content.encode()).hexdigest():
+                raise ValueError("at source does not match its content hash")
+        original = at if at is not None else self.read_snapshot()
+        edits = character_diff(original.content, text)
+        if not edits and not exact:
+            return PatchReceipt(self._id, "merge", original.revision, original.hash, original.revision)
+        records = []
+        for edit in edits:
+            body = ("[-" + _escape_inline(edit['expectedText']) + "-]" if edit['expectedText'] else "")
+            body += ("{+" + _escape_inline(edit['replacementText']) + "+}" if edit['replacementText'] else "")
+            records.append(f"@@ chars {edit['start']}:{edit['end']} @@\n~ {body}\n")
+        return self.patch("".join(records), base_revision=original.revision, exact=exact)
 
     def read_snapshot(self, *, at: str | None = None, if_match: str | None = None) -> NoteSnapshot:
         """Read exact v2 source and an original RTC baseline, without editing a Doc.
@@ -780,7 +792,7 @@ class Note:
             current = self.text
             if current and not current.endswith("\n"):
                 current += "\n"
-            return self.write(current + text, force=force)
+            return self.write(current + text, legacy=True, force=force)
         if at is not None:
             if not isinstance(at, NoteSnapshot) or at.note != self._id or not isinstance(at.content, str):
                 raise ValueError("at must be this Note's original NoteSnapshot")
@@ -792,8 +804,7 @@ class Note:
         if not suffix and not exact:
             return PatchReceipt(note=self._id, mode="merge", base_revision=original.revision,
                                 hash=original.hash, revision=original.revision)
-        escaped = "".join("\\" + char if char in "\\[]{}" else
-                          "\\n" if char == "\n" else "\\r" if char == "\r" else char for char in suffix)
+        escaped = _escape_inline(suffix)
         patch = f"@@ chars {len(original.content)}:{len(original.content)} @@\n~ {{+{escaped}+}}\n" if suffix else ""
         return self.patch(patch, base_revision=original.revision, exact=exact)
 

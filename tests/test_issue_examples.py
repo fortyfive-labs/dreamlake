@@ -209,14 +209,14 @@ def test_read_if_match_refuses_a_note_that_has_since_moved():
 def test_read_without_if_match_is_unconditional():
     # The plain read must keep working; the guard is opt-in.
     note = _FakeReadNote("body", "rev-9")
-    assert note.read().etag == "rev-9"
+    assert note.read(legacy=True).etag == "rev-9"
 
 
 def test_a_snapshot_says_whether_it_is_the_whole_note():
     # The recipe opens with `if snapshot.truncated: raise`. It has to be
     # something you can write, and it has to be false for a whole read.
     note = _FakeReadNote("body", "rev-1")
-    assert note.read().truncated is False
+    assert note.read(legacy=True).truncated is False
 
 
 def test_patch_result_carries_the_revision_and_still_equals_it():

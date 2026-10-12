@@ -282,3 +282,11 @@ def test_snapshot_explicitly_disables_redirects_even_for_following_client():
     with pytest.raises(NoteError, match='unexpected snapshot response'):
         Note(NOTE, namespace='ns', client=FollowingClient()).read_snapshot(at=BASE)
     assert len(requests) == 1
+
+
+def test_append_escapes_literal_tab_in_native_record():
+    def handler(req):
+        wire=json.loads(req.content)
+        assert '\t' not in wire['patch'] and r'\t' in wire['patch']
+        return response(req,dict(note=NOTE,mode='merge',baseRevision=BASE,hash=HASH,revision=CURRENT))
+    assert Note(NOTE,namespace='ns',client=client(handler)).append('a\tb',at=NoteSnapshot(**SNAPSHOT)).revision==CURRENT
