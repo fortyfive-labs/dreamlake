@@ -81,6 +81,12 @@ class DreamLakeClient:
         return Sources(self)
 
     @property
+    def projects(self):
+        """Project grants and resource attachments, under current server authority."""
+        from .projects import Projects
+        return Projects(self)
+
+    @property
     def ownership(self):
         """Server-authorized ownership previews and transfer inbox decisions."""
         from .ownership import Ownership
