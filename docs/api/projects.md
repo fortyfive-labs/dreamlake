@@ -5,7 +5,7 @@ Project visibility alone does not expose private resources. Explicit grants incl
 current and future attached content; independent resource sharing remains valid.
 
 ```python
-from dreamlake.api import DreamLakeClient
+from dreamlake import DreamLakeClient
 
 client = DreamLakeClient()
 client.projects.inspect("acme", "research")
