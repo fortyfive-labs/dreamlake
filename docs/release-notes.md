@@ -1,5 +1,17 @@
 # Release notes
 
+## 0.29.0 — Project grants and attachments (release candidate)
+
+`DreamLakeClient.projects` provides Project inspection, user/team grants,
+revocation and resource attachment/detachment. Explicit Project permissions
+cover current and future attached content; public Project visibility alone
+does not expose private resources. Source keeps its whole-Source reference.
+Requests preserve resource database IDs and surface server denials through
+`ProjectAccessError`, without automatic mutation retries or copied share links.
+
+Requires the companion Project-sharing backend release. Project ownership
+transfer remains a separate capability. See [Projects](api/projects.md).
+
 ## 0.28.0 — Native full source reads and remote inspection (release candidate)
 
 Full refresh/text caches use verified v2 source and content-hash ETags without
