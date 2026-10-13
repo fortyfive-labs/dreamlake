@@ -1,7 +1,7 @@
 # Project grants and attachments
 
-Development support; requires the companion unreleased server changes. Project
-visibility alone does not expose private resources. Explicit grants include
+Available in Python SDK 0.29.0 with the companion Project-sharing backend release.
+Project visibility alone does not expose private resources. Explicit grants include
 current and future attached content; independent resource sharing remains valid.
 
 ```python
