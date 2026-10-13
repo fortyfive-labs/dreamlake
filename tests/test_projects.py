@@ -49,3 +49,12 @@ def test_invalid_inputs_do_not_send_and_denials_do_not_retry_or_publish_links():
     assert caught.value.code == "RESOURCE_SHARE_FORBIDDEN"
     assert "never-echo" not in str(caught.value)
     assert len(calls) == 1
+
+
+def test_malformed_error_and_success_bodies_use_structured_project_errors():
+    for response, code in [(httpx.Response(403, json=["private-error"]), "PROJECT_ACCESS_FAILED"),
+                           (httpx.Response(200, text="not-json"), "INVALID_PROJECT_RESPONSE")]:
+        client = DreamLakeClient(token="synthetic", transport=httpx.MockTransport(lambda _: response))
+        with pytest.raises(ProjectAccessError) as caught:
+            client.projects.inspect("acme", "research")
+        assert caught.value.code == code and "private-error" not in str(caught.value)

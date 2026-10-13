@@ -32,3 +32,56 @@ temporary credentials; static custom-S3/MinIO or an unscoped STS fallback return
 `DELEGATED_UPLOAD_UNSUPPORTED` (403). Existing explicit grants cover existing
 attachments immediately after backend release. This SDK release is optional for
 Web use and does not replace the server's authorization checks.
+
+## Whole Project and Notes transfer (under development)
+
+`client.projects.transfer_plan(namespace, project)` resolves the Project name
+and reads the server's owner-only complete inventory. `client.projects.move`
+previews the Project plus all attached, source-namespace-owned Notes in one
+ownership journal request. These methods are not in published SDK 0.29.0.
+Backend writer, storage and live RTC revocation gates must pass before execution;
+an available SDK or preview does not prove a deployed transfer capability.
+
+```python
+import json
+from pathlib import Path
+from dreamlake import DreamLakeClient
+
+client = DreamLakeClient()
+review = client.projects.move("personal", "research", "acme", dry_run=True)
+Path("project-move-review.json").write_text(json.dumps(review, indent=2))
+# Review the full manifest, blockers and server access/external-filing inventory.
+# If review["ready"] is true and the user has explicitly authorized submission:
+# result = client.projects.move("personal", "research", "acme",
+#     dry_run=False, confirm=True, reviewed=review)
+# The recipient owner reviews and explicitly accepts result["operation"]["id"].
+```
+
+Default policy is private with old access revoked, and
+`preserve_external_filings=True`. Opt-in `preserve_access=True` requests only
+eligible access from the exact server inventory approved by the recipient.
+The complete review is returned unchanged, including preservation and external
+filing evidence; inspect it before submitting. Project ADMIN does not confer
+transfer authority. Cross-user transfers return pending requests and never
+accept on behalf of another person.
+
+For a caller who owns the destination, `accept_if_owner=True` explicitly
+requests acceptance after server authority verification; `wait=True` polls
+status for at most `wait_timeout` seconds (0–60, default 30). A timeout returns
+the original operation and `timedOut=True`; no mutation is retried. Alternatively
+submit with `confirm=True`, `dry_run=False`, the exact reviewed `preview_hash`
+and a stable `idempotency_key`. Persist the review before submission and reuse
+`reviewed=review` after ambiguous outcomes, including when the source Project
+has already moved. Do not replace the key or simulate transfer with copy/delete.
+
+Names stay unchanged. Use `destination_name` for an explicit Project rename
+or `destination_names={NOTE_ID: NEW_NAME}` for individual Note collisions, then
+review a new preview. The initial complete plan is limited to 20 Notes and 200
+tree nodes. Unsupported attachments, foreign-owned Notes and active deletion
+work return structured 422 blockers rather than partial plans. Source bindings
+are retained by the existing design and are not migrated by this feature.
+
+Errors in this ownership flow use `OwnershipError`; malformed or partial
+plans fail closed. `client.ownership.transfer_plan(namespace, project_id)` also
+exposes the scoped GET endpoint directly. Existing generic ownership methods
+remain available for exact saved requests and operation decisions.

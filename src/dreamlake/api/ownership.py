@@ -13,20 +13,27 @@ class Ownership:
     def __init__(self, client):
         self.client = client
 
-    def _request(self, namespace, method, suffix, payload=None, params=None):
+    def _request(self, namespace, method, suffix, payload=None, params=None, timeout=None):
         if not namespace:
             raise ValueError("Namespace is required")
         path = "/namespaces/" + quote(namespace, safe="") + "/ownership/" + suffix
         with self.client.http() as http:
-            response = http.request(method, path, json=payload, params=params)
+            response = http.request(method, path, json=payload, params=params,
+                                    **({"timeout": timeout} if timeout is not None else {}))
         if not response.is_success:
             try:
-                code = response.json().get("code", "OWNERSHIP_REQUEST_FAILED")
+                body = response.json()
+                code = body.get("code") if isinstance(body, dict) else None
             except ValueError:
-                code = "OWNERSHIP_REQUEST_FAILED"
-            raise OwnershipError(code, response.status_code)
-        body = response.json()
-        if body.get("apiVersion") != 1:
+                code = None
+            raise OwnershipError(code if isinstance(code, str) and code else "OWNERSHIP_REQUEST_FAILED", response.status_code)
+        try:
+            body = response.json()
+        except ValueError:
+            raise OwnershipError("INVALID_OWNERSHIP_RESPONSE", response.status_code) from None
+        if not isinstance(body, dict):
+            raise OwnershipError("INVALID_OWNERSHIP_RESPONSE", response.status_code)
+        if type(body.get("apiVersion")) is not int or body["apiVersion"] != 1:
             raise OwnershipError("UNSUPPORTED_API_VERSION", response.status_code)
         return body
 
@@ -44,8 +51,8 @@ class Ownership:
             raise ValueError("Direction must be incoming or outgoing")
         return self._request(namespace, "GET", "transfers", params={"direction": direction})
 
-    def status(self, namespace, operation_id):
-        return self._request(namespace, "GET", "transfers/" + quote(operation_id, safe=""))
+    def status(self, namespace, operation_id, *, timeout=None):
+        return self._request(namespace, "GET", "transfers/" + quote(operation_id, safe=""), timeout=timeout)
 
     def _decide(self, namespace, operation_id, decision):
         return self._request(namespace, "POST", "transfers/" + quote(operation_id, safe="") + "/" + decision)
@@ -75,6 +82,10 @@ class Ownership:
 
     def manifest(self, namespace, resource_type, resource_id):
         return self._resource(namespace, resource_type, resource_id, "manifest")
+
+    def transfer_plan(self, namespace, project_id):
+        """Read the server's complete Project + owned Notes inventory, never a partial selection."""
+        return self._resource(namespace, "project", project_id, "transfer-plan")
 
     def restore(self, namespace, resource_type, resource_id):
         """Explicit unsupported response until project snapshots exist; Source deletion is terminal."""

@@ -66,3 +66,16 @@ def test_resource_inspection_manifest_and_restore_gates():
     assert len(calls) == 3
     assert calls[0].url.raw_path == b"/namespaces/a%2Fb/ownership/resources/source/000000000000000000000001"
     assert calls[1].url.raw_path.endswith(b"/manifest")
+
+
+@pytest.mark.parametrize("response,code", [
+    (httpx.Response(403, json=["private-error-field"]), "OWNERSHIP_REQUEST_FAILED"),
+    (httpx.Response(200, json=[]), "INVALID_OWNERSHIP_RESPONSE"),
+    (httpx.Response(200, text="not-json"), "INVALID_OWNERSHIP_RESPONSE"),
+    (httpx.Response(200, json={"apiVersion": True}), "UNSUPPORTED_API_VERSION"),
+])
+def test_malformed_transport_responses_are_structured_and_do_not_echo_body(response, code):
+    client = DreamLakeClient(token="synthetic", transport=httpx.MockTransport(lambda _: response))
+    with pytest.raises(OwnershipError, match=code) as error:
+        client.ownership.capabilities("acme")
+    assert "private-error-field" not in str(error.value)
