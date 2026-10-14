@@ -93,9 +93,20 @@ has already moved. Do not replace the key or simulate transfer with copy/delete.
 
 Names stay unchanged. Use `destination_name` for an explicit Project rename
 or `destination_names={NOTE_ID: NEW_NAME}` for individual Note collisions, then
-review a new preview. The complete plan is limited to 20 Notes and 200
-tree nodes. Episode content remains unsupported. Unsupported attachments, foreign-owned Notes and active deletion
-work return structured 422 blockers rather than partial plans. Source bindings
+review a new preview. A compatible larger-capacity backend advertises up to
+**512 manifest resources** (one Project plus at most 511 Notes) and **4,096 tree
+nodes**. Ordinary Project files count toward tree nodes, not additional manifest
+resources. The aggregate **5,000-row inventory**, **8 MiB execution ledger** and
+**12 MiB total operation** budgets can block a plan before those count limits.
+Note/NoteFile storage verification retains its **2,000-object / 512 MiB** limit,
+separate from ordinary Project files. Oversized plans fail as a whole; 511 Notes
+is a ceiling, not a guaranteed fit. Older servers retain their 20-Note / 200-node
+limits. SDK 0.30.0 follows the server plan limits and needs no runtime upgrade for
+this capacity increase.
+
+Episode content remains unsupported. Unsupported attachments, foreign-owned Notes
+and active deletion work return structured 422 blockers rather than partial plans.
+Source bindings
 are retained by the existing design and are not migrated by this feature.
 
 Errors in this ownership flow use `OwnershipError`; malformed or partial
