@@ -1,5 +1,20 @@
 # Release notes
 
+## 0.30.0 — Whole Project ownership transfer
+
+`DreamLakeClient.projects.transfer_plan` reads the complete owned-Notes plan.
+`projects.move` previews by default and submits one reviewed ownership request
+only with explicit confirmation. Saved reviews retain their exact hash, policy
+and stable idempotency key, including replay after the source Project moves.
+Cross-user requests require acceptance by the destination namespace owner.
+
+Resources become private, old access is revoked and external Note filings detach
+by default. Access retention and `preserve_external_filings=True` are explicit
+opt-ins. Unsupported and partial inventories fail closed; writes never
+automatically retry. Requires the enabled companion backend. Standalone
+cross-namespace Note and Source moves remain unsupported. See
+[Projects](api/projects.md) and [Ownership](api/ownership.md).
+
 ## 0.29.0 — Project grants and attachments (release candidate)
 
 `DreamLakeClient.projects` provides Project inspection, user/team grants,
