@@ -33,14 +33,15 @@ temporary credentials; static custom-S3/MinIO or an unscoped STS fallback return
 attachments immediately after backend release. This SDK release is optional for
 Web use and does not replace the server's authorization checks.
 
-## Whole Project and Notes transfer (under development)
+## Whole Project and Notes transfer (SDK 0.30.0)
 
 `client.projects.transfer_plan(namespace, project)` resolves the Project name
 and reads the server's owner-only complete inventory. `client.projects.move`
 previews the Project plus all attached, source-namespace-owned Notes in one
-ownership journal request. These methods are not in published SDK 0.29.0.
-Backend writer, storage and live RTC revocation gates must pass before execution;
-an available SDK or preview does not prove a deployed transfer capability.
+ownership journal request. Requires SDK 0.30.0 and an enabled whole-Project
+server adapter; SDK 0.29.0 and earlier lack these methods. Check the plan's
+`executable` field and preview blockers independently. Installing the SDK does
+not enable backend writer, storage or RTC capabilities.
 
 ```python
 import json
@@ -63,11 +64,13 @@ Notes detach by default, without deleting Notes or their filings inside the
 transferred Project. Explicit `preserve_external_filings=True` requests retention
 of the reviewed external references. Saved review replay preserves that exact
 policy, including an explicit retention choice. Opt-in `preserve_access=True` requests only
-eligible access from the exact server inventory approved by the recipient.
+eligible access bound by the source owner's preview and recipient acceptance.
 The complete review is returned unchanged, including preservation and external
 filing evidence; inspect it before submitting. Project ADMIN does not confer
 transfer authority. Cross-user transfers return pending requests and never
-accept on behalf of another person.
+accept on behalf of another person. Recipient inbox/status returns accepted
+policy, summary counts and the preview hash; it does not expose the source
+owner's full manifest or access/filing inventory.
 
 For a caller who owns the destination, `accept_if_owner=True` explicitly
 requests acceptance after server authority verification; `wait=True` polls
