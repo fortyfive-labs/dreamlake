@@ -42,7 +42,9 @@ ownership journal request. With the compatible file-transfer backend this also
 includes direct ordinary Project files, images and videos; SDK 0.30.0 needs no
 upgrade for this server capability. Other byte-backed leaves, such as JSON or
 audio, qualify with a supported storage binding; episode content remains
-unsupported. Direct files use metadata HEAD checks without a new media byte-size cap. Project file Node IDs and folder layout stay
+unsupported. Direct file/image/video Nodes retain all storage metadata, including
+`s3Key` and `bssId`, without object checks, BSS migration or a new media byte-size
+cap. A missing object remains missing and does not block the ownership change. Project file Node IDs and folder layout stay
 stable, as do physical storage keys; media bytes are not copied. New requests
 check the current owner. Previously issued read/upload URLs retain their existing
 expiry and can still access or modify the underlying object until then; transfer
