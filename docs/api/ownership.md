@@ -8,7 +8,8 @@ accept/reject and the source namespace for cancel. All namespace IDs are opaque;
 creator history and filing relationships confer no transfer authority.
 
 SDK 0.30.0 adds `client.projects.transfer_plan` and `client.projects.move` for a
-whole Project and all its owned Notes. Prefer that convenience workflow over a
+whole Project and all its owned Notes. With a compatible backend it also includes
+ordinary Project files, images and videos; episode content remains unsupported. Prefer that convenience workflow over a
 hand-built partial manifest. It requires an enabled whole-Project server adapter;
 check plan `executable`, preview blockers and current capabilities. Installing
 the SDK does not enable backend writer, storage or RTC capabilities. Standalone
@@ -48,7 +49,9 @@ and returns a bounded filing/structure inventory and source version. `resource_t
 is `project` or `source`; other types are rejected before transport. Use these
 facts in the existing version 1 preview request. Filing never chooses ownership.
 For a whole-Project move, `projects.move` uses the dedicated complete server
-plan, includes every supported attached Note, and rejects partial inventories.
+plan, includes every supported attached Note and direct file/image/video Node,
+and rejects partial inventories. The deployed server must advertise media-file
+support independently of the installed SDK.
 It defaults to private resources, old access revoked and external Note filings
 detached. Access or external-filing retention requires explicit opt-in in the
 reviewed request.
