@@ -23,13 +23,16 @@ class Projects:
         if not response.is_success:
             try:
                 body = response.json()
-                code = body.get("code") or body.get("error")
+                code = (body.get("code") or body.get("error")) if isinstance(body, dict) else None
                 if isinstance(code, dict):
                     code = code.get("code")
             except ValueError:
                 code = None
-            raise ProjectAccessError(response.status_code, code or "PROJECT_ACCESS_FAILED")
-        return response.json() if response.content else None
+            raise ProjectAccessError(response.status_code, code if isinstance(code, str) and code else "PROJECT_ACCESS_FAILED")
+        try:
+            return response.json() if response.content else None
+        except ValueError:
+            raise ProjectAccessError(response.status_code, "INVALID_PROJECT_RESPONSE") from None
 
     def inspect(self, namespace, project):
         return self._request(namespace, project)
@@ -66,3 +69,25 @@ class Projects:
     def detach(self, namespace, project, resource_type, resource_id):
         """Removes only access inherited through this attachment, not other grants."""
         return self._attachment(namespace, project, resource_type, resource_id, detach=True)
+
+    def transfer_plan(self, namespace, project):
+        """Resolve a Project name and read its complete server-authorized transfer inventory."""
+        from .project_transfer import validate_plan
+        resource = self.inspect(namespace, project)
+        resource_id = resource.get("id") if isinstance(resource, dict) else None
+        if not isinstance(resource_id, str) or not re.fullmatch(r"[a-fA-F0-9]{24}", resource_id):
+            from .ownership import OwnershipError
+            raise OwnershipError("INVALID_PROJECT_IDENTITY", 502)
+        return validate_plan(self.client.ownership.transfer_plan(namespace, resource_id), resource_id)
+
+    def move(self, namespace, project, to_namespace, *, dry_run=True, confirm=False,
+             preview_hash=None, idempotency_key=None, preserve_access=False,
+             preserve_external_filings=False, destination_name=None, destination_names=None,
+             reviewed=None, accept_if_owner=False, wait=False, wait_timeout=30):
+        """Preview a whole Project + Notes; explicit confirmation/hash is required to submit."""
+        from .project_transfer import move_project
+        return move_project(self, namespace, project, to_namespace, dry_run=dry_run, confirm=confirm,
+                            preview_hash=preview_hash, idempotency_key=idempotency_key,
+                            preserve_access=preserve_access, preserve_external_filings=preserve_external_filings,
+                            destination_name=destination_name, destination_names=destination_names, reviewed=reviewed,
+                            accept_if_owner=accept_if_owner, wait=wait, wait_timeout=wait_timeout)
