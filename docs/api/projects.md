@@ -35,10 +35,10 @@ Web use and does not replace the server's authorization checks.
 
 ## Whole Project transfer
 
-The typed Artifact/Env plan support described below requires the next SDK
-release containing this source change and a compatible backend. Published SDK
-0.30.0 supports Note-only resource manifests and direct Project files, and
-rejects mixed Artifact/Env plans. Verify the installed package separately.
+Typed Artifact/Env transfer plans require SDK **0.31.0+** and a compatible
+backend. SDK 0.30.0 supports Note-only resource manifests and direct Project
+files, and rejects mixed Artifact/Env plans. Verify the installed package
+version before using the expanded support.
 
 `client.projects.transfer_plan(namespace, project)` resolves the Project name
 and reads the server's owner-only complete inventory. `client.projects.move`

@@ -1,5 +1,22 @@
 # Release notes
 
+## 0.31.0 — Artifact and Env in whole-Project transfers
+
+Whole-Project previews and saved reviews now include every supported typed
+Project, Note, Artifact and Env reference with the matching backend. Partial,
+duplicate and unknown manifests fail closed; older Note-only server plans and
+saved reviews remain compatible. Resource counts and external-attachment
+removals are explicit. Only Notes can be renamed during transfer; Artifact and
+Env canonical-name collisions block the request.
+
+Artifact/Env attachments in other Projects always detach; the retention option
+applies only to Notes. All included resources become private, their physical
+storage stays in place, and old namespace-based resource links are revoked by
+default. Previously issued storage capabilities keep their original expiry.
+Source, Workflow, Annotation and structural content remain unsupported, as do
+standalone resource moves. See [Projects](api/projects.md) for server-advertised
+capacity and storage-proof budgets, review, acceptance and exact-request recovery.
+
 ## 0.30.0 — Whole Project ownership transfer
 
 `DreamLakeClient.projects.transfer_plan` reads the complete owned-Notes plan.
