@@ -8,9 +8,9 @@ accept/reject and the source namespace for cancel. All namespace IDs are opaque;
 creator history and filing relationships confer no transfer authority.
 
 SDK 0.30.0 adds `client.projects.transfer_plan` and `client.projects.move` for a
-whole Project and all its owned Notes. The next SDK release containing typed
-transfer-plan support also includes source-owned Artifacts and Envs with the
-matching backend; published SDK 0.30.0 rejects those mixed plans. Compatible
+whole Project and all its owned Notes. SDK **0.31.0+** accepts complete typed
+transfer plans that also include source-owned Artifacts and Envs with the
+matching backend; SDK 0.30.0 rejects those mixed plans. Compatible
 backends also include ordinary Project files, images and videos; episode content remains unsupported. Prefer that convenience workflow over a
 hand-built partial manifest. It requires an enabled whole-Project server adapter;
 check plan `executable`, preview blockers and current capabilities. Installing
