@@ -38,8 +38,16 @@ Web use and does not replace the server's authorization checks.
 `client.projects.transfer_plan(namespace, project)` resolves the Project name
 and reads the server's owner-only complete inventory. `client.projects.move`
 previews the Project plus all attached, source-namespace-owned Notes in one
-ownership journal request. Requires SDK 0.30.0 and an enabled whole-Project
-server adapter; SDK 0.29.0 and earlier lack these methods. Check the plan's
+ownership journal request. With the compatible file-transfer backend this also
+includes direct ordinary Project files, images and videos; SDK 0.30.0 needs no
+upgrade for this server capability. Other byte-backed leaves, such as JSON or
+audio, qualify with a supported storage binding; episode content remains
+unsupported. Direct files use metadata HEAD checks without a new media byte-size cap. Project file Node IDs and folder layout stay
+stable, as do physical storage keys; media bytes are not copied. New requests
+check the current owner. Previously issued read/upload URLs retain their existing
+expiry and can still access or modify the underlying object until then; transfer
+does not immediately revoke those capabilities. Requires SDK 0.30.0 and an enabled
+whole-Project server adapter; SDK 0.29.0 and earlier lack these methods. Check the plan's
 `executable` field and preview blockers independently. Installing the SDK does
 not enable backend writer, storage or RTC capabilities.
 
@@ -83,12 +91,14 @@ has already moved. Do not replace the key or simulate transfer with copy/delete.
 
 Names stay unchanged. Use `destination_name` for an explicit Project rename
 or `destination_names={NOTE_ID: NEW_NAME}` for individual Note collisions, then
-review a new preview. The initial complete plan is limited to 20 Notes and 200
-tree nodes. Unsupported attachments, foreign-owned Notes and active deletion
+review a new preview. The complete plan is limited to 20 Notes and 200
+tree nodes. Episode content remains unsupported. Unsupported attachments, foreign-owned Notes and active deletion
 work return structured 422 blockers rather than partial plans. Source bindings
 are retained by the existing design and are not migrated by this feature.
 
 Errors in this ownership flow use `OwnershipError`; malformed or partial
-plans fail closed. `client.ownership.transfer_plan(namespace, project_id)` also
+plans fail closed. SDK 0.30.0 exposes the error code/status, not the response
+body; use the application transfer dialog or an authorized raw API request to
+inspect the server's itemized `error.details.blockers`. `client.ownership.transfer_plan(namespace, project_id)` also
 exposes the scoped GET endpoint directly. Existing generic ownership methods
 remain available for exact saved requests and operation decisions.
