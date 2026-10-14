@@ -235,7 +235,9 @@ make html          # Build HTML documentation
 make clean         # Clean build files
 ```
 
-For maintainers, to build and publish a new release: `uv build && uv publish`
+For maintainers, validate the package locally with `uv build`. Production
+releases use the GitHub Actions trusted-publishing (OIDC) workflow from
+`publish-production`, as described below; do not run `uv publish` locally.
 
 ## Automated publish
 
