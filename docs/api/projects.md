@@ -58,7 +58,11 @@ Path("project-move-review.json").write_text(json.dumps(review, indent=2))
 ```
 
 Default policy is private with old access revoked, and
-`preserve_external_filings=True`. Opt-in `preserve_access=True` requests only
+`preserve_external_filings=False`: external Project references to the moved
+Notes detach by default, without deleting Notes or their filings inside the
+transferred Project. Explicit `preserve_external_filings=True` requests retention
+of the reviewed external references. Saved review replay preserves that exact
+policy, including an explicit retention choice. Opt-in `preserve_access=True` requests only
 eligible access from the exact server inventory approved by the recipient.
 The complete review is returned unchanged, including preservation and external
 filing evidence; inspect it before submitting. Project ADMIN does not confer

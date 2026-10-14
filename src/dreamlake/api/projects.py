@@ -82,7 +82,7 @@ class Projects:
 
     def move(self, namespace, project, to_namespace, *, dry_run=True, confirm=False,
              preview_hash=None, idempotency_key=None, preserve_access=False,
-             preserve_external_filings=True, destination_name=None, destination_names=None,
+             preserve_external_filings=False, destination_name=None, destination_names=None,
              reviewed=None, accept_if_owner=False, wait=False, wait_timeout=30):
         """Preview a whole Project + Notes; explicit confirmation/hash is required to submit."""
         from .project_transfer import move_project

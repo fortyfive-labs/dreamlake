@@ -125,7 +125,7 @@ def _validate_operation(operation, request):
 
 def move_project(projects, namespace, project, to_namespace, *, dry_run=True, confirm=False,
                  preview_hash=None, idempotency_key=None, preserve_access=False,
-                 preserve_external_filings=True, destination_name=None, destination_names=None,
+                 preserve_external_filings=False, destination_name=None, destination_names=None,
                  reviewed=None, accept_if_owner=False, wait=False, wait_timeout=30):
     """Preview by default. Execution requires the exact hash/key or reviewed bundle.
 
@@ -173,7 +173,7 @@ def move_project(projects, namespace, project, to_namespace, *, dry_run=True, co
             raise OwnershipError("INVALID_SOURCE_NAMESPACE", 502)
         _validate_request(request, plan, target["namespaceId"])
         if (preserve_access and not request.get("policy", {}).get("preserveAccess")
-                or not preserve_external_filings and request.get("policy", {}).get("preserveExternalFilings")):
+                or preserve_external_filings and not request.get("policy", {}).get("preserveExternalFilings")):
             raise ValueError("Preservation flags differ from the saved reviewed request")
     else:
         plan = projects.transfer_plan(source, project)

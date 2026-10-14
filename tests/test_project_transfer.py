@@ -64,7 +64,9 @@ def test_whole_project_preview_is_complete_scoped_and_read_only(fixture):
     review = projects.move("a/b", "research", "@destination")
     assert review["ready"] is True
     assert review["request"]["manifest"] == [{"type": "project", "id": PROJECT}, {"type": "note", "id": NOTE}]
-    assert review["request"]["policy"] == {"visibility": "private", "retainedGrantIds": [], "preserveAccess": False, "preserveExternalFilings": True}
+    assert review["request"]["policy"] == {"visibility": "private", "retainedGrantIds": [], "preserveAccess": False, "preserveExternalFilings": False}
+    assert review["preview"]["summary"]["retainedFilings"] == 0
+    assert review["preview"]["summary"]["detachedFilings"] == 2
     assert review["request"]["expectedVersion"] == "version-1"
     assert review["request"]["previewHash"] == "review-v1"
     assert review["preview"]["preservation"]["projectGrants"][0]["id"] == "old-grant"
@@ -74,7 +76,7 @@ def test_whole_project_preview_is_complete_scoped_and_read_only(fixture):
 
 def test_cross_user_submission_requires_review_and_never_accepts_for_recipient(fixture):
     projects, requests, _ = fixture
-    review = projects.move("source", "research", "destination", preserve_access=True, preserve_external_filings=False)
+    review = projects.move("source", "research", "destination", preserve_access=True)
     baseline = copy.deepcopy(review)
     result = projects.move("source", "research", "destination", dry_run=False, confirm=True, reviewed=review)
     assert result["operation"]["state"] == "pending"
@@ -84,6 +86,22 @@ def test_cross_user_submission_requires_review_and_never_accepts_for_recipient(f
     assert not any(r["path"].endswith("/accept") for r in requests)
     assert result["preview"]["summary"]["detachedFilings"] == 2
     assert review == baseline
+
+
+def test_external_filing_retention_is_opt_in_and_exact_saved_policy_survives_replay(fixture):
+    projects, requests, _ = fixture
+    review = projects.move("source", "research", "destination", preserve_external_filings=True)
+    assert review["request"]["policy"]["preserveExternalFilings"] is True
+    assert review["preview"]["summary"]["retainedFilings"] == 2
+    assert review["preview"]["summary"]["detachedFilings"] == 0
+    projects.move("source", "research", "destination", dry_run=False, confirm=True, reviewed=review)
+    assert next(r for r in requests if r["path"].endswith("/transfers"))["body"] == review["request"]
+    detached = projects.move("source", "research", "destination")
+    before = len([r for r in requests if r["path"].endswith("/transfers")])
+    with pytest.raises(ValueError, match="Preservation flags differ"):
+        projects.move("source", "research", "destination", dry_run=False, confirm=True,
+                      reviewed=detached, preserve_external_filings=True)
+    assert len([r for r in requests if r["path"].endswith("/transfers")]) == before
 
 
 def test_ambiguous_create_does_not_retry_and_exact_review_replays_after_source_moved(fixture):
