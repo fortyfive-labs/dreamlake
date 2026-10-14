@@ -6,6 +6,7 @@ import pytest
 
 from dreamlake import DreamLakeClient
 from dreamlake.api.ownership import OwnershipError
+from dreamlake.api.project_transfer import validate_plan
 
 PROJECT = "000000000000000000000001"
 NOTE = "000000000000000000000002"
@@ -15,7 +16,7 @@ OPERATION = "000000000000000000000003"
 @pytest.fixture
 def fixture():
     requests = []
-    control = {"mode": "ready", "owner": False, "moved": False, "state": "pending", "status": "completed"}
+    control = {"mode": "ready", "owner": False, "moved": False, "state": "pending", "status": "completed", "plan": None, "detached_other": None}
 
     def serve(request):
         body = json.loads(request.content) if request.content else None
@@ -29,7 +30,7 @@ def fixture():
         if request.url.path.endswith("/transfer-plan"):
             if control["mode"] == "unsupported":
                 return httpx.Response(422, json={"apiVersion": 1, "code": "UNSUPPORTED_PROJECT_RESOURCE", "private": "never-echo"})
-            return httpx.Response(200, json={"apiVersion": 1, "resource": {"type": "project", "id": PROJECT}, "ownerNamespaceId": "source-ns",
+            return httpx.Response(200, json=control["plan"] or {"apiVersion": 1, "resource": {"type": "project", "id": PROJECT}, "ownerNamespaceId": "source-ns",
                                             "version": "version-1", "projectName": "research", "noteNames": [{"id": NOTE, "name": "note"}],
                                             "manifest": [{"type": "project", "id": PROJECT}] + ([] if control["mode"] == "partial" else [{"type": "note", "id": NOTE}]),
                                             "executable": control["mode"] != "disabled", "limits": {"maxNotes": 20, "maxTreeNodes": 200}})
@@ -39,7 +40,8 @@ def fixture():
                                             "manifest": body["manifest"], "previewHash": "review-v1", "acceptedPolicy": body["policy"],
                                             "blockers": [{"code": "NAME_COLLISION", "action": "Choose explicit name"}] if control["mode"] == "blocked" else [],
                                             "summary": {"includedCount": len(body["manifest"]), "retainedFilings": 2 if body["policy"]["preserveExternalFilings"] else 0,
-                                                        "detachedFilings": 0 if body["policy"]["preserveExternalFilings"] else 2, "becomesPrivate": True},
+                                                        "detachedFilings": (0 if body["policy"]["preserveExternalFilings"] else 2) + (control["detached_other"] or 0), "becomesPrivate": True,
+                                                        **({} if control["detached_other"] is None else {"detachedOtherFilings": control["detached_other"]})},
                                             "destinationAuthority": {"action": "ownership.accept", "namespaceId": "target-ns", "allowed": control["owner"]},
                                             "externalFilings": [{"filingId": "external-1"}, {"filingId": "external-2"}],
                                             "preservation": {"projectGrants": [{"id": "old-grant"}], "noteShares": []}})
@@ -187,3 +189,119 @@ def test_malformed_review_bundle_fails_with_clear_error_before_create(fixture, m
     with pytest.raises(ValueError, match="matching complete Project review bundle"):
         projects.move("source", "research", "destination", dry_run=False, confirm=True, reviewed=review)
     assert not any(r["path"].endswith("/transfers") for r in requests)
+
+
+ARTIFACT = "000000000000000000000004"
+ENV = "000000000000000000000005"
+
+
+def mixed_plan():
+    return {"apiVersion": 1, "resource": {"type": "project", "id": PROJECT}, "ownerNamespaceId": "source-ns",
+            "version": "mixed-version", "projectName": "research", "executable": True,
+            "manifest": [{"type": "project", "id": PROJECT}, {"type": "note", "id": NOTE},
+                         {"type": "artifact", "id": ARTIFACT}, {"type": "env", "id": ENV}],
+            "noteNames": [{"id": NOTE, "name": "note"}],
+            "resourceNames": [{"type": "note", "id": NOTE, "name": "note"},
+                              {"type": "artifact", "id": ARTIFACT, "name": "dashboard"},
+                              {"type": "env", "id": ENV, "name": "simulation"}],
+            "limits": {"maxResources": 512, "maxNotes": 511, "maxTreeNodes": 4096}}
+
+
+def test_mixed_review_keeps_complete_typed_manifest_and_exact_request_replay(fixture):
+    projects, requests, control = fixture
+    control.update(plan=mixed_plan(), detached_other=3)
+    review = projects.move("source", "research", "destination", preserve_external_filings=True)
+    assert review["request"]["manifest"] == control["plan"]["manifest"]
+    assert review["resourceCounts"] == {"project": 1, "note": 1, "artifact": 1, "env": 1}
+    assert review["preview"]["summary"]["retainedFilings"] == 2
+    assert review["preview"]["summary"]["detachedOtherFilings"] == 3
+    assert review["preview"]["summary"]["detachedFilings"] == 3
+    control.update(moved=True, state="completed")
+    before = len(requests)
+    result = projects.move("source", "research", "destination", dry_run=False, confirm=True, reviewed=review)
+    assert result["operation"]["state"] == "completed"
+    assert next(r for r in requests[before:] if r["path"].endswith("/transfers"))["body"] == review["request"]
+    assert all(not r["path"].endswith(("/projects/research", "/transfer-plan", "/preview")) for r in requests[before:])
+    control["moved"] = False
+    for resource_id in (ARTIFACT, ENV):
+        with pytest.raises(ValueError):
+            projects.move("source", "research", "destination", destination_names={resource_id: "renamed"})
+
+
+def test_total_resource_limit_includes_root_and_note_limit_only_counts_notes():
+    plan = mixed_plan()
+    plan["limits"]["maxNotes"] = 1
+    assert validate_plan(plan, PROJECT) is plan
+    plan["limits"]["maxResources"] = 3
+    with pytest.raises(OwnershipError):
+        validate_plan(plan, PROJECT)
+    plan["limits"].update(maxResources=512, maxNotes=0)
+    with pytest.raises(OwnershipError):
+        validate_plan(plan, PROJECT)
+    many = mixed_plan()
+    many["manifest"] = [many["resource"]] + [{"type": "note", "id": f"{i + 100:024x}"} for i in range(511)]
+    many["noteNames"] = [{"id": ref["id"], "name": ref["id"]} for ref in many["manifest"][1:]]
+    many["resourceNames"] = [{"type": "note", **row} for row in many["noteNames"]]
+    validate_plan(many, PROJECT)
+    names = many.pop("resourceNames")  # Legacy capacity plan with 511 Notes.
+    validate_plan(many, PROJECT)
+    many["resourceNames"] = names
+    many["manifest"].append({"type": "artifact", "id": ARTIFACT})
+    many["resourceNames"].append({"type": "artifact", "id": ARTIFACT, "name": "dashboard"})
+    with pytest.raises(OwnershipError):
+        validate_plan(many, PROJECT)
+
+
+@pytest.mark.parametrize("case", ["missing_names", "partial_names", "duplicate_names", "wrong_note_name", "extra_note",
+                                  "duplicate_member", "source", "workflow", "annotation", "extra_ref_field", "missing_note",
+                                  "null_limit", "fractional_limit", "missing_total_limit"])
+def test_mixed_plan_fails_closed_for_incomplete_ambiguous_or_unknown_manifest(case):
+    plan = mixed_plan()
+    if case == "missing_names":
+        del plan["resourceNames"]
+    elif case == "partial_names":
+        plan["resourceNames"].pop()
+    elif case == "duplicate_names":
+        plan["resourceNames"][1] = plan["resourceNames"][0]
+    elif case == "wrong_note_name":
+        plan["resourceNames"][0]["name"] = "different"
+    elif case == "extra_note":
+        plan["noteNames"].append({"id": ARTIFACT, "name": "dashboard"})
+    elif case == "duplicate_member":
+        plan["manifest"].append(plan["manifest"][1])
+    elif case in {"source", "workflow", "annotation"}:
+        plan["manifest"][2]["type"] = case
+    elif case == "extra_ref_field":
+        plan["manifest"][2]["extra"] = "unexpected"
+    elif case == "missing_note":
+        plan["noteNames"] = []
+    elif case == "null_limit":
+        plan["limits"]["maxResources"] = None
+    elif case == "fractional_limit":
+        plan["limits"]["maxResources"] = 1.5
+    elif case == "missing_total_limit":
+        del plan["limits"]["maxResources"]
+    with pytest.raises(OwnershipError, match="INVALID_WHOLE_PROJECT_PLAN"):
+        validate_plan(plan, PROJECT)
+
+
+def test_same_database_id_for_different_resource_collections_is_unambiguous():
+    plan = mixed_plan()
+    plan["manifest"][2]["id"] = NOTE
+    plan["resourceNames"][1]["id"] = NOTE
+    validate_plan(plan, PROJECT)
+
+
+@pytest.mark.parametrize("other", [None, -1, True])
+def test_modern_preview_requires_explicit_valid_detached_other_filing_count(fixture, other):
+    projects, requests, control = fixture
+    control.update(plan=mixed_plan(), detached_other=other)
+    with pytest.raises(OwnershipError, match="INVALID_TRANSFER_PREVIEW"):
+        projects.move("source", "research", "destination")
+    assert not any(r["path"].endswith("/transfers") for r in requests)
+
+
+def test_zero_detached_other_filings_is_valid_in_modern_preview(fixture):
+    projects, _, control = fixture
+    control.update(plan=mixed_plan(), detached_other=0)
+    assert projects.move("source", "research", "destination")["ready"] is True

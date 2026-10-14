@@ -7,7 +7,7 @@ import copy
 import re
 import shlex
 import time
-from typing import TypedDict
+from typing import NotRequired, TypedDict
 from uuid import uuid4
 import httpx
 
@@ -29,6 +29,7 @@ class ProjectTransferPlan(TypedDict):
     manifest: list[dict]
     projectName: str
     noteNames: list[dict]
+    resourceNames: NotRequired[list[dict]]
     executable: bool
     limits: dict
 
@@ -41,24 +42,57 @@ def _id(value):
     return isinstance(value, str) and re.fullmatch(r"[a-fA-F0-9]{24}", value) is not None
 
 
+_RESOURCE_TYPES = {"project", "note", "artifact", "env"}
+_MAX_SAFE_INTEGER = 2**53 - 1
+
+
+def _integer(value, minimum=0):
+    return type(value) is int and minimum <= value <= _MAX_SAFE_INTEGER
+
+
+def _ref(value):
+    return (isinstance(value, dict) and set(value) == {"type", "id"}
+            and value.get("type") in _RESOURCE_TYPES and _id(value.get("id")))
+
+
+def _key(ref):
+    return ref["type"], ref["id"].lower()
+
+
 def validate_plan(plan, project_id):
     try:
         manifest, notes, limits = plan["manifest"], plan["noteNames"], plan["limits"]
+        max_resources = limits.get("maxResources", limits["maxNotes"] + 1)
         valid = (
             type(plan["apiVersion"]) is int and plan["apiVersion"] == 1
-            and plan["resource"] == {"type": "project", "id": project_id}
+            and _ref(plan["resource"]) and plan["resource"] == {"type": "project", "id": project_id}
             and _text(plan["ownerNamespaceId"]) and _text(plan["version"]) and _text(plan["projectName"])
             and isinstance(plan["executable"], bool)
             and isinstance(manifest, list) and isinstance(notes, list)
-            and type(limits["maxNotes"]) is int and limits["maxNotes"] >= 0
-            and type(limits["maxTreeNodes"]) is int and limits["maxTreeNodes"] > 0
-            and 1 <= len(manifest) <= limits["maxNotes"] + 1
+            and _integer(limits["maxNotes"]) and _integer(limits["maxTreeNodes"], 1)
+            and _integer(max_resources, 1) and 1 <= len(manifest) <= max_resources
             and manifest[0] == plan["resource"]
-            and all(_id(ref["id"]) and ref["type"] == ("note" if i else "project") for i, ref in enumerate(manifest))
-            and len({ref["id"] for ref in manifest}) == len(manifest)
-            and len(notes) == len(manifest) - 1 and len({note["id"] for note in notes}) == len(notes)
-            and all(_text(note["name"]) and any(ref["id"] == note["id"] for ref in manifest[1:]) for note in notes)
+            and all(_ref(ref) and (i == 0 or ref["type"] != "project") for i, ref in enumerate(manifest))
+            and len({_key(ref) for ref in manifest}) == len(manifest)
         )
+        if valid:
+            note_refs = [ref for ref in manifest if ref["type"] == "note"]
+            valid = (len(note_refs) <= limits["maxNotes"] and len(notes) == len(note_refs)
+                     and all(_id(note["id"]) and _text(note["name"])
+                             and {"type": "note", "id": note["id"]} in note_refs for note in notes)
+                     and len({note["id"].lower() for note in notes}) == len(notes))
+        if valid and "resourceNames" in plan:
+            names, members = plan["resourceNames"], manifest[1:]
+            valid = (isinstance(names, list) and len(names) == len(members)
+                     and all(_id(row["id"]) and _text(row["name"])
+                             and {"type": row["type"], "id": row["id"]} in members for row in names)
+                     and len({_key(row) for row in names}) == len(members)
+                     and all(any(row["type"] == "note" and row["id"] == note["id"] and row["name"] == note["name"]
+                                 for row in names) for note in notes)
+                     and (all(ref["type"] == "note" for ref in members) or "maxResources" in limits))
+        elif valid:
+            # Older Note-only servers provide the complete member names here.
+            valid = all(ref["type"] == "note" for ref in manifest[1:])
     except (KeyError, TypeError, AttributeError, IndexError):
         valid = False
     if not valid:
@@ -66,12 +100,16 @@ def validate_plan(plan, project_id):
     return plan
 
 
+def _resource_counts(plan):
+    return {kind: sum(ref["type"] == kind for ref in plan["manifest"]) for kind in ("project", "note", "artifact", "env")}
+
+
 def _validate_request(request, plan, destination_id):
     try:
         policy = request["policy"]
         names = request.get("destinationNames", [])
         valid = (
-            request["apiVersion"] == 1 and request["resource"] == plan["resource"]
+            type(request["apiVersion"]) is int and request["apiVersion"] == 1 and request["resource"] == plan["resource"]
             and request["expectedOwner"] == plan["ownerNamespaceId"] and request["expectedVersion"] == plan["version"]
             and request["destinationNamespaceId"] == destination_id and request["manifest"] == plan["manifest"]
             and _text(request["destinationName"]) and len(request["destinationName"]) <= 200
@@ -88,19 +126,21 @@ def _validate_request(request, plan, destination_id):
         raise ValueError("Reviewed request must match the complete Project plan and private transfer policy")
 
 
-def _validate_preview(preview, request):
+def _validate_preview(preview, request, modern_plan=False):
     try:
         summary, blockers = preview["summary"], preview["blockers"]
         valid = (
-            preview["apiVersion"] == 1 and preview["resource"] == request["resource"]
+            type(preview["apiVersion"]) is int and preview["apiVersion"] == 1 and preview["resource"] == request["resource"]
             and preview["sourceNamespaceId"] == request["expectedOwner"]
             and preview["destinationNamespaceId"] == request["destinationNamespaceId"]
             and preview["expectedVersion"] == request["expectedVersion"] and preview["manifest"] == request["manifest"]
             and _text(preview["previewHash"]) and isinstance(blockers, list)
             and all(_text(row["code"]) and _text(row["action"]) for row in blockers)
             and summary["includedCount"] == len(request["manifest"])
-            and all(type(summary[key]) is int and summary[key] >= 0 for key in ("includedCount", "retainedFilings", "detachedFilings"))
+            and all(_integer(summary[key]) for key in ("includedCount", "retainedFilings", "detachedFilings"))
             and summary["becomesPrivate"] is True
+            and (not modern_plan and "detachedOtherFilings" not in summary
+                 or _integer(summary.get("detachedOtherFilings")) and summary["detachedOtherFilings"] <= summary["detachedFilings"])
         )
     except (KeyError, TypeError, AttributeError):
         valid = False
@@ -113,7 +153,7 @@ _STATES = {"pending", "preparing", "committing", "completed", "rejected", "cance
 
 def _validate_operation(operation, request):
     try:
-        valid = (operation["apiVersion"] == 1 and _id(operation["id"]) and operation["state"] in _STATES
+        valid = (type(operation["apiVersion"]) is int and operation["apiVersion"] == 1 and _id(operation["id"]) and operation["state"] in _STATES
                  and operation["sourceNamespaceId"] == request["expectedOwner"]
                  and operation["destinationNamespaceId"] == request["destinationNamespaceId"]
                  and operation["resource"] == request["resource"] and operation["previewHash"] == request["previewHash"])
@@ -195,7 +235,8 @@ def move_project(projects, namespace, project, to_namespace, *, dry_run=True, co
     if target["namespaceId"] == plan["ownerNamespaceId"]:
         raise ValueError("Destination is the current owner")
     _validate_request(request, plan, target["namespaceId"])
-    _validate_preview(preview, request)
+    _validate_preview(preview, request, modern_plan="resourceNames" in plan)
+    review["resourceCounts"] = _resource_counts(plan)
     reviewed_hash = preview_hash if preview_hash is not None else request.get("previewHash")
     request["previewHash"] = preview["previewHash"]
     if dry_run:

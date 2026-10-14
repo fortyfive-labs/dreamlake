@@ -84,7 +84,7 @@ class Projects:
              preview_hash=None, idempotency_key=None, preserve_access=False,
              preserve_external_filings=False, destination_name=None, destination_names=None,
              reviewed=None, accept_if_owner=False, wait=False, wait_timeout=30):
-        """Preview a whole Project + Notes; explicit confirmation/hash is required to submit."""
+        """Preview a whole Project with its owned Notes, Artifacts and Envs; confirmation/hash is required."""
         from .project_transfer import move_project
         return move_project(self, namespace, project, to_namespace, dry_run=dry_run, confirm=confirm,
                             preview_hash=preview_hash, idempotency_key=idempotency_key,

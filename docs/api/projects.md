@@ -33,12 +33,18 @@ temporary credentials; static custom-S3/MinIO or an unscoped STS fallback return
 attachments immediately after backend release. This SDK release is optional for
 Web use and does not replace the server's authorization checks.
 
-## Whole Project and Notes transfer (SDK 0.30.0)
+## Whole Project transfer
+
+The typed Artifact/Env plan support described below requires the next SDK
+release containing this source change and a compatible backend. Published SDK
+0.30.0 supports Note-only resource manifests and direct Project files, and
+rejects mixed Artifact/Env plans. Verify the installed package separately.
 
 `client.projects.transfer_plan(namespace, project)` resolves the Project name
 and reads the server's owner-only complete inventory. `client.projects.move`
-previews the Project plus all attached, source-namespace-owned Notes in one
-ownership journal request. With the compatible file-transfer backend this also
+previews the Project plus all attached, source-namespace-owned Notes, Artifacts
+and Envs in one ownership journal request when the updated client and backend
+are present. With the compatible file-transfer backend this also
 includes direct ordinary Project files, images and videos; SDK 0.30.0 needs no
 upgrade for this server capability. Other byte-backed leaves, such as JSON or
 audio, qualify with a supported storage binding; episode content remains
@@ -72,7 +78,9 @@ Default policy is private with old access revoked, and
 `preserve_external_filings=False`: external Project references to the moved
 Notes detach by default, without deleting Notes or their filings inside the
 transferred Project. Explicit `preserve_external_filings=True` requests retention
-of the reviewed external references. Saved review replay preserves that exact
+of reviewed **Note** references only. Artifact/Env attachments in other Projects
+always detach. `preview["summary"]["detachedOtherFilings"]` counts those removals;
+`detachedFilings` counts all removals. Detaching does not delete resources. Saved review replay preserves that exact
 policy, including an explicit retention choice. Opt-in `preserve_access=True` requests only
 eligible access bound by the source owner's preview and recipient acceptance.
 The complete review is returned unchanged, including preservation and external
@@ -91,22 +99,31 @@ and a stable `idempotency_key`. Persist the review before submission and reuse
 `reviewed=review` after ambiguous outcomes, including when the source Project
 has already moved. Do not replace the key or simulate transfer with copy/delete.
 
-Names stay unchanged. Use `destination_name` for an explicit Project rename
-or `destination_names={NOTE_ID: NEW_NAME}` for individual Note collisions, then
-review a new preview. A compatible larger-capacity backend advertises up to
-**512 manifest resources** (one Project plus at most 511 Notes) and **4,096 tree
+The expanded backend and updated client accept typed `project`, `note`,
+`artifact` and `env` manifest references. `resourceNames` covers every non-root
+resource and `noteNames` is the exact Note subset; malformed, partial, duplicate
+or unknown manifests fail closed. Returned `resourceCounts` includes all four
+types. Older Note-only server plans remain compatible.
+
+Canonical names stay unchanged. Use `destination_name` for an explicit Project
+rename or `destination_names={NOTE_ID: NEW_NAME}` for individual Note collisions,
+then review a new preview. Artifact/Env canonical names cannot be overridden;
+their destination collisions block the whole request. Read the server-advertised
+`limits`: the expanded backend permits **512 manifest resources including the
+Project**, up to 511 Notes if no Artifacts or Envs consume slots, and **4,096 tree
 nodes**. Ordinary Project files count toward tree nodes, not additional manifest
 resources. The aggregate **5,000-row inventory**, **8 MiB execution ledger** and
-**12 MiB total operation** budgets can block a plan before those count limits.
-Note/NoteFile storage verification retains its **2,000-object / 512 MiB** limit,
-separate from ordinary Project files. Oversized plans fail as a whole; 511 Notes
-is a ceiling, not a guaranteed fit. Older servers retain their 20-Note / 200-node
-limits. SDK 0.30.0 follows the server plan limits and needs no runtime upgrade for
-this capacity increase.
+**12 MiB total operation** budgets can block smaller Projects. Note/NoteFile
+storage verification retains its **2,000-object / 512 MiB** limit, separately
+from ordinary Project files. Oversized plans fail as a whole; the SDK never
+truncates or splits the plan, and 511 Notes is a ceiling, not a guaranteed fit.
+Older servers retain their 20-Note / 200-node limits. SDK 0.30.0 follows the server
+plan limits and needs no runtime upgrade for this capacity increase with
+Note-only manifests; typed Artifact/Env plans require the updated client above.
 
-Episode content remains unsupported. Unsupported attachments, foreign-owned Notes
-and active deletion work return structured 422 blockers rather than partial plans.
-Source bindings
+Source, Annotation, Workflow, Task, Dataset and Episode transfers remain
+unsupported. Foreign-owned resources and active deletion work return structured
+422 blockers rather than partial plans. Source bindings
 are retained by the existing design and are not migrated by this feature.
 
 Errors in this ownership flow use `OwnershipError`; malformed or partial

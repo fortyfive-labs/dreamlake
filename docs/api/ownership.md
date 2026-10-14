@@ -8,8 +8,10 @@ accept/reject and the source namespace for cancel. All namespace IDs are opaque;
 creator history and filing relationships confer no transfer authority.
 
 SDK 0.30.0 adds `client.projects.transfer_plan` and `client.projects.move` for a
-whole Project and all its owned Notes. With a compatible backend it also includes
-ordinary Project files, images and videos; episode content remains unsupported. Prefer that convenience workflow over a
+whole Project and all its owned Notes. The next SDK release containing typed
+transfer-plan support also includes source-owned Artifacts and Envs with the
+matching backend; published SDK 0.30.0 rejects those mixed plans. Compatible
+backends also include ordinary Project files, images and videos; episode content remains unsupported. Prefer that convenience workflow over a
 hand-built partial manifest. It requires an enabled whole-Project server adapter;
 check plan `executable`, preview blockers and current capabilities. Installing
 the SDK does not enable backend writer, storage or RTC capabilities. Standalone
@@ -49,12 +51,17 @@ and returns a bounded filing/structure inventory and source version. `resource_t
 is `project` or `source`; other types are rejected before transport. Use these
 facts in the existing version 1 preview request. Filing never chooses ownership.
 For a whole-Project move, `projects.move` uses the dedicated complete server
-plan, includes every supported attached Note and direct file/image/video Node,
-and rejects partial inventories. The deployed server must advertise media-file
+plan, includes every supported source-owned Note, Artifact and Env plus direct
+file/image/video Nodes, and rejects partial inventories. The updated client
+requires complete typed `resourceNames`; legacy Note-only plans stay compatible.
+Total `limits.maxResources` includes the Project, while `maxNotes` counts only
+Notes. `resourceCounts` in the review reports all included types. The deployed server must advertise media-file
 support independently of the installed SDK.
 It defaults to private resources, old access revoked and external Note filings
 detached. Access or external-filing retention requires explicit opt-in in the
-reviewed request.
+reviewed request. Retaining external filings applies only to Notes; Artifact/Env
+attachments in other Projects always detach. The modern preview explicitly
+reports `summary.detachedOtherFilings` in addition to the total detached count.
 
 Source execution remains independently gated; the whole-Project Notes adapter
 does not enable Source transfer or migrate existing Source bindings.
