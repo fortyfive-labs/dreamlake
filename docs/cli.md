@@ -102,24 +102,12 @@ python -m dreamlake.cli source collection create <name> --source <src> [--preset
 python -m dreamlake.cli source push ...
 ```
 
-## `video` — deprecated
-
-Superseded by `dreamlake video` in the standalone CLI.
-
-```bash
-python -m dreamlake.cli video upload ./demo.mp4 --user alice --project robotics
-python -m dreamlake.cli video download <id> --output ./my_video.mp4
-python -m dreamlake.cli video list --user alice --project robotics
-```
-
 ## Environment variables
 
 ```bash
 export DREAMLAKE_REMOTE="http://localhost:10334"   # API server
 export DREAMLAKE_API_KEY="your-jwt-token"
-export DREAMLAKE_BSS_URL="http://localhost:10234"  # video commands
-export DREAMLAKE_BSS_TOKEN="your-bss-jwt-token"
 ```
 
-`--debug` as a global flag points `DREAMLAKE_REMOTE` and `DREAMLAKE_BSS_URL`
-at those two localhost defaults.
+`--debug` as a global flag points `DREAMLAKE_REMOTE` at the localhost
+default.

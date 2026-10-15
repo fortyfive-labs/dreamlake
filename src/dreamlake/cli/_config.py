@@ -28,7 +28,6 @@ def _make_debug_token() -> str:
 class ServerConfig:
     remote: str = EnvVar @ "DREAMLAKE_REMOTE" | DEFAULT_REMOTE_URL
     token: str | None = EnvVar @ "DREAMLAKE_API_KEY" | None
-    bss_url: str = EnvVar @ "DREAMLAKE_BSS_URL" | "http://localhost:10234"
     debug: bool = False  # skip auth checks, use dev tokens and local URLs
 
     @classmethod

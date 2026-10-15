@@ -2,14 +2,12 @@
 TextTrack — time-aligned text entries (captions, subtitles, annotations).
 
 Entries are buffered in memory until .flush() writes them as JSONL,
-uploads to BSS, and registers in dreamlake-server.
+puts it into S3, and registers in dreamlake-server.
 """
 
 from __future__ import annotations
 
-import hashlib
 import json
-import math
 import os
 import tempfile
 from concurrent.futures import ThreadPoolExecutor
@@ -96,7 +94,7 @@ class TextTrack:
         return self
 
     def flush(self) -> str | None:
-        """Write JSONL, upload to BSS, register in dreamlake-server. Returns asset ID."""
+        """Write JSONL, put it into S3, register in dreamlake-server. Returns the node ID."""
         if not self._entries:
             return None
         if not self._project:
@@ -122,51 +120,80 @@ class TextTrack:
             tmp_path = f.name
 
         try:
-            content = open(tmp_path, "rb").read()
-            raw_hash = hashlib.sha256(content).hexdigest()[:16]
-            file_size = len(content)
-            total_parts = max(1, math.ceil(file_size / CHUNK_SIZE))
+            from pathlib import Path
 
-            # Multipart upload to BSS
-            init = self._client.upload_init("text-tracks", namespace, project_slug, raw_hash, "application/x-jsonlines")
-            upload_id, key = init["uploadId"], init["key"]
+            from ._transfer import (
+                SignedOperation,
+                parse_multipart,
+                put_single,
+                run_multipart,
+                sha256_file,
+            )
 
-            part_urls = self._client.upload_parts("text-tracks", upload_id, key, list(range(1, total_parts + 1)))
+            tmp = Path(tmp_path)
+            # Full sha256, not the first 16 characters: the authorize endpoint
+            # refuses anything else, because the hash is the only
+            # client-controlled part of the object key.
+            raw_hash = sha256_file(tmp)
+            file_size = tmp.stat().st_size
 
-            completed = []
-            for pn in range(1, total_parts + 1):
-                start = (pn - 1) * CHUNK_SIZE
-                end = min(start + CHUNK_SIZE, file_size)
-                chunk = content[start:end]
-                r = httpx.put(part_urls[str(pn)], content=chunk, headers={"Content-Type": "application/x-jsonlines"}, timeout=120)
-                r.raise_for_status()
-                completed.append({"partNumber": pn, "etag": r.headers["etag"]})
-
-            self._client.upload_complete("text-tracks", upload_id, key, completed)
-
-            # Register in BSS
             filename = os.path.basename(self._prefix) or "track"
-            bss_result = self._client.register_bss_asset("text-track", {
-                "name": f"/{self._prefix}/{filename}.jsonl",
-                "owner": namespace,
-                "project": project_slug,
-                "stagingHash": raw_hash,
-                "format": "jsonl",
-            })
-            bss_id = bss_result.get("id")
+            full_name = f"/{self._prefix}/{filename}.jsonl"
+
+            authorization = self._client.authorize_upload(
+                namespace,
+                project_slug,
+                [{
+                    "name": full_name,
+                    "size": file_size,
+                    "hash": raw_hash,
+                    "mediaType": "application/x-jsonlines",
+                }],
+            )
+            objects = authorization.get("objects") or []
+            if not objects or not isinstance(objects[0].get("objectKey"), str):
+                raise RuntimeError("the server authorized no upload for this track")
+            object_key = objects[0]["objectKey"]
+            transfer = objects[0].get("transfer") or {}
+
+            if transfer.get("kind") == "single-put":
+                put_single(
+                    httpx.Client(),
+                    SignedOperation.parse(transfer.get("put"), "text-track.put"),
+                    tmp,
+                    file_size,
+                )
+            else:
+                run_multipart(
+                    httpx.Client(),
+                    parse_multipart(transfer, file_size, "text-track"),
+                    tmp,
+                    file_size,
+                )
 
             # Extract episode name from prefix
             prefix_parts = self._prefix.strip("/").split("/")
             episode_name = "/".join(prefix_parts[:3]) if len(prefix_parts) >= 3 else prefix_parts[0] if prefix_parts else ""
 
-            # Register in dreamlake-server
-            dl_result = self._client.register_dl_asset("text-track", {
+            # Register in dreamlake-server. One registration, in the shape
+            # `POST /nodes` actually declares — the previous body had no
+            # `kind` at all, which that endpoint requires.
+            node_body = {
                 "namespace": namespace,
+                "kind": "text-track",
+                "name": full_name,
                 "project": project_slug,
-                "episodeName": episode_name,
-                "name": f"/{self._prefix}",
-                "bssTextTrackId": bss_id,
-            })
+                "metadata": {
+                    "s3Key": object_key,
+                    "hash": raw_hash,
+                    "size": file_size,
+                    "contentType": "application/x-jsonlines",
+                    "format": "jsonl",
+                },
+            }
+            if episode_name:
+                node_body["episode"] = episode_name
+            dl_result = self._client.register_node(node_body)
 
             self._id = dl_result.get("id")
             self._entries.clear()
