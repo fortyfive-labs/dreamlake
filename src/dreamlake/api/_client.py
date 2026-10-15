@@ -222,6 +222,43 @@ class DreamLakeClient:
 
     # ── DreamLake Server ────────────────────────────────────────────────
 
+    def authorize_upload(self, namespace: str, project: str, files: list[dict]) -> dict:
+        """Ask dreamlake-server for keys and signed requests.
+
+        Replaces `upload_init` + `upload_parts`: one call answers with the
+        object key each file gets and the whole transfer plan for it. The key
+        is minted here and echoed back on registration — this client never
+        builds one, because the server checks that a registered key is one it
+        authorized for that project.
+        """
+        r = httpx.post(
+            f"{self.dl_url}/namespaces/{namespace}/projects/{project}/upload-authorizations",
+            json={"files": files}, headers=self._headers(), timeout=60,
+        )
+        r.raise_for_status()
+        return r.json()
+
+    def resume_upload(self, namespace: str, project: str, object_key: str,
+                      upload_id: str, size: int) -> dict:
+        """Pick up an interrupted multipart upload.
+
+        Which parts exist is STORAGE's answer, not ours: a part can fail after
+        we record it, or succeed after we give up, and a local list that
+        disagrees completes the upload naming parts storage does not have.
+
+        Raises `httpx.HTTPStatusError`; 404 means the upload is gone (finished,
+        aborted, or swept by the lifecycle rule) and 409 that what is stored
+        describes a different partitioning of the file. Both mean "start over".
+        """
+        r = httpx.post(
+            f"{self.dl_url}/namespaces/{namespace}/projects/{project}"
+            f"/upload-authorizations/resume",
+            json={"objectKey": object_key, "uploadId": upload_id, "size": size},
+            headers=self._headers(), timeout=60,
+        )
+        r.raise_for_status()
+        return r.json()
+
     def register_node(self, body: dict) -> dict:
         """POST /nodes — create any node (project, episode, folder, or file asset)."""
         r = httpx.post(

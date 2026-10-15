@@ -105,8 +105,6 @@ def upload(
     """
     from .api.prefix import resolve_path, resolve_project
     from pathlib import Path
-    import hashlib
-    import math
 
     resolved_project = resolve_project(project)
     resolved_path = resolve_path(prefix or path or "")
@@ -162,12 +160,14 @@ def upload(
 
     from rich.progress import Progress, BarColumn, TextColumn, TransferSpeedColumn
 
-    content = fp.read_bytes()
-    raw_hash = hashlib.sha256(content).hexdigest()[:16]
-    file_size = len(content)
+    # Streamed, and the FULL digest. The authorize endpoint refuses anything
+    # but 64 lowercase hex: the hash is the only client-controlled part of the
+    # object key, so a loose one escapes the project's prefix. Reading the file
+    # whole — which this did — also put a large video out of reach entirely.
+    from .api._transfer import sha256_file
 
-    chunk_size = 10 * 1024 * 1024
-    total_parts = max(1, math.ceil(file_size / chunk_size))
+    raw_hash = sha256_file(fp)
+    file_size = fp.stat().st_size
 
     # Build full asset name
     full_name = f"{resolved_path}/{fp.name}" if resolved_path else fp.name
@@ -177,32 +177,50 @@ def upload(
     size_str = f"{file_size / 1024 / 1024:.1f} MB" if file_size > 1024 * 1024 else f"{file_size / 1024:.1f} KB"
     print(f"  uploading {fp.name} (kind={asset_type}, {size_str})")
 
-    # Multipart upload — unified /files route
-    init = client.upload_init("files", namespace, project_slug, raw_hash, content_type)
-    upload_id, key = init["uploadId"], init["key"]
-    part_urls = client.upload_parts("files", upload_id, key, list(range(1, total_parts + 1)))
-
+    # Authorize, then put the bytes straight into S3. The server mints the key
+    # and the signatures; this client only executes them.
     import httpx as _httpx
-    completed = []
 
-    with Progress(
-        TextColumn("[bold blue]{task.description}"),
-        BarColumn(),
-        TextColumn("{task.completed}/{task.total} parts"),
-        TransferSpeedColumn(),
-        transient=True,
-    ) as progress:
-        task = progress.add_task("uploading", total=total_parts)
-        for pn in range(1, total_parts + 1):
-            start = (pn - 1) * chunk_size
-            end = min(start + chunk_size, file_size)
-            chunk = content[start:end]
-            r = _httpx.put(part_urls[str(pn)], content=chunk, headers={"Content-Type": content_type}, timeout=120)
-            r.raise_for_status()
-            completed.append({"partNumber": pn, "etag": r.headers["etag"]})
-            progress.advance(task)
+    from .api._transfer import SignedOperation, parse_multipart, put_single, run_multipart
 
-    client.upload_complete("files", upload_id, key, completed)
+    authorization = client.authorize_upload(
+        namespace,
+        project_slug,
+        [{"name": full_name, "size": file_size, "hash": raw_hash, "mediaType": content_type}],
+    )
+    objects = authorization.get("objects") or []
+    if not objects or not isinstance(objects[0].get("objectKey"), str):
+        # An empty `objects` would otherwise read as "nothing to upload", and
+        # the node would be registered for bytes that were never sent.
+        raise RuntimeError("the server authorized no upload for this file")
+    object_key = objects[0]["objectKey"]
+    transfer = objects[0].get("transfer") or {}
+
+    if transfer.get("kind") == "single-put":
+        put_single(
+            _httpx.Client(),
+            SignedOperation.parse(transfer.get("put"), "upload.put"),
+            fp,
+            file_size,
+        )
+    else:
+        plan = parse_multipart(transfer, file_size, "upload")
+        total_parts = len(plan.parts)
+        with Progress(
+            TextColumn("[bold blue]{task.description}"),
+            BarColumn(),
+            TextColumn("{task.completed}/{task.total} parts"),
+            TransferSpeedColumn(),
+            transient=True,
+        ) as progress:
+            task = progress.add_task("uploading", total=total_parts)
+            run_multipart(
+                _httpx.Client(),
+                plan,
+                fp,
+                file_size,
+                on_part=lambda _n: progress.advance(task),
+            )
 
     # Episode name = last segment of the Prefix context's prefix
     # The path under the episode = resolved_path stripped of the episode segment
@@ -226,28 +244,16 @@ def upload(
     else:
         server_name = full_name
 
-    # Register in BSS — unified /files route, kind passes through
-    bss_body = {
-        "name": full_name,
-        "owner": namespace,
-        "project": project_slug,
-        "stagingHash": raw_hash,
-        "kind": asset_type,
-        "contentType": content_type,
-        "size": file_size,
-        "originalName": fp.name,
-    }
-    bss_result = client.register_bss_asset("file", bss_body)
-    bss_id = bss_result.get("id")
-
-    # Register in dreamlake-server (unified POST /nodes)
+    # Register in dreamlake-server. One registration now, not two: the node
+    # records where the bytes are, so nothing has to resolve an id through
+    # another service to read or delete the file.
     node_body: dict = {
         "namespace": namespace,
         "kind": asset_type,
         "name": server_name,
         "project": project_slug,
         "metadata": {
-            "bssId": bss_id,
+            "s3Key": object_key,
             "hash": raw_hash,
             "size": file_size,
             "contentType": content_type,
