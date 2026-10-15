@@ -1,5 +1,31 @@
 # Release notes
 
+## Unreleased — Annotation and Source in whole-Project transfers
+
+**Not released and not on PyPI.** Requires a forthcoming SDK release newer than
+0.31.0 together with a compatible backend. The published 0.31.0 facts below are
+unchanged; 0.31.0 and older clients reject plans containing the new manifest
+types.
+
+Whole-Project server plans and `resourceNames` additionally accept typed
+`annotation` and whole-`source` references; the root stays the single Project.
+Dependent Task rows and Project-owned Dataset rows (Prisma Dataset/Bindr
+containers) with their task events stay outside the manifest and are
+reported only through the optional `managedCounts` counts on the plan and the
+preview summary; `includedCount` still equals the manifest length. The separate
+LabelDataset has no Project relationship and stays outside this transfer.
+Malformed counts fail closed; legacy servers may omit them entirely. Source
+members are pure-managed: the backend decides eligibility and may return
+structured blockers for unsupported or mixed/external Sources, the SDK never
+infers it, no file or payload bytes move, and generic SourceBinding migration
+remains deferred.
+External-filing retention stays Note-only — annotation and source filings in
+other Projects detach and can be counted in `detachedOtherFilings`. Review
+`resourceCounts` reports all six supported types. Exact saved-review JSON
+replay, idempotency and unknown additive server fields are preserved unchanged.
+No standalone Source, Annotation, Task or Dataset transfer API is added. See
+[Projects](api/projects.md).
+
 ## 0.31.0 — Artifact and Env in whole-Project transfers
 
 Whole-Project previews and saved reviews now include every supported typed

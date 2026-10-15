@@ -84,7 +84,14 @@ class Projects:
              preview_hash=None, idempotency_key=None, preserve_access=False,
              preserve_external_filings=False, destination_name=None, destination_names=None,
              reviewed=None, accept_if_owner=False, wait=False, wait_timeout=30):
-        """Preview a whole Project with its owned Notes, Artifacts and Envs; confirmation/hash is required."""
+        """Preview a whole Project with every typed owned member; confirmation/hash is required.
+
+        With the matching backend the manifest covers Notes, Artifacts, Envs,
+        Annotations and whole Sources; dependent Dataset/Task rows appear only
+        as server-reported counts. The SDK handles server metadata only — it
+        never moves or copies file or payload bytes and never infers Source
+        eligibility.
+        """
         from .project_transfer import move_project
         return move_project(self, namespace, project, to_namespace, dry_run=dry_run, confirm=confirm,
                             preview_hash=preview_hash, idempotency_key=idempotency_key,

@@ -30,6 +30,9 @@ class ProjectTransferPlan(TypedDict):
     projectName: str
     noteNames: list[dict]
     resourceNames: NotRequired[list[dict]]
+    # Dependent Dataset/Task/task-event rows ride with the Project outside the
+    # manifest; the backend reports them as counts only.
+    managedCounts: NotRequired[dict]
     executable: bool
     limits: dict
 
@@ -42,12 +45,19 @@ def _id(value):
     return isinstance(value, str) and re.fullmatch(r"[a-fA-F0-9]{24}", value) is not None
 
 
-_RESOURCE_TYPES = {"project", "note", "artifact", "env"}
+_RESOURCE_TYPES = {"project", "note", "artifact", "env", "annotation", "source"}
+_MANAGED_COUNT_KEYS = ("datasets", "tasks", "taskEvents")
 _MAX_SAFE_INTEGER = 2**53 - 1
 
 
 def _integer(value, minimum=0):
     return type(value) is int and minimum <= value <= _MAX_SAFE_INTEGER
+
+
+def _managed_counts(value):
+    # Unknown additive keys from newer servers pass through; the three known
+    # dependent counts are required whenever the object is present.
+    return isinstance(value, dict) and all(_integer(value.get(key)) for key in _MANAGED_COUNT_KEYS)
 
 
 def _ref(value):
@@ -71,6 +81,7 @@ def validate_plan(plan, project_id):
             and isinstance(manifest, list) and isinstance(notes, list)
             and _integer(limits["maxNotes"]) and _integer(limits["maxTreeNodes"], 1)
             and _integer(max_resources, 1) and 1 <= len(manifest) <= max_resources
+            and ("managedCounts" not in plan or _managed_counts(plan["managedCounts"]))
             and manifest[0] == plan["resource"]
             and all(_ref(ref) and (i == 0 or ref["type"] != "project") for i, ref in enumerate(manifest))
             and len({_key(ref) for ref in manifest}) == len(manifest)
@@ -101,7 +112,8 @@ def validate_plan(plan, project_id):
 
 
 def _resource_counts(plan):
-    return {kind: sum(ref["type"] == kind for ref in plan["manifest"]) for kind in ("project", "note", "artifact", "env")}
+    return {kind: sum(ref["type"] == kind for ref in plan["manifest"])
+            for kind in ("project", "note", "artifact", "env", "annotation", "source")}
 
 
 def _validate_request(request, plan, destination_id):
@@ -139,6 +151,7 @@ def _validate_preview(preview, request, modern_plan=False):
             and summary["includedCount"] == len(request["manifest"])
             and all(_integer(summary[key]) for key in ("includedCount", "retainedFilings", "detachedFilings"))
             and summary["becomesPrivate"] is True
+            and ("managedCounts" not in summary or _managed_counts(summary["managedCounts"]))
             and (not modern_plan and "detachedOtherFilings" not in summary
                  or _integer(summary.get("detachedOtherFilings")) and summary["detachedOtherFilings"] <= summary["detachedFilings"])
         )
