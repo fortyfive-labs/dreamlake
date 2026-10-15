@@ -42,7 +42,7 @@ except PackageNotFoundError:
 
 # ── Python API ──────────────────────────────────────────────────────────────
 
-from .api import Video, VideoArray, TextTrack, VectorIndex, Prefix
+from .api import TextTrack, VectorIndex, Prefix
 from .api import (
     Note,
     NoteRef,
@@ -65,30 +65,6 @@ from .api import (
     shared_with_me,
 )
 from .api._client import DreamLakeClient, get_client as _get_client
-from .api.resource_id import parse_uri as _parse_uri
-
-
-def load_video(uri: str) -> Video:
-    """Load a Video by resource ID or URI.
-
-    Examples:
-        dl.load_video("v-BV1bW411n7fY9x01")
-        dl.load_video("bss://localhost:10234/videos/69e7264a")
-    """
-    return Video(uri)
-
-
-def load(resource_id: str):
-    """Generic loader — parses type prefix and returns the appropriate object.
-
-    Examples:
-        dl.load("v-BV1bW411n7fY9x01")   → Video
-        dl.load("tt-3fHj7kLm0pQs5uXw")  → TextTrack (future)
-    """
-    parsed = _parse_uri(resource_id)
-    if parsed.get("type") == "video" or parsed.get("scheme") == "bss":
-        return Video(resource_id)
-    raise ValueError(f"Unsupported resource type: {resource_id}")
 
 
 def upload(
@@ -821,13 +797,9 @@ __all__ = [
     "LogBuilder",
     "ParametersBuilder",
     # API
-    "Video",
-    "VideoArray",
     "TextTrack",
     "VectorIndex",
     "Prefix",
-    "load_video",
-    "load",
     "upload",
     "upload_folder",
     "download",

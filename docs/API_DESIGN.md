@@ -2,116 +2,13 @@
 
 > Living document. Updated as design evolves.
 
+> The `Video` object and `dl.load_video` were removed when BSS was retired:
+> both read their metadata and chunk playlists from BSS routes (`/videos/:id/
+> metadata`, `/videos/:id/stream/:hash.m3u8`) that BSS itself deleted when it
+> unified everything into `/files`, so they answered 404 well before the
+> retirement.
+
 ## Object
-
-### Video
-
-#### Properties
-
-```python
-video.id             # "v-BV1bW411n7fY9x01"
-video.uri            # "bss://localhost:10234/videos/69e7264a"
-video.fps            # 30.0
-video.st             # 0.0
-video.et             # 60.0
-video.duration       # 60.0
-video.frames    # 1800
-video.width          # 1920
-video.height         # 1080
-```
-
-#### Import
-
-```python
-import dreamlake as dl
-
-video = dl.load_video("v-BV1bW411n7fY9x01")
-
-# Also accepts BSS URI
-video = dl.load_video("bss://localhost:10234/videos/69e7264a")
-```
-
-#### Indexing
-
-`float` → time (seconds). `int` → frame number. Always returns `Video` (lazy).
-
-```python
-video[0]              # single-frame Video (lazy)
-video[42]             # frame 42 → Video
-video[10.0:20.0]      # time slice → Video
-video[300:600]        # frame slice → Video
-
-video[0].image        # → PIL Image (triggers download)
-video[0].numpy()      # → numpy (H, W, 3)
-```
-
-Indexing on a sliced Video is **relative** to the slice:
-
-```python
-clip = video[10.0:20.0]
-clip[0]               # first frame of clip (at t=10.0), not frame 0 of video
-clip[2.0:5.0]         # → Video(st=12.0, et=15.0)
-```
-
-#### Chunking
-
-```python
-clip = video[1.2:2.4]
-
-# Split into 200ms segments
-chunks = clip.chunk(0.200)                     # → [Video, Video, ...]
-
-# Snap to nearest keyframe boundaries
-chunks = clip.chunk(0.200, by_iframe=True)     # → [Video, Video, ...]
-```
-
-Returns a `VideoArray` — supports fancy indexing and batch tensor conversion.
-
-```python
-clips.tensor().shape          # (6, 240, 360, 3) — all chunks
-clips[:, 0].tensor().shape    # (6, 240, 360, 3) — first frame of each chunk
-clips[0].tensor().shape       # (240, 360, 3) — single chunk
-clips[0:3].tensor().shape     # (3, 240, 360, 3) — first 3 chunks
-
-# Feed directly to model
-emb_vec = img_enc(clips[:, 0].tensor().to('cuda'))
-```
-
-#### Data Access
-
-```python
-video.thumbnail       # middle frame → PIL Image
-video.iterator()        # iterator of frames
-video.numpy()         # → numpy (N, H, W, 3)
-video.tensor()        # → torch (N, C, H, W)
-```
-
-#### Slicing returns Video
-
-A sliced video is still a Video — same interface, narrower range.
-
-```python
-clip = video[10.0:20.0]
-
-clip.st               # 10.0
-clip.et               # 20.0
-clip.duration         # 10.0
-clip.fps              # 30.0
-clip.thumbnail        # middle frame
-clip[0]               # first frame of this range (lazy)
-clip[0].image         # PIL Image (download)
-clip[2.0:5.0]         # sub-slice → Video(st=12.0, et=15.0)
-```
-
-#### Repr
-
-```python
->>> video
-Video("bss://...69e7264a", fps=30.0, duration=60.0, 1920x1080)
-
->>> video[10.0:20.0]
-Video("bss://...69e7264a", st=10.0, et=20.0, duration=10.0)
-```
 
 ### TextTrack
 
@@ -161,17 +58,15 @@ Entries are buffered in memory until `.flush()`.
 import dreamlake as dl
 from my_model import describe
 
-video = dl.load_video("v-BV1bW411n7fY9x01")
-
 # Create a caption track
 track = dl.text_track(
     prefix="/2026/04/run-042/captions/scene-description",
     project="robotics@alice",
 )
 
-# Caption every 2s segment
-chunks = video.chunk(2.0)
-for chunk in chunks:
+# Caption each segment. Segments come from your own pipeline: the SDK's
+# Video object was removed with BSS.
+for chunk in my_segments:
     caption = describe(chunk[0].image)
     track.add(caption, source=chunk)
 
@@ -250,24 +145,13 @@ Every resource has a globally unique ID: `{type_prefix}-{16 base62 chars}`.
 Derived dynamically from the underlying ObjectId. Not stored separately.
 
 ```python
-video.id              # "v-BV1bW411n7fY9x01"
-dl.load_video("v-BV1bW411n7fY9x01")
-dl.load("v-BV1bW411n7fY9x01")       # generic — parses prefix
-dl.load("tt-3fHj7kLm0pQs5uXw")      # → TextTrack
+# A resource id encodes its type; `decode_resource_id` reads it back.
+# "v-BV1bW411n7fY9x01"  → ("video", "<objectId>")
+# "tt-3fHj7kLm0pQs5uXw" → ("text-track", "<objectId>")
 ```
 
 ## Function
 
-### dl.load_video
-
-```python
-video = dl.load_video("v-BV1bW411n7fY9x01")
-
-# Also accepts BSS URI
-video = dl.load_video("bss://localhost:10234/videos/69e7264a")
-```
-
-Returns a `Video`. Accepts resource ID or `bss://`, `file://`, `s3://` URI.
 
 ### dl.upload
 
@@ -349,16 +233,13 @@ with dl.Prefix(project="robotics@alice", prefix="/2026/04/run-042"):
 import dreamlake as dl
 from my_model import enc_image, describe
 
-video = dl.load_video("v-BV1bW411n7fY9x01")
-
 with dl.Prefix(project="robotics@alice", prefix="/2026/04/run-042"):
     # Upload
     dl.upload("./video.mp4", path="camera/front")
 
     # Caption track
     track = dl.text_track(path="captions/scene-description")
-    chunks = video.chunk(2.0)
-    for chunk in chunks:
+    for chunk in my_segments:
         track.add(describe(chunk[0].image), source=chunk)
     track.flush()
 

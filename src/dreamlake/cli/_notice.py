@@ -73,7 +73,7 @@ def migration_notice(
         "    curl -fsSL https://dl.dreamlake.ai/install.sh | bash\n"
         f"then run:  {equivalent} ...\n"
         "Same commands, flags, and env vars (DREAMLAKE_REMOTE / DREAMLAKE_API_KEY /\n"
-        "DREAMLAKE_BSS_URL), plus environment switching (`dreamlake env use`).\n"
+        "plus environment switching (`dreamlake env use`).\n"
         "New releases of the `dreamlake` Python package no longer install this\n"
         "console script."
     )

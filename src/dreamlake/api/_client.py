@@ -1,8 +1,7 @@
 """
-HTTP client for BSS and dreamlake-server.
+HTTP client for dreamlake-server.
 
 Reads config from environment variables:
-  DREAMLAKE_BSS_URL   (default: http://localhost:10234)
   DREAMLAKE_REMOTE    (default: https://api.dreamlake.ai)
   DREAMLAKE_API_KEY   (token)
   QDRANT_URL          (default: http://localhost:6333)
@@ -20,7 +19,6 @@ import httpx
 
 from dreamlake.config import DEFAULT_REMOTE_URL
 
-_DEFAULT_BSS = "http://localhost:10234"
 _DEFAULT_DL = DEFAULT_REMOTE_URL
 _DEFAULT_QDRANT = "http://localhost:6333"
 
@@ -53,11 +51,10 @@ def _saved_remote() -> str | None:
 
 
 class DreamLakeClient:
-    """Unified HTTP client for BSS, dreamlake-server, and Qdrant."""
+    """Unified HTTP client for dreamlake-server and Qdrant."""
 
     def __init__(
         self,
-        bss_url: str | None = None,
         dl_url: str | None = None,
         qdrant_url: str | None = None,
         token: str | None = None,
@@ -67,7 +64,6 @@ class DreamLakeClient:
         # without a server. Only the notes surface routes through it; the older
         # methods still call module-level httpx directly.
         self._transport = transport
-        self.bss_url = (bss_url or os.environ.get("DREAMLAKE_BSS_URL", _DEFAULT_BSS)).rstrip("/")
         self.dl_url = (
             dl_url or os.environ.get("DREAMLAKE_REMOTE") or _saved_remote() or _DEFAULT_DL
         ).rstrip("/")
@@ -144,81 +140,6 @@ class DreamLakeClient:
         if self._token:
             h["Authorization"] = f"Bearer {self._token}"
         return h
-
-    # ── BSS: Video metadata ─────────────────────────────────────────────
-
-    def get_video_meta(self, video_id: str) -> dict:
-        r = httpx.get(f"{self.bss_url}/videos/{video_id}/metadata", timeout=30)
-        r.raise_for_status()
-        return r.json()
-
-    def get_stream_playlist(self, video_id: str, stream_hash: str) -> str:
-        r = httpx.get(f"{self.bss_url}/videos/{video_id}/stream/{stream_hash}.m3u8", timeout=30)
-        r.raise_for_status()
-        return r.text
-
-    def parse_chunk_hashes(self, m3u8_content: str) -> list[dict]:
-        """Parse m3u8 playlist into ordered list of {hash, duration, url}."""
-        chunks = []
-        duration = 0.0
-        for line in m3u8_content.splitlines():
-            line = line.strip()
-            if line.startswith("#EXTINF:"):
-                duration = float(line.split(":")[1].rstrip(","))
-            elif line and not line.startswith("#"):
-                match = re.search(r"/chunks/([a-f0-9]+)\.ts", line)
-                if match:
-                    chunks.append({
-                        "hash": match.group(1),
-                        "duration": duration,
-                        "url": line,
-                    })
-        return chunks
-
-    def download_chunk(self, url: str) -> bytes:
-        r = httpx.get(url, timeout=30, follow_redirects=True)
-        r.raise_for_status()
-        return r.content
-
-    # ── BSS: Multipart upload ───────────────────────────────────────────
-
-    def upload_init(self, asset_type: str, owner: str, project: str,
-                    file_hash: str, content_type: str) -> dict:
-        r = httpx.post(
-            f"{self.bss_url}/{asset_type}/upload/multipart/init",
-            json={"owner": owner, "project": project, "hash": file_hash, "contentType": content_type},
-            timeout=30,
-        )
-        r.raise_for_status()
-        return r.json()
-
-    def upload_parts(self, asset_type: str, upload_id: str, key: str,
-                     part_numbers: list[int]) -> dict:
-        r = httpx.post(
-            f"{self.bss_url}/{asset_type}/upload/multipart/parts",
-            json={"uploadId": upload_id, "key": key, "partNumbers": part_numbers},
-            timeout=30,
-        )
-        r.raise_for_status()
-        return r.json()["parts"]
-
-    def upload_complete(self, asset_type: str, upload_id: str, key: str,
-                        parts: list[dict]) -> None:
-        r = httpx.post(
-            f"{self.bss_url}/{asset_type}/upload/multipart/complete",
-            json={"uploadId": upload_id, "key": key, "parts": parts},
-            timeout=60,
-        )
-        r.raise_for_status()
-
-    def register_bss_asset(self, asset_type: str, body: dict) -> dict:
-        """Register a file with BSS via unified /files route.
-
-        `asset_type` is kept for backward compat but ignored — kind lives in body.
-        """
-        r = httpx.post(f"{self.bss_url}/files", json=body, timeout=30)
-        r.raise_for_status()
-        return r.json()
 
     # ── DreamLake Server ────────────────────────────────────────────────
 

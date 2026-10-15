@@ -29,7 +29,6 @@ def print_help():
             {CYAN}login{RESET}       Authenticate with DreamLake (device auth flow)
             {CYAN}logout{RESET}      Remove stored credentials
             {CYAN}profile{RESET}     Show current user
-            {CYAN}video{RESET}       Video commands (upload/download/list via BSS)
             {CYAN}artifact{RESET}    Upload/list renderable artifacts (HTML/React/Markdown/SVG/code)
             {CYAN}workflow{RESET}    Push/list workflow specs (WorkflowSpec v1 JSON)
             {CYAN}source{RESET}      Managed DreamDB video sources (create/collection/push)
@@ -40,10 +39,6 @@ def print_help():
                 curl -fsSL https://dl.dreamlake.ai/install.sh | bash
 
         {BOLD}Examples:{RESET}
-            {DIM}# Video commands{RESET}
-            dreamlake video upload ./video.mp4 --user alice --project robotics
-            dreamlake video download <id> --output ./video.mp4
-            dreamlake video list --user alice --project robotics
 
             {DIM}# The canonical DreamDB writers (spawned by dreamlake-server){RESET}
             {DIM}# — read the payload on stdin, print one JSON line on stdout{RESET}
@@ -53,7 +48,6 @@ def print_help():
         {BOLD}Environment Variables:{RESET}
             {YELLOW}DREAMLAKE_REMOTE{RESET}      Default server URL
             {YELLOW}DREAMLAKE_API_KEY{RESET}     Default API token
-            {YELLOW}DREAMLAKE_BSS_URL{RESET}     Default BSS server URL
 
         Use '{CYAN}dreamlake <command> --help{RESET}' for more information.
     """).strip())
@@ -80,7 +74,6 @@ def main():
         from dreamlake.cli._config import ServerConfig
         ServerConfig.debug = True
         ServerConfig.remote = "http://localhost:10334"
-        ServerConfig.bss_url = "http://localhost:10234"
 
     if len(sys.argv) < 2:
         print_help()
@@ -111,11 +104,6 @@ def main():
         p = ap.ArgumentParser(prog="dreamlake profile")
         p.add_argument("--url", type=str)
         return cmd_profile(p.parse_args(sys.argv[2:]))
-
-    # Video subcommands
-    elif command == "video":
-        from .commands import video
-        return video.main(sys.argv[2:])
 
     # Asset commands (upload / download / list / create / delete / update /
     # vectorize) were removed — they live in the standalone DreamLake CLI now.
