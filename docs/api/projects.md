@@ -102,8 +102,9 @@ has already moved. Do not replace the key or simulate transfer with copy/delete.
 The expanded backend and updated client accept typed `project`, `note`,
 `artifact` and `env` manifest references. `resourceNames` covers every non-root
 resource and `noteNames` is the exact Note subset; malformed, partial, duplicate
-or unknown manifests fail closed. Returned `resourceCounts` includes all four
-types. Older Note-only server plans remain compatible.
+or unknown manifests fail closed. SDK 0.31.0 returns `resourceCounts` for those
+four types; the [unreleased expansion below](#annotation-and-source-expansion-unreleased)
+reports all six supported types. Older Note-only server plans remain compatible.
 
 Canonical names stay unchanged. Use `destination_name` for an explicit Project
 rename or `destination_names={NOTE_ID: NEW_NAME}` for individual Note collisions,
@@ -121,10 +122,71 @@ Older servers retain their 20-Note / 200-node limits. SDK 0.30.0 follows the ser
 plan limits and needs no runtime upgrade for this capacity increase with
 Note-only manifests; typed Artifact/Env plans require the updated client above.
 
-Source, Annotation, Workflow, Task, Dataset and Episode transfers remain
-unsupported. Foreign-owned resources and active deletion work return structured
-422 blockers rather than partial plans. Source bindings
+In SDK 0.31.0, Source, Annotation, Workflow, Task, Dataset and Episode
+transfers remain unsupported; the unreleased expansion below adds Annotation and
+Source manifest members only. Foreign-owned resources and active deletion work
+return structured 422 blockers rather than partial plans. Source bindings
 are retained by the existing design and are not migrated by this feature.
+
+(annotation-and-source-expansion-unreleased)=
+
+### Annotation and Source expansion (UNRELEASED)
+
+**Everything in this subsection is unreleased.** It requires a forthcoming SDK
+release newer than 0.31.0 together with a compatible backend; neither is
+published yet. The 0.31.0 Artifact/Env facts above are unchanged, and SDK
+0.31.0 and older clients reject plans containing the new manifest types.
+
+The server plan `manifest` and complete `resourceNames` additionally accept
+typed `annotation` and whole-`source` references, so the supported member set
+becomes `project`, `note`, `artifact`, `env`, `annotation` and `source`. The
+root remains the single `project` reference. All existing fail-closed rules
+apply unchanged: missing, partial, duplicate or mismatched names, wrong root,
+duplicate references, unknown reference types (including `workflow`, `task` and
+`dataset`), partial manifests and malformed numeric limits reject the plan, and
+the numeric `maxNotes`, `maxTreeNodes` and `maxResources` limits keep their
+existing meaning. A Project whose members are only Annotations and Sources —
+without any Note — is a valid complete plan. There is no standalone Source,
+Annotation, Task or Dataset transfer API.
+
+Task rows and Project-owned Dataset rows — the Prisma Dataset/Bindr containers
+attached to the Project — and their task events are dependent rows rather than
+manifest members: they ride with the Project and are reported only as counts
+through the optional `managedCounts` object `{datasets, tasks, taskEvents}` on
+the plan and on `preview["summary"]`. The separate LabelDataset has no Project
+relationship and remains entirely outside this transfer; it is never counted or
+moved. When the object is present, each of the
+three counts is required and must be a nonnegative safe integer; booleans and
+other malformed values fail closed on both the plan and the preview. Legacy
+servers omit the object entirely and remain compatible.
+`summary["includedCount"]` always equals the manifest length and never counts
+dependent rows.
+
+Source members are pure-managed. The backend alone decides Source eligibility;
+unsupported or mixed/external Sources may instead return structured server
+blockers. When a plan exists, inspect its `executable` field and the preview
+blockers. The SDK never infers eligibility and, as everywhere in this flow,
+parses and submits server metadata only — no file or payload bytes are moved
+or copied.
+Moved Source members keep their original root binding/reference IDs; generic
+SourceBinding migration remains deferred, and external source bindings detach
+under the existing same-namespace invariants.
+
+`preserve_external_filings=True` continues to retain reviewed **Note**
+references only. All other external filings — Artifact, Env and now also
+Annotation and Source attachments in other Projects — detach, and the backend
+can count them in `preview["summary"]["detachedOtherFilings"]`. Destination
+renames stay Note-only: `destination_names` rejects Annotation and Source IDs
+exactly as it rejects Artifact and Env IDs. The review's `resourceCounts`
+reports all six supported types, with zero for types a plan does not include.
+
+Unknown additive fields returned by a newer server — on the plan, in the
+preview summary, or inside `managedCounts` — are preserved in the saved review
+and replayed unchanged. The exact saved-review JSON replay and idempotency
+policy is unchanged, and the SDK never regenerates a manifest. Read the counts
+from the review's existing dictionaries: `review["plan"]["managedCounts"]`
+(plan-time inventory) and `review["preview"]["summary"]["managedCounts"]`
+(previewed scope, also shown to the destination inbox).
 
 Errors in this ownership flow use `OwnershipError`; malformed or partial
 plans fail closed. SDK 0.30.0 exposes the error code/status, not the response

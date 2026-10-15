@@ -63,8 +63,24 @@ reviewed request. Retaining external filings applies only to Notes; Artifact/Env
 attachments in other Projects always detach. The modern preview explicitly
 reports `summary.detachedOtherFilings` in addition to the total detached count.
 
-Source execution remains independently gated; the whole-Project Notes adapter
-does not enable Source transfer or migrate existing Source bindings.
+An **unreleased** expansion — a forthcoming SDK newer than 0.31.0 plus a
+compatible backend — extends typed plan members to `annotation` and
+whole-`source` references and reports dependent Task and Project-owned Dataset
+(Prisma Dataset/Bindr) rows with their task events only as an optional
+`managedCounts` object on the plan and preview summary, outside the manifest;
+the separate LabelDataset has no Project relationship and stays outside this
+transfer. `summary.includedCount` still equals the manifest length.
+Older clients reject plans containing the new types. External-filing retention
+stays Note-only: annotation and source filings in other Projects detach and can
+be counted in `summary.detachedOtherFilings`. With that expansion the review's
+`resourceCounts` reports all six supported types. See the "Annotation and
+Source expansion (UNRELEASED)" section in [Projects](projects.md).
+
+Source execution remains independently gated, and standalone Source ownership
+transfer remains unsupported. Released whole-Project adapters do not move
+Sources; the unreleased expansion above admits managed Source plan members,
+which keep their original root binding/reference IDs while generic
+SourceBinding migration stays deferred.
 A preview has no byte/owner/credential side effects. Destination Connections must
 be independently authorized. Separately authorized source-retaining credential
 copies support destination reseal and recovery; credential moves still require

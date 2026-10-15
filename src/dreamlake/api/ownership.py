@@ -84,7 +84,12 @@ class Ownership:
         return self._resource(namespace, resource_type, resource_id, "manifest")
 
     def transfer_plan(self, namespace, project_id):
-        """Read the server's complete Project + owned Notes inventory, never a partial selection."""
+        """Read the server's complete typed Project inventory, never a partial selection.
+
+        Members span Notes, Artifacts, Envs, Annotations and whole Sources on a
+        compatible backend; dependent Dataset/Task rows arrive only as optional
+        ``managedCounts`` metadata, outside the manifest.
+        """
         return self._resource(namespace, "project", project_id, "transfer-plan")
 
     def restore(self, namespace, resource_type, resource_id):

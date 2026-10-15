@@ -16,7 +16,8 @@ OPERATION = "000000000000000000000003"
 @pytest.fixture
 def fixture():
     requests = []
-    control = {"mode": "ready", "owner": False, "moved": False, "state": "pending", "status": "completed", "plan": None, "detached_other": None}
+    control = {"mode": "ready", "owner": False, "moved": False, "state": "pending", "status": "completed", "plan": None,
+               "detached_other": None, "preview_managed": None, "included_extra": 0}
 
     def serve(request):
         body = json.loads(request.content) if request.content else None
@@ -39,9 +40,10 @@ def fixture():
                                             "destinationNamespaceId": body["destinationNamespaceId"], "expectedVersion": body["expectedVersion"],
                                             "manifest": body["manifest"], "previewHash": "review-v1", "acceptedPolicy": body["policy"],
                                             "blockers": [{"code": "NAME_COLLISION", "action": "Choose explicit name"}] if control["mode"] == "blocked" else [],
-                                            "summary": {"includedCount": len(body["manifest"]), "retainedFilings": 2 if body["policy"]["preserveExternalFilings"] else 0,
+                                            "summary": {"includedCount": len(body["manifest"]) + control["included_extra"], "retainedFilings": 2 if body["policy"]["preserveExternalFilings"] else 0,
                                                         "detachedFilings": (0 if body["policy"]["preserveExternalFilings"] else 2) + (control["detached_other"] or 0), "becomesPrivate": True,
-                                                        **({} if control["detached_other"] is None else {"detachedOtherFilings": control["detached_other"]})},
+                                                        **({} if control["detached_other"] is None else {"detachedOtherFilings": control["detached_other"]}),
+                                                        **({} if control["preview_managed"] is None else {"managedCounts": control["preview_managed"]})},
                                             "destinationAuthority": {"action": "ownership.accept", "namespaceId": "target-ns", "allowed": control["owner"]},
                                             "externalFilings": [{"filingId": "external-1"}, {"filingId": "external-2"}],
                                             "preservation": {"projectGrants": [{"id": "old-grant"}], "noteShares": []}})
@@ -212,7 +214,7 @@ def test_mixed_review_keeps_complete_typed_manifest_and_exact_request_replay(fix
     control.update(plan=mixed_plan(), detached_other=3)
     review = projects.move("source", "research", "destination", preserve_external_filings=True)
     assert review["request"]["manifest"] == control["plan"]["manifest"]
-    assert review["resourceCounts"] == {"project": 1, "note": 1, "artifact": 1, "env": 1}
+    assert review["resourceCounts"] == {"project": 1, "note": 1, "artifact": 1, "env": 1, "annotation": 0, "source": 0}
     assert review["preview"]["summary"]["retainedFilings"] == 2
     assert review["preview"]["summary"]["detachedOtherFilings"] == 3
     assert review["preview"]["summary"]["detachedFilings"] == 3
@@ -253,7 +255,8 @@ def test_total_resource_limit_includes_root_and_note_limit_only_counts_notes():
 
 
 @pytest.mark.parametrize("case", ["missing_names", "partial_names", "duplicate_names", "wrong_note_name", "extra_note",
-                                  "duplicate_member", "source", "workflow", "annotation", "extra_ref_field", "missing_note",
+                                  "duplicate_member", "workflow", "task", "dataset", "mismatched_name_type",
+                                  "extra_ref_field", "missing_note",
                                   "null_limit", "fractional_limit", "missing_total_limit"])
 def test_mixed_plan_fails_closed_for_incomplete_ambiguous_or_unknown_manifest(case):
     plan = mixed_plan()
@@ -269,8 +272,12 @@ def test_mixed_plan_fails_closed_for_incomplete_ambiguous_or_unknown_manifest(ca
         plan["noteNames"].append({"id": ARTIFACT, "name": "dashboard"})
     elif case == "duplicate_member":
         plan["manifest"].append(plan["manifest"][1])
-    elif case in {"source", "workflow", "annotation"}:
+    elif case in {"workflow", "task", "dataset"}:
+        # Dependent or unsupported rows may never appear as manifest members.
         plan["manifest"][2]["type"] = case
+        plan["resourceNames"][1]["type"] = case
+    elif case == "mismatched_name_type":
+        plan["resourceNames"][1]["type"] = "source"
     elif case == "extra_ref_field":
         plan["manifest"][2]["extra"] = "unexpected"
     elif case == "missing_note":
@@ -305,3 +312,129 @@ def test_zero_detached_other_filings_is_valid_in_modern_preview(fixture):
     projects, _, control = fixture
     control.update(plan=mixed_plan(), detached_other=0)
     assert projects.move("source", "research", "destination")["ready"] is True
+
+
+ANNOTATION = "000000000000000000000006"
+SOURCE = "000000000000000000000007"
+
+
+def managed_plan():
+    plan = mixed_plan()
+    plan["version"] = "managed-version"
+    plan["manifest"] += [{"type": "annotation", "id": ANNOTATION}, {"type": "source", "id": SOURCE}]
+    plan["resourceNames"] += [{"type": "annotation", "id": ANNOTATION, "name": "labels"},
+                              {"type": "source", "id": SOURCE, "name": "telemetry"}]
+    plan["managedCounts"] = {"datasets": 2, "tasks": 3, "taskEvents": 40}
+    return plan
+
+
+def test_managed_review_counts_all_six_types_and_keeps_dependents_outside_manifest(fixture):
+    projects, requests, control = fixture
+    control.update(plan=managed_plan(), detached_other=3, preview_managed={"datasets": 2, "tasks": 3, "taskEvents": 40})
+    review = projects.move("source", "research", "destination")
+    assert review["ready"] is True
+    assert review["request"]["manifest"] == control["plan"]["manifest"]
+    assert not any(ref["type"] in {"task", "dataset", "workflow"} for ref in review["request"]["manifest"])
+    assert review["resourceCounts"] == {"project": 1, "note": 1, "artifact": 1, "env": 1, "annotation": 1, "source": 1}
+    assert review["plan"]["managedCounts"] == {"datasets": 2, "tasks": 3, "taskEvents": 40}
+    assert review["preview"]["summary"]["managedCounts"] == {"datasets": 2, "tasks": 3, "taskEvents": 40}
+    assert review["preview"]["summary"]["includedCount"] == len(review["plan"]["manifest"]) == 6
+    for resource_id in (ANNOTATION, SOURCE):  # Renames stay Note-only.
+        with pytest.raises(ValueError):
+            projects.move("source", "research", "destination", destination_names={resource_id: "renamed"})
+    assert not any(r["path"].endswith("/transfers") for r in requests)
+
+
+def test_annotation_source_only_project_without_note_is_a_complete_plan(fixture):
+    projects, _, control = fixture
+    plan = managed_plan()
+    plan["manifest"] = [plan["resource"], {"type": "annotation", "id": ANNOTATION}, {"type": "source", "id": SOURCE}]
+    plan["noteNames"] = []
+    plan["resourceNames"] = [{"type": "annotation", "id": ANNOTATION, "name": "labels"},
+                             {"type": "source", "id": SOURCE, "name": "telemetry"}]
+    control.update(plan=plan, detached_other=2)
+    review = projects.move("source", "research", "destination")
+    assert review["ready"] is True
+    assert review["resourceCounts"] == {"project": 1, "note": 0, "artifact": 0, "env": 0, "annotation": 1, "source": 1}
+    assert review["preview"]["summary"]["includedCount"] == 3
+    assert "managedCounts" not in review["preview"]["summary"]  # Legacy preview omission stays valid.
+    names = plan.pop("resourceNames")
+    with pytest.raises(OwnershipError, match="INVALID_WHOLE_PROJECT_PLAN"):
+        validate_plan(plan, PROJECT)
+    plan["resourceNames"] = names
+    plan["manifest"].append({"type": "source", "id": SOURCE})  # Same whole-Source ref twice.
+    with pytest.raises(OwnershipError, match="INVALID_WHOLE_PROJECT_PLAN"):
+        validate_plan(plan, PROJECT)
+
+
+def test_saved_review_json_with_managed_counts_and_unknown_fields_replays_exactly_after_move(fixture):
+    projects, requests, control = fixture
+    plan = managed_plan()
+    plan["futureField"] = {"keep": True}
+    plan["managedCounts"]["annotations"] = 7  # Additive unknown count from a newer server.
+    control.update(plan=plan, detached_other=1, preview_managed={"datasets": 2, "tasks": 3, "taskEvents": 40, "future": 1})
+    review = projects.move("source", "research", "destination")
+    saved = json.loads(json.dumps(review))
+    assert saved == review
+    control.update(moved=True, state="completed")
+    before = len(requests)
+    result = projects.move("source", "research", "destination", dry_run=False, confirm=True, reviewed=saved)
+    assert result["operation"]["state"] == "completed"
+    assert result["plan"]["futureField"] == {"keep": True}
+    assert result["plan"]["managedCounts"] == {"datasets": 2, "tasks": 3, "taskEvents": 40, "annotations": 7}
+    assert result["preview"]["summary"]["managedCounts"]["future"] == 1
+    assert next(r for r in requests[before:] if r["path"].endswith("/transfers"))["body"] == review["request"]
+    assert all(not r["path"].endswith(("/projects/research", "/transfer-plan", "/preview")) for r in requests[before:])
+
+
+@pytest.mark.parametrize("counts", [None, True, 7, [], {}, {"datasets": 1, "tasks": 2},
+                                    {"datasets": True, "tasks": 0, "taskEvents": 0},
+                                    {"datasets": -1, "tasks": 0, "taskEvents": 0},
+                                    {"datasets": 1.0, "tasks": 0, "taskEvents": 0},
+                                    {"datasets": 2**53, "tasks": 0, "taskEvents": 0},
+                                    {"datasets": None, "tasks": 0, "taskEvents": 0}])
+def test_plan_managed_counts_must_be_complete_safe_nonnegative_integers(counts):
+    plan = managed_plan()
+    plan["managedCounts"] = counts
+    with pytest.raises(OwnershipError, match="INVALID_WHOLE_PROJECT_PLAN"):
+        validate_plan(plan, PROJECT)
+
+
+@pytest.mark.parametrize("counts", [True, [], {"datasets": 1, "tasks": 2},
+                                    {"datasets": True, "tasks": 0, "taskEvents": 0},
+                                    {"datasets": -1, "tasks": 0, "taskEvents": 0}])
+def test_malformed_preview_managed_counts_fail_closed_before_any_write(fixture, counts):
+    projects, requests, control = fixture
+    control.update(plan=managed_plan(), detached_other=0, preview_managed=counts)
+    with pytest.raises(OwnershipError, match="INVALID_TRANSFER_PREVIEW"):
+        projects.move("source", "research", "destination")
+    assert not any(r["path"].endswith("/transfers") for r in requests)
+
+
+def test_preview_included_count_never_includes_dependent_rows(fixture):
+    projects, requests, control = fixture
+    control.update(plan=managed_plan(), detached_other=0, included_extra=45,
+                   preview_managed={"datasets": 2, "tasks": 3, "taskEvents": 40})
+    with pytest.raises(OwnershipError, match="INVALID_TRANSFER_PREVIEW"):
+        projects.move("source", "research", "destination")
+    assert not any(r["path"].endswith("/transfers") for r in requests)
+
+
+def test_explicit_null_preview_managed_counts_is_rejected_unlike_omission(fixture):
+    projects, requests, control = fixture
+    control.update(plan=managed_plan(), detached_other=0, preview_managed={"datasets": 2, "tasks": 3, "taskEvents": 40})
+    review = projects.move("source", "research", "destination")
+    saved = json.loads(json.dumps(review))
+    saved["preview"]["summary"]["managedCounts"] = None  # Explicit null, not omission.
+    with pytest.raises(OwnershipError, match="INVALID_TRANSFER_PREVIEW"):
+        projects.move("source", "research", "destination", dry_run=False, confirm=True, reviewed=saved)
+    assert not any(r["path"].endswith("/transfers") for r in requests)
+
+
+def test_managed_counts_are_optional_and_tolerate_additive_unknown_keys():
+    plan = managed_plan()
+    del plan["managedCounts"]  # Legacy servers omit dependent counts entirely.
+    assert validate_plan(plan, PROJECT) is plan
+    plan["managedCounts"] = {"datasets": 0, "tasks": 0, "taskEvents": 0, "annotations": 5}
+    plan["futureField"] = "retained"
+    assert validate_plan(plan, PROJECT) is plan
