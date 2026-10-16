@@ -2,7 +2,7 @@
 
 Tests are organized into:
   - Unit tests: no server required (resource_id, prefix, ffmpeg)
-  - Integration tests: require BSS + dreamlake-server running locally
+  - Integration tests: require dreamlake-server running locally
 
 Run unit tests only:
     pytest test/test_api.py -m "not integration"
@@ -72,12 +72,6 @@ class TestResourceId:
         assert parsed["scheme"] == "resource"
         assert parsed["type"] == "video"
 
-    def test_parse_uri_bss(self):
-        from dreamlake.api.resource_id import parse_uri
-        parsed = parse_uri("bss://localhost:10234/videos/69e7264a")
-        assert parsed["scheme"] == "bss"
-        assert parsed["host"] == "localhost:10234"
-        assert parsed["id"] == "69e7264a"
 
     def test_parse_uri_file(self):
         from dreamlake.api.resource_id import parse_uri
@@ -191,138 +185,14 @@ class TestFfmpeg:
         assert len(frames) == 10  # 2s at 5fps
 
 
-class TestVideoUnit:
-    """Unit tests for Video object (no server)."""
-
-    def test_repr_no_meta(self):
-        from dreamlake.api.video import Video
-        v = Video("bss://localhost:10234/videos/test123")
-        r = repr(v)
-        assert "Video" in r
-        assert "test123" in r
-
-    def test_slice_returns_video(self):
-        from dreamlake.api.video import Video
-        v = Video("bss://localhost:10234/videos/test123", _meta={
-            "fps": 30, "st": 0, "durationSec": 60, "streams": [],
-        }, _st=0, _et=60)
-        clip = v[10.0:20.0]
-        assert isinstance(clip, Video)
-        assert clip.st == 10.0
-        assert clip.et == 20.0
-        assert clip.duration == pytest.approx(10.0)
-
-    def test_slice_int_frames(self):
-        from dreamlake.api.video import Video
-        v = Video("bss://localhost:10234/videos/test123", _meta={
-            "fps": 30, "st": 0, "durationSec": 60, "streams": [],
-        }, _st=0, _et=60)
-        clip = v[300:600]
-        assert clip.duration == pytest.approx(10.0)
-
-    def test_relative_slicing(self):
-        from dreamlake.api.video import Video
-        v = Video("bss://localhost:10234/videos/test123", _meta={
-            "fps": 10, "st": 0, "durationSec": 60, "streams": [],
-        }, _st=0, _et=60)
-        clip = v[10.0:20.0]
-        sub = clip[2.0:5.0]
-        assert sub.st == pytest.approx(12.0)
-        assert sub.et == pytest.approx(15.0)
-
-    def test_chunk(self):
-        from dreamlake.api.video import Video, VideoArray
-        v = Video("bss://localhost:10234/videos/test123", _meta={
-            "fps": 10, "st": 0, "durationSec": 10, "streams": [],
-        }, _st=0, _et=10)
-        chunks = v.chunk(2.0)
-        assert isinstance(chunks, VideoArray)
-        assert len(chunks) == 5
-        assert chunks[0].st == 0.0
-        assert chunks[0].et == 2.0
-        assert chunks[4].st == 8.0
-        assert chunks[4].et == 10.0
-
-    def test_properties(self):
-        from dreamlake.api.video import Video
-        v = Video("bss://localhost:10234/videos/test123", _meta={
-            "fps": 30, "st": 0, "durationSec": 60, "width": 1920, "height": 1080,
-            "streams": [],
-        }, _st=0, _et=60)
-        assert v.fps == 30
-        assert v.duration == 60.0
-        assert v.frames == 1800
-        assert v.width == 1920
-        assert v.height == 1080
-
-
-class TestVideoArrayUnit:
-    """Unit tests for VideoArray."""
-
-    def _make_array(self, n=5):
-        from dreamlake.api.video import Video, VideoArray
-        videos = []
-        for i in range(n):
-            v = Video("bss://localhost:10234/videos/test", _meta={
-                "fps": 10, "st": 0, "durationSec": 10, "streams": [],
-            }, _st=i * 2.0, _et=(i + 1) * 2.0)
-            videos.append(v)
-        return VideoArray(videos)
-
-    def test_len(self):
-        arr = self._make_array(5)
-        assert len(arr) == 5
-
-    def test_int_index(self):
-        from dreamlake.api.video import Video
-        arr = self._make_array(5)
-        v = arr[0]
-        assert isinstance(v, Video)
-        assert v.st == 0.0
-
-    def test_slice_index(self):
-        from dreamlake.api.video import VideoArray
-        arr = self._make_array(5)
-        sub = arr[1:3]
-        assert isinstance(sub, VideoArray)
-        assert len(sub) == 2
-
-    def test_fancy_index(self):
-        from dreamlake.api.video import VideoArray
-        arr = self._make_array(5)
-        result = arr[:, 0]
-        assert isinstance(result, VideoArray)
-        assert len(result) == 5
-
-    def test_iter(self):
-        arr = self._make_array(3)
-        items = list(arr)
-        assert len(items) == 3
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# Integration tests — require BSS + dreamlake-server + seeded test data
+# Integration tests — require a reachable dreamlake-server
 #
-# Opt-in: set DREAMLAKE_BSS_URL (and TEST_VIDEO_ID for a video that exists in
-# that BSS instance) to enable. Without the env var these tests are skipped —
-# probing a default localhost port is not enough, because a BSS without the
-# seeded test video would still 404.
+# Opt-in: set DREAMLAKE_REMOTE to enable. Without it they are skipped.
 # ═══════════════════════════════════════════════════════════════════════════════
 
-BSS_URL = os.environ.get("DREAMLAKE_BSS_URL")
-# Use a known video ID from the test data
-TEST_VIDEO_ID = os.environ.get("TEST_VIDEO_ID", "69e7264a4357796451fa4592")
-
-
-def _bss_available():
-    if not BSS_URL:
-        return False
-    import httpx
-    try:
-        r = httpx.get(f"{BSS_URL}/health", timeout=2)
-        return r.status_code == 200
-    except Exception:
-        return False
 
 
 QDRANT_URL = os.environ.get("QDRANT_URL", "http://localhost:6333")
@@ -337,74 +207,25 @@ def _qdrant_available():
         return False
 
 
+def _server_available():
+    if not SERVER_URL:
+        return False
+    import httpx
+    try:
+        return httpx.get(f"{SERVER_URL}/health", timeout=2).status_code == 200
+    except Exception:
+        return False
+
+
+SERVER_URL = os.environ.get("DREAMLAKE_REMOTE")
+# Gated on dreamlake-server, not BSS. These tests never needed BSS itself —
+# they were gated on it because the video tests next to them did, and those
+# are gone. TextTrack now uploads through the server like everything else.
 integration = pytest.mark.skipif(
-    not _bss_available(),
-    reason="BSS integration tests are opt-in (set DREAMLAKE_BSS_URL and TEST_VIDEO_ID)",
+    not _server_available(),
+    reason="integration tests are opt-in (set DREAMLAKE_REMOTE)",
 )
 qdrant_required = pytest.mark.skipif(not _qdrant_available(), reason="Qdrant not available")
-
-
-@integration
-class TestVideoIntegration:
-    """Integration tests for Video with real BSS server."""
-
-    def test_load_video(self):
-        import dreamlake as dl
-        video = dl.load_video(f"bss://{BSS_URL.split('//')[1]}/videos/{TEST_VIDEO_ID}")
-        assert video.fps > 0
-        assert video.duration > 0
-
-    def test_thumbnail(self):
-        import dreamlake as dl
-        video = dl.load_video(f"bss://{BSS_URL.split('//')[1]}/videos/{TEST_VIDEO_ID}")
-        thumb = video.thumbnail
-        assert isinstance(thumb, Image.Image)
-        assert thumb.size[0] > 0
-
-    def test_single_frame(self):
-        import dreamlake as dl
-        video = dl.load_video(f"bss://{BSS_URL.split('//')[1]}/videos/{TEST_VIDEO_ID}")
-        frame = video[0].image
-        assert isinstance(frame, Image.Image)
-
-    def test_numpy(self):
-        import dreamlake as dl
-        video = dl.load_video(f"bss://{BSS_URL.split('//')[1]}/videos/{TEST_VIDEO_ID}")
-        clip = video[0.0:0.5]
-        arr = clip.numpy()
-        assert isinstance(arr, np.ndarray)
-        assert arr.ndim == 4  # (N, H, W, 3)
-        assert arr.shape[-1] == 3
-
-    def test_chunk_and_fancy_index(self):
-        import dreamlake as dl
-        video = dl.load_video(f"bss://{BSS_URL.split('//')[1]}/videos/{TEST_VIDEO_ID}")
-        clip = video[0.0:1.0]
-        chunks = clip.chunk(0.5)
-        assert len(chunks) == 2
-
-        first_frames = chunks[:, 0]
-        assert len(first_frames) == 2
-
-        arr = first_frames.numpy()
-        assert arr.shape[0] == 2
-
-    def test_chunk_numpy_batch(self):
-        import dreamlake as dl
-        video = dl.load_video(f"bss://{BSS_URL.split('//')[1]}/videos/{TEST_VIDEO_ID}")
-        chunks = video[0.0:1.0].chunk(0.5)
-        arr = chunks.numpy()
-        assert arr.ndim == 5  # (batch, frames, H, W, 3)
-        assert arr.shape[0] == 2
-
-    def test_slice_then_slice(self):
-        import dreamlake as dl
-        video = dl.load_video(f"bss://{BSS_URL.split('//')[1]}/videos/{TEST_VIDEO_ID}")
-        clip = video[0.0:5.0]
-        sub = clip[1.0:3.0]
-        assert sub.duration == pytest.approx(2.0)
-        thumb = sub.thumbnail
-        assert isinstance(thumb, Image.Image)
 
 
 @integration
@@ -431,16 +252,6 @@ class TestVectorIndexIntegration:
         assert len(results) >= 1
         assert results[0].score > 0
 
-    def test_add_with_source(self):
-        import dreamlake as dl
-        video = dl.load_video(f"bss://{BSS_URL.split('//')[1]}/videos/{TEST_VIDEO_ID}")
-        clip = video[0.0:2.0]
-
-        index = dl.vec_index("test-api-source")
-        vec = np.random.randn(768).astype(np.float32)
-        index.add(vector=vec, source=clip, caption="test with source")
-        assert index.count >= 1
-
 
 @integration
 class TestTextTrackIntegration:
@@ -452,15 +263,6 @@ class TestTextTrackIntegration:
         track.add("First caption", st=0.0, et=2.0)
         track.add("Second caption", st=2.0, et=4.0)
         assert track.count == 2
-
-    def test_add_with_source(self):
-        import dreamlake as dl
-        video = dl.load_video(f"bss://{BSS_URL.split('//')[1]}/videos/{TEST_VIDEO_ID}")
-        clip = video[0.0:2.0]
-
-        track = dl.text_track(prefix="/test/captions-source", project="robotics@tom-tao-6f6b82")
-        track.add("Robot arm caption", source=clip)
-        assert track.count == 1
 
 
 @integration
@@ -480,23 +282,12 @@ class TestTopLevelImports:
 
     def test_imports(self):
         import dreamlake as dl
-        assert hasattr(dl, "Video")
-        assert hasattr(dl, "VideoArray")
         assert hasattr(dl, "TextTrack")
         assert hasattr(dl, "VectorIndex")
         assert hasattr(dl, "Prefix")
-        assert hasattr(dl, "load_video")
-        assert hasattr(dl, "load")
         assert hasattr(dl, "upload")
         assert hasattr(dl, "text_track")
         assert hasattr(dl, "vec_index")
-
-    def test_load_returns_video(self):
-        import dreamlake as dl
-        from dreamlake.api.resource_id import encode_resource_id
-        rid = encode_resource_id("video", "69e7264a4357796451fa458b")
-        result = dl.load(rid)
-        assert isinstance(result, dl.Video)
 
 
 import io  # for TestFfmpeg

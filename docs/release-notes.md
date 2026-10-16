@@ -1,5 +1,37 @@
 # Release notes
 
+## 0.32.0 — Uploads go straight to S3; the BSS video surface is gone
+
+`upload()` and `TextTrack.flush()` no longer route through BSS. They ask
+dreamlake-server to authorize the transfer, put the bytes into S3 against the
+signatures it mints, and register one node carrying `metadata.s3Key` — where
+before there were two registrations and the node pointed at `metadata.bssId`.
+BSS is being retired; an SDK that still wrote to it would have stopped working
+when it went away.
+
+The hash sent for authorization is now the full sha256 and is computed by
+streaming the file. Both matter: the authorize endpoint refuses anything but 64
+lowercase hex, because the hash is the only client-controlled part of the
+object key, and reading the file whole put a large video out of reach
+entirely.
+
+**Removed:** `Video`, `VideoArray`, `load_video`, `load`, the `bss://` URI
+scheme, the `video` CLI command, and `DREAMLAKE_BSS_URL` /
+`DREAMLAKE_BSS_TOKEN`. All of it was already non-functional: BSS deleted the
+per-type `/videos` routes when it unified everything into `/files`, so the
+metadata and chunk-playlist requests every `Video` property depends on
+answered 404, and the CLI command additionally defaulted to a port BSS had
+stopped using.
+
+**Changed:** `VectorIndex.search()` took its CLIP endpoint from the BSS URL,
+which only ever worked against a localhost BSS. It now accepts `clip_url=` or
+reads `DREAMLAKE_CLIP_URL`, and says so when neither is set. `source=` on
+`VectorIndex.add` and `TextTrack.add` is unaffected — it reads st/et/sf/ef
+off whatever object it is given.
+
+`TextTrack.flush()` also registered a node with no `kind`, which `POST /nodes`
+requires, and `episodeName` where it expects `episode`. Both are fixed.
+
 ## 0.31.0 — Artifact and Env in whole-Project transfers
 
 Whole-Project previews and saved reviews now include every supported typed

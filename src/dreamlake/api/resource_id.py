@@ -5,7 +5,6 @@ Format: {type_prefix}-{16 base62 chars}
 Example: v-BV1bW411n7fY9x01
 
 Type prefixes:
-  v-  Video
   a-  Audio
   i-  Image
   lt- LabelTrack
@@ -74,29 +73,12 @@ def parse_uri(uri: str) -> dict:
 
     Supports:
       - Resource ID: "v-BV1bW411n7fY9x01"
-      - BSS URI: "bss://host:port/videos/id"
       - File URI: "file:///path/to/file.mp4"
       - S3 URI: "s3://bucket/key"
     """
     if _RESOURCE_ID_RE.match(uri):
         asset_type, object_id = decode_resource_id(uri)
         return {"scheme": "resource", "type": asset_type, "id": object_id}
-
-    if uri.startswith("bss://"):
-        rest = uri[6:]  # strip "bss://"
-        # bss://host:port/videos/id
-        parts = rest.split("/", 1)
-        host = parts[0]
-        path = parts[1] if len(parts) > 1 else ""
-        # Extract video ID from path like "videos/69e7264a"
-        segments = path.split("/")
-        return {
-            "scheme": "bss",
-            "host": host,
-            "bss_url": f"http://{host}",
-            "path": path,
-            "id": segments[-1] if segments else "",
-        }
 
     if uri.startswith("file://"):
         return {"scheme": "file", "path": uri[7:]}

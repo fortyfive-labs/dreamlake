@@ -6,16 +6,13 @@ Lazy-created on first .add(). Supports search with text or vector queries.
 
 from __future__ import annotations
 
+import os
 import uuid
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
 
 import numpy as np
 
 from ._client import DreamLakeClient, get_client
-
-if TYPE_CHECKING:
-    from .video import Video
 
 
 @dataclass
@@ -60,7 +57,7 @@ class VectorIndex:
         self,
         vector,
         caption: str | None = None,
-        source: Video | None = None,
+        source: "object | None" = None,
         **extra_payload,
     ) -> VectorIndex:
         """Add a vector to the index.
@@ -68,7 +65,7 @@ class VectorIndex:
         Args:
             vector: numpy array or list of floats
             caption: optional text caption
-            source: optional Video (extracts st, et, sf, ef, videoId)
+            source: optional object carrying st/et/sf/ef/videoId attributes
             **extra_payload: additional metadata
         """
         self._ensure_collection()
@@ -111,18 +108,37 @@ class VectorIndex:
         self._client.qdrant_upsert(self._name, [point])
         return self
 
-    def search(self, query, limit: int = 10, using: str = "image") -> list[SearchResult]:
+    def search(
+        self,
+        query,
+        limit: int = 10,
+        using: str = "image",
+        clip_url: str | None = None,
+    ) -> list[SearchResult]:
         """Search the index.
 
         Args:
             query: text string (requires CLIP service) or vector (list/numpy)
             limit: max results
             using: which vector to search against ("image" or "caption")
+            clip_url: CLIP service base URL, for a text query. Falls back to
+                DREAMLAKE_CLIP_URL. Required only when `query` is a string.
         """
         if isinstance(query, str):
             # Text query → need to embed via CLIP
             import httpx
-            clip_url = self._client.bss_url.replace(":10234", ":8000")  # hacky
+            # Explicit, not derived. This used to be
+            # `bss_url.replace(":10234", ":8000")` — marked "hacky" in the
+            # source, and it only ever worked against a localhost BSS: in
+            # production the URL has no `:10234` in it, so the replace was a
+            # no-op and the request went to BSS's host, which serves no
+            # `/embed/text`. BSS is also being retired.
+            clip_url = (clip_url or os.environ.get("DREAMLAKE_CLIP_URL") or "").rstrip("/")
+            if not clip_url:
+                raise ValueError(
+                    "a text query needs a CLIP service: pass clip_url= or set "
+                    "DREAMLAKE_CLIP_URL"
+                )
             r = httpx.post(f"{clip_url}/embed/text", json={"text": query}, timeout=30)
             r.raise_for_status()
             vec = r.json()["embedding"]
