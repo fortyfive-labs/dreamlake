@@ -344,6 +344,74 @@ def test_user_tracks_and_introspection(tmp_path):
     assert infos["episode_meta"].preset is True
 
 
+def _make_indexed_clip(path, frames=66):
+    """Frame n is flat grey at luma 16 + 3n, so a decoded frame names itself.
+    The source has no B-frames, so any timeline shift comes from the preview."""
+    subprocess.run(
+        ["ffmpeg", "-v", "error", "-y", "-f", "lavfi",
+         "-i", f"color=c=black:s=64x64:r=30:d={frames / 30}",
+         "-vf", "geq=lum='16+3*N':cb=128:cr=128",
+         "-c:v", "libx264", "-x264-params", "bframes=0", "-pix_fmt", "yuv420p", str(path)],
+        check=True,
+    )
+    return str(path)
+
+
+def _frames_as_mse_sees_them(mp4):
+    """(pts_seconds, content_index) per decoded frame. MSE ignores edit lists
+    and keeps the stream's own timestamps, hence -ignore_editlist and -copyts."""
+    out = subprocess.run(
+        ["ffmpeg", "-v", "error", "-copyts", "-ignore_editlist", "1", "-i", mp4,
+         "-vf", "signalstats,metadata=print:key=lavfi.signalstats.YAVG:file=-",
+         "-f", "null", "-"],
+        capture_output=True, text=True, check=True,
+    ).stdout.split()
+    pts = [float(t.split(":")[1]) for t in out if t.startswith("pts_time:")]
+    luma = [float(t.split("=")[1]) for t in out if t.startswith("lavfi.signalstats.YAVG=")]
+    return [(p, round((y - 16) / 3)) for p, y in zip(pts, luma)]
+
+
+@pytestmark_e2e
+def test_preview_shows_frame_n_at_n_over_fps(tmp_path):
+    """Regression: the preview was encoded with B-frames, so its timeline
+    started 2 frames late and the viewer showed frame 98 at t=3.334."""
+    from dreamlake.annotation import VideoAnnotation
+
+    ds = VideoAnnotation.create(backend=f"file://{tmp_path}/space", preview_height=64)
+    ds.add_episode(_make_indexed_clip(tmp_path / "idx.mp4"), episode_id="ep0")
+    assert ds.encoding["cameras"]["main"]["bframes"] == 0
+
+    stored = ds.db.read_video(preview_track("main"), str(tmp_path / "preview.mp4"))
+    frames = _frames_as_mse_sees_them(stored)
+    assert len(frames) == 66
+    assert [i for _, i in frames] == list(range(66))
+    assert [round(p * 30) for p, _ in frames] == list(range(66))
+
+
+@pytestmark_e2e
+def test_camera_adopted_before_bframes_pin_keeps_its_encoding(tmp_path, monkeypatch):
+    """A 0.32.0 track carries B-frames in its init segment; a bframes=0 clip
+    would be refused, so its camera keeps the encoder default."""
+    import dreamlake.annotation._core as core
+    from dreamlake.annotation import VideoAnnotation
+
+    backend = f"file://{tmp_path}/space"
+    clip = _make_clip(tmp_path / "clip.mp4", size="64x64", seconds=2)
+    with monkeypatch.context() as m:
+        m.setattr(core, "PREVIEW_BFRAMES", None)
+        old = VideoAnnotation.create(backend=backend, preview_height=64)
+        old.add_episode(clip, episode_id="ep0")
+    # Exactly the 0.32.0 profile shape: no "bframes" key.
+    enc = json.loads(old.db.meta()["dreamdb.dataset.encoding"])
+    enc["cameras"]["main"].pop("bframes")
+    old.db.set_meta("dreamdb.dataset.encoding", json.dumps(enc))
+
+    ds = VideoAnnotation.open(backend=backend)
+    ds.add_episode(clip, episode_id="ep1")
+    assert "bframes" not in ds.encoding["cameras"]["main"]
+    assert ds.episode_count() == 2
+
+
 @pytestmark_e2e
 def test_camera_profiles_index_and_paging(tmp_path):
     from dreamlake.annotation import VideoAnnotation

@@ -60,6 +60,13 @@ REVISION_WINDOW_NS = 1024
 # camera track hold footage from different recording sessions.
 DEFAULT_PREVIEW_FPS = 30
 
+# B-frames in every playback track a camera adopts. B-frames make the muxer
+# shift the timeline by the reorder delay and rely on an edit list that MSE
+# ignores, so the viewer showed frame n-2 at n/fps. A camera adopted before
+# this was pinned has no "bframes" in its profile and keeps the encoder
+# default: its track's init segment depends on it.
+PREVIEW_BFRAMES = 0
+
 # ---- Camera tracks ---------------------------------------------------------
 #
 # One camera == one pair of video fields. The ``__`` separator is structural:

@@ -134,6 +134,7 @@ def fragment_video(
     preview_fps: float = DEFAULT_PREVIEW_FPS,
     crf: int = 23,
     encoder: str = "libx264",
+    bframes: Optional[int] = None,
 ) -> FragmentedVideo:
     """Fragment ``src`` into CMAF, anchored at ``anchor_ns``.
 
@@ -143,6 +144,14 @@ def fragment_video(
     frag_seconds`` so every fragment opens on a keyframe (MSE requires
     independently decodable segments), and every source property that could
     reach the init segment normalized away.
+
+    ``bframes`` (playback pass only) pins x264's B-frame count; ``None``
+    keeps the encoder default. With B-frames the muxer shifts every
+    timestamp by the reorder delay (2 frames at ``veryfast``) and leaves
+    the correction to an edit list, which MSE ignores — the browser then
+    shows frame ``n - 2`` at ``n / fps``. ``0`` puts frame ``n`` at exactly
+    ``n / fps``. It changes the init segment, so a track keeps the value
+    its first clip was encoded with.
     """
     _require("ffmpeg")
     if not (1.0 <= frag_seconds <= 30.0):
@@ -163,6 +172,9 @@ def fragment_video(
         # GOP derives from the OUTPUT rate so it lands on fragment boundaries
         # after resampling.
         gop = max(1, round(preview_fps * frag_seconds))
+        x264 = f"keyint={gop}:min-keyint={gop}:scenecut=0"
+        if bframes is not None:
+            x264 += f":bframes={int(bframes)}"
         args += [
             # Exactly one video stream, no audio. See the header note.
             "-map", "0:v:0",
@@ -186,7 +198,7 @@ def fragment_video(
             "-crf", str(crf),
             "-profile:v", "high",
             "-level", "4.0",
-            "-x264-params", f"keyint={gop}:min-keyint={gop}:scenecut=0",
+            "-x264-params", x264,
         ]
 
     args += [
