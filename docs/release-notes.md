@@ -1,5 +1,24 @@
 # Release notes
 
+## 0.32.1: VideoAnnotation previews play each frame at its own time
+
+The VideoAnnotation playback encode used x264's default B-frames. The muxer
+started the timeline 2 frames late and left the correction to an edit list,
+which browsers ignore during MSE playback. In the viewer every preview showed
+frame *n* − 2 at *n* / fps. For example, a link to t = 3.334 (frame 100) showed
+frame 98.
+
+A camera adopted from this release on is encoded without B-frames and records
+`"bframes": 0` in its profile, so frame *n* plays at exactly *n* / fps.
+
+Cameras adopted by an earlier SDK keep their encoding and their 2-frame
+offset. A clip with a different init segment would be refused by their
+track, so they keep accepting new episodes. For accurate timing, publish that
+footage to a new annotation or a new camera.
+
+The generic `Track.ingest(height=N)` path and the archival remux are
+unchanged.
+
 ## 0.32.0 — Uploads go straight to S3; the BSS video surface is gone
 
 `upload()` and `TextTrack.flush()` no longer route through BSS. They ask
