@@ -75,6 +75,7 @@ from ._schema import (
     FIELD_RECON_MESH,
     MAX_EPISODE_SECONDS,
     META_KEYS,
+    PREVIEW_BFRAMES,
     PUBLIC_META_KEY,
     RECON_HANDS_PREFIX,
     RECON_SCHEMA_META_KEY,
@@ -213,8 +214,9 @@ class VideoAnnotation(_GenericAnnotation):
     def encoding(self) -> Dict[str, Any]:
         """The annotation's playback encoding profile (read-only view): the
         flat defaults plus ``cameras`` — each camera track's adopted
-        playback geometry (``{width, height, fps}``, fixed by its first
-        clip)."""
+        playback geometry (``{width, height, fps, bframes}``, fixed by its
+        first clip; ``bframes`` is absent on cameras adopted before it was
+        pinned)."""
         return {**self._encoding, "cameras": dict(self._encoding.get("cameras") or {})}
 
     # ---- Construction --------------------------------------------------
@@ -812,6 +814,7 @@ class VideoAnnotation(_GenericAnnotation):
                     "width": _preview_width(p.width, p.height, height),
                     "height": height,
                     "fps": float(self._encoding["preview_fps"]),
+                    "bframes": PREVIEW_BFRAMES,
                 }
                 changed = True
         if changed:
@@ -856,6 +859,10 @@ class VideoAnnotation(_GenericAnnotation):
         self._ensure_camera_tracks(camera)
         enc = self._encoding
         report: Dict[str, Any] = {}
+        # A first-seen camera gets PREVIEW_BFRAMES; an adopted one keeps what
+        # its track was encoded with (None for profiles that predate the key).
+        profile = (enc.get("cameras") or {}).get(camera)
+        bframes = profile.get("bframes") if profile else PREVIEW_BFRAMES
 
         preview = fragment_video(
             video,
@@ -863,6 +870,7 @@ class VideoAnnotation(_GenericAnnotation):
             frag_seconds=float(enc["frag_seconds"]),
             scale_height=int(enc["preview_height"]),
             preview_fps=float(enc["preview_fps"]),
+            bframes=bframes,
         )
         try:
             result = self._ds.ingest_cmaf(preview_track(camera), preview.init_path, preview.fragments)
