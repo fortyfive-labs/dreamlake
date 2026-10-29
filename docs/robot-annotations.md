@@ -99,6 +99,15 @@ Rules the order implies:
   no encoding parameters. `open`'s encoding kwargs VERIFY, never set: pass
   the values your script assumes and `open` errors on mismatch (so the
   `try open / except create` idiom cannot silently eat a config edit).
+- **A camera's playback track keeps the encoding of its first clip.** From
+  0.32.1, a newly adopted camera is encoded without B-frames
+  (`"bframes": 0` in `ds.encoding["cameras"][camera]`). Frame *n* then
+  plays at exactly *n* / fps in the browser.
+  - A camera adopted by an earlier SDK has no `bframes` key and keeps its
+    old encoding. Its preview plays 2 frames late (67 ms at 30 fps).
+  - It cannot be switched: its track refuses a clip with a different init
+    segment. For accurate timing, publish to a new annotation or a new
+    camera.
 - `ds.add_episode` creates; the `Episode` handle extends. Video fragments
   are never replaced — a camera can only be *added* to an episode
   (`epo.add_cameras`). Annotations and labels CAN be revised
