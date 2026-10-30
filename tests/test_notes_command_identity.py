@@ -52,7 +52,8 @@ def receipt_for(req, **extra):
 
 # ── validation, before any request ───────────────────────────────────────────
 
-@pytest.mark.parametrize('bad', ['short7!', 'a' * 7, 'a' * 129, 'has space', 'tab\tbed', 'ünïcode-id', 42, ''])
+@pytest.mark.parametrize('bad', ['short7!', 'a' * 7, 'a' * 129, 'has space', 'tab\tbed', 'ünïcode-id', 42, '',
+                                 'a' * 8 + '\n', 'a' * 8 + '\r\n', '\n' + 'a' * 8])
 def test_command_id_charset_and_length_are_checked_before_io(bad):
     note = Note(ID, namespace='ns', client=object())
     for call in (lambda: note.patch(PATCH, base_revision=REV, command_id=bad),
@@ -61,6 +62,13 @@ def test_command_id_charset_and_length_are_checked_before_io(bad):
                  lambda: note.command_status(bad)):
         with pytest.raises(ValueError):
             call()
+
+
+def test_command_id_with_a_trailing_newline_is_refused():
+    # Regression: `^...$` with re.match accepted "cmd-...\n", which a header or
+    # JSON field would then carry verbatim.
+    with pytest.raises(ValueError):
+        Note(ID, namespace='ns', client=object()).patch(PATCH, base_revision=REV, command_id=CMD + '\n')
 
 
 @pytest.mark.parametrize('good', ['a' * 8, 'a' * 128, 'cmd.2026-10-30:run_1', CMD])

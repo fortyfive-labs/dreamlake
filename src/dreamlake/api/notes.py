@@ -66,7 +66,7 @@ __all__ = [
 
 _OBJECT_ID = re.compile(r"^[a-f0-9]{24}$", re.I)
 # Caller-stable command identity for v2 body mutations (Phase 1 contract A).
-_COMMAND_ID = re.compile(r"^[A-Za-z0-9._:-]{8,128}$")
+_COMMAND_ID = re.compile(r"[A-Za-z0-9._:-]{8,128}")
 _OUTCOMES = ("accepted", "no-write")
 _COMMAND_STATES = ("pending", "accepted", "no-write", "unknown")
 _RTC_REVISION = re.compile(r"rtc:[a-f0-9]{64}")
@@ -253,7 +253,8 @@ class CommandStatus:
 def _command_id(value: Any) -> str | None:
     if value is None:
         return None
-    if not isinstance(value, str) or not _COMMAND_ID.match(value):
+    # fullmatch, not match with `$`: `$` also matches before a trailing newline.
+    if not isinstance(value, str) or not _COMMAND_ID.fullmatch(value):
         raise ValueError("command_id must be 8-128 characters from [A-Za-z0-9._:-]")
     return value
 
@@ -1128,7 +1129,7 @@ def _resolve(ref: str, client: DreamLakeClient) -> tuple[str, str]:
     names one.
     """
     if "/" not in ref:
-        if not _OBJECT_ID.match(ref):
+        if not _OBJECT_ID.fullmatch(ref):
             raise ValueError(
                 f"note reference {ref!r} is neither an id nor '<namespace>/<slug>' — "
                 "an id is 24 hex characters"
@@ -1140,7 +1141,7 @@ def _resolve(ref: str, client: DreamLakeClient) -> tuple[str, str]:
         return row["namespaceSlug"], row["id"]
 
     ns, rest = ref.split("/", 1)
-    if _OBJECT_ID.match(rest):
+    if _OBJECT_ID.fullmatch(rest):
         return ns, rest
     # A slug. The listing is the only way to turn one into an id, and `q`
     # matches the NAME, which is not the slug — so filter locally rather than

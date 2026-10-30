@@ -21,7 +21,7 @@ from dreamlake.api._notes_facade import (
     RevisionExpected,
     notes,
 )
-from dreamlake.api.notes import Note, NoteRef, NoteSnapshot, PatchReceipt
+from dreamlake.api.notes import Note, NoteNotFound, NoteRef, NoteSnapshot, PatchReceipt
 
 NS = 'fortyfive'
 ID = '6ae3f318608512b4ba34860c'
@@ -71,6 +71,17 @@ def test_reference_must_be_namespace_slash_note(ref):
 
 
 # ── read ─────────────────────────────────────────────────────────────────────
+
+def test_reference_with_a_trailing_newline_is_not_an_id():
+    # Same `$`-before-newline trap as command ids: it is a slug lookup, not an id.
+    calls = []
+    def handler(req):
+        calls.append(req)
+        return httpx.Response(200, json={'notes': []}, request=req)
+    with pytest.raises(NoteNotFound):
+        client(handler).notes(f'{NS}/{ID}\n').id
+    assert [r.url.path for r in calls] == [f'/namespaces/{NS}/notes']
+
 
 def test_read_is_the_v2_source_read():
     calls = []

@@ -236,7 +236,7 @@ class NoteHandle:
     def _target(self) -> Note:
         if self._note is None:
             client = self._client or get_client()
-            if _OBJECT_ID.match(self._ref):
+            if _OBJECT_ID.fullmatch(self._ref):
                 note_id = self._ref
             else:
                 _, note_id = _resolve(f"{self._ns}/{self._ref}", client)
