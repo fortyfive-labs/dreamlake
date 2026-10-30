@@ -243,6 +243,18 @@ class NoteHandle:
             self._note = Note(note_id, namespace=self._ns, client=client)
         return self._note
 
+    def _own(self, value: Any, name: str) -> None:
+        """Refuse a snapshot, focused read or mapping that names another note.
+
+        ``append``/``write`` already fail on it inside ``Note``; ``patch`` and
+        ``read(at=)`` only extract the revision, and a baseline from a
+        different note is never a valid one for this note.
+        """
+        owner = (value.note if isinstance(value, (NoteSnapshot, FocusedRead))
+                 else value.get("note") if isinstance(value, Mapping) else None)
+        if owner is not None and owner != self._target().id:
+            raise ValueError(f"{name} belongs to note {owner!r}, not {self._target().id!r}")
+
     def _snapshot_of(self, value: Any, name: str) -> NoteSnapshot:
         """A complete source snapshot for a whole-body operation.
 
@@ -280,6 +292,8 @@ class NoteHandle:
         """
         if view not in (None, "source"):
             raise ValueError(f"view must be 'source' in this phase, not {view!r}")
+        if at is not None:
+            self._own(at, "at")
         revision = None if at is None else _revision_of(at, "at")
         snapshot = self._target().read_snapshot(at=revision)
         if lines is None:
@@ -301,6 +315,7 @@ class NoteHandle:
         """
         _refuse_reading_view(text, "text")
         exact = _exact(mode)
+        self._own(at, "at")
         receipt = self._target().append(text, at=self._snapshot_of(at, "at"), exact=exact, command_id=command_id)
         assert isinstance(receipt, PatchReceipt)
         return receipt
@@ -316,6 +331,7 @@ class NoteHandle:
         """
         _refuse_reading_view(patch, "patch")
         exact = _exact(mode)
+        self._own(at, "at")
         receipt = self._target().patch(patch, base_revision=_revision_of(at, "at"), exact=exact, format=format,
                                        command_id=command_id)
         assert isinstance(receipt, PatchReceipt)
@@ -330,6 +346,7 @@ class NoteHandle:
         """
         _refuse_reading_view(text, "text")
         exact = _exact(mode)
+        self._own(at, "at")
         receipt = self._target().write(text, at=self._snapshot_of(at, "at"), exact=exact, command_id=command_id)
         assert isinstance(receipt, PatchReceipt)
         return receipt

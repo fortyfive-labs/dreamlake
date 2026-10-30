@@ -14,6 +14,7 @@ import pytest
 import dreamlake
 from dreamlake.api._client import DreamLakeClient
 from dreamlake.api._notes_facade import (
+    FocusedRead,
     NoteHandle,
     Notes,
     ReadingViewRefused,
@@ -217,6 +218,21 @@ def test_writes_refuse_reading_view_marker_before_any_request(method):
 def test_append_snapshot_of_another_note_is_refused_before_io():
     with pytest.raises(ValueError):
         client(never).notes(f'{NS}/{ID}').append(text='b', at=snap('a', note='507f1f77bcf86cd799439011'), mode='exact')
+
+
+def test_patch_read_and_write_refuse_a_snapshot_of_another_note_before_io():
+    # Regression: patch only extracted the revision, so a foreign snapshot's
+    # baseline was sent for this note.
+    other = snap('x', note='507f1f77bcf86cd799439011')
+    focused = FocusedRead(note=other.note, hash=other.hash, revision=REV, lines=(1, 1), chars=(0, 1), content='x')
+    handle = client(never).notes(f'{NS}/{ID}')
+    for at in (other, other.to_dict(), focused):
+        with pytest.raises(ValueError, match='belongs to note'):
+            handle.patch(patch='@@ chars 0:1 @@\n~ [-x-]\n', at=at, mode='exact')
+        with pytest.raises(ValueError, match='belongs to note'):
+            handle.read(at=at)
+        with pytest.raises(ValueError, match='belongs to note'):
+            handle.write(text='y', at=at, mode='exact')
 
 
 # ── provisional patch / write ────────────────────────────────────────────────
