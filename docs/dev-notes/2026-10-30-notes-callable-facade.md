@@ -29,7 +29,10 @@ transport failure once the request was handed to the transport (a connect
 error included: an injected transport may forward and then raise), an unknown
 status or a non-receipt response is `UncertainOutcomeError` carrying the id,
 whose message says to resend with the same id or call
-`command_status(command_id)` (`GET .../commands/{id}`). With a
+`command_status(command_id)` (`GET .../commands/{id}`). A 409 naming the
+id is typed rather than `NoteBusy`: `command_outcome_unknown` →
+`UncertainOutcomeError`, `command_in_progress` → `CommandInProgressError`,
+`command_intent_mismatch` → `CommandIntentMismatchError`. With a
 `command_id` an unchanged MERGE is still submitted so the server records the
 command; without one the local observational receipt now says
 `outcome="no-write"`. `PatchReceipt` gains `outcome`, `command_id`,

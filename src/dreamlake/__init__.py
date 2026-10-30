@@ -59,6 +59,8 @@ from .api import (
     PatchFailed,
     CommandIdentityUnsupportedError,
     UncertainOutcomeError,
+    CommandInProgressError,
+    CommandIntentMismatchError,
     CommandStatus,
     note,
     create_note,

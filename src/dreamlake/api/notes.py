@@ -53,6 +53,8 @@ __all__ = [
     "PatchFailed",
     "CommandIdentityUnsupportedError",
     "UncertainOutcomeError",
+    "CommandInProgressError",
+    "CommandIntentMismatchError",
     "CommandStatus",
     "note",
     "search_notes",
@@ -140,6 +142,34 @@ class UncertainOutcomeError(NoteError):
             f"{what} outcome unknown for command {command_id!r}; retry with the same "
             f"command_id or query command_status({command_id!r}) before any other write"
         )
+        self.command_id = command_id
+
+
+class CommandInProgressError(NoteError):
+    """HTTP 409 ``command_in_progress``: this ``command_id`` is still being executed.
+
+    Another attempt with the same id holds the pending record. Not a reason
+    to pick a new id — that would be a second write. Wait, then
+    ``command_status()`` says how the first attempt ended.
+    """
+
+    def __init__(self, command_id: str):
+        super().__init__(f"command {command_id!r} is still in progress; wait, then query "
+                         f"command_status({command_id!r}) rather than retrying under a new id")
+        self.command_id = command_id
+
+
+class CommandIntentMismatchError(NoteError):
+    """HTTP 409 ``command_intent_mismatch``: the id was already used for a different intent.
+
+    The server bound ``command_id`` to a fingerprint of note, baseline, mode,
+    format and patch; this request differs. It is a new command and needs a
+    new id. Nothing was written by this request.
+    """
+
+    def __init__(self, command_id: str):
+        super().__init__(f"command {command_id!r} was already used with a different intent; "
+                         "this is a new command and needs a new command_id")
         self.command_id = command_id
 
 
@@ -410,6 +440,15 @@ class GrepResult:
     def __repr__(self) -> str:  # pragma: no cover - display only
         more = ", truncated" if self.truncated else ""
         return f"GrepResult({len(self.hits)} hits from {self.notes_searched} notes{more})"
+
+
+def _error_code(resp: httpx.Response) -> str | None:
+    try:
+        body = resp.json()
+    except ValueError:
+        return None
+    code = body.get("error") if isinstance(body, dict) else None
+    return code if isinstance(code, str) else None
 
 
 def _raise_for(resp: httpx.Response, what: str) -> None:
@@ -821,7 +860,10 @@ class Note:
         when supplied it is sent as ``commandId`` and the receipt must echo it
         (``CommandIdentityUnsupportedError`` otherwise); a failure after the
         request left raises ``UncertainOutcomeError`` carrying the id, which is
-        safe to resend. Without one, nothing new is sent.
+        safe to resend. A 409 about the id itself is typed: ``command_outcome_unknown``
+        is ``UncertainOutcomeError``, ``command_in_progress`` is
+        ``CommandInProgressError``, ``command_intent_mismatch`` is
+        ``CommandIntentMismatchError``. Without one, nothing new is sent.
 
         ``legacy=True`` preserves the prior unified-diff/cached-ETag interface
         and its string-compatible ``PatchResult``. Local ``Doc`` editing and
@@ -868,6 +910,17 @@ class Note:
             # transport failure is an unknown outcome.
             raise uncertain() from None
         if response.status_code != 200:
+            if command_id is not None and response.status_code == 409:
+                # Contract A.3: the command journal answers before the body
+                # write does. These are about the id, not about the note
+                # being busy, so they must not read as NoteBusy.
+                code = _error_code(response)
+                if code == "command_outcome_unknown":
+                    raise UncertainOutcomeError(command_id)
+                if code == "command_in_progress":
+                    raise CommandInProgressError(command_id)
+                if code == "command_intent_mismatch":
+                    raise CommandIntentMismatchError(command_id)
             if response.status_code in (400, 401, 403, 404, 409, 412, 413, 415, 422, 503):
                 _raise_for(response, f"patch {self._ns}/{self._id}")
             raise uncertain()

@@ -14,8 +14,11 @@ import pytest
 from dreamlake.api._client import DreamLakeClient
 from dreamlake.api.notes import (
     CommandIdentityUnsupportedError,
+    CommandInProgressError,
+    CommandIntentMismatchError,
     CommandStatus,
     Note,
+    NoteBusy,
     NoteError,
     NoteNotFound,
     NoteSnapshot,
@@ -177,6 +180,32 @@ def test_unknown_status_with_command_id_is_uncertain(status):
     with pytest.raises(UncertainOutcomeError) as error:
         make(lambda req: httpx.Response(status, json={}, request=req)).patch(PATCH, base_revision=REV, command_id=CMD)
     assert error.value.command_id == CMD
+
+
+@pytest.mark.parametrize('code,error', [('command_outcome_unknown', UncertainOutcomeError),
+                                        ('command_in_progress', CommandInProgressError),
+                                        ('command_intent_mismatch', CommandIntentMismatchError)])
+def test_409_about_the_command_id_is_typed_not_busy(code, error):
+    # Regression: these went through _raise_for() as NoteBusy, which reads as
+    # "the room is unreachable" and invites a fresh write under a new id.
+    def handler(req):
+        return httpx.Response(409, json={'error': code, 'commandId': CMD, 'message': 'see status'}, request=req)
+    with pytest.raises(error) as raised:
+        make(handler).patch(PATCH, base_revision=REV, command_id=CMD)
+    assert raised.value.command_id == CMD and not isinstance(raised.value, NoteBusy)
+    if error is UncertainOutcomeError:
+        assert 'command_status' in str(raised.value)
+
+
+def test_other_409s_and_409s_without_a_command_id_stay_busy():
+    def overlap(req):
+        return httpx.Response(409, json={'error': 'overlap', 'message': 'concurrent'}, request=req)
+    with pytest.raises(NoteBusy):
+        make(overlap).patch(PATCH, base_revision=REV, command_id=CMD)
+    def unknown(req):
+        return httpx.Response(409, json={'error': 'command_outcome_unknown'}, request=req)
+    with pytest.raises(NoteBusy):
+        make(unknown).patch(PATCH, base_revision=REV)
 
 
 def test_deterministic_rejections_stay_typed_even_with_command_id():
