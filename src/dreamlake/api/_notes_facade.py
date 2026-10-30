@@ -21,11 +21,17 @@ wire are the same as ``Note.append(..., at=snapshot)`` sends.
 
 ``command_id`` is opt-in on every write until the server that records it is
 deployed: supplied, it is sent and must be echoed; absent, nothing new is sent.
+
+``read(lines=(a, b))`` is a focused read: the same v2 source request, sliced
+locally to 1-based inclusive lines, with the line → code-point conversion done
+here rather than left to the caller. Its result is a distinct type that cannot
+be passed as the baseline of a whole-body write.
 """
 
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from typing import Any, Mapping
 
 from ._client import DreamLakeClient, get_client
@@ -44,8 +50,10 @@ from .notes import (
 __all__ = [
     "Notes",
     "NoteHandle",
+    "FocusedRead",
     "ReadingViewRefused",
     "RevisionExpected",
+    "SnapshotRequired",
     "notes",
 ]
 
@@ -77,6 +85,15 @@ class ReadingViewRefused(NoteError, ValueError):
     """
 
 
+class SnapshotRequired(NoteError, TypeError):
+    """A focused read was given where the complete source snapshot is required.
+
+    ``append`` and ``write`` position their edit relative to the WHOLE source;
+    a focused read is a slice carrying the full-source hash and revision, and
+    using it as a baseline would plan the edit against the slice.
+    """
+
+
 # ── Argument coercion ────────────────────────────────────────────────────────
 
 
@@ -94,8 +111,8 @@ def _refuse_reading_view(text: Any, name: str) -> None:
 
 
 def _revision_of(value: Any, name: str) -> str:
-    """The RTC revision a snapshot or ``rtc:`` string names."""
-    if isinstance(value, NoteSnapshot):
+    """The RTC revision a snapshot, focused read or ``rtc:`` string names."""
+    if isinstance(value, (NoteSnapshot, FocusedRead)):
         return value.revision
     if isinstance(value, Mapping) and isinstance(value.get("revision"), str):
         return _revision_of(value["revision"], f"{name}.revision")
@@ -105,6 +122,69 @@ def _revision_of(value: Any, name: str) -> str:
         if value.startswith("rtc:") and value.strip() == value and len(value) > 4 and "\r" not in value and "\n" not in value:
             return value
     raise ValueError(f"{name} must be a snapshot from read() or an 'rtc:' revision string")
+
+
+def _line_chars(content: str, lines: Any) -> tuple[tuple[int, int], tuple[int, int], int | None]:
+    """1-based inclusive source lines → code-point ``[start, end)`` on the v2 source.
+
+    Lines end at LF; a CR before it stays inside the line, so CRLF sources
+    slice byte-exactly. A trailing LF closes the last line rather than opening
+    an empty one, so ``"a\n"`` has one line. Python ``str`` indexes code
+    points, which is what ``@@ chars`` addresses — never UTF-16 units.
+
+    Returns the range actually covered (``end`` is clamped to the last line),
+    its code-point span, and the next line number or ``None`` at the end.
+    """
+    if (not isinstance(lines, (tuple, list)) or len(lines) != 2
+            or any(isinstance(v, bool) or not isinstance(v, int) for v in lines)):
+        raise ValueError("lines must be two integers (start, end): 1-based, inclusive")
+    first, last = lines
+    if first < 1 or last < first:
+        raise ValueError("lines must satisfy 1 <= start <= end")
+    starts = [0]
+    pos = content.find("\n")
+    while pos != -1:
+        starts.append(pos + 1)
+        pos = content.find("\n", pos + 1)
+    if starts[-1] == len(content):
+        starts.pop()
+    total = len(starts)
+    if first > total:
+        raise ValueError(f"lines start {first} is past the last line; the source has {total} line(s)")
+    last = min(last, total)
+    end = starts[last] if last < total else len(content)
+    return (first, last), (starts[first - 1], end), (last + 1 if last < total else None)
+
+
+# ── Values ───────────────────────────────────────────────────────────────────
+
+
+@dataclass(frozen=True)
+class FocusedRead:
+    """A slice of one note's source, with the identity of the WHOLE source.
+
+    Not a snapshot: ``content`` is ``lines`` only, while ``hash`` and
+    ``revision`` describe the complete note that was read. ``chars`` is the
+    slice's code-point ``[start, end)`` in that source — the coordinates an
+    ``@@ chars`` patch addresses, so a targeted ``patch(at=focused)`` is
+    supported. ``complete`` is always ``False`` and ``next`` is the line to
+    continue from (``None`` at the end), so a page is never mistaken for the
+    note and cannot be passed as a whole-body ``write`` baseline.
+    """
+
+    note: str
+    hash: str
+    revision: str
+    lines: tuple[int, int]
+    chars: tuple[int, int]
+    content: str
+    complete: bool = False
+    next: int | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"note": self.note, "hash": self.hash, "revision": self.revision,
+                "lines": list(self.lines), "chars": list(self.chars), "content": self.content,
+                "complete": self.complete, "next": self.next}
 
 
 # ── The handle ───────────────────────────────────────────────────────────────
@@ -161,9 +241,14 @@ class NoteHandle:
     def _snapshot_of(self, value: Any, name: str) -> NoteSnapshot:
         """A complete source snapshot for a whole-body operation.
 
-        A bare revision has no content to plan against, so its retained source
-        is read back from the server.
+        A focused read is refused outright. A bare revision has no content to
+        plan against, so its retained source is read back from the server.
         """
+        if isinstance(value, FocusedRead):
+            raise SnapshotRequired(
+                f"{name} is a focused read of lines {value.lines[0]}-{value.lines[1]}; "
+                "append and write need the complete snapshot from read()"
+            )
         if isinstance(value, NoteSnapshot):
             return value
         if isinstance(value, Mapping):
@@ -176,17 +261,27 @@ class NoteHandle:
 
     # ── reading ─────────────────────────────────────────────────────────────
 
-    def read(self, *, view: str | None = None, at: Any = None) -> NoteSnapshot:
+    def read(self, *, view: str | None = None, lines: tuple[int, int] | None = None,
+             at: Any = None) -> NoteSnapshot | FocusedRead:
         """Read exact source: ``{note, content, hash, revision}``.
 
-        ``at`` reads a retained revision (a snapshot or ``rtc:`` string) and
-        verifies the server returned exactly it. ``view`` is ``"source"`` in
-        this phase; mapped views are not exposed by the Python SDK yet.
+        ``lines=(a, b)`` returns a :class:`FocusedRead` of those 1-based
+        inclusive source lines instead — the same request, sliced here with
+        code-point ``chars`` so the caller never computes offsets. ``at``
+        reads a retained revision (a snapshot or ``rtc:`` string) and verifies
+        the server returned exactly it. ``view`` is ``"source"`` in this
+        phase; mapped views are not exposed by the Python SDK yet.
         """
         if view not in (None, "source"):
             raise ValueError(f"view must be 'source' in this phase, not {view!r}")
         revision = None if at is None else _revision_of(at, "at")
-        return self._target().read_snapshot(at=revision)
+        snapshot = self._target().read_snapshot(at=revision)
+        if lines is None:
+            return snapshot
+        covered, chars, following = _line_chars(snapshot.content, lines)
+        return FocusedRead(note=snapshot.note, hash=snapshot.hash, revision=snapshot.revision,
+                           lines=covered, chars=chars, content=snapshot.content[chars[0]:chars[1]],
+                           complete=False, next=following)
 
     # ── writing ─────────────────────────────────────────────────────────────
 
@@ -209,7 +304,9 @@ class NoteHandle:
         """PROVISIONAL — apply a source patch (``inline-dff`` or ``diff``) against ``at``.
 
         The name and shape may change; only ``read``, ``append`` and ``list``
-        are agreed. ``at`` may be a snapshot or an ``rtc:`` string.
+        are agreed. ``at`` may be a snapshot, a focused read (its revision is
+        a valid baseline for a targeted edit at its ``chars``) or an ``rtc:``
+        string.
         """
         _refuse_reading_view(patch, "patch")
         exact = _exact(mode)
@@ -223,7 +320,7 @@ class NoteHandle:
 
         The name and shape may change; only ``read``, ``append`` and ``list``
         are agreed. ``at`` must be the COMPLETE snapshot (or an ``rtc:``
-        string, whose retained source is read back).
+        string, whose retained source is read back); a focused read is refused.
         """
         _refuse_reading_view(text, "text")
         exact = _exact(mode)

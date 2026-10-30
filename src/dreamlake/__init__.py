@@ -70,8 +70,10 @@ from .api import (
 from .api._notes_facade import (
     Notes,
     NoteHandle,
+    FocusedRead,
     ReadingViewRefused,
     RevisionExpected,
+    SnapshotRequired,
     notes,
 )
 from .api._client import DreamLakeClient, get_client as _get_client

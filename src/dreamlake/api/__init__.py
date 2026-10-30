@@ -51,8 +51,10 @@ from .notes import (
 from ._notes_facade import (
     Notes,
     NoteHandle,
+    FocusedRead,
     ReadingViewRefused,
     RevisionExpected,
+    SnapshotRequired,
 )
 
 __all__ = [
@@ -82,7 +84,9 @@ __all__ = [
     "shared_with_me",
     "Notes",
     "NoteHandle",
+    "FocusedRead",
     "ReadingViewRefused",
     "RevisionExpected",
+    "SnapshotRequired",
     "Prefix",
 ]
