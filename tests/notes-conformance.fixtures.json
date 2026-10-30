@@ -6,7 +6,7 @@
     "note": "6ae3f318608512b4ba34860c",
     "snapshot": {
       "content": "Hello world.\n",
-      "revision": "rtc:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+      "revision": "rtc:c9c9ce30c08ad4b909d64fff77986e46789c052470e749a8d62cb1996f4be4fe"
     },
     "args": {
       "text": "Hi",
@@ -18,7 +18,7 @@
       "body": {
         "format": "inline-dff",
         "patch": "@@ chars 13:13 @@\n~ {+Hi+}\n",
-        "baseRevision": "rtc:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        "baseRevision": "rtc:c9c9ce30c08ad4b909d64fff77986e46789c052470e749a8d62cb1996f4be4fe",
         "mode": "exact"
       }
     }
@@ -30,7 +30,7 @@
     "note": "6ae3f318608512b4ba34860c",
     "snapshot": {
       "content": "Hello world.",
-      "revision": "rtc:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+      "revision": "rtc:c9c9ce30c08ad4b909d64fff77986e46789c052470e749a8d62cb1996f4be4fe"
     },
     "args": {
       "text": "Hi",
@@ -42,7 +42,7 @@
       "body": {
         "format": "inline-dff",
         "patch": "@@ chars 12:12 @@\n~ {+\\nHi+}\n",
-        "baseRevision": "rtc:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        "baseRevision": "rtc:c9c9ce30c08ad4b909d64fff77986e46789c052470e749a8d62cb1996f4be4fe",
         "mode": "exact"
       }
     }
@@ -54,7 +54,7 @@
     "note": "6ae3f318608512b4ba34860c",
     "snapshot": {
       "content": "",
-      "revision": "rtc:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+      "revision": "rtc:c9c9ce30c08ad4b909d64fff77986e46789c052470e749a8d62cb1996f4be4fe"
     },
     "args": {
       "text": "Hi",
@@ -66,7 +66,7 @@
       "body": {
         "format": "inline-dff",
         "patch": "@@ chars 0:0 @@\n~ {+Hi+}\n",
-        "baseRevision": "rtc:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        "baseRevision": "rtc:c9c9ce30c08ad4b909d64fff77986e46789c052470e749a8d62cb1996f4be4fe",
         "mode": "merge"
       }
     }
@@ -78,7 +78,7 @@
     "note": "6ae3f318608512b4ba34860c",
     "snapshot": {
       "content": "Hello world.\n",
-      "revision": "rtc:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+      "revision": "rtc:c9c9ce30c08ad4b909d64fff77986e46789c052470e749a8d62cb1996f4be4fe"
     },
     "args": {
       "text": "Hi\n",
@@ -90,7 +90,7 @@
       "body": {
         "format": "inline-dff",
         "patch": "@@ chars 13:13 @@\n~ {+Hi\\n+}\n",
-        "baseRevision": "rtc:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        "baseRevision": "rtc:c9c9ce30c08ad4b909d64fff77986e46789c052470e749a8d62cb1996f4be4fe",
         "mode": "exact"
       }
     }
@@ -102,7 +102,7 @@
     "note": "6ae3f318608512b4ba34860c",
     "snapshot": {
       "content": "Hello world.\n",
-      "revision": "rtc:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+      "revision": "rtc:c9c9ce30c08ad4b909d64fff77986e46789c052470e749a8d62cb1996f4be4fe"
     },
     "args": {
       "text": "Hi",
@@ -115,7 +115,7 @@
       "body": {
         "format": "inline-dff",
         "patch": "@@ chars 13:13 @@\n~ {+Hi+}\n",
-        "baseRevision": "rtc:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        "baseRevision": "rtc:c9c9ce30c08ad4b909d64fff77986e46789c052470e749a8d62cb1996f4be4fe",
         "mode": "exact",
         "commandId": "cmd-conformance-0001"
       }
@@ -128,7 +128,7 @@
     "note": "6ae3f318608512b4ba34860c",
     "snapshot": {
       "content": "Hello world.\n",
-      "revision": "rtc:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+      "revision": "rtc:c9c9ce30c08ad4b909d64fff77986e46789c052470e749a8d62cb1996f4be4fe"
     },
     "args": {},
     "expect": {
@@ -146,7 +146,7 @@
     "note": "6ae3f318608512b4ba34860c",
     "snapshot": {
       "content": "a\nb\nc\n",
-      "revision": "rtc:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+      "revision": "rtc:c9c9ce30c08ad4b909d64fff77986e46789c052470e749a8d62cb1996f4be4fe"
     },
     "args": {
       "lines": [
@@ -176,7 +176,8 @@
           ]
         },
         "content": "a\n",
-        "complete": false
+        "complete": false,
+        "next": 2
       }
     }
   }
