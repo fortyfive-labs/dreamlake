@@ -1,5 +1,9 @@
 """Collaborative Notes reads and edits.
 
+The agreed cross-client syntax is the callable facade in ``_notes_facade``:
+``dl.notes("ns/note-id").read()`` / ``.append(text=, at=, mode=)`` and
+``dl.notes.list(namespace=)``. It adapts the methods below without replacing them.
+
 ``read_snapshot()`` returns exact v2 source, content hash, and the original RTC
 revision. ``patch(..., base_revision=snapshot.revision)`` validates that saved
 source and maps changes to its original RTC identities through ordinary CRDT

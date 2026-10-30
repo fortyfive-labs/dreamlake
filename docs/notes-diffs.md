@@ -385,3 +385,60 @@ context selection remains an unresolved Namespace-owned endpoint capability. The
 protocol or parser is introduced. Sections and partial reads still await their
 retained range/discovery contracts and remain an explicit separate migration.
 Publication acceptance for Python 0.28.0 remains separate.
+
+## Callable facade, command identity and focused reads (Phase 1, unreleased)
+
+The agreed public syntax, shared with the CLI and TypeScript tracks. `dl.notes`
+is callable and carries `list`; nothing else. Opening is local and synchronous.
+
+```python
+import dreamlake as dl
+
+note = dl.notes("fortyfive/note-id")      # no request; a slug resolves on first use
+snapshot = note.read()                    # NoteSnapshot {note, content, hash, revision}
+receipt = note.append(text="Hello", at=snapshot, mode="exact")
+notes = dl.notes.list(namespace="fortyfive")
+```
+
+`mode` is required on every facade write (`"exact"` or `"merge"`); there is no
+default. `at` is the snapshot `read()` returned or a bare `rtc:` revision; a
+bare revision has its retained source read back before the edit is planned. A
+`sha256:` content hash where a revision belongs raises `RevisionExpected`.
+Input containing `<!-- notes-reading-view` raises `ReadingViewRefused`:
+generated annotations are never saved. The facade is an adapter over the
+existing `Note` methods, so the request bytes are those `note.append(text,
+at=snapshot, exact=True)` already sends, separator rule included. The existing
+`dl.note()`, `read_snapshot()`, `append()`, `patch()` and `write()` are
+unchanged; `DreamLakeClient.notes` is the same facade bound to one client.
+
+`note.patch(patch, at=..., mode=...)` and `note.write(text, at=..., mode=...)`
+are exposed on the handle but PROVISIONAL: their names and shapes may change,
+and only `read`, `append` and `list` are agreed.
+
+`note.read(lines=(40, 80))` is a focused read: 1-based inclusive source lines,
+two integers required. It makes the same v2 request and slices locally,
+returning `FocusedRead {note, hash, revision, lines, chars, content,
+complete=False, next}` where `chars` is the slice's code-point `[start, end)`
+in the whole source (CJK and emoji count one each) and `hash`/`revision`
+describe the whole note. It is not a `NoteSnapshot`: `write`/`append` refuse
+it with `SnapshotRequired`; `patch(at=focused)` targets its `chars`.
+
+`command_id` is opt-in on `append`/`patch`/`write` (facade and existing
+methods) until the server that records command identity is deployed. Without
+one nothing new is sent. With one (`[A-Za-z0-9._:-]{8,128}`), it is sent as
+`commandId`, the receipt must echo it (`CommandIdentityUnsupportedError`
+otherwise), and a failure after the request left raises
+`UncertainOutcomeError` carrying the id: resend with the same id, or call
+`note.command_status(command_id)`. `PatchReceipt` gains `outcome`
+(`accepted` | `no-write`), `command_id` and `replayed`, each `None` when the
+server did not send it.
+
+```python
+receipt = note.append(text="Hello", at=snapshot, mode="exact", command_id="run-42.step-7")
+assert receipt.command_id == "run-42.step-7" and receipt.outcome == "accepted"
+status = note.command_status("run-42.step-7")   # state, outcome, receipt
+```
+
+`tests/notes-conformance.fixtures.json` records the seven shared scenarios;
+the CLI/TS track writes the same file from its implementation and the two are
+diffed.
