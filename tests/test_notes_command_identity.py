@@ -156,12 +156,20 @@ def test_transport_failure_without_command_id_keeps_the_untyped_unknown():
     assert not isinstance(error.value, UncertainOutcomeError)
 
 
-def test_connect_failure_with_command_id_is_not_uncertain():
+@pytest.mark.parametrize('failure', [httpx.ConnectError, httpx.ConnectTimeout, httpx.WriteError, httpx.ReadError,
+                                     httpx.ReadTimeout, httpx.RemoteProtocolError, httpx.PoolTimeout])
+def test_any_transport_failure_after_handoff_with_command_id_is_uncertain(failure):
+    # Regression: a transport can forward the PATCH and then raise ConnectError,
+    # so "not sent" was never a safe classification for anything it raises.
+    forwarded = []
     def handler(req):
-        raise httpx.ConnectError('refused', request=req)
-    with pytest.raises(NoteError, match='not sent') as error:
+        forwarded.append(json.loads(req.content))
+        raise failure('after forwarding', request=req)
+    with pytest.raises(UncertainOutcomeError) as error:
         make(handler).append('tail', at=snap('x'), command_id=CMD)
-    assert not isinstance(error.value, UncertainOutcomeError)
+    assert error.value.command_id == CMD and 'command_status' in str(error.value)
+    assert forwarded == [{'format': 'inline-dff', 'patch': '@@ chars 1:1 @@\n~ {+\\ntail+}\n',
+                          'baseRevision': REV, 'mode': 'merge', 'commandId': CMD}]
 
 
 @pytest.mark.parametrize('status', [500, 502, 204])

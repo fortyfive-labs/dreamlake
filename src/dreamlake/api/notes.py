@@ -128,10 +128,11 @@ class CommandIdentityUnsupportedError(NoteError):
 class UncertainOutcomeError(NoteError):
     """The request carried a ``command_id`` and its outcome is unknown.
 
-    Transport failed after the request was sent, or the response was not a
-    receipt. The same ``command_id`` is safe to resend: the server returns the
-    stored receipt if it accepted the first attempt, or ``command_status()``
-    says what it recorded. Carries ``command_id`` for exactly that.
+    The transport raised after the request was handed to it, the response was
+    not a receipt, or the server itself reported ``command_outcome_unknown``.
+    The same ``command_id`` is safe to resend: the server returns the stored
+    receipt if it accepted the first attempt, or ``command_status()`` says
+    what it recorded. Carries ``command_id`` for exactly that.
     """
 
     def __init__(self, command_id: str, what: str = "write"):
@@ -860,11 +861,11 @@ class Note:
             with self._client.http() as http:
                 response = http.request("PATCH", f"{self._base}/body", json=payload,
                     headers={} if if_match is None else {"If-Match": if_match}, follow_redirects=False)
-        except httpx.TransportError as error:
-            if command_id is not None and isinstance(error, (httpx.ConnectError, httpx.ConnectTimeout)):
-                # The connection never opened, so no request bytes left this
-                # process: the outcome is certain (nothing), not unknown.
-                raise NoteError("could not connect; the request was not sent") from None
+        except httpx.TransportError:
+            # Once the request is handed to the transport nothing here can tell
+            # a refused connection from a lost acknowledgment (an injected
+            # transport may forward the request and then raise), so every
+            # transport failure is an unknown outcome.
             raise uncertain() from None
         if response.status_code != 200:
             if response.status_code in (400, 401, 403, 404, 409, 412, 413, 415, 422, 503):

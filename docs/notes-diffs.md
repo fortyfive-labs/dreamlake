@@ -427,7 +427,8 @@ it with `SnapshotRequired`; `patch(at=focused)` targets its `chars`.
 methods) until the server that records command identity is deployed. Without
 one nothing new is sent. With one (`[A-Za-z0-9._:-]{8,128}`), it is sent as
 `commandId`, the receipt must echo it (`CommandIdentityUnsupportedError`
-otherwise), and a failure after the request left raises
+otherwise), and any transport failure once the request was handed to the
+transport, an unknown status or a non-receipt response raises
 `UncertainOutcomeError` carrying the id: resend with the same id, or call
 `note.command_status(command_id)`. `PatchReceipt` gains `outcome`
 (`accepted` | `no-write`), `command_id` and `replayed`, each `None` when the

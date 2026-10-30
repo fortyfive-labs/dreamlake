@@ -24,11 +24,12 @@ existing `dl.note()`, `read_snapshot()`, `append()`, `patch()`, `write()` and
 Command identity (contract A) is opt-in on `patch`/`write`/`append`, facade
 and existing methods alike. `command_id` is validated as
 `[A-Za-z0-9._:-]{8,128}` and sent as `commandId` only when supplied; a
-receipt that does not echo it is `CommandIdentityUnsupportedError`; a
-transport failure after the request left, an unknown status or a non-receipt
-response is `UncertainOutcomeError` carrying the id, whose message says to
-resend with the same id or call `command_status(command_id)`
-(`GET .../commands/{id}`). A connect failure is reported as not sent. With a
+receipt that does not echo it is `CommandIdentityUnsupportedError`; any
+transport failure once the request was handed to the transport (a connect
+error included: an injected transport may forward and then raise), an unknown
+status or a non-receipt response is `UncertainOutcomeError` carrying the id,
+whose message says to resend with the same id or call
+`command_status(command_id)` (`GET .../commands/{id}`). With a
 `command_id` an unchanged MERGE is still submitted so the server records the
 command; without one the local observational receipt now says
 `outcome="no-write"`. `PatchReceipt` gains `outcome`, `command_id`,
