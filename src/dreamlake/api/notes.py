@@ -980,10 +980,13 @@ class Note:
         unknown id raises ``NoteNotFound``. ``receipt`` is the stored v2
         receipt when the state is ``accepted`` or ``no-write``, verified
         before it is returned: it must name this note and this command, its
-        ``revision`` must be ``rtc:`` + 64 hex, ``mode`` exact or merge and
-        ``baseRevision`` an ``rtc:`` token. Anything else is
-        ``CommandStatusInvalid`` — a reconciliation read that cannot be
-        trusted must not look like a successful one.
+        ``revision`` and ``baseRevision`` must be ``rtc:`` + 64 hex, ``mode``
+        exact or merge, and envelope and receipt must agree — an
+        ``accepted``/``no-write`` state requires a receipt whose ``outcome``
+        equals both the state and the envelope's ``outcome``; ``pending``/
+        ``unknown`` carry neither. Anything else is ``CommandStatusInvalid`` —
+        a reconciliation read that cannot be trusted must not look like a
+        successful one.
         """
         command_id = _command_id(command_id)
         assert command_id is not None
@@ -999,7 +1002,7 @@ class Note:
                 or data.get("state") not in _COMMAND_STATES
                 or (data.get("outcome") is not None and data["outcome"] not in _OUTCOMES)):
             raise invalid
-        stored = data.get("receipt")
+        state, outcome, stored = data["state"], data.get("outcome"), data.get("receipt")
         receipt = None
         if stored is not None:
             try:
@@ -1009,14 +1012,21 @@ class Note:
             if (stored.get("commandId") != command_id
                     or not _RTC_REVISION.fullmatch(stored["revision"])
                     or stored.get("mode") not in ("exact", "merge")
-                    or not isinstance(stored.get("baseRevision"), str) or not stored["baseRevision"].startswith("rtc:")
-                    or (stored.get("outcome") is not None and stored["outcome"] not in _OUTCOMES)
+                    or not isinstance(stored.get("baseRevision"), str) or not _RTC_REVISION.fullmatch(stored["baseRevision"])
+                    or stored.get("outcome") not in _OUTCOMES
                     or (stored.get("replayed") is not None and not isinstance(stored["replayed"], bool))):
                 raise invalid
             receipt = PatchReceipt(note=self._id, mode=stored["mode"], base_revision=stored["baseRevision"],
-                                   hash=stored["hash"], revision=stored["revision"], outcome=stored.get("outcome"),
+                                   hash=stored["hash"], revision=stored["revision"], outcome=stored["outcome"],
                                    command_id=command_id, replayed=stored.get("replayed"))
-        return CommandStatus(command_id=command_id, state=data["state"], outcome=data.get("outcome"),
+        # Envelope and receipt must tell one story: a settled state has a
+        # receipt saying the same thing; an unsettled one has no receipt.
+        if state in _OUTCOMES:
+            if receipt is None or outcome != state or receipt.outcome != state:
+                raise invalid
+        elif receipt is not None or outcome is not None:
+            raise invalid
+        return CommandStatus(command_id=command_id, state=state, outcome=outcome,
                              receipt=receipt, error=data.get("error"), created_at=data.get("createdAt"),
                              updated_at=data.get("updatedAt"))
 

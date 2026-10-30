@@ -277,6 +277,8 @@ GOOD_STORED = dict(note=ID, mode='exact', baseRevision=REV, hash=snap('x').hash,
     {'revision': 'rtc:short'}, {'revision': 'sha256:' + 'ab' * 32}, {'revision': NEXT + '\n'},
     {'mode': 'fuzzy'}, {'mode': None},
     {'baseRevision': 'sha256:' + 'c9' * 32}, {'baseRevision': '"' + 'c9' * 32 + '"'},
+    {'baseRevision': 'rtc:'}, {'baseRevision': REV + '\n'}, {'baseRevision': 'rtc:' + 'c9' * 31}, {'baseRevision': 7},
+    {'outcome': None},
     {'note': '507f1f77bcf86cd799439011'}, {'hash': 'sha256:' + '0' * 63},
     {'outcome': 'maybe'}, {'replayed': 'yes'},
 ])
@@ -299,6 +301,36 @@ def test_command_status_refuses_an_unknown_state_or_outcome(envelope):
         make(lambda req: httpx.Response(200, json=envelope, request=req)).command_status(CMD)
 
 
+def _status(**envelope):
+    return make(lambda req: httpx.Response(200, json={'commandId': CMD, **envelope}, request=req)).command_status(CMD)
+
+
+@pytest.mark.parametrize('envelope', [
+    # Regression: a settled state must carry a receipt that says the same thing
+    # as the envelope; an unsettled state must carry neither.
+    dict(state='accepted', outcome='accepted'),                                                   # receipt missing
+    dict(state='accepted', outcome='no-write', receipt=GOOD_STORED),                              # envelope disagrees
+    dict(state='accepted', outcome='accepted', receipt=dict(GOOD_STORED, outcome='no-write')),   # receipt disagrees
+    dict(state='no-write', outcome='no-write', receipt=GOOD_STORED),                              # receipt says accepted
+    dict(state='no-write', receipt=dict(GOOD_STORED, outcome='no-write')),                        # envelope outcome missing
+    dict(state='pending', receipt=GOOD_STORED),
+    dict(state='pending', outcome='accepted'),
+    dict(state='unknown', receipt=GOOD_STORED),
+])
+def test_command_status_envelope_and_receipt_must_agree(envelope):
+    with pytest.raises(CommandStatusInvalid) as error:
+        _status(**envelope)
+    assert error.value.command_id == CMD
+
+
+def test_command_status_consistent_no_write_and_unsettled_states_are_returned():
+    settled = _status(state='no-write', outcome='no-write', receipt=dict(GOOD_STORED, outcome='no-write'))
+    assert (settled.state, settled.outcome, settled.receipt.outcome) == ('no-write', 'no-write', 'no-write')
+    for state in ('pending', 'unknown'):
+        status = _status(state=state, error={'error': 'lost ack'} if state == 'unknown' else None)
+        assert status.state == state and status.receipt is None and status.outcome is None
+
+
 def test_command_status_rejects_a_mismatched_or_invalid_envelope():
     with pytest.raises(NoteError):
         make(lambda req: httpx.Response(200, json={'commandId': 'other-command-id', 'state': 'accepted'}, request=req)).command_status(CMD)
@@ -313,7 +345,8 @@ def test_facade_passes_command_id_and_exposes_status():
     def handler(req):
         calls.append(req)
         if req.method == 'GET':
-            return httpx.Response(200, json={'commandId': CMD, 'state': 'accepted'}, request=req)
+            return httpx.Response(200, json={'commandId': CMD, 'state': 'accepted', 'outcome': 'accepted',
+                                             'receipt': GOOD_STORED}, request=req)
         assert json.loads(req.content)['commandId'] == CMD
         return receipt_for(req, outcome='accepted', commandId=CMD, replayed=False)
     client = DreamLakeClient(dl_url='https://example.test', token='test', transport=httpx.MockTransport(handler))
