@@ -18,6 +18,9 @@ wire are the same as ``Note.append(..., at=snapshot)`` sends.
 ``at`` accepts the snapshot object ``read()`` returned (preferred) or a bare
 ``rtc:`` revision string. A content hash is a different type: passing a
 ``sha256:`` value where a revision belongs is a typed error, never a guess.
+
+``command_id`` is opt-in on every write until the server that records it is
+deployed: supplied, it is sent and must be echoed; absent, nothing new is sent.
 """
 
 from __future__ import annotations
@@ -27,6 +30,7 @@ from typing import Any, Mapping
 
 from ._client import DreamLakeClient, get_client
 from .notes import (
+    CommandStatus,
     Note,
     NoteError,
     NoteRef,
@@ -186,20 +190,22 @@ class NoteHandle:
 
     # ── writing ─────────────────────────────────────────────────────────────
 
-    def append(self, text: str, *, at: Any, mode: str) -> PatchReceipt:
+    def append(self, text: str, *, at: Any, mode: str, command_id: str | None = None) -> PatchReceipt:
         """Append ``text`` to the source ``at`` names; return the receipt.
 
         ``mode="exact"`` requires ``at`` to still be current; ``mode="merge"``
         lets the server merge around independent edits. Separator rule, as the
         CLI: a nonempty source without a final LF receives one before ``text``.
+        ``command_id`` (opt-in) makes the request retry-safe; see ``Note.patch``.
         """
         _refuse_reading_view(text, "text")
         exact = _exact(mode)
-        receipt = self._target().append(text, at=self._snapshot_of(at, "at"), exact=exact)
+        receipt = self._target().append(text, at=self._snapshot_of(at, "at"), exact=exact, command_id=command_id)
         assert isinstance(receipt, PatchReceipt)
         return receipt
 
-    def patch(self, patch: str, *, at: Any, mode: str, format: str | None = None) -> PatchReceipt:
+    def patch(self, patch: str, *, at: Any, mode: str, format: str | None = None,
+              command_id: str | None = None) -> PatchReceipt:
         """PROVISIONAL — apply a source patch (``inline-dff`` or ``diff``) against ``at``.
 
         The name and shape may change; only ``read``, ``append`` and ``list``
@@ -207,11 +213,12 @@ class NoteHandle:
         """
         _refuse_reading_view(patch, "patch")
         exact = _exact(mode)
-        receipt = self._target().patch(patch, base_revision=_revision_of(at, "at"), exact=exact, format=format)
+        receipt = self._target().patch(patch, base_revision=_revision_of(at, "at"), exact=exact, format=format,
+                                       command_id=command_id)
         assert isinstance(receipt, PatchReceipt)
         return receipt
 
-    def write(self, text: str, *, at: Any, mode: str) -> PatchReceipt:
+    def write(self, text: str, *, at: Any, mode: str, command_id: str | None = None) -> PatchReceipt:
         """PROVISIONAL — replace the whole source with ``text``, planned against ``at``.
 
         The name and shape may change; only ``read``, ``append`` and ``list``
@@ -220,9 +227,13 @@ class NoteHandle:
         """
         _refuse_reading_view(text, "text")
         exact = _exact(mode)
-        receipt = self._target().write(text, at=self._snapshot_of(at, "at"), exact=exact)
+        receipt = self._target().write(text, at=self._snapshot_of(at, "at"), exact=exact, command_id=command_id)
         assert isinstance(receipt, PatchReceipt)
         return receipt
+
+    def command_status(self, command_id: str) -> CommandStatus:
+        """What the server recorded for ``command_id``; the read after ``UncertainOutcomeError``."""
+        return self._target().command_status(command_id)
 
 
 # ── The collection ───────────────────────────────────────────────────────────
