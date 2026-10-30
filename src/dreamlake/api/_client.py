@@ -106,6 +106,16 @@ class DreamLakeClient:
         from .hosts import Hosts
         return Hosts(self)
 
+    @property
+    def notes(self):
+        """Callable Notes facade bound to this client.
+
+        ``client.notes("ns/note-id")`` opens a handle without a request;
+        ``client.notes.list(namespace=...)`` lists. Nothing else lives here.
+        """
+        from ._notes_facade import Notes
+        return Notes(self)
+
     def http(self) -> "httpx.Client":
         """An httpx client bound to dreamlake-server, with auth applied."""
         return httpx.Client(

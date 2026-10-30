@@ -13,6 +13,7 @@ Functions:
     vec_index   — create/connect to a VectorIndex
     note        — open a Note by "namespace/slug"
     list_notes / search_notes / grep_notes / shared_with_me
+    Notes       — the callable facade: dl.notes("ns/id") / dl.notes.list(namespace=...)
 
 Context:
     Prefix      — context manager for project/path scoping
@@ -42,6 +43,14 @@ from .notes import (
     search_notes,
     shared_with_me,
 )
+# The callable facade. The module-level `notes` object is exported from the
+# top-level package only: here it would shadow the `dreamlake.api.notes` module.
+from ._notes_facade import (
+    Notes,
+    NoteHandle,
+    ReadingViewRefused,
+    RevisionExpected,
+)
 
 __all__ = [
     "TextTrack",
@@ -65,5 +74,9 @@ __all__ = [
     "grep_notes",
     "search_notes",
     "shared_with_me",
+    "Notes",
+    "NoteHandle",
+    "ReadingViewRefused",
+    "RevisionExpected",
     "Prefix",
 ]

@@ -64,6 +64,13 @@ from .api import (
     search_notes,
     shared_with_me,
 )
+from .api._notes_facade import (
+    Notes,
+    NoteHandle,
+    ReadingViewRefused,
+    RevisionExpected,
+    notes,
+)
 from .api._client import DreamLakeClient, get_client as _get_client
 
 
