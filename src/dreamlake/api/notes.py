@@ -277,8 +277,14 @@ def _v2_tokens(data: Any, note_id: str) -> None:
 
 
 def _escape_inline(value: str) -> str:
-    """Escape Notes inline framing and record control characters."""
-    return "".join("\\" + c if c in "\\[]{}" else "\\n" if c == "\n" else
+    """Canonical inline-record escaping, the form the CLI and server serialize.
+
+    ``\\``, LF, CR and TAB become escapes, and a backslash precedes any of
+    ``[]{}+-``: the delimiter punctuation, not only the framing characters.
+    The server decodes either, but canonical bytes are what the conformance
+    fixtures and cross-client diffs compare.
+    """
+    return "".join("\\" + c if c in "\\[]{}+-" else "\\n" if c == "\n" else
                    "\\r" if c == "\r" else "\\t" if c == "\t" else c for c in value)
 
 

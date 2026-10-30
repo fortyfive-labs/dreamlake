@@ -51,6 +51,11 @@ refuse it with `SnapshotRequired`, `patch(at=focused)` uses its revision for a
 targeted edit at its `chars`. `end` past the last line is clamped and reported;
 `start` past it is an error.
 
+Inline-record escaping now matches the CLI's `inlineLiteral` and the server's
+canonical form: a backslash precedes `+` and `-` as well as `[]{}\`. Bytes
+for any text containing `+`/`-` (a Markdown list item, say) change
+accordingly and are now identical across the Python SDK and the CLI.
+
 `tests/notes-conformance.fixtures.json` holds the seven contract-D scenarios,
 generated from this implementation and inspected rather than hand-written;
 `test_notes_conformance.py` replays them through the facade against a fake

@@ -305,7 +305,8 @@ assert verified.hash == receipt.hash
 Without `at`, append reads one fresh hash-verified snapshot. With `at`, it validates
 Note identity, source hash and the original opaque revision before any network
 request; it never substitutes current source. The insertion uses Unicode code
-point positions and escapes inline framing, preserving CRLF and LF bytes.
+point positions and escapes inline framing and delimiter punctuation (`+`,
+`-`) in the canonical form the CLI and server use, preserving CRLF and LF bytes.
 An existing nonempty body lacking a final LF receives one LF before the addition,
 including when the addition is empty. A completely unchanged MERGE returns an
 observational receipt without PATCH or a new commit; it does not claim current
