@@ -61,6 +61,7 @@ from .api import (
     UncertainOutcomeError,
     CommandInProgressError,
     CommandIntentMismatchError,
+    CommandStatusInvalid,
     CommandStatus,
     note,
     create_note,

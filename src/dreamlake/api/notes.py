@@ -55,6 +55,7 @@ __all__ = [
     "UncertainOutcomeError",
     "CommandInProgressError",
     "CommandIntentMismatchError",
+    "CommandStatusInvalid",
     "CommandStatus",
     "note",
     "search_notes",
@@ -67,6 +68,8 @@ _OBJECT_ID = re.compile(r"^[a-f0-9]{24}$", re.I)
 # Caller-stable command identity for v2 body mutations (Phase 1 contract A).
 _COMMAND_ID = re.compile(r"^[A-Za-z0-9._:-]{8,128}$")
 _OUTCOMES = ("accepted", "no-write")
+_COMMAND_STATES = ("pending", "accepted", "no-write", "unknown")
+_RTC_REVISION = re.compile(r"rtc:[a-f0-9]{64}")
 
 
 # ── Errors ───────────────────────────────────────────────────────────────────
@@ -156,6 +159,20 @@ class CommandInProgressError(NoteError):
     def __init__(self, command_id: str):
         super().__init__(f"command {command_id!r} is still in progress; wait, then query "
                          f"command_status({command_id!r}) rather than retrying under a new id")
+        self.command_id = command_id
+
+
+class CommandStatusInvalid(NoteError):
+    """The command status response is not a verifiable record for this id.
+
+    A stored receipt that names another command, a revision that is not
+    ``rtc:`` + 64 hex, an unknown mode or state, or a non-``rtc:`` baseline
+    cannot reconcile anything. The outcome stays unknown; do not write.
+    """
+
+    def __init__(self, command_id: str):
+        super().__init__(f"command status for {command_id!r} is not a verifiable record; "
+                         "treat the outcome as still unknown and do not reconcile from it")
         self.command_id = command_id
 
 
@@ -954,27 +971,44 @@ class Note:
 
         ``GET .../commands/{command_id}``, scoped to the calling actor. An
         unknown id raises ``NoteNotFound``. ``receipt`` is the stored v2
-        receipt when the state is ``accepted`` or ``no-write``.
+        receipt when the state is ``accepted`` or ``no-write``, verified
+        before it is returned: it must name this note and this command, its
+        ``revision`` must be ``rtc:`` + 64 hex, ``mode`` exact or merge and
+        ``baseRevision`` an ``rtc:`` token. Anything else is
+        ``CommandStatusInvalid`` — a reconciliation read that cannot be
+        trusted must not look like a successful one.
         """
         command_id = _command_id(command_id)
         assert command_id is not None
         with self._client.http() as http:
             response = http.get(f"{self._base}/commands/{_seg(command_id)}", follow_redirects=False)
         _raise_for(response, f"command {command_id} of {self._ns}/{self._id}")
+        invalid = CommandStatusInvalid(command_id)
         try:
             data = response.json()
-            if response.status_code != 200 or not isinstance(data, dict) or data.get("commandId") != command_id \
-                    or not isinstance(data.get("state"), str):
-                raise NoteError("unexpected command status response")
-            stored = data.get("receipt")
-            receipt = None
-            if stored is not None:
-                _v2_tokens(stored, self._id)
-                receipt = PatchReceipt(note=self._id, mode=stored.get("mode"), base_revision=stored.get("baseRevision"),
-                                       hash=stored["hash"], revision=stored["revision"], outcome=stored.get("outcome"),
-                                       command_id=stored.get("commandId"), replayed=stored.get("replayed"))
         except ValueError:
-            raise NoteError("invalid command status response") from None
+            raise invalid from None
+        if (response.status_code != 200 or not isinstance(data, dict) or data.get("commandId") != command_id
+                or data.get("state") not in _COMMAND_STATES
+                or (data.get("outcome") is not None and data["outcome"] not in _OUTCOMES)):
+            raise invalid
+        stored = data.get("receipt")
+        receipt = None
+        if stored is not None:
+            try:
+                _v2_tokens(stored, self._id)
+            except NoteError:
+                raise invalid from None
+            if (stored.get("commandId") != command_id
+                    or not _RTC_REVISION.fullmatch(stored["revision"])
+                    or stored.get("mode") not in ("exact", "merge")
+                    or not isinstance(stored.get("baseRevision"), str) or not stored["baseRevision"].startswith("rtc:")
+                    or (stored.get("outcome") is not None and stored["outcome"] not in _OUTCOMES)
+                    or (stored.get("replayed") is not None and not isinstance(stored["replayed"], bool))):
+                raise invalid
+            receipt = PatchReceipt(note=self._id, mode=stored["mode"], base_revision=stored["baseRevision"],
+                                   hash=stored["hash"], revision=stored["revision"], outcome=stored.get("outcome"),
+                                   command_id=command_id, replayed=stored.get("replayed"))
         return CommandStatus(command_id=command_id, state=data["state"], outcome=data.get("outcome"),
                              receipt=receipt, error=data.get("error"), created_at=data.get("createdAt"),
                              updated_at=data.get("updatedAt"))

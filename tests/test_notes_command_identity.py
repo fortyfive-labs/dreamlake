@@ -17,6 +17,7 @@ from dreamlake.api.notes import (
     CommandInProgressError,
     CommandIntentMismatchError,
     CommandStatus,
+    CommandStatusInvalid,
     Note,
     NoteBusy,
     NoteError,
@@ -257,6 +258,37 @@ def test_command_status_unknown_id_and_pending_state():
         make(lambda req: httpx.Response(404, json={'error': 'command_not_found'}, request=req)).command_status(CMD)
     status = make(lambda req: httpx.Response(200, json={'commandId': CMD, 'state': 'pending'}, request=req)).command_status(CMD)
     assert status.state == 'pending' and status.receipt is None and status.outcome is None
+
+
+GOOD_STORED = dict(note=ID, mode='exact', baseRevision=REV, hash=snap('x').hash, revision=NEXT,
+                   outcome='accepted', commandId=CMD, replayed=False)
+
+
+@pytest.mark.parametrize('change', [
+    {'commandId': 'cmd-somebody-else-01'}, {'commandId': None},
+    {'revision': 'rtc:short'}, {'revision': 'sha256:' + 'ab' * 32}, {'revision': NEXT + '\n'},
+    {'mode': 'fuzzy'}, {'mode': None},
+    {'baseRevision': 'sha256:' + 'c9' * 32}, {'baseRevision': '"' + 'c9' * 32 + '"'},
+    {'note': '507f1f77bcf86cd799439011'}, {'hash': 'sha256:' + '0' * 63},
+    {'outcome': 'maybe'}, {'replayed': 'yes'},
+])
+def test_command_status_refuses_an_unverifiable_stored_receipt(change):
+    # Regression: the stored receipt was returned unverified, so a corrupt or
+    # foreign record could read as a successful reconciliation.
+    stored = dict(GOOD_STORED, **change)
+    def handler(req):
+        return httpx.Response(200, json={'commandId': CMD, 'state': 'accepted', 'outcome': 'accepted',
+                                         'receipt': stored}, request=req)
+    with pytest.raises(CommandStatusInvalid) as error:
+        make(handler).command_status(CMD)
+    assert error.value.command_id == CMD and 'unknown' in str(error.value)
+
+
+@pytest.mark.parametrize('envelope', [{'commandId': CMD, 'state': 'done'}, {'commandId': CMD, 'state': 'accepted', 'outcome': 'maybe'},
+                                      {'commandId': CMD, 'state': 'accepted', 'receipt': 'not a receipt'}])
+def test_command_status_refuses_an_unknown_state_or_outcome(envelope):
+    with pytest.raises(CommandStatusInvalid):
+        make(lambda req: httpx.Response(200, json=envelope, request=req)).command_status(CMD)
 
 
 def test_command_status_rejects_a_mismatched_or_invalid_envelope():
