@@ -13,8 +13,14 @@ import pytest
 
 from dreamlake.api._client import DreamLakeClient
 from dreamlake.api.notes import (
-    CommandIdentityUnsupportedError, CommandStatus, Note, NoteError, NoteNotFound,
-    NoteSnapshot, PatchReceipt, UncertainOutcomeError,
+    CommandIdentityUnsupportedError,
+    CommandStatus,
+    Note,
+    NoteError,
+    NoteNotFound,
+    NoteSnapshot,
+    PatchReceipt,
+    UncertainOutcomeError,
 )
 
 ID = '6ae3f318608512b4ba34860c'

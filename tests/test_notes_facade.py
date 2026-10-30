@@ -14,7 +14,11 @@ import pytest
 import dreamlake
 from dreamlake.api._client import DreamLakeClient
 from dreamlake.api._notes_facade import (
-    NoteHandle, Notes, ReadingViewRefused, RevisionExpected, notes,
+    NoteHandle,
+    Notes,
+    ReadingViewRefused,
+    RevisionExpected,
+    notes,
 )
 from dreamlake.api.notes import Note, NoteRef, NoteSnapshot, PatchReceipt
 

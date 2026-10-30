@@ -31,26 +31,27 @@ be passed as the baseline of a whole-body write.
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any, Mapping
+from typing import Any
 
 from ._client import DreamLakeClient, get_client
 from .notes import (
+    _OBJECT_ID,
     CommandStatus,
     Note,
     NoteError,
     NoteRef,
     NoteSnapshot,
     PatchReceipt,
-    _OBJECT_ID,
     _resolve,
     list_notes,
 )
 
 __all__ = [
-    "Notes",
-    "NoteHandle",
     "FocusedRead",
+    "NoteHandle",
+    "Notes",
     "ReadingViewRefused",
     "RevisionExpected",
     "SnapshotRequired",
@@ -62,7 +63,7 @@ __all__ = [
 READING_VIEW_MARKER = "<!-- notes-reading-view"
 
 _MODES = ("exact", "merge")
-_HASH_LIKE = re.compile(r'^(?:sha256:)?"?[a-f0-9]{64}"?$', re.I)
+_HASH_LIKE = re.compile(r'^(?:sha256:)?"?[a-f0-9]{64}"?$', re.IGNORECASE)
 
 
 # ── Errors ───────────────────────────────────────────────────────────────────
@@ -198,7 +199,7 @@ class NoteHandle:
     always go to the stable id.
     """
 
-    __slots__ = ("_ns", "_ref", "_client", "_note")
+    __slots__ = ("_client", "_note", "_ns", "_ref")
 
     def __init__(self, ref: str, *, client: DreamLakeClient | None = None):
         if not isinstance(ref, str) or ref.count("/") != 1 or not all(ref.split("/")):
