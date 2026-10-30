@@ -494,7 +494,8 @@ class TestTheNamingRule:
     explicit line-range reads and the file accessor are separate public surfaces.
     """
 
-    WHOLE = {"get_text", "read_snapshot", "text", "refresh", "sections", "read", "write", "append", "patch", "diff"}
+    WHOLE = {"get_text", "read_snapshot", "text", "refresh", "sections", "read", "write", "append", "patch", "diff",
+             "command_status"}
     RANGE = {"read_lines"}
     ACCESSORS = {"files"}
     METADATA = {"metadata", "archive", "unarchive"}
