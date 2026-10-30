@@ -319,7 +319,7 @@ def test_facade_passes_command_id_and_exposes_status():
     client = DreamLakeClient(dl_url='https://example.test', token='test', transport=httpx.MockTransport(handler))
     handle = client.notes(f'ns/{ID}')
     assert handle.append(text='Hi', at=snap('x\n'), mode='exact', command_id=CMD).command_id == CMD
-    assert handle.write('y', at=snap('x'), mode='merge', command_id=CMD).command_id == CMD
-    assert handle.patch(PATCH, at=REV, mode='merge', command_id=CMD).command_id == CMD
+    assert handle.write(text='y', at=snap('x'), mode='merge', command_id=CMD).command_id == CMD
+    assert handle.patch(patch=PATCH, at=REV, mode='merge', command_id=CMD).command_id == CMD
     assert handle.command_status(CMD).state == 'accepted'
     assert [r.method for r in calls] == ['PATCH', 'PATCH', 'PATCH', 'GET']

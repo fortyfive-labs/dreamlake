@@ -196,7 +196,7 @@ class FocusedRead:
 
 
 class NoteHandle:
-    """One note, opened by ``"namespace/note-id"``. Operations take named fields.
+    """One note, opened by ``"namespace/note-id"``. Operations take named fields only.
 
     Opening does not touch the network. A 24-hex id is addressed directly; a
     slug is allowed and resolved to its id on the first operation, so writes
@@ -305,7 +305,7 @@ class NoteHandle:
 
     # ── writing ─────────────────────────────────────────────────────────────
 
-    def append(self, text: str, *, at: Any, mode: str, command_id: str | None = None) -> PatchReceipt:
+    def append(self, *, text: str, at: Any, mode: str, command_id: str | None = None) -> PatchReceipt:
         """Append ``text`` to the source ``at`` names; return the receipt.
 
         ``mode="exact"`` requires ``at`` to still be current; ``mode="merge"``
@@ -320,7 +320,7 @@ class NoteHandle:
         assert isinstance(receipt, PatchReceipt)
         return receipt
 
-    def patch(self, patch: str, *, at: Any, mode: str, format: str | None = None,
+    def patch(self, *, patch: str, at: Any, mode: str, format: str | None = None,
               command_id: str | None = None) -> PatchReceipt:
         """PROVISIONAL — apply a source patch (``inline-dff`` or ``diff``) against ``at``.
 
@@ -337,7 +337,7 @@ class NoteHandle:
         assert isinstance(receipt, PatchReceipt)
         return receipt
 
-    def write(self, text: str, *, at: Any, mode: str, command_id: str | None = None) -> PatchReceipt:
+    def write(self, *, text: str, at: Any, mode: str, command_id: str | None = None) -> PatchReceipt:
         """PROVISIONAL — replace the whole source with ``text``, planned against ``at``.
 
         The name and shape may change; only ``read``, ``append`` and ``list``

@@ -105,7 +105,7 @@ def test_focused_read_cannot_be_a_whole_body_write_or_append_baseline():
     note = DreamLakeClient(dl_url='https://example.test', token='test',
                            transport=httpx.MockTransport(never)).notes(f'{NS}/{ID}')
     with pytest.raises(SnapshotRequired, match='lines 1-1'):
-        note.write('whole\n', at=focused, mode='exact')
+        note.write(text='whole\n', at=focused, mode='exact')
     with pytest.raises(SnapshotRequired):
         note.append(text='more', at=focused, mode='exact')
     # It is also not a NoteSnapshot, so the existing methods refuse it too.
@@ -128,5 +128,5 @@ def test_focused_read_supports_a_targeted_patch_at_its_chars():
                                              revision='rtc:' + 'ab' * 32), request=req)
     note = DreamLakeClient(dl_url='https://example.test', token='test',
                            transport=httpx.MockTransport(handler)).notes(f'{NS}/{ID}')
-    assert note.patch(body, at=focused, mode='exact').revision == 'rtc:' + 'ab' * 32
+    assert note.patch(patch=body, at=focused, mode='exact').revision == 'rtc:' + 'ab' * 32
     assert note.read(at=focused).revision == REV  # a focused read also names a revision to read at

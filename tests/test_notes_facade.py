@@ -6,6 +6,7 @@ fields, required mode, snapshot-vs-revision typing, and that the bytes sent are
 the ones `Note.append(..., at=snapshot)` already sends.
 """
 import hashlib
+import inspect
 import json
 
 import httpx
@@ -222,8 +223,19 @@ def test_snapshot_with_a_non_rtc_revision_is_refused():
 @pytest.mark.parametrize('method', ['append', 'write', 'patch'])
 def test_writes_refuse_reading_view_marker_before_any_request(method):
     handle = client(never).notes(f'{NS}/{ID}')
+    payload = {'patch' if method == 'patch' else 'text': 'ok\n<!-- notes-reading-view page=1 -->\n'}
     with pytest.raises(ReadingViewRefused):
-        getattr(handle, method)('ok\n<!-- notes-reading-view page=1 -->\n', at=snap('x'), mode='exact')
+        getattr(handle, method)(**payload, at=snap('x'), mode='exact')
+
+
+@pytest.mark.parametrize('method,payload', [('append', 'x'), ('write', 'x'), ('patch', '@@ chars 0:0 @@\n~ {+x+}\n')])
+def test_write_operations_take_named_fields_only(method, payload):
+    # Contract B: every operation takes named fields; the payload is not positional.
+    handle = client(never).notes(f'{NS}/{ID}')
+    with pytest.raises(TypeError):
+        getattr(handle, method)(payload, at=snap('x'), mode='exact')
+    params = inspect.signature(getattr(NoteHandle, method)).parameters
+    assert all(p.kind is inspect.Parameter.KEYWORD_ONLY for name, p in params.items() if name != 'self')
 
 
 def test_append_snapshot_of_another_note_is_refused_before_io():
@@ -260,10 +272,10 @@ def test_patch_delegates_with_required_mode():
         assert json.loads(req.content) == {'format': 'inline-dff', 'patch': body, 'baseRevision': REV, 'mode': 'exact'}
         return ack(req)
     handle = client(handler).notes(f'{NS}/{ID}')
-    assert handle.patch(body, at=original, mode='exact').mode == 'exact'
-    assert handle.patch(body, at=REV, mode='exact').base_revision == REV
+    assert handle.patch(patch=body, at=original, mode='exact').mode == 'exact'
+    assert handle.patch(patch=body, at=REV, mode='exact').base_revision == REV
     with pytest.raises(TypeError):
-        handle.patch(body, at=original)
+        handle.patch(patch=body, at=original)
 
 
 def test_write_delegates_disjoint_plan_against_snapshot():
@@ -273,7 +285,7 @@ def test_write_delegates_disjoint_plan_against_snapshot():
         assert req.method == 'PATCH' and data['mode'] == 'merge' and data['baseRevision'] == REV
         assert ' middle ' not in data['patch']
         return ack(req)
-    assert client(handler).notes(f'{NS}/{ID}').write('Done middle Done', at=original, mode='merge').revision == NEXT
+    assert client(handler).notes(f'{NS}/{ID}').write(text='Done middle Done', at=original, mode='merge').revision == NEXT
 
 
 # ── list ─────────────────────────────────────────────────────────────────────

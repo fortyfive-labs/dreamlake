@@ -411,9 +411,10 @@ at=snapshot, exact=True)` already sends, separator rule included. The existing
 `dl.note()`, `read_snapshot()`, `append()`, `patch()` and `write()` are
 unchanged; `DreamLakeClient.notes` is the same facade bound to one client.
 
-`note.patch(patch, at=..., mode=...)` and `note.write(text, at=..., mode=...)`
-are exposed on the handle but PROVISIONAL: their names and shapes may change,
-and only `read`, `append` and `list` are agreed.
+`note.patch(patch=..., at=..., mode=...)` and `note.write(text=..., at=...,
+mode=...)` are exposed on the handle but PROVISIONAL: their names and shapes
+may change, and only `read`, `append` and `list` are agreed. Every facade
+operation takes named fields only; the payload is not positional.
 
 `note.read(lines=(40, 80))` is a focused read: 1-based inclusive source lines,
 two integers required. It makes the same v2 request and slices locally,
