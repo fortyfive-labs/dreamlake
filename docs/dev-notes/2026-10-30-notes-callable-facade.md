@@ -43,9 +43,10 @@ unchanged. The default stays opt-in until the recording server is deployed.
 `note.read(lines=(a, b))` (contract C) is the same v2 request sliced locally:
 1-based inclusive lines mapped to code-point `chars` `[start, end)` with
 Python `str` indexing, so CJK and emoji count one each and CRLF slices
-byte-exactly. The result is `FocusedRead {note, hash, revision, lines, chars,
-content, complete=False, next}`; `hash`/`revision` are the whole note's, `next`
-is the line to continue from. It is not a `NoteSnapshot`: `write`/`append`
+byte-exactly. The result is `FocusedRead {note, hash, revision, scope, lines,
+chars, content, complete=False, next}`; `scope` is `{"lines": [a, b]}` (the
+covered range, mirrored in the conformance fixture so the CLI JSON can match),
+`hash`/`revision` are the whole note's, `next` is the line to continue from. It is not a `NoteSnapshot`: `write`/`append`
 refuse it with `SnapshotRequired`, `patch(at=focused)` uses its revision for a
 targeted edit at its `chars`. `end` past the last line is clamped and reported;
 `start` past it is an error.

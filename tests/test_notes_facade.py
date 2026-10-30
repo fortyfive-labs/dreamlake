@@ -247,7 +247,8 @@ def test_patch_read_and_write_refuse_a_snapshot_of_another_note_before_io():
     # Regression: patch only extracted the revision, so a foreign snapshot's
     # baseline was sent for this note.
     other = snap('x', note='507f1f77bcf86cd799439011')
-    focused = FocusedRead(note=other.note, hash=other.hash, revision=REV, lines=(1, 1), chars=(0, 1), content='x')
+    focused = FocusedRead(note=other.note, hash=other.hash, revision=REV, scope={'lines': [1, 1]},
+                          lines=(1, 1), chars=(0, 1), content='x')
     handle = client(never).notes(f'{NS}/{ID}')
     for at in (other, other.to_dict(), focused):
         with pytest.raises(ValueError, match='belongs to note'):

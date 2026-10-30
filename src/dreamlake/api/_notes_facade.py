@@ -172,14 +172,17 @@ class FocusedRead:
     ``revision`` describe the complete note that was read. ``chars`` is the
     slice's code-point ``[start, end)`` in that source — the coordinates an
     ``@@ chars`` patch addresses, so a targeted ``patch(at=focused)`` is
-    supported. ``complete`` is always ``False`` and ``next`` is the line to
-    continue from (``None`` at the end), so a page is never mistaken for the
-    note and cannot be passed as a whole-body ``write`` baseline.
+    supported. ``scope`` says how the slice was selected — ``{"lines": [a, b]}``
+    for a line range, the range actually covered — so the CLI JSON and this
+    type carry the same addressing. ``complete`` is always ``False`` and
+    ``next`` is the line to continue from (``None`` at the end), so a page is
+    never mistaken for the note and cannot be a whole-body ``write`` baseline.
     """
 
     note: str
     hash: str
     revision: str
+    scope: dict[str, Any]
     lines: tuple[int, int]
     chars: tuple[int, int]
     content: str
@@ -188,6 +191,7 @@ class FocusedRead:
 
     def to_dict(self) -> dict[str, Any]:
         return {"note": self.note, "hash": self.hash, "revision": self.revision,
+                "scope": {"lines": list(self.scope["lines"])},
                 "lines": list(self.lines), "chars": list(self.chars), "content": self.content,
                 "complete": self.complete, "next": self.next}
 
@@ -300,8 +304,8 @@ class NoteHandle:
             return snapshot
         covered, chars, following = _line_chars(snapshot.content, lines)
         return FocusedRead(note=snapshot.note, hash=snapshot.hash, revision=snapshot.revision,
-                           lines=covered, chars=chars, content=snapshot.content[chars[0]:chars[1]],
-                           complete=False, next=following)
+                           scope={"lines": [covered[0], covered[1]]}, lines=covered, chars=chars,
+                           content=snapshot.content[chars[0]:chars[1]], complete=False, next=following)
 
     # ── writing ─────────────────────────────────────────────────────────────
 

@@ -418,10 +418,11 @@ operation takes named fields only; the payload is not positional.
 
 `note.read(lines=(40, 80))` is a focused read: 1-based inclusive source lines,
 two integers required. It makes the same v2 request and slices locally,
-returning `FocusedRead {note, hash, revision, lines, chars, content,
-complete=False, next}` where `chars` is the slice's code-point `[start, end)`
-in the whole source (CJK and emoji count one each) and `hash`/`revision`
-describe the whole note. It is not a `NoteSnapshot`: `write`/`append` refuse
+returning `FocusedRead {note, hash, revision, scope, lines, chars, content,
+complete=False, next}` where `scope` is `{"lines": [a, b]}` (the range
+actually covered), `chars` is the slice's code-point `[start, end)` in the
+whole source (CJK and emoji count one each) and `hash`/`revision` describe
+the whole note. It is not a `NoteSnapshot`: `write`/`append` refuse
 it with `SnapshotRequired`; `patch(at=focused)` targets its `chars`.
 
 `command_id` is opt-in on `append`/`patch`/`write` (facade and existing

@@ -39,8 +39,17 @@ def test_focused_read_is_the_same_request_as_read_with_a_distinct_result():
     assert req.method == 'GET' and req.url.path == f'/namespaces/{NS}/notes/{ID}/body'
     assert dict(req.url.params) == {'contract': 'v2'}
     assert isinstance(got, FocusedRead) and not isinstance(got, NoteSnapshot)
-    assert got.to_dict() == {'note': ID, 'hash': snap('a\nb\nc\n').hash, 'revision': REV,
+    assert got.to_dict() == {'note': ID, 'hash': snap('a\nb\nc\n').hash, 'revision': REV, 'scope': {'lines': [1, 1]},
                              'lines': [1, 1], 'chars': [0, 2], 'content': 'a\n', 'complete': False, 'next': 2}
+
+
+def test_scope_names_the_line_range_actually_covered():
+    # Contract C: a focused result carries its scope; a clamped range reports
+    # what was covered, not what was asked.
+    got = handle('a\nb\nc\n').read(lines=(2, 99))
+    assert got.scope == {'lines': [2, 3]} and got.lines == (2, 3)
+    assert got.to_dict()['scope'] == {'lines': [2, 3]}
+    assert handle('a\nb\n').read(lines=(1, 1)).scope == {'lines': [1, 1]}
 
 
 def test_hash_and_revision_are_of_the_whole_source_not_the_slice():

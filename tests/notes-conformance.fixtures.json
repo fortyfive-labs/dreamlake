@@ -169,6 +169,12 @@
           0,
           2
         ],
+        "scope": {
+          "lines": [
+            1,
+            1
+          ]
+        },
         "content": "a\n",
         "complete": false
       }
