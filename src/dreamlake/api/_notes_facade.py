@@ -112,9 +112,13 @@ def _refuse_reading_view(text: Any, name: str) -> None:
 
 
 def _revision_of(value: Any, name: str) -> str:
-    """The RTC revision a snapshot, focused read or ``rtc:`` string names."""
+    """The RTC revision a snapshot, focused read or ``rtc:`` string names.
+
+    The field inside a snapshot gets the same check as a bare string: a
+    snapshot assembled by hand with a hash in ``revision`` is the same bug.
+    """
     if isinstance(value, (NoteSnapshot, FocusedRead)):
-        return value.revision
+        return _revision_of(value.revision, f"{name}.revision")
     if isinstance(value, Mapping) and isinstance(value.get("revision"), str):
         return _revision_of(value["revision"], f"{name}.revision")
     if isinstance(value, str):
@@ -250,14 +254,15 @@ class NoteHandle:
                 f"{name} is a focused read of lines {value.lines[0]}-{value.lines[1]}; "
                 "append and write need the complete snapshot from read()"
             )
-        if isinstance(value, NoteSnapshot):
-            return value
         if isinstance(value, Mapping):
             try:
-                return NoteSnapshot(note=value["note"], content=value["content"],
-                                    hash=value["hash"], revision=value["revision"])
+                value = NoteSnapshot(note=value["note"], content=value["content"],
+                                     hash=value["hash"], revision=value["revision"])
             except KeyError as error:
                 raise ValueError(f"{name} snapshot is missing {error.args[0]!r}") from None
+        if isinstance(value, NoteSnapshot):
+            _revision_of(value, name)
+            return value
         return self._target().read_snapshot(at=_revision_of(value, name))
 
     # ── reading ─────────────────────────────────────────────────────────────

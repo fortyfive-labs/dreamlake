@@ -180,6 +180,33 @@ def test_append_refuses_hash_as_baseline(at):
         client(never).notes(f'{NS}/{ID}').append(text='b', at=at, mode='exact')
 
 
+@pytest.mark.parametrize('bad', [
+    snap('x', revision='sha256:' + 'a' * 64),
+    snap('x', revision='sha256:' + 'a' * 64).to_dict(),
+    snap('x', revision=snap('x').hash),
+])
+def test_snapshot_carrying_a_hash_as_revision_is_refused_everywhere(bad):
+    # Regression: a snapshot/mapping bypassed the rtc: check a bare string gets.
+    handle = client(never).notes(f'{NS}/{ID}')
+    with pytest.raises(RevisionExpected):
+        handle.read(at=bad)
+    with pytest.raises(RevisionExpected):
+        handle.append(text='b', at=bad, mode='exact')
+    with pytest.raises(RevisionExpected):
+        handle.write(text='b', at=bad, mode='exact')
+    with pytest.raises(RevisionExpected):
+        handle.patch(patch='@@ chars 0:1 @@\n~ [-x-]\n', at=bad, mode='exact')
+
+
+def test_snapshot_with_a_non_rtc_revision_is_refused():
+    bad = snap('x', revision='original:4')
+    handle = client(never).notes(f'{NS}/{ID}')
+    with pytest.raises(ValueError, match='rtc:'):
+        handle.append(text='b', at=bad.to_dict(), mode='exact')
+    with pytest.raises(ValueError, match='rtc:'):
+        handle.read(at=bad)
+
+
 @pytest.mark.parametrize('method', ['append', 'write', 'patch'])
 def test_writes_refuse_reading_view_marker_before_any_request(method):
     handle = client(never).notes(f'{NS}/{ID}')
