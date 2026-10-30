@@ -25,14 +25,18 @@ Command identity (contract A) is opt-in on `patch`/`write`/`append`, facade
 and existing methods alike. `command_id` is validated as
 `[A-Za-z0-9._:-]{8,128}` and sent as `commandId` only when supplied; a
 receipt that does not echo it is `CommandIdentityUnsupportedError`; any
-transport failure once the request was handed to the transport (a connect
-error included: an injected transport may forward and then raise), an unknown
-status or a non-receipt response is `UncertainOutcomeError` carrying the id,
+transport failure once a connection was attempted (timeouts, network errors
+including a connect error — an injected transport may forward and then
+raise — remote protocol and proxy errors), an unknown status or a non-receipt
+response is `UncertainOutcomeError` carrying the id,
 whose message says to resend with the same id or call
 `command_status(command_id)` (`GET .../commands/{id}`). A 409 naming the
 id is typed rather than `NoteBusy`: `command_outcome_unknown` →
 `UncertainOutcomeError`, `command_in_progress` → `CommandInProgressError`,
-`command_intent_mismatch` → `CommandIntentMismatchError`. With a
+`command_intent_mismatch` → `CommandIntentMismatchError`. Errors httpx raises
+before any connection attempt (`UnsupportedProtocol`, `LocalProtocolError`,
+`InvalidURL` while building the client/request) stay plain `NoteError`: the
+client and request are built outside the uncertain window. With a
 `command_id` an unchanged MERGE is still submitted so the server records the
 command; without one the local observational receipt now says
 `outcome="no-write"`. `PatchReceipt` gains `outcome`, `command_id`,

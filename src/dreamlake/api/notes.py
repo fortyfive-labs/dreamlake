@@ -70,6 +70,11 @@ _COMMAND_ID = re.compile(r"[A-Za-z0-9._:-]{8,128}")
 _OUTCOMES = ("accepted", "no-write")
 _COMMAND_STATES = ("pending", "accepted", "no-write", "unknown")
 _RTC_REVISION = re.compile(r"rtc:[a-f0-9]{64}")
+# Transport errors raised once a connection was attempted: the request may have
+# reached the server. httpx raises UnsupportedProtocol and LocalProtocolError
+# before any connection, and InvalidURL while building the URL; those are
+# deterministic and are never an unknown outcome.
+_UNCERTAIN_TRANSPORT = (httpx.TimeoutException, httpx.NetworkError, httpx.RemoteProtocolError, httpx.ProxyError)
 
 
 # ── Errors ───────────────────────────────────────────────────────────────────
@@ -923,16 +928,27 @@ class Note:
         def uncertain() -> NoteError:
             return NoteError(unknown) if command_id is None else UncertainOutcomeError(command_id)
 
+        # The client and request are built outside the uncertain window: a URL
+        # or header that cannot be built was never sent.
         try:
-            with self._client.http() as http:
-                response = http.request("PATCH", f"{self._base}/body", json=payload,
-                    headers={} if if_match is None else {"If-Match": if_match}, follow_redirects=False)
-        except httpx.TransportError:
-            # Once the request is handed to the transport nothing here can tell
-            # a refused connection from a lost acknowledgment (an injected
-            # transport may forward the request and then raise), so every
-            # transport failure is an unknown outcome.
-            raise uncertain() from None
+            http = self._client.http()
+            request = http.build_request("PATCH", f"{self._base}/body", json=payload,
+                                         headers={} if if_match is None else {"If-Match": if_match})
+        except (httpx.InvalidURL, httpx.LocalProtocolError) as error:
+            raise NoteError(f"request could not be built; nothing was sent ({type(error).__name__})") from None
+        with http:
+            try:
+                response = http.send(request, follow_redirects=False)
+            except _UNCERTAIN_TRANSPORT:
+                # Once a connection was attempted nothing here can tell a
+                # refused connection from a lost acknowledgment (an injected
+                # transport may forward the request and then raise), so the
+                # outcome is unknown.
+                raise uncertain() from None
+            except httpx.TransportError as error:
+                # UnsupportedProtocol, LocalProtocolError: raised before any
+                # connection attempt, so the request was not sent.
+                raise NoteError(f"request was not sent ({type(error).__name__})") from None
         if response.status_code != 200:
             if command_id is not None and response.status_code == 409:
                 # Contract A.3: the command journal answers before the body

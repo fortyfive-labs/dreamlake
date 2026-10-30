@@ -430,9 +430,10 @@ it with `SnapshotRequired`; `patch(at=focused)` targets its `chars`.
 methods) until the server that records command identity is deployed. Without
 one nothing new is sent. With one (`[A-Za-z0-9._:-]{8,128}`), it is sent as
 `commandId`, the receipt must echo it (`CommandIdentityUnsupportedError`
-otherwise), and any transport failure once the request was handed to the
-transport, an unknown status or a non-receipt response raises
-`UncertainOutcomeError` carrying the id: resend with the same id, or call
+otherwise), and any transport failure once a connection was attempted, an
+unknown status or a non-receipt response raises `UncertainOutcomeError`
+carrying the id (errors raised before any connection attempt, such as an
+unsupported URL scheme, stay plain `NoteError`): resend with the same id, or call
 `note.command_status(command_id)`. A 409 about the id itself is typed:
 `command_outcome_unknown` is `UncertainOutcomeError`, `command_in_progress`
 is `CommandInProgressError` (wait, then query status), `command_intent_mismatch`

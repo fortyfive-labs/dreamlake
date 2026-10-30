@@ -160,6 +160,33 @@ def test_transport_failure_after_send_with_command_id_is_uncertain_outcome():
     assert len(calls) == 1  # never replayed by the client
 
 
+@pytest.mark.parametrize('failure', [httpx.UnsupportedProtocol, httpx.LocalProtocolError])
+@pytest.mark.parametrize('command_id', [CMD, None])
+def test_pre_connection_transport_errors_are_deterministic_not_uncertain(failure, command_id):
+    # Regression: httpx raises these before any connection attempt, so the
+    # request was never sent and the outcome is known.
+    def handler(req):
+        raise failure('before connecting', request=req)
+    with pytest.raises(NoteError, match='not sent') as error:
+        make(handler).patch(PATCH, base_revision=REV, command_id=command_id)
+    assert not isinstance(error.value, UncertainOutcomeError)
+
+
+def test_unsupported_scheme_with_a_real_transport_is_not_sent():
+    # No mock: httpx's own transport refuses 'ftp://' before resolving or connecting.
+    note = Note(ID, namespace='ns', client=DreamLakeClient(dl_url='ftp://example.invalid', token='t'))
+    with pytest.raises(NoteError, match='not sent') as error:
+        note.patch(PATCH, base_revision=REV, command_id=CMD)
+    assert not isinstance(error.value, UncertainOutcomeError)
+
+
+def test_invalid_base_url_is_built_outside_the_uncertain_window():
+    note = Note(ID, namespace='ns', client=DreamLakeClient(dl_url='http://exa\nmple.test', token='t'))
+    with pytest.raises(NoteError, match='nothing was sent') as error:
+        note.patch(PATCH, base_revision=REV, command_id=CMD)
+    assert not isinstance(error.value, UncertainOutcomeError)
+
+
 def test_transport_failure_without_command_id_keeps_the_untyped_unknown():
     def handler(req):
         raise httpx.ReadError('lost ack', request=req)
@@ -168,8 +195,9 @@ def test_transport_failure_without_command_id_keeps_the_untyped_unknown():
     assert not isinstance(error.value, UncertainOutcomeError)
 
 
-@pytest.mark.parametrize('failure', [httpx.ConnectError, httpx.ConnectTimeout, httpx.WriteError, httpx.ReadError,
-                                     httpx.ReadTimeout, httpx.RemoteProtocolError, httpx.PoolTimeout])
+@pytest.mark.parametrize('failure', [httpx.ConnectError, httpx.ConnectTimeout, httpx.WriteError, httpx.WriteTimeout,
+                                     httpx.ReadError, httpx.ReadTimeout, httpx.RemoteProtocolError, httpx.PoolTimeout,
+                                     httpx.CloseError, httpx.ProxyError])
 def test_any_transport_failure_after_handoff_with_command_id_is_uncertain(failure):
     # Regression: a transport can forward the PATCH and then raise ConnectError,
     # so "not sent" was never a safe classification for anything it raises.
