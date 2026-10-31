@@ -1,0 +1,212 @@
+{
+  "_comment": [
+    "Python code tabs of the Notes API docs, vendored from the workspace repository at the",
+    "commit below. test_notes_docs_contract.py parses each snippet and checks every method,",
+    "keyword and attribute it uses exists on the SDK; documented-but-unsupported snippets are",
+    "listed there as known gaps. Regenerate with the extraction one-liner in that test."
+  ],
+  "commit": "798b16d5",
+  "source": "dreamlake-workspace:docs/pages/notes/api/**/+Page.mdx",
+  "snippets": [
+    {
+      "page": "index",
+      "index": 1,
+      "code": "note = dl.notes(note_id)\n# No network request yet.\n"
+    },
+    {
+      "page": "reading",
+      "index": 1,
+      "code": "note = dl.notes(note_id)\nsnapshot = note.read()\n"
+    },
+    {
+      "page": "reading",
+      "index": 2,
+      "code": "snapshot = dl.notes(note_id).read(at=revision)\n"
+    },
+    {
+      "page": "reading",
+      "index": 3,
+      "code": "mapped = dl.notes(note_id).read(view=\"mapped\")\n"
+    },
+    {
+      "page": "reading",
+      "index": 4,
+      "code": "section = dl.notes(note_id).read(view=\"mapped\", section=\"s1\", at=revision)\n"
+    },
+    {
+      "page": "reading",
+      "index": 5,
+      "code": "part = dl.notes(note_id).read(view=\"mapped\", lines=(40, 80), at=revision)\n"
+    },
+    {
+      "page": "reading",
+      "index": 6,
+      "code": "element = dl.notes(note_id).read(view=\"mapped\", address=\"s1.p2\", at=revision)\n"
+    },
+    {
+      "page": "reading",
+      "index": 7,
+      "code": "import sys\nsnapshot = dl.notes(note_id).read(view=\"source\")\nsys.stdout.buffer.write(snapshot.content.encode(\"utf-8\"))\n"
+    },
+    {
+      "page": "reading",
+      "index": 8,
+      "code": "outline = dl.notes(note_id).outline(at=revision)\n"
+    },
+    {
+      "page": "reading",
+      "index": 9,
+      "code": "matches = dl.notes(note_id).find(text=\"Draft\", case_sensitive=True, at=revision)\n"
+    },
+    {
+      "page": "reading",
+      "index": 10,
+      "code": "changes = dl.notes(note_id).diff(since=revision, format=\"diff\")\n"
+    },
+    {
+      "page": "editing",
+      "index": 1,
+      "code": "note = dl.notes(note_id)\noriginal = note.read()\nreceipt = note.replace(lines=(40, 42), text=\"- Updated item\\n\", at=original)\nacknowledged = note.read(at=receipt.revision)\n"
+    },
+    {
+      "page": "editing",
+      "index": 2,
+      "code": "note = dl.notes(note_id)\noriginal = note.read()\nreceipt = note.insert(after=\"s1.p2\", text=\"- New item\\n\", at=original)\nacknowledged = note.read(at=receipt.revision)\n"
+    },
+    {
+      "page": "editing",
+      "index": 3,
+      "code": "note = dl.notes(note_id)\noriginal = note.read()\nreceipt = note.remove(lines=(40, 42), at=original)\nacknowledged = note.read(at=receipt.revision)\n"
+    },
+    {
+      "page": "editing",
+      "index": 4,
+      "code": "note = dl.notes(note_id)\noriginal = note.read()\nreceipt = note.append(text=\"\\nHello\\n\", at=original)\nacknowledged = note.read(at=receipt.revision)\n"
+    },
+    {
+      "page": "editing",
+      "index": 5,
+      "code": "note = dl.notes(note_id)\noriginal = note.read()\nreceipt = note.write(text=\"Hello team.\\n\", at=original, mode=\"exact\")\nacknowledged = note.read(at=receipt.revision)\n"
+    },
+    {
+      "page": "editing",
+      "index": 6,
+      "code": "note = dl.notes(note_id)\noriginal = note.read()\npatch = \"--- before.md\\n+++ after.md\\n@@ -1 +1 @@\\n-Hello world.\\n+Hello team.\\n\"\nreceipt = note.patch(patch=patch, format=\"diff\", at=original, mode=\"exact\")\nacknowledged = note.read(at=receipt.revision)\n"
+    },
+    {
+      "page": "collaboration",
+      "index": 1,
+      "code": "roster = dl.notes(note_id).presence()\n"
+    },
+    {
+      "page": "collaboration",
+      "index": 2,
+      "code": "dl.notes(note_id).visit(\n    intent=\"Reviewing this paragraph\", address=\"s1.p2\", at=snapshot,\n)\n"
+    },
+    {
+      "page": "collaboration",
+      "index": 3,
+      "code": "dl.notes(note_id).visit(cursor=125, at=snapshot)\n"
+    },
+    {
+      "page": "collaboration",
+      "index": 4,
+      "code": "watcher = dl.notes(note_id).watch(timeout=900)  # seconds\nfor event in watcher:\n    consume(event)\n"
+    },
+    {
+      "page": "collaboration",
+      "index": 5,
+      "code": "watcher = dl.notes(note_id).watch(\n    timeout=900, debounce_ms=2000, max_wait_ms=5000,\n)\n"
+    },
+    {
+      "page": "collaboration",
+      "index": 6,
+      "code": "watcher = dl.notes(note_id).watch(after=continuation, timeout=900)\n"
+    },
+    {
+      "page": "resources",
+      "index": 1,
+      "code": "page = dl.notes.list(namespace=\"your-workspace\", limit=20, offset=0)\n"
+    },
+    {
+      "page": "resources",
+      "index": 2,
+      "code": "note = dl.notes.create(namespace=\"your-workspace\")\nprint(note.id)\n"
+    },
+    {
+      "page": "resources",
+      "index": 3,
+      "code": "note = dl.notes.create(namespace=\"your-workspace\", name=\"Review\", text=\"# Review\\n\")\n"
+    },
+    {
+      "page": "resources",
+      "index": 4,
+      "code": "result = dl.notes(note_id).rename(name=\"New title\")\n"
+    },
+    {
+      "page": "resources",
+      "index": 5,
+      "code": "versions = dl.notes(note_id).versions.list()\nsaved = dl.notes(note_id).versions.read(version_id=version_id)\n"
+    },
+    {
+      "page": "moving",
+      "index": 1,
+      "code": "dl.notes(note_id).move(\n    to_namespace=\"destination-workspace\", to_project=project_id,\n    to_folder=\"research/2026/reviews\", name=\"Review\",\n)\n"
+    },
+    {
+      "page": "moving",
+      "index": 2,
+      "code": "dl.notes(note_id).move(name=\"New title\")\n# Alternative convenience call:\ndl.notes(note_id).rename(name=\"New title\")\n"
+    },
+    {
+      "page": "moving",
+      "index": 3,
+      "code": "dl.projects(project_id).move(\n    to_namespace=\"destination-workspace\", name=\"Research\",\n)\n"
+    },
+    {
+      "page": "moving",
+      "index": 4,
+      "code": "dl.artifacts(resource_id).move(\n    to_project=project_id, to_folder=\"research/2026/reviews\",\n)\n"
+    },
+    {
+      "page": "moving",
+      "index": 5,
+      "code": "dl.envs(resource_id).move(\n    to_project=project_id, to_folder=\"research/2026/reviews\",\n)\n"
+    },
+    {
+      "page": "moving",
+      "index": 6,
+      "code": "dl.pipelines(resource_id).move(\n    to_project=project_id, to_folder=\"research/2026/reviews\",\n)\n"
+    },
+    {
+      "page": "moving",
+      "index": 7,
+      "code": "dl.sources(resource_id).move(\n    to_project=project_id, to_folder=\"research/2026/reviews\",\n)\n"
+    },
+    {
+      "page": "moving",
+      "index": 8,
+      "code": "dl.annotations(resource_id).move(\n    to_project=project_id, to_folder=\"research/2026/reviews\",\n)\n"
+    },
+    {
+      "page": "moving",
+      "index": 9,
+      "code": "dl.tasks(task_id).move(\n    to_project=project_id, to_folder=\"reviews/2026/followups\",\n)\n"
+    },
+    {
+      "page": "moving",
+      "index": 10,
+      "code": "dl.infra(stack_id).move(\n    to_project=project_id, to_folder=\"infra/production\",\n)\n"
+    },
+    {
+      "page": "moving",
+      "index": 11,
+      "code": "dl.notes(note_id).files.move(\n    file=file_id, to_folder=\"reviews/2026\", name=\"final.md\",\n)\n"
+    },
+    {
+      "page": "cli",
+      "index": 1,
+      "code": "snapshot = dl.notes(note_id).read(view=\"source\")\n# Export snapshot.content without changing its final newline.\n"
+    }
+  ]
+}
