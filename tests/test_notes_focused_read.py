@@ -11,7 +11,7 @@ import httpx
 import pytest
 
 from dreamlake.api._client import DreamLakeClient
-from dreamlake.api._notes_facade import FocusedRead, SnapshotRequired, _line_chars
+from dreamlake.api._notes_facade import FocusedRead, InvalidLineRange, SnapshotRequired, _line_chars
 from dreamlake.api.notes import NoteSnapshot
 
 NS = 'fortyfive'
@@ -29,7 +29,7 @@ def handle(text, calls=None):
             calls.append(req)
         return httpx.Response(200, json=snap(text).to_dict(), request=req)
     return DreamLakeClient(dl_url='https://example.test', token='test',
-                           transport=httpx.MockTransport(handler)).notes(f'{NS}/{ID}')
+                           transport=httpx.MockTransport(handler)).notes(ID, namespace=NS)
 
 
 def test_focused_read_is_the_same_request_as_read_with_a_distinct_result():
@@ -43,13 +43,13 @@ def test_focused_read_is_the_same_request_as_read_with_a_distinct_result():
                              'lines': [1, 1], 'chars': [0, 2], 'content': 'a\n', 'complete': False, 'next': 2}
 
 
-def test_scope_names_the_line_range_actually_covered():
-    # Contract C: a focused result carries its scope; a clamped range reports
-    # what was covered, not what was asked.
-    got = handle('a\nb\nc\n').read(lines=(2, 99))
+def test_scope_names_the_line_range_covered():
+    got = handle('a\nb\nc\n').read(lines=(2, 3))
     assert got.scope == {'lines': [2, 3]} and got.lines == (2, 3)
     assert got.to_dict()['scope'] == {'lines': [2, 3]}
     assert handle('a\nb\n').read(lines=(1, 1)).scope == {'lines': [1, 1]}
+    with pytest.raises(InvalidLineRange):
+        handle('a\nb\nc\n').read(lines=(2, 99))
 
 
 def test_hash_and_revision_are_of_the_whole_source_not_the_slice():
@@ -72,8 +72,6 @@ def test_hash_and_revision_are_of_the_whole_source_not_the_slice():
     ('abc', (1, 1), (0, 3), 'abc', None),
     # Empty lines are lines.
     ('\n\nx\n', (2, 2), (1, 2), '\n', 3),
-    # End past the last line is clamped; the result says what it covered.
-    ('a\nb\nc\n', (2, 99), (2, 6), 'b\nc\n', None),
 ])
 def test_line_to_code_point_conversion(content, lines, chars, sliced, following):
     assert content[chars[0]:chars[1]] == sliced
@@ -95,10 +93,12 @@ def test_lines_must_be_two_integers_one_based(bad):
         _line_chars('a\nb\n', bad)
 
 
-@pytest.mark.parametrize('content,start', [('a\nb\n', 3), ('', 1), ('abc', 2)])
-def test_start_past_the_last_line_is_an_error_not_an_empty_page(content, start):
-    with pytest.raises(ValueError, match='past the last line'):
-        _line_chars(content, (start, start))
+@pytest.mark.parametrize('content,lines', [('a\nb\n', (3, 3)), ('', (1, 1)), ('abc', (2, 2)), ('a\nb\nc\n', (2, 99))])
+def test_lines_past_the_end_are_refused_not_clamped(content, lines):
+    # Same rule as the CLI: a range past the end is a misread length.
+    with pytest.raises(InvalidLineRange, match='past the end') as error:
+        _line_chars(content, lines)
+    assert isinstance(error.value, ValueError) and error.value.outcome == 'invalid-usage'
 
 
 def test_focused_read_at_a_retained_revision():
@@ -112,8 +112,8 @@ def test_focused_read_cannot_be_a_whole_body_write_or_append_baseline():
     def never(req):
         raise AssertionError('no write expected')
     note = DreamLakeClient(dl_url='https://example.test', token='test',
-                           transport=httpx.MockTransport(never)).notes(f'{NS}/{ID}')
-    with pytest.raises(SnapshotRequired, match='lines 1-1'):
+                           transport=httpx.MockTransport(never)).notes(ID, namespace=NS)
+    with pytest.raises(SnapshotRequired, match='partial read'):
         note.write(text='whole\n', at=focused, mode='exact')
     with pytest.raises(SnapshotRequired):
         note.append(text='more', at=focused, mode='exact')
@@ -136,6 +136,6 @@ def test_focused_read_supports_a_targeted_patch_at_its_chars():
         return httpx.Response(200, json=dict(note=ID, mode='exact', baseRevision=REV, hash=snap('a\nB\nc\n').hash,
                                              revision='rtc:' + 'ab' * 32), request=req)
     note = DreamLakeClient(dl_url='https://example.test', token='test',
-                           transport=httpx.MockTransport(handler)).notes(f'{NS}/{ID}')
-    assert note.patch(patch=body, at=focused, mode='exact').revision == 'rtc:' + 'ab' * 32
+                           transport=httpx.MockTransport(handler)).notes(ID, namespace=NS)
+    assert note.patch(patch=body, format='inline-dff', at=focused, mode='exact').revision == 'rtc:' + 'ab' * 32
     assert note.read(at=focused).revision == REV  # a focused read also names a revision to read at

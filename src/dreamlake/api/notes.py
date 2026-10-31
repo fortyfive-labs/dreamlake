@@ -52,6 +52,7 @@ __all__ = [
     "NoteReadOnly",
     "PatchFailed",
     "CommandIdentityUnsupportedError",
+    "WriteOutcomeUnknown",
     "UncertainOutcomeError",
     "CommandInProgressError",
     "CommandIntentMismatchError",
@@ -81,11 +82,19 @@ _UNCERTAIN_TRANSPORT = (httpx.TimeoutException, httpx.NetworkError, httpx.Remote
 
 
 class NoteError(RuntimeError):
-    """Base for every failure this module raises deliberately."""
+    """Base for every failure this module raises deliberately.
+
+    ``outcome`` is the category the Notes API contract names: ``invalid-usage``
+    (refused before any request), ``no-write`` (the server definitively did
+    not write), ``unknown`` (the write may have happened; reconcile before
+    writing again) or ``operational`` (service, transport or capability).
+    """
+
+    outcome = "operational"
 
 
 class NoteNotFound(NoteError):
-    pass
+    outcome = "no-write"
 
 
 class NoteChanged(NoteError):
@@ -94,6 +103,8 @@ class NoteChanged(NoteError):
     Not a transient error: retrying the same write reproduces it. Call
     ``note.refresh()``, redo the edit against the new text, and write again.
     """
+
+    outcome = "no-write"
 
     def __init__(self, message: str, etag: str | None = None):
         super().__init__(message)
@@ -116,6 +127,8 @@ class NoteBusy(NoteError):
 class NoteReadOnly(NoteError):
     """You may read this note but not write it (HTTP 403)."""
 
+    outcome = "no-write"
+
 
 class PatchFailed(NoteError):
     """Patch source does not match its original baseline (HTTP 422).
@@ -123,6 +136,19 @@ class PatchFailed(NoteError):
     The draft and saved baseline remain available for inspection. A mismatch
     is never resolved by silently replacing the baseline with the current text.
     """
+
+    outcome = "no-write"
+
+
+class WriteOutcomeUnknown(NoteError):
+    """A write without a ``command_id`` may or may not have been applied.
+
+    Transport failed after the request was handed over, or the response was
+    not a receipt. Keep the original baseline and draft, inspect current and
+    retained source, and reconcile before writing again; nothing is replayed.
+    """
+
+    outcome = "unknown"
 
 
 class CommandIdentityUnsupportedError(NoteError):
@@ -134,6 +160,8 @@ class CommandIdentityUnsupportedError(NoteError):
     to retry under. Nothing is replayed automatically.
     """
 
+    outcome = "operational"
+
 
 class UncertainOutcomeError(NoteError):
     """The request carried a ``command_id`` and its outcome is unknown.
@@ -144,6 +172,8 @@ class UncertainOutcomeError(NoteError):
     receipt if it accepted the first attempt, or ``command_status()`` says
     what it recorded. Carries ``command_id`` for exactly that.
     """
+
+    outcome = "unknown"
 
     def __init__(self, command_id: str, what: str = "write"):
         super().__init__(
@@ -161,6 +191,8 @@ class CommandInProgressError(NoteError):
     ``command_status()`` says how the first attempt ended.
     """
 
+    outcome = "operational"
+
     def __init__(self, command_id: str):
         super().__init__(f"command {command_id!r} is still in progress; wait, then query "
                          f"command_status({command_id!r}) rather than retrying under a new id")
@@ -175,6 +207,8 @@ class CommandStatusInvalid(NoteError):
     cannot reconcile anything. The outcome stays unknown; do not write.
     """
 
+    outcome = "operational"
+
     def __init__(self, command_id: str):
         super().__init__(f"command status for {command_id!r} is not a verifiable record; "
                          "treat the outcome as still unknown and do not reconcile from it")
@@ -188,6 +222,8 @@ class CommandIntentMismatchError(NoteError):
     format and patch; this request differs. It is a new command and needs a
     new id. Nothing was written by this request.
     """
+
+    outcome = "no-write"
 
     def __init__(self, command_id: str):
         super().__init__(f"command {command_id!r} was already used with a different intent; "
@@ -926,7 +962,7 @@ class Note:
             payload["commandId"] = command_id
 
         def uncertain() -> NoteError:
-            return NoteError(unknown) if command_id is None else UncertainOutcomeError(command_id)
+            return WriteOutcomeUnknown(unknown) if command_id is None else UncertainOutcomeError(command_id)
 
         # The client and request are built outside the uncertain window: a URL
         # or header that cannot be built was never sent.
