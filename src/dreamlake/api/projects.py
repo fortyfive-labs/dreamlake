@@ -14,12 +14,12 @@ class Projects:
     def __init__(self, client):
         self.client = client
 
-    def _request(self, namespace, project, method="GET", suffix="", payload=None):
+    def _request(self, namespace, project, method="GET", suffix="", payload=None, params=None):
         if not namespace or not project:
             raise ValueError("An explicit namespace and project slug are required")
         path = "/namespaces/" + quote(namespace, safe="") + "/projects/" + quote(project, safe="") + suffix
         with self.client.http() as http:
-            response = http.request(method, path, json=payload)
+            response = http.request(method, path, json=payload, **({"params": params} if params is not None else {}))
         if not response.is_success:
             try:
                 body = response.json()
@@ -36,6 +36,22 @@ class Projects:
 
     def inspect(self, namespace, project):
         return self._request(namespace, project)
+
+    def resources(self, namespace, project, *, include_archived=False,
+                  parent=None, bindr=None, resource_type=None, search=None,
+                  page=1, page_size=50, sort=None):
+        """List project/folder resources or bindr members with server pagination.
+
+        Archived notes, folders and descendants of archived folders are hidden
+        unless include_archived=True. Bindr associations remain intact.
+        """
+        params = {"includeArchived": str(include_archived).lower(),
+                  "page": page, "pageSize": page_size}
+        for key, value in (("parent", parent), ("bindr", bindr),
+                           ("type", resource_type), ("search", search), ("sort", sort)):
+            if value is not None:
+                params[key] = value
+        return self._request(namespace, project, suffix="/resources", params=params)
 
     def grants(self, namespace, project):
         return self._request(namespace, project, suffix="/grants")

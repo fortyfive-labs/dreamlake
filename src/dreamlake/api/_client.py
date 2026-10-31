@@ -61,7 +61,7 @@ class DreamLakeClient:
         transport: "httpx.BaseTransport | None" = None,
     ):
         # Injectable so a caller — in practice a test — can serve requests
-        # without a server. Only the notes surface routes through it; the older
+        # without a server. The newer API surfaces route through it; older
         # methods still call module-level httpx directly.
         self._transport = transport
         self.dl_url = (
@@ -209,6 +209,53 @@ class DreamLakeClient:
         r.raise_for_status()
         return r.json()
 
+    def archive_folder(self, node_id: str) -> dict:
+        """Archive a folder. The server rejects other node kinds."""
+        return self._set_folder_archived(node_id, True)
+
+    def unarchive_folder(self, node_id: str) -> dict:
+        """Restore this folder and its live archived ancestors, not siblings."""
+        return self._set_folder_archived(node_id, False)
+
+    def _set_folder_archived(self, node_id: str, archived: bool) -> dict:
+        from urllib.parse import quote
+        if not node_id:
+            raise ValueError("A folder node ID is required")
+        with self.http() as http:
+            response = http.patch("/nodes/" + quote(node_id, safe=""),
+                                  json={"archived": archived})
+        response.raise_for_status()
+        return response.json()
+
+    def get_node_children(self, parent_id: str | None = None, *,
+                          namespace: str | None = None, project: str | None = None,
+                          include_archived: bool = False, search: str | None = None,
+                          recursive: bool = False, after: str | None = None,
+                          page: int = 1, page_size: int = 50,
+                          sort: str | None = None) -> dict:
+        """List folder children or project roots, retaining server paging metadata.
+
+        Archived items and descendants of archived folders are hidden by
+        default. Recursive search cursors are scoped to include_archived.
+        """
+        if not parent_id and not (namespace and project):
+            raise ValueError("Supply parent_id or both namespace and project")
+        if recursive and not search:
+            raise ValueError("Recursive search requires search")
+        params = {"includeArchived": str(include_archived).lower(),
+                  "page": page, "pageSize": page_size}
+        for key, value in (("parentId", parent_id), ("namespace", namespace),
+                           ("project", project), ("search", search),
+                           ("after", after), ("sort", sort)):
+            if value is not None:
+                params[key] = value
+        if recursive:
+            params["recursive"] = "true"
+        with self.http() as http:
+            response = http.get("/nodes/children", params=params)
+        response.raise_for_status()
+        return response.json()
+
     def get_node_download_url(self, node_id: str) -> dict:
         """GET /nodes/:id/download — returns { url, filename } (presigned S3)."""
         r = httpx.get(f"{self.dl_url}/nodes/{node_id}/download",
@@ -269,15 +316,17 @@ class DreamLakeClient:
 
     def get_node_descendants(self, node_id: str,
                              leaves_only: bool = False,
-                             kind: str | None = None) -> dict:
+                             kind: str | None = None, *,
+                             include_archived: bool = False) -> dict:
         """GET /nodes/:id/descendants — returns { root, rootPrefix, descendants, total }."""
-        params: dict = {}
+        params: dict = {"includeArchived": str(include_archived).lower()}
         if leaves_only:
             params["leavesOnly"] = "true"
         if kind:
             params["kind"] = kind
-        r = httpx.get(f"{self.dl_url}/nodes/{node_id}/descendants",
-                      params=params, headers=self._headers(), timeout=30)
+        from urllib.parse import quote
+        with self.http() as http:
+            r = http.get("/nodes/" + quote(node_id, safe="") + "/descendants", params=params)
         r.raise_for_status()
         return r.json()
 

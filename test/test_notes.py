@@ -497,6 +497,7 @@ class TestTheNamingRule:
     WHOLE = {"get_text", "read_snapshot", "text", "refresh", "sections", "read", "write", "append", "patch", "diff"}
     RANGE = {"read_lines"}
     ACCESSORS = {"files"}
+    METADATA = {"metadata", "archive", "unarchive"}
     PART = {"read_section", "write_section", "insert_section", "delete_section"}
 
     def test_every_public_method_is_on_one_side_of_the_rule(self):
@@ -505,7 +506,7 @@ class TestTheNamingRule:
             for m in dir(Note)
             if not m.startswith("_") and m not in {"id", "namespace", "etag"}
         }
-        assert public == self.WHOLE | self.PART | self.RANGE | self.ACCESSORS
+        assert public == self.WHOLE | self.PART | self.RANGE | self.ACCESSORS | self.METADATA
 
     def test_nothing_named_section_operates_on_the_whole_note(self):
         for name in self.WHOLE:
