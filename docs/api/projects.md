@@ -97,6 +97,35 @@ server responsibilities.
 See the [shared API design](https://docs.dreamlake.ai/notes/api/) for named
 argument, identity and outcome conventions across CLI, TypeScript and tools.
 
+### Create restricted from the start
+
+Use atomic creation for confidential new Projects, rather than creating a
+workspace-readable Project and restricting it afterward:
+
+```python
+project = client.projects.create(
+    namespace="acme",
+    name="Confidential research",
+    slug="confidential-research",
+    access_mode="restricted",
+    visibility="private",
+)
+project_id = project["id"]
+```
+
+The named helper accepts optional `slug` and `description`; `name` is the display
+name. `workspace` and `private` are its defaults. Before restricted creation, the
+SDK reads the Project catalog's explicit `accessPolicy` capability and requires
+API version 1, both modes and `atomicCreate: true`. An old/unsupported server gets
+no creation request, so it cannot ignore the field and expose the Project. The
+SDK then sends one POST containing the intended mode and checks the returned ID,
+slug, visibility and mode. There is no create-then-PATCH fallback.
+
+If creation returns an unconfirmed receipt, `PROJECT_CREATE_UNCONFIRMED` exposes
+`project_id` when available and `outcome="unknown"`. Preserve that ID and inspect
+the server before deciding what to do; do not create a replacement or delete it
+automatically. Existing creation paths retain their own compatibility behavior.
+
 ## Whole Project transfer
 
 Typed Artifact/Env transfer plans require SDK **0.31.0+** and a compatible
