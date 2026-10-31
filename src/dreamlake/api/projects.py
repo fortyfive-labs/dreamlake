@@ -56,6 +56,79 @@ class Projects:
     def grants(self, namespace, project):
         return self._request(namespace, project, suffix="/grants")
 
+    @staticmethod
+    def _access_target(namespace, project):
+        if any(not isinstance(value, str) or not value.strip() for value in (namespace, project)):
+            raise ValueError("An explicit namespace and project ID or slug are required")
+
+    @staticmethod
+    def _access_policy(value, namespace, project, *, mode=None, visibility=None):
+        """Do not present an unconfirmed or wrong-resource policy as success."""
+        valid = (
+            isinstance(value, dict)
+            and isinstance(value.get("projectId"), str)
+            and re.fullmatch(r"[a-fA-F0-9]{24}", value["projectId"]) is not None
+            and value.get("namespace") == namespace
+            and isinstance(value.get("projectSlug"), str)
+            and bool(value["projectSlug"])
+            and value.get("accessMode") in ("workspace", "restricted")
+            and value.get("visibility") in ("private", "public")
+            and value.get("viewerRole") in ("READ", "WRITE", "ADMIN")
+            and isinstance(value.get("manageGrants"), bool)
+            and value["manageGrants"] == (value["viewerRole"] == "ADMIN")
+        )
+        if valid:
+            expected = value["projectId"].lower() == project.lower() if re.fullmatch(r"[a-fA-F0-9]{24}", project) else value["projectSlug"] == project
+            baseline = value.get("baseline")
+            valid = (
+                expected
+                and isinstance(baseline, dict)
+                and baseline.get("namespaceOwners") == "ADMIN"
+                and "orgMembers" in baseline and baseline["orgMembers"] in ("READ", None)
+                and "public" in baseline and baseline["public"] in ("READ", None)
+                and not (value["accessMode"] == "restricted" and (
+                    value["visibility"] != "private" or baseline["orgMembers"] is not None or baseline["public"] is not None
+                ))
+                and (mode is None or value["accessMode"] == mode)
+                and (visibility is None or value["visibility"] == visibility)
+            )
+        if not valid:
+            raise ProjectAccessError(502, "INVALID_PROJECT_ACCESS_RESPONSE")
+        return value
+
+    def access(self, *, namespace, project):
+        """Read the server-authorized Project policy, by scoped ID or slug.
+
+        This is distinct from listing grants: workspace/public baseline access
+        may remain even when no explicit grant exists. Requires a compatible
+        Project-access server; an unsupported endpoint never falls back.
+        """
+        self._access_target(namespace, project)
+        value = self._request(namespace, project, suffix="/access")
+        return self._access_policy(value, namespace, project)
+
+    def set_access(self, *, namespace, project, access_mode, visibility=None):
+        """Set Project baseline policy under current ADMIN authority.
+
+        Restricted mode excludes workspace-member and public baseline access;
+        explicit user/team grants and namespace-owner authority remain. Turning
+        a public Project restricted requires explicit ``visibility="private"``
+        in the same call. Independent resource shares are unchanged. No local
+        role/permission inference and no automatic mutation retry are used.
+        """
+        self._access_target(namespace, project)
+        if access_mode not in ("workspace", "restricted"):
+            raise ValueError("access_mode must be workspace or restricted")
+        if visibility is not None and visibility not in ("private", "public"):
+            raise ValueError("visibility must be private or public")
+        if access_mode == "restricted" and visibility == "public":
+            raise ValueError("A restricted Project cannot be public")
+        payload = {"accessMode": access_mode}
+        if visibility is not None:
+            payload["visibility"] = visibility
+        value = self._request(namespace, project, "PATCH", "/access", payload)
+        return self._access_policy(value, namespace, project, mode=access_mode, visibility=visibility)
+
     def grant(self, namespace, project, role, *, user=None, team=None):
         if role not in {"READ", "WRITE", "ADMIN"} or bool(user) == bool(team):
             raise ValueError("Choose READ/WRITE/ADMIN and exactly one user or team")
