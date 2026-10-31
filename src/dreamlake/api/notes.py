@@ -254,6 +254,8 @@ class NoteRef:
     shared_by: str | None = None
     #: Which sections matched, on a search result. Empty otherwise.
     matches: tuple[SectionMatch, ...] = ()
+    #: Independent archival state; None for an active or legacy note.
+    archived_at: str | None = None
 
     def open(self, *, client: DreamLakeClient | None = None) -> "Note":
         return Note(self.id, namespace=self.namespace, client=client)
@@ -400,6 +402,31 @@ class Note:
 
     def __repr__(self) -> str:  # pragma: no cover - display only
         return f"<Note {self._ns}/{self._id}>"
+
+    def metadata(self) -> NoteRef:
+        """Read current metadata without restoring an archived note."""
+        return _ref(self._get(""), self._ns)
+
+    def _set_archived(self, archived: bool) -> NoteRef:
+        # Archive is metadata, not a body edit. Preserve the caller's original
+        # revision/draft and never attach a cached body If-Match validator.
+        with self._client.http() as http:
+            response = http.patch(self._base, json={"archived": archived})
+        _raise_for(response, f"{'archive' if archived else 'unarchive'} {self._ns}/{self._id}")
+        return _ref(response.json(), self._ns)
+
+    def archive(self) -> NoteRef:
+        """Archive without deleting or changing tags; return acknowledged metadata.
+
+        The server flushes pending edits first and may raise NoteBusy if it
+        cannot do so safely. A later saved edit restores the note and its live
+        folder paths. Failed operations do not retry or discard local drafts.
+        """
+        return self._set_archived(True)
+
+    def unarchive(self) -> NoteRef:
+        """Restore the note and its live archived folder paths."""
+        return self._set_archived(False)
 
     # ── plumbing ────────────────────────────────────────────────────────────
 
@@ -888,12 +915,20 @@ def _resolve(ref: str, client: DreamLakeClient) -> tuple[str, str]:
     # A slug. The listing is the only way to turn one into an id, and `q`
     # matches the NAME, which is not the slug — so filter locally rather than
     # trusting the server-side match to be the same thing.
-    with client.http() as http:
-        r = http.get(f"/namespaces/{_seg(ns)}/notes", params={"limit": 200})
-    _raise_for(r, f"resolve {ref}")
-    for row in r.json().get("notes", []):
-        if row.get("slug") == rest or row.get("id") == rest:
-            return ns, row["id"]
+    offset = 0
+    while True:
+        with client.http() as http:
+            r = http.get(f"/namespaces/{_seg(ns)}/notes",
+                         params={"limit": 200, "offset": offset, "includeArchived": "true"})
+        _raise_for(r, f"resolve {ref}")
+        data = r.json()
+        rows = data.get("notes", [])
+        for row in rows:
+            if row.get("slug") == rest or row.get("id") == rest:
+                return ns, row["id"]
+        offset += len(rows)
+        if not rows or offset >= data.get("total", offset):
+            break
     raise NoteNotFound(f"no note {rest!r} in namespace {ns!r}")
 
 
@@ -945,9 +980,10 @@ def list_notes(
     *,
     limit: int = 50,
     offset: int = 0,
+    include_archived: bool = False,
     client: DreamLakeClient | None = None,
 ) -> list[NoteRef]:
-    """Every note in a namespace you can see.
+    """Active notes in a namespace; include_archived also returns archived notes.
 
     `namespace` is required and has no default. A personal namespace and an
     organization's are different places holding different notes, and guessing
@@ -959,7 +995,7 @@ def list_notes(
     with c.http() as http:
         r = http.get(
             f"/namespaces/{_seg(namespace)}/notes",
-            params={"limit": limit, "offset": offset},
+            params={"limit": limit, "offset": offset, "includeArchived": str(include_archived).lower()},
         )
     _raise_for(r, f"list notes in {namespace}")
     return [_ref(row, namespace) for row in r.json().get("notes", [])]
@@ -970,11 +1006,12 @@ def search_notes(
     *,
     namespace: str,
     limit: int = 50,
+    include_archived: bool = False,
     client: DreamLakeClient | None = None,
 ) -> list[NoteRef]:
     """Notes in one namespace whose title or body contains `query`.
 
-    Case-insensitive.
+    Case-insensitive. Archived notes are excluded unless include_archived=True.
 
     Substring matching, so a phrase inside a note finds it and a fragment of a
     word or an identifier works too. CJK is matched the same way as anything
@@ -1000,7 +1037,7 @@ def search_notes(
     with c.http() as http:
         r = http.get(
             f"/namespaces/{_seg(namespace)}/notes",
-            params={"q": query, "limit": limit},
+            params={"q": query, "limit": limit, "includeArchived": str(include_archived).lower()},
         )
     _raise_for(r, f"search notes in {namespace}")
     return [_ref(row, namespace) for row in r.json().get("notes", [])]
@@ -1018,6 +1055,7 @@ def grep_notes(
     context: int = 0,
     limit: int = 50,
     cursor: str | None = None,
+    include_archived: bool = False,
     client: DreamLakeClient | None = None,
 ) -> GrepResult:
     """Search note bodies and get the location of every hit.
@@ -1043,12 +1081,16 @@ def grep_notes(
     written deliberately. ``flags`` takes any of i, m, s, u; "g" is refused,
     since whether all matches are wanted is decided by this call.
 
+    Archived notes are excluded unless ``include_archived=True``. Keep that
+    value unchanged when continuing a cursor.
+
     ``limit`` is a number of HITS, and pages are followed to reach it. Read
     ``.truncated`` and ``.partial_notes`` before concluding you have seen every
     occurrence.
     """
     c = client or get_client()
-    params: dict[str, Any] = {"limit": min(limit, 200), "context": context}
+    params: dict[str, Any] = {"limit": min(limit, 200), "context": context,
+                              "includeArchived": str(include_archived).lower()}
     if query is not None:
         params["q"] = query
     if regex is not None:
@@ -1120,11 +1162,11 @@ def grep_notes(
     )
 
 
-def shared_with_me(*, client: DreamLakeClient | None = None) -> list[NoteRef]:
-    """Notes other people shared with you, across namespaces."""
+def shared_with_me(*, include_archived: bool = False, client: DreamLakeClient | None = None) -> list[NoteRef]:
+    """Active notes shared with you; include_archived also returns archived notes."""
     c = client or get_client()
     with c.http() as http:
-        r = http.get("/me/notes/shared")
+        r = http.get("/me/notes/shared", params={"includeArchived": str(include_archived).lower()})
     _raise_for(r, "list shared notes")
     out = []
     for row in r.json().get("notes", []):
@@ -1140,6 +1182,7 @@ def _ref(row: dict[str, Any], namespace: str, shared_by: str | None = None) -> N
         name=row.get("name", ""),
         slug=row.get("slug", ""),
         updated_at=row.get("updatedAt"),
+        archived_at=row.get("archivedAt"),
         shared_by=shared_by,
         matches=tuple(
             SectionMatch(

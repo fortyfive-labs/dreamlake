@@ -1,5 +1,16 @@
 # Release notes
 
+## 0.33.0 — Note and folder archival
+
+Notes gain `archive()`, `unarchive()`, `metadata()` and nullable `NoteRef.archived_at`.
+Catalog, grep and shared-note listings accept `include_archived`; archived notes
+remain addressable by slug, including beyond the first catalog page. Folder
+archive/restore, child/descendant listings and project/bindr resource listings are exposed
+through `DreamLakeClient`. Saved edits restore the item and its live folder
+paths on the server while independently archived siblings remain archived.
+Archive requests preserve local editing baselines and remain distinct from
+tags and deletion. See [Archive notes and folders](note-archive.md).
+
 ## 0.32.1: VideoAnnotation previews play each frame at its own time
 
 The VideoAnnotation playback encode used x264's default B-frames. The muxer
