@@ -552,6 +552,13 @@ class NoteHandle:
         if isinstance(value, MappedRead):
             value = NoteSnapshot(note=value.note, content=value.content, hash=value.hash, revision=value.revision)
         if isinstance(value, Mapping):
+            # A serialized read result keeps its completeness: to_dict() of a
+            # focused or scoped read says complete=False / a non-article scope,
+            # and that is refused exactly like the object would be.
+            scope = value.get("scope")
+            if value.get("complete") is False or (isinstance(scope, Mapping) and not scope.get("article")):
+                raise SnapshotRequired(f"{name} is a serialized partial read ({scope}); append and write need the complete "
+                                       "snapshot from read() or a complete mapped read")
             try:
                 value = NoteSnapshot(note=value["note"], content=value["content"],
                                      hash=value["hash"], revision=value["revision"])

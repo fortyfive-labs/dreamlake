@@ -509,3 +509,28 @@ def test_create_validates_the_source_before_the_note_exists():
     for bad in ('\ud800', 'a' * 1_000_001):
         with pytest.raises(NotePatchError):
             client(never).notes.create(namespace=NS, text=bad)
+
+
+# ── serialized partial reads ─────────────────────────────────────────────────
+
+def test_serialized_partial_reads_cannot_become_whole_body_baselines():
+    # Regression: to_dict() round-tripped into a NoteSnapshot and bypassed the guard.
+    source = 'a\nb\nc\n'
+    focused = FocusedRead(note=ID, hash=snap(source).hash, revision=REV, scope={'lines': [1, 1]}, lines=(1, 1), chars=(0, 2), content='a\n')
+    part = MappedRead(note=ID, hash=snap(source).hash, revision=REV, scope={'lines': [1, 1]}, chars=(0, 2), content='a\n',
+                      source_type='markdown', elements=(), complete=False)
+    section = MappedRead(note=ID, hash=snap(source).hash, revision=REV, scope={'section': 's1'}, chars=(0, 2), content='a\n',
+                         source_type='markdown', elements=(), complete=False)
+    for serialized in (focused.to_dict(), part.to_dict(), section.to_dict()):
+        assert serialized['complete'] is False and 'scope' in serialized
+        with pytest.raises(SnapshotRequired, match='serialized partial read'):
+            client(never).notes(ID, namespace=NS).write(text='whole\n', at=serialized, mode='exact')
+        with pytest.raises(SnapshotRequired):
+            client(never).notes(ID, namespace=NS).append(text='more', at=serialized)
+    complete = MappedRead(note=ID, hash=snap(source).hash, revision=REV, scope={'article': True}, chars=(0, 6), content=source,
+                          source_type='markdown', elements=(), complete=True)
+    def handler(req):
+        assert json.loads(req.content)['patch'].startswith('@@ chars 6:6 @@')
+        return ack(req)
+    assert complete.to_dict()['complete'] is True
+    client(handler).notes(ID, namespace=NS).append(text='d\n', at=complete.to_dict())
