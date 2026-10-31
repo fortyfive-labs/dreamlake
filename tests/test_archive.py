@@ -21,7 +21,7 @@ def test_archive_is_metadata_only_and_preserves_original_edit_baseline():
     calls = []
     def handler(req):
         calls.append(req)
-        assert req.url.path == f"/namespaces/ns/notes/{NOTE}"
+        assert req.url.path == (f"/notes/{NOTE}" if req.method == "GET" else f"/namespaces/ns/notes/{NOTE}")
         assert "if-match" not in req.headers
         archived = json.loads(req.content)["archived"] if req.method == "PATCH" else True
         return httpx.Response(200, json={"id": NOTE, "slug": "draft", "archivedAt": STAMP if archived else None})
