@@ -411,3 +411,28 @@ def test_complete_mapped_read_decides_unknown_addresses_without_another_request(
     with pytest.raises(SelectionError, match='outside the mapping'):
         note.replace(address='s9.p9', text='x', at=mapped)
     assert [r.method for r in calls] == ['GET']
+
+
+# ── outline heading levels ───────────────────────────────────────────────────
+
+@pytest.mark.parametrize('source,tag,level', [
+    ('# A', None, 1), ('  ## B', None, 2), ('   ### C', None, 3), ('###### F', None, 6),
+    ('    # code block', None, 0), ('#NoSpace', None, 0), ('####### seven', None, 0),
+    ('Title\n=====', None, 1), ('Title\n---', None, 2), ('Title\n- not an underline', None, 0),
+    ('whatever', 'h3', 3), ('', 'H2', 2), ('# A', 'h4', 4),
+])
+def test_heading_level_from_tag_or_markdown(source, tag, level):
+    from dreamlake.api._notes_facade import _heading_level
+    assert _heading_level(source, tag) == level
+
+
+def test_outline_levels_for_setext_indented_and_html_headings():
+    toc = [{'id': 's1', 'data-char': '0:11', 'data-lines': '1:2', 'data-section-id': 's1', 'data-source': 'Title\n====='},
+           {'id': 's1.1', 'data-char': '13:21', 'data-lines': '4:4', 'data-section-id': 's1.1', 'data-source': '  ## Sub'}]
+    got = handle(serve([], html=html_snapshot('', toc, full_hash=sha(SRC), scope='toc', start=0, end=0))).outline()
+    assert [(e.address, e.level) for e in got.entries] == [('s1', 1), ('s1.1', 2)]
+    html = html_snapshot('', [], source_type='html', literal=False, full_hash=sha('<h2>Hello</h2>'), scope='toc', start=0, end=0,
+                         body='<h2 id="s1" data-char="0:14" data-lines="1:1" data-section-id="s1">Hello <em>there</em></h2>'
+                              '<h4 id="s1.1" data-char="15:30" data-lines="2:2">Deep</h4>')
+    got = handle(serve([], html=html)).outline()
+    assert [(e.address, e.title, e.level) for e in got.entries] == [('s1', 'Hello there', 2), ('s1.1', 'Deep', 4)]

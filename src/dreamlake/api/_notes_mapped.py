@@ -28,7 +28,9 @@ _ATTR = re.compile(r'\s+([a-zA-Z][a-zA-Z0-9-]*)="([^"]*)"')
 _ENTITY = re.compile(r"&(?:amp|lt|gt|quot|apos|#\d+|#[xX][\da-fA-F]+);")
 _BARE_AMP = re.compile(r"&(?!(?:amp|lt|gt|quot|apos|#\d+|#[xX][\da-fA-F]+);)")
 _SECTION_ID = re.compile(r"^s[1-9]\d*(?:\.[1-9]\d*)*$")
-_BLOCK_TAG = re.compile(r"<(?:h[1-6]|p|ul|ol|li)\b([^>]*)>")
+_BLOCK_TAG = re.compile(r"<(h[1-6]|p|ul|ol|li)\b([^>]*)>", re.IGNORECASE)
+_HEADING = re.compile(r"<(h[1-6])\b([^>]*)>(.*?)</\1\s*>", re.IGNORECASE | re.DOTALL)
+_TAGS = re.compile(r"<[^>]*>")
 _HASH = re.compile(r"sha256:[a-f0-9]{64}")
 _NAMED = {"&amp;": "&", "&lt;": "<", "&gt;": ">", "&quot;": '"', "&apos;": "'"}
 
@@ -142,9 +144,18 @@ def parse_html_snapshot(html: str, note: str, *, section: str | None = None, tag
         addresses = tuple({str(k): str(v) for k, v in a.items()} for a in raw_addresses)
     else:
         # An HTML-sourced note has no literal-Markdown address table; the body's
-        # block elements carry the same id/data-char/data-lines attributes.
-        addresses = tuple(a for a in (_attributes(m.group(1), strict=False) for m in _BLOCK_TAG.finditer(html))
-                          if "id" in a and "data-char" in a)
+        # block elements carry the same id/data-char/data-lines attributes. The
+        # tag is kept (heading level) and a heading's text stands in for its source.
+        texts = {m.group(2): _TAGS.sub("", m.group(3)) for m in _HEADING.finditer(html)}
+        found = []
+        for match in _BLOCK_TAG.finditer(html):
+            attributes_ = _attributes(match.group(2), strict=False)
+            if "id" in attributes_ and "data-char" in attributes_:
+                attributes_["tag"] = match.group(1).lower()
+                if match.group(1).lower().startswith("h") and match.group(2) in texts:
+                    attributes_.setdefault("data-source", texts[match.group(2)])
+                found.append(attributes_)
+        addresses = tuple(found)
     return HtmlSnapshot(note=note, hash=hash_, revision=revision, source_type=attributes["data-source-type"],
                         source=source, start=start, end=end, scope=returned_scope or "article",
                         target_id=attributes.get("data-target-id"), section_id=attributes.get("data-section-id"),

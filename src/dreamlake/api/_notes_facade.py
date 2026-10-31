@@ -255,6 +255,32 @@ def _line_chars(content: str, lines: Any) -> tuple[tuple[int, int], tuple[int, i
     return (first, last), (starts[first - 1], end), (last + 1 if last < total else None)
 
 
+_ATX = re.compile(r"^ {0,3}(#{1,6})(?:[ \t]|$)")
+
+
+def _heading_level(source: str, tag: str | None) -> int:
+    """Heading level from the mapped element's tag, else from its Markdown source.
+
+    ``h1``..``h6`` win when the mapping names the element. Otherwise ATX
+    headings allow up to three leading spaces and need a space (or end)
+    after the hashes; a setext underline of ``=`` is level 1, of ``-`` level
+    2. Anything else is 0: not a heading the parser recognizes.
+    """
+    if isinstance(tag, str) and re.fullmatch(r"[hH][1-6]", tag):
+        return int(tag[1])
+    match = _ATX.match(source)
+    if match:
+        return len(match.group(1))
+    lines = source.rstrip("\r\n").split("\n")
+    if len(lines) >= 2:
+        underline = lines[-1].strip()
+        if underline and set(underline) == {"="}:
+            return 1
+        if underline and set(underline) == {"-"}:
+            return 2
+    return 0
+
+
 def _chars(raw: str | None) -> tuple[int, int]:
     try:
         start, end = (int(v) for v in (raw or "").split(":"))
@@ -679,7 +705,7 @@ class NoteHandle:
             if not address.get("id"):
                 continue
             title = address.get("data-source", "")
-            level = len(title) - len(title.lstrip("#")) if page.source_type == _MARKDOWN else 0
+            level = _heading_level(title, address.get("tag"))
             entries.append(OutlineEntry(address=address["id"], title=title, level=level,
                                         chars=_chars(address.get("data-char")), lines=_chars(address.get("data-lines")),
                                         section=address.get("data-section-id")))
