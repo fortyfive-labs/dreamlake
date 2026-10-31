@@ -27,6 +27,7 @@ Python SDK for ML experiment tracking and data storage.
    logging
    parameters
    tracks
+   native-experiments
    files
    cli
    hosts
