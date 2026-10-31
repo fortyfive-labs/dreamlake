@@ -378,3 +378,36 @@ def test_remove_deletes_exactly_the_span_with_canonical_escaping():
     assert patches[0] == {'format': 'inline-dff', 'patch': '@@ chars 30:52 @@\n~ [-\\- item one\\n\\- item two\\n-]\n',
                           'baseRevision': REV, 'mode': 'merge'}
     assert patches[1]['patch'] == '@@ chars 41:51 @@\n~ [-\\- item two-]\n' and patches[1]['commandId'] == 'cmd-conformance-0001'
+
+
+# ── partial baselines and addresses ──────────────────────────────────────────
+
+def test_address_outside_a_partial_mapped_read_is_refused_not_resolved_from_the_whole_note():
+    # Regression: lines 7-8 observed chars 30:52, yet remove(address="s1.p1")
+    # fetched the whole mapping and deleted chars 9:20.
+    calls = []
+    note = handle(serve(calls))
+    part = note.read(view='mapped', lines=(7, 8))
+    with pytest.raises(SelectionError, match='outside the partial read'):
+        note.remove(address='s1.p1', at=part)
+    with pytest.raises(SelectionError, match='outside the partial read'):
+        note.insert(after='s1.p1', text='x', at=part)
+    assert [r.method for r in calls] == ['GET']  # the read itself; no second mapping, no PATCH
+    note.remove(address='s1.1.l1.i2', at=part)   # inside the observed span: fine
+    assert sent(calls)[-1]['patch'] == '@@ chars 41:51 @@\n~ [-\\- item two-]\n'
+
+
+def test_focused_line_read_cannot_baseline_an_address_edit():
+    focused = FocusedRead(note=ID, hash=sha(SRC), revision=REV, scope={'lines': [7, 8]}, lines=(7, 8), chars=(30, 52),
+                          content='- item one\n- item two\n')
+    with pytest.raises(SelectionError, match='line-scoped'):
+        handle(never).replace(address='s1.1.l1.i2', text='x', at=focused)
+
+
+def test_complete_mapped_read_decides_unknown_addresses_without_another_request():
+    calls = []
+    note = handle(serve(calls))
+    mapped = note.read(view='mapped')
+    with pytest.raises(SelectionError, match='outside the mapping'):
+        note.replace(address='s9.p9', text='x', at=mapped)
+    assert [r.method for r in calls] == ['GET']

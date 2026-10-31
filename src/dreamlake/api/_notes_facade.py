@@ -776,10 +776,19 @@ class NoteHandle:
         """Absolute span and exact source of an observed address at the baseline's revision."""
         if not isinstance(address, str) or not address:
             raise ValueError("address must be a nonempty observed address")
-        element = baseline.element(address) if isinstance(baseline, MappedRead) else None
-        if element is not None and baseline.chars[0] <= element.chars[0] and element.chars[1] <= baseline.chars[1]:
-            offset = baseline.chars[0]
-            return element.chars, baseline.content[element.chars[0] - offset:element.chars[1] - offset]
+        if isinstance(baseline, MappedRead):
+            element = baseline.element(address)
+            if element is not None and baseline.chars[0] <= element.chars[0] and element.chars[1] <= baseline.chars[1]:
+                offset = baseline.chars[0]
+                return element.chars, baseline.content[element.chars[0] - offset:element.chars[1] - offset]
+            # Same containment rule as lines and cursor: a partial read can
+            # only baseline edits inside what it observed. Only a complete
+            # mapping may say an address does not exist at this revision.
+            raise SelectionError(f"address {address!r} is outside the {'partial read' if not baseline.complete else 'mapping'} "
+                                 f"observed at revision {baseline.revision} ({baseline.scope})")
+        if isinstance(baseline, FocusedRead):
+            raise SelectionError(f"address {address!r} cannot be resolved against a line-scoped read {baseline.scope}; "
+                                 "use a mapped read (view='mapped') as the baseline")
         page = self._mapped(at=baseline.revision)
         element = next((e for e in self._elements(page) if e.address == address), None)
         if element is None:
