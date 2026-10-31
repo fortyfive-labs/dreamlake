@@ -11,8 +11,15 @@ import httpx
 import pytest
 
 from dreamlake.api._client import DreamLakeClient
-from dreamlake.api._notes_facade import MappedRead, Roster, SavedVersion, VersionPage, VisitReceipt
+from dreamlake.api._notes_facade import AgentIdentityRequired, MappedRead, Roster, SavedVersion, VersionPage, VisitReceipt
 from dreamlake.api.notes import NoteError, NoteRef, NoteSnapshot
+
+
+@pytest.fixture(autouse=True)
+def agent_identity(monkeypatch):
+    # visit is attributed; the CLI's `notes visit` reads the same variables.
+    monkeypatch.setenv('DREAMLAKE_AGENT_ID', 'review-session-42')
+    monkeypatch.delenv('DREAMLAKE_AGENT_NAME', raising=False)
 
 NS = 'fortyfive'
 ID = '6ae3f318608512b4ba34860c'
@@ -181,3 +188,32 @@ def test_visit_rules_and_unacknowledged_location():
         return httpx.Response(200, json={'state': state}, request=req)
     with pytest.raises(NoteError, match='acknowledge'):
         handle(handler).visit(cursor=0, at=snap('x'))
+
+
+# ── visit attribution ────────────────────────────────────────────────────────
+
+def test_visit_sends_the_agent_identity_headers_the_cli_sends(monkeypatch):
+    # Regression: the attribution hook skipped /presence, so the server
+    # answered 400 agent_identity_required.
+    monkeypatch.setenv('DREAMLAKE_AGENT_NAME', 'Codex')
+    seen = []
+    def handler(req):
+        seen.append(req)
+        if req.method == 'GET':
+            return httpx.Response(200, json={'participants': [], 'observedAt': 1}, request=req)
+        return httpx.Response(200, json={'state': {'expiresAt': 1}}, request=req)
+    handle(handler).visit(intent='Reviewing')
+    (req,) = seen
+    assert req.headers['x-dreamlake-agent-id'] == 'review-session-42' and req.headers['x-dreamlake-agent-name'] == 'Codex'
+    handle(handler).presence()
+    assert seen[-1].headers['x-dreamlake-agent-id'] == 'review-session-42'
+
+
+def test_visit_without_an_agent_identity_is_refused_before_any_request(monkeypatch):
+    monkeypatch.delenv('DREAMLAKE_AGENT_ID')
+    with pytest.raises(AgentIdentityRequired) as error:
+        handle(never).visit(intent='Reviewing')
+    assert error.value.outcome == 'invalid-usage' and isinstance(error.value, ValueError)
+    monkeypatch.setenv('DREAMLAKE_AGENT_ID', '')
+    with pytest.raises(AgentIdentityRequired):
+        handle(never).visit()

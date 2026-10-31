@@ -72,6 +72,7 @@ from .api import (
     shared_with_me,
 )
 from .api._notes_facade import (
+    AgentIdentityRequired,
     DiffResult,
     FindResult,
     FocusedRead,

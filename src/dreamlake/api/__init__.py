@@ -53,6 +53,7 @@ from .notes import (
 # The callable facade. The module-level `notes` object is exported from the
 # top-level package only: here it would shadow the `dreamlake.api.notes` module.
 from ._notes_facade import (
+    AgentIdentityRequired,
     DiffResult,
     FindResult,
     FocusedRead,
@@ -106,6 +107,7 @@ __all__ = [
     "search_notes",
     "shared_with_me",
     "Notes",
+    "AgentIdentityRequired",
     "DiffResult",
     "FindResult",
     "FocusedRead",

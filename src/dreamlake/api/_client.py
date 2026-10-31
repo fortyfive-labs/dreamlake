@@ -131,7 +131,7 @@ class DreamLakeClient:
         base = httpx.URL(self.dl_url)
         if (request.url.scheme, request.url.host, request.url.port) != (base.scheme, base.host, base.port):
             return
-        if not re.match(r"^/namespaces/[^/]+/notes/[^/]+/(body|diff|sections)(/|$)", request.url.path):
+        if not re.match(r"^/namespaces/[^/]+/notes/[^/]+/(body|diff|sections|presence)(/|$)", request.url.path):
             return
         agent_id = os.getenv("DREAMLAKE_AGENT_ID")
         if not agent_id:

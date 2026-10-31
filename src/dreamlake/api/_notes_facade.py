@@ -34,6 +34,7 @@ an accepted or no-op write is a receipt whose ``outcome`` is ``accepted`` or
 from __future__ import annotations
 
 import hashlib
+import os
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -68,6 +69,7 @@ __all__ = [
     "FindResult",
     "FocusedRead",
     "FoundMatch",
+    "AgentIdentityRequired",
     "InvalidLineRange",
     "MappedElement",
     "MappedRead",
@@ -149,6 +151,19 @@ class SelectionError(NoteError, ValueError):
     An address that was not observed at that revision, lines outside a
     focused read, or a cursor outside the source: nothing was edited, and
     nothing is re-resolved against newer source.
+    """
+
+    outcome = "invalid-usage"
+
+
+class AgentIdentityRequired(NoteError, ValueError):
+    """``visit`` needs a stable agent identity, and none is configured.
+
+    Presence is attributed: the server refuses an unidentified visit
+    (``agent_identity_required``). Set ``DREAMLAKE_AGENT_ID`` to a stable
+    task-session id (and optionally ``DREAMLAKE_AGENT_NAME``) — the same
+    variables the CLI's ``notes visit`` reads — and the client attaches the
+    ``X-DreamLake-Agent-Id``/``-Name`` headers to the presence request.
     """
 
     outcome = "invalid-usage"
@@ -956,8 +971,12 @@ class NoteHandle:
         ``intent`` is a short purpose (1–280 characters). At most one of
         ``address`` or ``cursor`` locates the visit, and a location needs its
         original source baseline ``at`` (a read result; its hash binds the
-        range). A visit changes awareness, never source.
+        range). A visit changes awareness, never source. It is attributed:
+        ``DREAMLAKE_AGENT_ID`` must be set (``AgentIdentityRequired`` otherwise).
         """
+        if not os.getenv("DREAMLAKE_AGENT_ID"):
+            raise AgentIdentityRequired("visit needs DREAMLAKE_AGENT_ID set to a stable task-session id; "
+                                        "nothing was sent")
         summary = None
         if intent is not None:
             summary = intent.strip() if isinstance(intent, str) else ""
