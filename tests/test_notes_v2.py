@@ -143,6 +143,7 @@ def test_legacy_patch_retains_string_result_and_cached_guard():
 @pytest.mark.parametrize('source,addition,escaped', [
     ('😀x', 'a{b}[c]\\\r\n', r'\na\{b\}\[c\]\\\r\n'),
     ('a\r\n', 'b', 'b'), ('', '', ''), ('a', '', r'\n'),
+    ('x\n', '- item +1', r'\- item \+1'),
 ])
 def test_append_saved_original_single_patch(source, addition, escaped):
     original = NoteSnapshot(NOTE, source, 'sha256:' + hashlib.sha256(source.encode()).hexdigest(), BASE)
@@ -282,6 +283,19 @@ def test_snapshot_explicitly_disables_redirects_even_for_following_client():
     with pytest.raises(NoteError, match='unexpected snapshot response'):
         Note(NOTE, namespace='ns', client=FollowingClient()).read_snapshot(at=BASE)
     assert len(requests) == 1
+
+
+def test_delimiter_punctuation_is_escaped_like_the_cli():
+    # Parity: the CLI's inlineLiteral and the server's canonical form escape
+    # `+` and `-` too, so "- item" is `\- item` on the wire in every client.
+    patches = []
+    def handler(req):
+        patches.append(json.loads(req.content)['patch'])
+        return response(req, dict(note=NOTE, mode='merge', baseRevision=BASE, hash=HASH, revision=CURRENT))
+    note = Note(NOTE, namespace='ns', client=client(handler))
+    note.append('- item\n+ more', at=NoteSnapshot(NOTE, 'a\n', 'sha256:' + hashlib.sha256(b'a\n').hexdigest(), BASE))
+    note.write('a-b', at=NoteSnapshot(NOTE, 'a', 'sha256:' + hashlib.sha256(b'a').hexdigest(), BASE))
+    assert patches == ['@@ chars 2:2 @@\n~ {+\\- item\\n\\+ more+}\n', '@@ chars 1:1 @@\n~ {+\\-b+}\n']
 
 
 def test_append_escapes_literal_tab_in_native_record():

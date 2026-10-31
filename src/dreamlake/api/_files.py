@@ -272,6 +272,36 @@ class NoteFiles:
     def __iter__(self) -> Iterator[NoteFile]:
         return iter(self.list())
 
+    def move(
+        self,
+        *,
+        file: str,
+        to_folder: str | None = None,
+        name: str | None = None,
+        overwrite: bool = False,
+        if_match: str | None = None,
+    ) -> NoteFile:
+        """Move and/or rename one attachment within this note's file tree.
+
+        ``to_folder`` is relative to the note's tree; ``name`` is the new
+        basename. Omitted parts keep their current value. The file id and
+        bytes are retained; a destination collision fails unless ``overwrite``.
+        Cross-note moves are a separate capability and are not inferred here.
+        """
+        if to_folder is None and name is None:
+            raise ValueError("give to_folder, name or both")
+        if name is not None and (not isinstance(name, str) or not name or "/" in name):
+            raise ValueError("name must be a single path component")
+        current = self.get(file)
+        folder, _, base = current.path.rpartition("/")
+        if to_folder is not None:
+            if not isinstance(to_folder, str):
+                raise ValueError("to_folder must be a string path relative to the note")
+            folder = to_folder.strip("/")
+        if name is not None:
+            base = name
+        return current.move(f"{folder}/{base}" if folder else base, overwrite=overwrite, if_match=if_match)
+
     def get(self, file_id: str) -> NoteFile:
         """One file's metadata, by id. Works for a trashed file too."""
         return _view(self._get(f"/{file_id}"), self)

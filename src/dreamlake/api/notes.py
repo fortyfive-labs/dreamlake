@@ -1,5 +1,9 @@
 """Collaborative Notes reads and edits.
 
+The agreed cross-client syntax is the callable facade in ``_notes_facade``:
+``dl.notes("ns/note-id").read()`` / ``.append(text=, at=, mode=)`` and
+``dl.notes.list(namespace=)``. It adapts the methods below without replacing them.
+
 ``read_snapshot()`` returns exact v2 source, content hash, and the original RTC
 revision. ``patch(..., base_revision=snapshot.revision)`` validates that saved
 source and maps changes to its original RTC identities through ordinary CRDT
@@ -47,6 +51,13 @@ __all__ = [
     "NoteBusy",
     "NoteReadOnly",
     "PatchFailed",
+    "CommandIdentityUnsupportedError",
+    "WriteOutcomeUnknown",
+    "UncertainOutcomeError",
+    "CommandInProgressError",
+    "CommandIntentMismatchError",
+    "CommandStatusInvalid",
+    "CommandStatus",
     "note",
     "search_notes",
     "list_notes",
@@ -55,17 +66,35 @@ __all__ = [
 ]
 
 _OBJECT_ID = re.compile(r"^[a-f0-9]{24}$", re.I)
+# Caller-stable command identity for v2 body mutations (Phase 1 contract A).
+_COMMAND_ID = re.compile(r"[A-Za-z0-9._:-]{8,128}")
+_OUTCOMES = ("accepted", "no-write")
+_COMMAND_STATES = ("pending", "accepted", "no-write", "unknown")
+_RTC_REVISION = re.compile(r"rtc:[a-f0-9]{64}")
+# Transport errors raised once a connection was attempted: the request may have
+# reached the server. httpx raises UnsupportedProtocol and LocalProtocolError
+# before any connection, and InvalidURL while building the URL; those are
+# deterministic and are never an unknown outcome.
+_UNCERTAIN_TRANSPORT = (httpx.TimeoutException, httpx.NetworkError, httpx.RemoteProtocolError, httpx.ProxyError)
 
 
 # ── Errors ───────────────────────────────────────────────────────────────────
 
 
 class NoteError(RuntimeError):
-    """Base for every failure this module raises deliberately."""
+    """Base for every failure this module raises deliberately.
+
+    ``outcome`` is the category the Notes API contract names: ``invalid-usage``
+    (refused before any request), ``no-write`` (the server definitively did
+    not write), ``unknown`` (the write may have happened; reconcile before
+    writing again) or ``operational`` (service, transport or capability).
+    """
+
+    outcome = "operational"
 
 
 class NoteNotFound(NoteError):
-    pass
+    outcome = "no-write"
 
 
 class NoteChanged(NoteError):
@@ -74,6 +103,8 @@ class NoteChanged(NoteError):
     Not a transient error: retrying the same write reproduces it. Call
     ``note.refresh()``, redo the edit against the new text, and write again.
     """
+
+    outcome = "no-write"
 
     def __init__(self, message: str, etag: str | None = None):
         super().__init__(message)
@@ -96,6 +127,8 @@ class NoteBusy(NoteError):
 class NoteReadOnly(NoteError):
     """You may read this note but not write it (HTTP 403)."""
 
+    outcome = "no-write"
+
 
 class PatchFailed(NoteError):
     """Patch source does not match its original baseline (HTTP 422).
@@ -103,6 +136,99 @@ class PatchFailed(NoteError):
     The draft and saved baseline remain available for inspection. A mismatch
     is never resolved by silently replacing the baseline with the current text.
     """
+
+    outcome = "no-write"
+
+
+class WriteOutcomeUnknown(NoteError):
+    """A write without a ``command_id`` may or may not have been applied.
+
+    Transport failed after the request was handed over, or the response was
+    not a receipt. Keep the original baseline and draft, inspect current and
+    retained source, and reconcile before writing again; nothing is replayed.
+    """
+
+    outcome = "unknown"
+
+
+class CommandIdentityUnsupportedError(NoteError):
+    """A ``command_id`` was sent but the receipt did not echo it.
+
+    Capability detection is the echo: a server that recorded the command
+    returns ``commandId``. One that did not is older than this contract, and
+    the write may still have been applied — there is just no durable identity
+    to retry under. Nothing is replayed automatically.
+    """
+
+    outcome = "operational"
+
+
+class UncertainOutcomeError(NoteError):
+    """The request carried a ``command_id`` and its outcome is unknown.
+
+    The transport raised after the request was handed to it, the response was
+    not a receipt, or the server itself reported ``command_outcome_unknown``.
+    The same ``command_id`` is safe to resend: the server returns the stored
+    receipt if it accepted the first attempt, or ``command_status()`` says
+    what it recorded. Carries ``command_id`` for exactly that.
+    """
+
+    outcome = "unknown"
+
+    def __init__(self, command_id: str, what: str = "write"):
+        super().__init__(
+            f"{what} outcome unknown for command {command_id!r}; retry with the same "
+            f"command_id or query command_status({command_id!r}) before any other write"
+        )
+        self.command_id = command_id
+
+
+class CommandInProgressError(NoteError):
+    """HTTP 409 ``command_in_progress``: this ``command_id`` is still being executed.
+
+    Another attempt with the same id holds the pending record. Not a reason
+    to pick a new id — that would be a second write. Wait, then
+    ``command_status()`` says how the first attempt ended.
+    """
+
+    outcome = "operational"
+
+    def __init__(self, command_id: str):
+        super().__init__(f"command {command_id!r} is still in progress; wait, then query "
+                         f"command_status({command_id!r}) rather than retrying under a new id")
+        self.command_id = command_id
+
+
+class CommandStatusInvalid(NoteError):
+    """The command status response is not a verifiable record for this id.
+
+    A stored receipt that names another command, a revision that is not
+    ``rtc:`` + 64 hex, an unknown mode or state, or a non-``rtc:`` baseline
+    cannot reconcile anything. The outcome stays unknown; do not write.
+    """
+
+    outcome = "operational"
+
+    def __init__(self, command_id: str):
+        super().__init__(f"command status for {command_id!r} is not a verifiable record; "
+                         "treat the outcome as still unknown and do not reconcile from it")
+        self.command_id = command_id
+
+
+class CommandIntentMismatchError(NoteError):
+    """HTTP 409 ``command_intent_mismatch``: the id was already used for a different intent.
+
+    The server bound ``command_id`` to a fingerprint of note, baseline, mode,
+    format and patch; this request differs. It is a new command and needs a
+    new id. Nothing was written by this request.
+    """
+
+    outcome = "no-write"
+
+    def __init__(self, command_id: str):
+        super().__init__(f"command {command_id!r} was already used with a different intent; "
+                         "this is a new command and needs a new command_id")
+        self.command_id = command_id
 
 
 # ── Values ───────────────────────────────────────────────────────────────────
@@ -123,18 +249,55 @@ class NoteSnapshot:
 
 @dataclass(frozen=True)
 class PatchReceipt:
-    """V2 patch acknowledgment; content hash and RTC revision are distinct."""
+    """V2 patch acknowledgment; content hash and RTC revision are distinct.
+
+    ``outcome`` (``accepted`` | ``no-write``), ``command_id`` and ``replayed``
+    are the command-identity fields; each is ``None`` when the server did not
+    send it, so a receipt from an older server is still a receipt.
+    """
 
     note: str
     mode: str
     base_revision: str
     hash: str
     revision: str
+    outcome: str | None = None
+    command_id: str | None = None
+    replayed: bool | None = None
 
-    def to_dict(self) -> dict[str, str]:
+    def to_dict(self) -> dict[str, Any]:
         """Use the same field names as the API and CLI JSON response."""
-        return {"note": self.note, "mode": self.mode, "baseRevision": self.base_revision,
-                "hash": self.hash, "revision": self.revision}
+        out: dict[str, Any] = {"note": self.note, "mode": self.mode, "baseRevision": self.base_revision,
+                               "hash": self.hash, "revision": self.revision}
+        if self.outcome is not None:
+            out["outcome"] = self.outcome
+        if self.command_id is not None:
+            out["commandId"] = self.command_id
+        if self.replayed is not None:
+            out["replayed"] = self.replayed
+        return out
+
+
+@dataclass(frozen=True)
+class CommandStatus:
+    """What the server recorded for one ``command_id`` of this actor."""
+
+    command_id: str
+    state: str
+    outcome: str | None
+    receipt: PatchReceipt | None
+    error: dict[str, Any] | None
+    created_at: str | None
+    updated_at: str | None
+
+
+def _command_id(value: Any) -> str | None:
+    if value is None:
+        return None
+    # fullmatch, not match with `$`: `$` also matches before a trailing newline.
+    if not isinstance(value, str) or not _COMMAND_ID.fullmatch(value):
+        raise ValueError("command_id must be 8-128 characters from [A-Za-z0-9._:-]")
+    return value
 
 
 def _revision_token(value: Any, name: str) -> str:
@@ -155,8 +318,14 @@ def _v2_tokens(data: Any, note_id: str) -> None:
 
 
 def _escape_inline(value: str) -> str:
-    """Escape Notes inline framing and record control characters."""
-    return "".join("\\" + c if c in "\\[]{}" else "\\n" if c == "\n" else
+    """Canonical inline-record escaping, the form the CLI and server serialize.
+
+    ``\\``, LF, CR and TAB become escapes, and a backslash precedes any of
+    ``[]{}+-``: the delimiter punctuation, not only the framing characters.
+    The server decodes either, but canonical bytes are what the conformance
+    fixtures and cross-client diffs compare.
+    """
+    return "".join("\\" + c if c in "\\[]{}+-" else "\\n" if c == "\n" else
                    "\\r" if c == "\r" else "\\t" if c == "\t" else c for c in value)
 
 
@@ -336,6 +505,15 @@ class GrepResult:
     def __repr__(self) -> str:  # pragma: no cover - display only
         more = ", truncated" if self.truncated else ""
         return f"GrepResult({len(self.hits)} hits from {self.notes_searched} notes{more})"
+
+
+def _error_code(resp: httpx.Response) -> str | None:
+    try:
+        body = resp.json()
+    except ValueError:
+        return None
+    code = body.get("error") if isinstance(body, dict) else None
+    return code if isinstance(code, str) else None
 
 
 def _raise_for(resp: httpx.Response, what: str) -> None:
@@ -655,15 +833,20 @@ class Note:
         return Doc(self, original.content, self._etag, snapshot=original)
 
     def write(self, text: str, *, at: NoteSnapshot | None = None, exact: bool = False,
-              if_match: str | None = None, legacy: bool = False, force: bool = False) -> PatchReceipt | str:
+              if_match: str | None = None, legacy: bool = False, force: bool = False,
+              command_id: str | None = None) -> PatchReceipt | str:
         """Plan disjoint native edits against original source, without coarse fallback.
 
         Explicit legacy/force/ETag selects the previous whole-body PUT. Modern
         callers retain ``at``; absent it, one verified source snapshot is read.
+        ``command_id`` (opt-in) gives the request a caller-stable identity; see
+        ``patch``. With one, even an unchanged MERGE is submitted so the server
+        records the command.
         """
+        command_id = _command_id(command_id)
         if legacy or force or if_match is not None:
-            if at is not None or exact:
-                raise ValueError("at and exact require modern write; omit legacy, force and if_match")
+            if at is not None or exact or command_id is not None:
+                raise ValueError("at, exact and command_id require modern write; omit legacy, force and if_match")
             if if_match is not None and force:
                 raise ValueError("if_match and force cannot be combined")
             return self._send("PUT", "/body", {"text": text}, force, if_match)["etag"]
@@ -678,14 +861,15 @@ class Note:
                 raise ValueError("at source does not match its content hash")
         original = at if at is not None else self.read_snapshot()
         edits = character_diff(original.content, text)
-        if not edits and not exact:
-            return PatchReceipt(self._id, "merge", original.revision, original.hash, original.revision)
+        if not edits and not exact and command_id is None:
+            return PatchReceipt(self._id, "merge", original.revision, original.hash, original.revision,
+                                outcome="no-write")
         records = []
         for edit in edits:
             body = ("[-" + _escape_inline(edit['expectedText']) + "-]" if edit['expectedText'] else "")
             body += ("{+" + _escape_inline(edit['replacementText']) + "+}" if edit['replacementText'] else "")
             records.append(f"@@ chars {edit['start']}:{edit['end']} @@\n~ {body}\n")
-        return self.patch("".join(records), base_revision=original.revision, exact=exact)
+        return self.patch("".join(records), base_revision=original.revision, exact=exact, command_id=command_id)
 
     def read_snapshot(self, *, at: str | None = None, if_match: str | None = None) -> NoteSnapshot:
         """Read exact v2 source and an original RTC baseline, without editing a Doc.
@@ -726,6 +910,7 @@ class Note:
         self, diff: str, *, base_revision: str | None = None,
         if_match: str | None = None, format: str | None = None,
         exact: bool = False, legacy: bool = False, force: bool = False,
+        command_id: str | None = None,
     ) -> PatchReceipt | PatchResult:
         """Apply a patch against its original source and RTC identities.
 
@@ -736,14 +921,24 @@ class Note:
         ``format`` is ``inline-dff`` (default) or ``diff``. A successful v2
         response is a structured ``PatchReceipt`` matching CLI/API JSON.
 
+        ``command_id`` is opt-in until the server deployment that records it:
+        when supplied it is sent as ``commandId`` and the receipt must echo it
+        (``CommandIdentityUnsupportedError`` otherwise); a failure after the
+        request left raises ``UncertainOutcomeError`` carrying the id, which is
+        safe to resend. A 409 about the id itself is typed: ``command_outcome_unknown``
+        is ``UncertainOutcomeError``, ``command_in_progress`` is
+        ``CommandInProgressError``, ``command_intent_mismatch`` is
+        ``CommandIntentMismatchError``. Without one, nothing new is sent.
+
         ``legacy=True`` preserves the prior unified-diff/cached-ETag interface
         and its string-compatible ``PatchResult``. Local ``Doc`` editing and
         save semantics are unchanged. Errors leave local drafts and caches
         untouched; an ambiguous outcome requires inspection before resubmission.
         """
+        command_id = _command_id(command_id)
         if legacy:
-            if base_revision is not None or format is not None or exact:
-                raise ValueError("base_revision, format and exact require the v2 patch contract")
+            if base_revision is not None or format is not None or exact or command_id is not None:
+                raise ValueError("base_revision, format, exact and command_id require the v2 patch contract")
             if if_match is not None and force:
                 raise ValueError("if_match names a revision and force says to ignore one; give one")
             data = self._send("PATCH", "/body", {"diff": diff}, force, if_match)
@@ -762,31 +957,130 @@ class Note:
             raise ValueError("patch must be a UTF-8 string of at most 8000000 bytes")
         mode = "exact" if exact or if_match is not None else "merge"
         unknown = "write outcome unknown; keep original baseline/draft, reconcile before resubmit"
+        payload: dict[str, Any] = {"format": selected_format, "patch": diff, "baseRevision": baseline, "mode": mode}
+        if command_id is not None:
+            payload["commandId"] = command_id
+
+        def uncertain() -> NoteError:
+            return WriteOutcomeUnknown(unknown) if command_id is None else UncertainOutcomeError(command_id)
+
+        # The client and request are built outside the uncertain window: a URL
+        # or header that cannot be built was never sent.
         try:
-            with self._client.http() as http:
-                response = http.request("PATCH", f"{self._base}/body",
-                    json={"format": selected_format, "patch": diff, "baseRevision": baseline, "mode": mode},
-                    headers={} if if_match is None else {"If-Match": if_match}, follow_redirects=False)
-        except httpx.TransportError:
-            raise NoteError(unknown) from None
+            http = self._client.http()
+            request = http.build_request("PATCH", f"{self._base}/body", json=payload,
+                                         headers={} if if_match is None else {"If-Match": if_match})
+        except (httpx.InvalidURL, httpx.LocalProtocolError) as error:
+            raise NoteError(f"request could not be built; nothing was sent ({type(error).__name__})") from None
+        with http:
+            try:
+                response = http.send(request, follow_redirects=False)
+            except _UNCERTAIN_TRANSPORT:
+                # Once a connection was attempted nothing here can tell a
+                # refused connection from a lost acknowledgment (an injected
+                # transport may forward the request and then raise), so the
+                # outcome is unknown.
+                raise uncertain() from None
+            except httpx.TransportError as error:
+                # UnsupportedProtocol, LocalProtocolError: raised before any
+                # connection attempt, so the request was not sent.
+                raise NoteError(f"request was not sent ({type(error).__name__})") from None
         if response.status_code != 200:
+            if command_id is not None and response.status_code == 409:
+                # Contract A.3: the command journal answers before the body
+                # write does. These are about the id, not about the note
+                # being busy, so they must not read as NoteBusy.
+                code = _error_code(response)
+                if code == "command_outcome_unknown":
+                    raise UncertainOutcomeError(command_id)
+                if code == "command_in_progress":
+                    raise CommandInProgressError(command_id)
+                if code == "command_intent_mismatch":
+                    raise CommandIntentMismatchError(command_id)
             if response.status_code in (400, 401, 403, 404, 409, 412, 413, 415, 422, 503):
                 _raise_for(response, f"patch {self._ns}/{self._id}")
-            raise NoteError(unknown)
+            raise uncertain()
         try:
             data = response.json()
             _v2_tokens(data, self._id)
             if data.get("mode") != mode or data.get("baseRevision") != baseline:
                 raise NoteError("inconsistent receipt")
+            outcome, echoed, replayed = data.get("outcome"), data.get("commandId"), data.get("replayed")
+            if ((outcome is not None and outcome not in _OUTCOMES)
+                    or (replayed is not None and not isinstance(replayed, bool))
+                    or (echoed is not None and (not isinstance(echoed, str) or echoed != command_id))):
+                raise NoteError("inconsistent receipt")
         except (ValueError, NoteError):
-            raise NoteError(unknown) from None
+            raise uncertain() from None
+        if command_id is not None and echoed is None:
+            raise CommandIdentityUnsupportedError(
+                f"patch {self._ns}/{self._id}: the receipt did not echo command_id {command_id!r}; "
+                "this server does not record command identity")
         receipt = PatchReceipt(note=self._id, mode=mode, base_revision=baseline,
-                               hash=data["hash"], revision=data["revision"])
+                               hash=data["hash"], revision=data["revision"],
+                               outcome=outcome, command_id=echoed, replayed=replayed)
         # Keep the legacy cache in its content-hash domain. Never put an RTC
         # revision into the ETag used by legacy Doc.save()/whole-body writes.
         self._etag = '"' + data["hash"].removeprefix("sha256:") + '"'
         self._text = None
         return receipt
+
+    def command_status(self, command_id: str) -> CommandStatus:
+        """What the server recorded for ``command_id``: the read after an uncertain outcome.
+
+        ``GET .../commands/{command_id}``, scoped to the calling actor. An
+        unknown id raises ``NoteNotFound``. ``receipt`` is the stored v2
+        receipt when the state is ``accepted`` or ``no-write``, verified
+        before it is returned: it must name this note and this command, its
+        ``revision`` and ``baseRevision`` must be ``rtc:`` + 64 hex, ``mode``
+        exact or merge, and envelope and receipt must agree — an
+        ``accepted``/``no-write`` state requires a receipt whose ``outcome``
+        equals both the state and the envelope's ``outcome``; ``pending``/
+        ``unknown`` carry neither. Anything else is ``CommandStatusInvalid`` —
+        a reconciliation read that cannot be trusted must not look like a
+        successful one.
+        """
+        command_id = _command_id(command_id)
+        assert command_id is not None
+        with self._client.http() as http:
+            response = http.get(f"{self._base}/commands/{_seg(command_id)}", follow_redirects=False)
+        _raise_for(response, f"command {command_id} of {self._ns}/{self._id}")
+        invalid = CommandStatusInvalid(command_id)
+        try:
+            data = response.json()
+        except ValueError:
+            raise invalid from None
+        if (response.status_code != 200 or not isinstance(data, dict) or data.get("commandId") != command_id
+                or data.get("state") not in _COMMAND_STATES
+                or (data.get("outcome") is not None and data["outcome"] not in _OUTCOMES)):
+            raise invalid
+        state, outcome, stored = data["state"], data.get("outcome"), data.get("receipt")
+        receipt = None
+        if stored is not None:
+            try:
+                _v2_tokens(stored, self._id)
+            except NoteError:
+                raise invalid from None
+            if (stored.get("commandId") != command_id
+                    or not _RTC_REVISION.fullmatch(stored["revision"])
+                    or stored.get("mode") not in ("exact", "merge")
+                    or not isinstance(stored.get("baseRevision"), str) or not _RTC_REVISION.fullmatch(stored["baseRevision"])
+                    or stored.get("outcome") not in _OUTCOMES
+                    or (stored.get("replayed") is not None and not isinstance(stored["replayed"], bool))):
+                raise invalid
+            receipt = PatchReceipt(note=self._id, mode=stored["mode"], base_revision=stored["baseRevision"],
+                                   hash=stored["hash"], revision=stored["revision"], outcome=stored["outcome"],
+                                   command_id=command_id, replayed=stored.get("replayed"))
+        # Envelope and receipt must tell one story: a settled state has a
+        # receipt saying the same thing; an unsettled one has no receipt.
+        if state in _OUTCOMES:
+            if receipt is None or outcome != state or receipt.outcome != state:
+                raise invalid
+        elif receipt is not None or outcome is not None:
+            raise invalid
+        return CommandStatus(command_id=command_id, state=state, outcome=outcome,
+                             receipt=receipt, error=data.get("error"), created_at=data.get("createdAt"),
+                             updated_at=data.get("updatedAt"))
 
     def insert_section(
         self,
@@ -844,7 +1138,7 @@ class Note:
 
     def append(
         self, text: str, *, at: NoteSnapshot | None = None, exact: bool = False,
-        legacy: bool = False, force: bool = False,
+        legacy: bool = False, force: bool = False, command_id: str | None = None,
     ) -> PatchReceipt | str:
         """Append against original RTC source; return its acknowledged receipt.
 
@@ -853,13 +1147,15 @@ class Note:
         cached text, ETag PUT and string return semantics. An empty addition
         preserves the LF separator behavior; an unchanged MERGE returns an
         observational receipt without writing. EXACT no-ops go through PATCH
-        so the server checks their original precondition.
+        so the server checks their original precondition, and so does any
+        request carrying a ``command_id`` (opt-in identity; see ``patch``).
         """
         if not isinstance(text, str):
             raise ValueError("text must be a string")
+        command_id = _command_id(command_id)
         if legacy or force:
-            if at is not None or exact:
-                raise ValueError("at and exact require modern append; omit legacy and force")
+            if at is not None or exact or command_id is not None:
+                raise ValueError("at, exact and command_id require modern append; omit legacy and force")
             if self._text is None:
                 self.refresh(legacy=True)
             current = self._text or ""
@@ -874,12 +1170,12 @@ class Note:
                 raise ValueError("at source does not match its content hash")
         original = at if at is not None else self.read_snapshot()
         suffix = ("\n" if original.content and not original.content.endswith("\n") else "") + text
-        if not suffix and not exact:
+        if not suffix and not exact and command_id is None:
             return PatchReceipt(note=self._id, mode="merge", base_revision=original.revision,
-                                hash=original.hash, revision=original.revision)
+                                hash=original.hash, revision=original.revision, outcome="no-write")
         escaped = _escape_inline(suffix)
         patch = f"@@ chars {len(original.content)}:{len(original.content)} @@\n~ {{+{escaped}+}}\n" if suffix else ""
-        return self.patch(patch, base_revision=original.revision, exact=exact)
+        return self.patch(patch, base_revision=original.revision, exact=exact, command_id=command_id)
 
 
 def _seg(value: str) -> str:
@@ -901,7 +1197,7 @@ def _resolve(ref: str, client: DreamLakeClient) -> tuple[str, str]:
     names one.
     """
     if "/" not in ref:
-        if not _OBJECT_ID.match(ref):
+        if not _OBJECT_ID.fullmatch(ref):
             raise ValueError(
                 f"note reference {ref!r} is neither an id nor '<namespace>/<slug>' — "
                 "an id is 24 hex characters"
@@ -913,7 +1209,7 @@ def _resolve(ref: str, client: DreamLakeClient) -> tuple[str, str]:
         return row["namespaceSlug"], row["id"]
 
     ns, rest = ref.split("/", 1)
-    if _OBJECT_ID.match(rest):
+    if _OBJECT_ID.fullmatch(rest):
         return ns, rest
     # A slug. The listing is the only way to turn one into an id, and `q`
     # matches the NAME, which is not the slug — so filter locally rather than
