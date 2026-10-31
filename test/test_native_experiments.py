@@ -22,11 +22,17 @@ def test_native_create_log_archive_and_project_scope():
     assert experiments.log("team", "research", RUN,
                            [{"timestamp": "2026-10-31T00:00:00Z", "level": "info", "message": "started"}])["count"] == 1
     assert experiments.archive("team", "research", RUN, False)["id"] == RUN
+    assert experiments.delete_run("team", "research", RUN)["id"] == RUN
+    assert isinstance(experiments.list_trash("team", "research"), dict)
+    assert experiments.restore_deleted("team", "research", RUN)["id"] == RUN
     assert seen == [
         ("PUT", "/native-experiments/ns/team/projects/research/runs/trial_1", None),
         ("POST", f"/native-experiments/ns/team/projects/research/runs/{RUN}/logs",
          {"entries": [{"timestamp": "2026-10-31T00:00:00Z", "level": "info", "message": "started"}]}),
         ("PATCH", f"/native-experiments/ns/team/projects/research/runs/{RUN}", {"archived": False}),
+        ("DELETE", f"/native-experiments/ns/team/projects/research/runs/{RUN}", None),
+        ("GET", "/native-experiments/ns/team/projects/research/trash", None),
+        ("POST", f"/native-experiments/ns/team/projects/research/runs/{RUN}/restore", None),
     ]
 
 

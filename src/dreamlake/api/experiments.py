@@ -80,6 +80,21 @@ class Experiments:
     def get_run(self, namespace: str, project: str, run_id: str) -> dict:
         return self._request("GET", self._base(namespace, project) + f"/runs/{self._run_id(run_id)}")["experiment"]
 
+    def list_trash(self, namespace: str, project: str, *, cursor: str | None = None,
+                   limit: int = 50) -> dict:
+        if type(limit) is not int or not 1 <= limit <= 100:
+            raise ValueError("limit must be an integer from 1 to 100")
+        return self._request("GET", self._base(namespace, project) + "/trash",
+                             params={"limit": limit, **({"cursor": cursor} if cursor is not None else {})})
+
+    def delete_run(self, namespace: str, project: str, run_id: str) -> dict:
+        """Move a terminal run to trash; running runs must finish first."""
+        return self._request("DELETE", self._base(namespace, project) + f"/runs/{self._run_id(run_id)}")["experiment"]
+
+    def restore_deleted(self, namespace: str, project: str, run_id: str) -> dict:
+        """Restore a trashed run without changing its archive state."""
+        return self._request("POST", self._base(namespace, project) + f"/runs/{self._run_id(run_id)}/restore")["experiment"]
+
     def archive(self, namespace: str, project: str, run_id: str, archived: bool = True) -> dict:
         if type(archived) is not bool:
             raise ValueError("archived must be a boolean")
