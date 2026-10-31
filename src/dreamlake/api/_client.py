@@ -101,6 +101,12 @@ class DreamLakeClient:
         return Runs(self)
 
     @property
+    def experiments(self):
+        """DreamLake-native project Experiments and logging."""
+        from .experiments import Experiments
+        return Experiments(self)
+
+    @property
     def hosts(self):
         """Host enrollment, input validation, and status using this account."""
         from .hosts import Hosts
