@@ -387,66 +387,95 @@ protocol or parser is introduced. Sections and partial reads still await their
 retained range/discovery contracts and remain an explicit separate migration.
 Publication acceptance for Python 0.28.0 remains separate.
 
-## Callable facade, command identity and focused reads (Phase 1, unreleased)
+## The Notes API facade (Python 0.34.0)
 
-The agreed public syntax, shared with the CLI and TypeScript tracks. `dl.notes`
-is callable and carries `list`; nothing else. Opening is local and synchronous.
+`dl.notes` implements the Python tabs of the [Notes API](https://docs.dreamlake.ai/notes/api/)
+design pages. Stable IDs are primary, every operation takes keyword arguments,
+and the facade is an adapter over the retained-baseline contract above: edits
+compile to one `inline-dff` record against the original revision and go
+through the same validated `PATCH`. `dl.note()`, `read_snapshot()` and the
+released `note.append()` separator behavior are unchanged.
 
 ```python
 import dreamlake as dl
 
-note = dl.notes("fortyfive/note-id")      # no request; a slug resolves on first use
+note = dl.notes(note_id)                  # local; the server resolves the owner on first use
 snapshot = note.read()                    # NoteSnapshot {note, content, hash, revision}
-receipt = note.append(text="Hello", at=snapshot, mode="exact")
-notes = dl.notes.list(namespace="fortyfive")
+receipt = note.append(text="\nHello\n", at=snapshot)   # verbatim: no separator is added
+acknowledged = note.read(at=receipt.revision)
+page = dl.notes.list(namespace="your-workspace", limit=20, offset=0)
+created = dl.notes.create(namespace="your-workspace", name="Review", text="# Review\n")
+slug = dl.notes("design-doc", namespace="your-workspace")   # a slug needs namespace context
 ```
 
-`mode` is required on every facade write (`"exact"` or `"merge"`); there is no
-default. `at` is the snapshot `read()` returned or a bare `rtc:` revision; a
-bare revision has its retained source read back before the edit is planned. A
-`sha256:` content hash where a revision belongs raises `RevisionExpected`.
-Input containing `<!-- notes-reading-view` raises `ReadingViewRefused`:
-generated annotations are never saved. The facade is an adapter over the
-existing `Note` methods, so the request bytes are those `note.append(text,
-at=snapshot, exact=True)` already sends, separator rule included. The existing
-`dl.note()`, `read_snapshot()`, `append()`, `patch()` and `write()` are
-unchanged; `DreamLakeClient.notes` is the same facade bound to one client.
+### Reading
 
-`note.patch(patch=..., at=..., mode=...)` and `note.write(text=..., at=...,
-mode=...)` are exposed on the handle but PROVISIONAL: their names and shapes
-may change, and only `read`, `append` and `list` are agreed. Every facade
-operation takes named fields only; the payload is not positional.
+`read()` returns exact source. `read(view="mapped")` returns a `MappedRead`:
+the same exact `content`, its absolute code-point `chars`, the observed
+`elements` (`address`, `chars`, `lines`, `section`) and the reading view in
+`text` — generated `<!-- … -->` hints that are never source. It is the snapshot
+the CLI's `--view html` reads (`view=html&contentFormat=literal-markdown`),
+validated the same way. Exactly one of `lines=(a, b)` (1-based, inclusive;
+past-the-end is refused), `section="s1"` or `address="s1.p2"` scopes a read;
+the last two need the mapped view. `at=` reads a retained revision and
+verifies it. `outline(at=)` lists headings with addresses; `find(text=,
+case_sensitive=False, at=)` searches exact source and returns absolute ranges;
+`diff(since=revision, format="diff")` returns base/result revisions and hashes
+with the patch.
 
-`note.read(lines=(40, 80))` is a focused read: 1-based inclusive source lines,
-two integers required. It makes the same v2 request and slices locally,
-returning `FocusedRead {note, hash, revision, scope, lines, chars, content,
-complete=False, next}` where `scope` is `{"lines": [a, b]}` (the range
-actually covered), `chars` is the slice's code-point `[start, end)` in the
-whole source (CJK and emoji count one each) and `hash`/`revision` describe
-the whole note. It is not a `NoteSnapshot`: `write`/`append` refuse
-it with `SnapshotRequired`; `patch(at=focused)` targets its `chars`.
+A `FocusedRead`/scoped `MappedRead` carries the whole note's `hash` and
+`revision` but `complete=False`; it baselines a targeted edit inside its span
+and is refused (`SnapshotRequired`) as a whole-body baseline. A complete
+mapped read is accepted wherever a snapshot is.
 
-`command_id` is opt-in on `append`/`patch`/`write` (facade and existing
-methods) until the server that records command identity is deployed. Without
-one nothing new is sent. With one (`[A-Za-z0-9._:-]{8,128}`), it is sent as
-`commandId`, the receipt must echo it (`CommandIdentityUnsupportedError`
-otherwise), and any transport failure once a connection was attempted, an
-unknown status or a non-receipt response raises `UncertainOutcomeError`
-carrying the id (errors raised before any connection attempt, such as an
-unsupported URL scheme, stay plain `NoteError`): resend with the same id, or call
-`note.command_status(command_id)`. A 409 about the id itself is typed:
-`command_outcome_unknown` is `UncertainOutcomeError`, `command_in_progress`
-is `CommandInProgressError` (wait, then query status), `command_intent_mismatch`
-is `CommandIntentMismatchError` (a different intent needs a new id). `PatchReceipt` gains `outcome`
-(`accepted` | `no-write`), `command_id` and `replayed`, each `None` when the
-server did not send it.
+### Editing
 
 ```python
-receipt = note.append(text="Hello", at=snapshot, mode="exact", command_id="run-42.step-7")
-assert receipt.command_id == "run-42.step-7" and receipt.outcome == "accepted"
-status = note.command_status("run-42.step-7")   # state, outcome, receipt
+original = note.read()
+note.replace(lines=(40, 42), text="- Updated item\n", at=original)
+note.insert(after="s1.p2", text="- New item\n", at=original)
+note.remove(lines=(40, 42), at=original)
+note.write(text="Hello team.\n", at=original, mode="exact")
+note.patch(patch=unified_diff, format="diff", at=original, mode="exact")
 ```
 
-`tests/notes-conformance.fixtures.json` records the seven shared scenarios;
-the CLI/TS track writes the same file from its implementation and the two are
-diffed.
+`replace`/`insert`/`remove` take exactly one selector or placement (`lines`,
+`address`; `before`, `after`, `cursor`) and default to `mode="merge"`; an
+address must have been observed at `at`'s revision (a `MappedRead` resolves it
+without a request). `write` and `patch` require `mode`; `patch` requires
+`format`. Replacement text is verbatim: no newline, indentation or marker is
+added, and input containing `<!-- notes-reading-view` is refused.
+
+### Receipts, outcomes and command identity
+
+A successful write returns `PatchReceipt {note, mode, base_revision, hash,
+revision, outcome, command_id, replayed}`; `outcome` is `accepted` or
+`no-write`. Every error carries `.outcome`: `invalid-usage` (refused before
+any request: `RevisionExpected`, `SnapshotRequired`, `InvalidLineRange`,
+`SelectionError`, `ReadingViewRefused`), `no-write` (`NoteChanged`,
+`PatchFailed`, `NoteReadOnly`, `NoteNotFound`, `CommandIntentMismatchError`),
+`unknown` (`UncertainOutcomeError`, `WriteOutcomeUnknown`,
+`NoteCreatedWithoutSource`) or `operational` (`NoteBusy`,
+`CommandInProgressError`, `CommandStatusInvalid`,
+`CommandIdentityUnsupportedError`).
+
+`command_id` is the documented answer to a lost-response append. Pass one
+(`[A-Za-z0-9._:-]{8,128}`) to `append`/`replace`/`insert`/`remove`/`write`/
+`patch`; it is sent as `commandId` and the receipt must echo it. A transport
+failure after the request was handed over raises `UncertainOutcomeError`
+carrying the id: resend the same call with the same id (the server returns the
+stored receipt rather than appending twice) or call
+`note.command_status(command_id=...)`. It stays opt-in until the recording
+server is deployed; without one nothing new is sent.
+
+### Resources and collaboration
+
+`note.rename(name=)`, `note.versions.list()` / `.read(version_id=)`,
+`note.files.move(file=, to_folder=, name=)`, `note.presence()` and
+`note.visit(intent=, address=|cursor=, at=)` mirror the CLI's requests.
+`dl.notes.create(text=...)` creates the note, then writes the initial source
+through the retained-baseline contract; if that second step fails,
+`NoteCreatedWithoutSource` carries the created id so no second note is made.
+
+Not in this release (listed by `tests/test_notes_docs_contract.py`):
+`note.watch(...)` and `note.move(...)`; the other collections' move facades.

@@ -1,5 +1,9 @@
 # 2026-10-30 — Notes callable facade, command identity, focused reads
 
+Superseded in part by [2026-10-31](2026-10-31-notes-api-docs-contract.md):
+the merged Notes API docs make `dl.notes(note_id)` id-primary, `append`
+verbatim with `mode` optional, and add mapped reads and selector edits.
+
 Tracking: Notes API convergence Phase 1 (Ge Yang's proposal note
 `6ae3f318608512b4ba34860c`; docs work in
 https://github.com/dreamlake-ai/dreamlake-workspace/pull/1522).

@@ -1,5 +1,28 @@
 # Release notes
 
+## 0.34.0 — Notes API facade: `dl.notes(note_id)`
+
+The Python tabs of the Notes API design pages are now implemented. `dl.notes`
+is callable and carries `list`/`create`; `dl.notes(note_id)` opens a handle by
+stable id without a request; every operation takes keyword arguments.
+
+- Reading: `read()`, `read(view="mapped")` with `section=`/`address=`/
+  `lines=`, `outline()`, `find()`, `diff(since=revision)`. Mapped reads return
+  exact source plus observed addresses with absolute code-point ranges.
+- Editing: `replace`, `insert`, `remove` against an original baseline;
+  `append` is verbatim (no separator LF); `write`/`patch` require `mode`,
+  `patch` requires `format`. Partial reads cannot be whole-body baselines.
+- Resources and collaboration: `create`, `rename`, `versions`, `files.move`,
+  `presence`, `visit`.
+- Outcomes: receipts carry `outcome`; errors carry `.outcome` categories.
+  Opt-in `command_id` makes a lost-response append safely replayable once the
+  server records command identity; `command_status(command_id=)` reconciles.
+
+Not yet: `watch`, `move`. The existing `dl.note()`, `read_snapshot()` and the
+released `note.append()` separator are unchanged. Requires the matching
+Notes server for mapped reads and command identity. [Guide](notes-diffs.md);
+[dev-note](dev-notes/2026-10-31-notes-api-docs-contract.md).
+
 ## 0.33.1 — Read archival metadata through the note identity endpoint
 
 `Note.metadata()` now uses `GET /notes/:id`, the server's direct metadata
