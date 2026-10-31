@@ -39,6 +39,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
+from ._character_plan import points
 from ._client import DreamLakeClient, get_client
 from ._editing import _spans_to_match
 from ._notes_mapped import HtmlSnapshot, HtmlSnapshotError, annotated_markdown, parse_html_snapshot
@@ -158,16 +159,20 @@ class NoteCreatedWithoutSource(NoteError):
 
     Creation and source initialization are two requests until the server
     offers atomic creation. ``note_id`` is the created note; write to it
-    rather than creating a second one.
+    rather than creating a second one. ``outcome`` is the source write's: a
+    typed Notes error keeps its category, anything else (a transport error,
+    an unexpected exception) is ``unknown``. The original error is
+    ``__cause__``.
     """
 
     outcome = "unknown"
 
     def __init__(self, note_id: str, namespace: str, cause: BaseException):
         super().__init__(f"note {note_id!r} was created in {namespace!r} but its initial source was not written "
-                         f"({cause}); write to that id instead of creating another note")
+                         f"({type(cause).__name__}: {cause}); write to that id instead of creating another note")
         self.note_id = note_id
         self.namespace = namespace
+        self.outcome = cause.outcome if isinstance(cause, NoteError) else "unknown"
 
 
 # ── Argument coercion ────────────────────────────────────────────────────────
@@ -1097,6 +1102,7 @@ class Notes:
             raise ValueError("name must be a nonempty string when given")
         if text is not None:
             _refuse_reading_view(text, "text")
+            points(text)  # Invalid source is refused before the note exists.
         if visibility not in ("private", "public"):
             raise ValueError("visibility must be 'private' or 'public'")
         client = self._client or get_client()
@@ -1110,10 +1116,12 @@ class Notes:
             raise NoteError("create did not return the note's id") from None
         handle = NoteHandle(note_id, namespace=namespace, client=client)
         if text:
+            # From here on the note exists: whatever fails, the caller must
+            # learn its id, or a retry creates a duplicate.
             try:
                 note = handle._target()
                 note.write(text, at=note.read_snapshot(), exact=True)
-            except NoteError as error:
+            except Exception as error:
                 raise NoteCreatedWithoutSource(note_id, namespace, error) from error
         return handle
 

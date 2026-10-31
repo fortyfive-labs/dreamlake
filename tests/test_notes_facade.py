@@ -437,7 +437,9 @@ def test_create_source_failure_exposes_the_created_id_instead_of_a_second_note()
         return httpx.Response(503, json={'error': 'rtc_unavailable'}, request=req)
     with pytest.raises(NoteCreatedWithoutSource) as error:
         client(handler).notes.create(namespace=NS, text='# Review\n')
-    assert error.value.note_id == ID and error.value.namespace == NS and error.value.outcome == 'unknown'
+    # A 503 on the fresh snapshot read is NoteBusy: the source write never ran,
+    # so the category is operational; the created id is still carried.
+    assert error.value.note_id == ID and error.value.namespace == NS and error.value.outcome == 'operational'
 
 
 def test_create_argument_rules():
@@ -465,3 +467,45 @@ def test_errors_carry_the_documented_outcome_categories():
         raise httpx.ReadError('lost', request=req)
     with pytest.raises(WriteOutcomeUnknown, match='write outcome unknown'):
         Note(ID, namespace=NS, client=client(handler)).append('x', at=snap('a'))
+
+
+# ── create: nothing escapes without the created id ───────────────────────────
+
+@pytest.mark.parametrize('failure', [httpx.ReadTimeout, httpx.ConnectError, httpx.RemoteProtocolError])
+@pytest.mark.parametrize('stage', ['GET', 'PATCH'])
+def test_create_transport_failure_after_creation_carries_the_id_as_unknown(failure, stage):
+    # Regression: a raw transport error during initialization escaped without
+    # note_id, so a retry would have created a duplicate. The snapshot read
+    # raises the raw httpx error; the write stage is already typed as
+    # WriteOutcomeUnknown — both end up as NoteCreatedWithoutSource/unknown.
+    calls = []
+    def handler(req):
+        calls.append(req.method)
+        if req.method == 'POST':
+            return httpx.Response(201, json={'note': {'id': ID}}, request=req)
+        if req.method == stage:
+            raise failure('lost', request=req)
+        return httpx.Response(200, json=snap('').to_dict(), request=req)
+    with pytest.raises(NoteCreatedWithoutSource) as error:
+        client(handler).notes.create(namespace=NS, text='# Review\n')
+    assert error.value.note_id == ID and error.value.outcome == 'unknown'
+    cause = error.value.__cause__
+    assert isinstance(cause, failure if stage == 'GET' else WriteOutcomeUnknown)
+    assert calls == ['POST', 'GET'] + (['PATCH'] if stage == 'PATCH' else [])
+
+
+def test_create_deterministic_source_refusal_keeps_the_id_and_its_category():
+    def handler(req):
+        if req.method == 'POST':
+            return httpx.Response(201, json={'note': {'id': ID}}, request=req)
+        return httpx.Response(403, json={'error': 'forbidden'}, request=req)
+    with pytest.raises(NoteCreatedWithoutSource) as error:
+        client(handler).notes.create(namespace=NS, text='# Review\n')
+    assert error.value.note_id == ID and error.value.outcome == 'no-write'
+
+
+def test_create_validates_the_source_before_the_note_exists():
+    from dreamlake.api._character_plan import NotePatchError
+    for bad in ('\ud800', 'a' * 1_000_001):
+        with pytest.raises(NotePatchError):
+            client(never).notes.create(namespace=NS, text=bad)
