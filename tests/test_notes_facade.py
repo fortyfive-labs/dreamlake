@@ -300,7 +300,7 @@ def test_list_requires_namespace_and_lists_it():
     assert got == [NoteRef(id=ID, namespace=NS, name='A', slug='a')]
     (req,) = calls
     assert req.method == 'GET' and req.url.path == f'/namespaces/{NS}/notes'
-    assert dict(req.url.params) == {'limit': '50', 'offset': '0'}
+    assert dict(req.url.params) == {'limit': '50', 'offset': '0', 'includeArchived': 'false'}
     with pytest.raises(TypeError):
         client(never).notes.list()
     with pytest.raises(TypeError):
