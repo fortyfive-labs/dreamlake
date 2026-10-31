@@ -855,8 +855,6 @@ class NoteHandle:
         exact = _exact(mode)
         self._own(at, "at")
         original = self._snapshot_of(at, "at")
-        # Released separator rule, retired by the next commit (the docs' append is verbatim).
-        text = ("\n" if original.content and not original.content.endswith("\n") else "") + text
         if not text and not exact and command_id is None:
             return PatchReceipt(original.note, "merge", original.revision, original.hash, original.revision, outcome="no-write")
         end = len(original.content)

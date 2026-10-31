@@ -7,9 +7,9 @@ the two files are diffed afterwards, so a difference is a finding, never
 something to adjust away in one suite.
 
 The expected values were generated from this implementation and inspected, not
-written by hand: the append separator rule (one LF before the addition only
-when a nonempty source lacks a final LF) and the inline escaping of newlines
-are what the bytes show.
+written by hand. Append is verbatim — no separator is ever added, so
+`append-no-trailing-newline` inserts `Hi` directly after `Hello world.` — and
+newlines inside a record are escaped; that is what the bytes show.
 """
 from __future__ import annotations
 

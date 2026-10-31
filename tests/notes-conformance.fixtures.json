@@ -41,7 +41,7 @@
       "path": "/namespaces/fortyfive/notes/6ae3f318608512b4ba34860c/body",
       "body": {
         "format": "inline-dff",
-        "patch": "@@ chars 12:12 @@\n~ {+\\nHi+}\n",
+        "patch": "@@ chars 12:12 @@\n~ {+Hi+}\n",
         "baseRevision": "rtc:c9c9ce30c08ad4b909d64fff77986e46789c052470e749a8d62cb1996f4be4fe",
         "mode": "exact"
       }

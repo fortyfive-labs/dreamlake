@@ -244,6 +244,20 @@ def test_append_defaults_to_merge_and_sends_one_record_at_the_document_end():
                                        'baseRevision': REV, 'mode': 'merge'}
 
 
+def test_append_is_verbatim_with_no_implicit_separator():
+    # The docs' rule: the payload carries every intended newline. "Hello world."
+    # + "Hi" is "Hello world.Hi"; a source ending in LF plus "\nHello\n" keeps a blank line.
+    sent = []
+    def handler(req):
+        sent.append(json.loads(req.content)['patch'])
+        return ack(req)
+    handle = client(handler).notes(ID, namespace=NS)
+    handle.append(text='Hi', at=snap('Hello world.'))
+    handle.append(text='\nHello\n', at=snap('Hello world.\n'))
+    handle.append(text='Hi', at=snap(''))
+    assert sent == ['@@ chars 12:12 @@\n~ {+Hi+}\n', '@@ chars 13:13 @@\n~ {+\\nHello\\n+}\n', '@@ chars 0:0 @@\n~ {+Hi+}\n']
+
+
 def test_append_exact_and_invalid_modes():
     def handler(req):
         assert json.loads(req.content)['mode'] == 'exact'
