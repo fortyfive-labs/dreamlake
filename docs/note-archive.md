@@ -2,7 +2,7 @@
 
 Archival hides completed work from active listings while retaining its body,
 attachments, folder placement and bindr membership. It is independent of tags
-and soft deletion. Available in Python SDK 0.33.0 with the archive-capable server.
+and soft deletion. Available in Python SDK 0.33.1 with the archive-capable server.
 
 ```python
 import dreamlake as dl

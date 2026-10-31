@@ -1,5 +1,12 @@
 # Release notes
 
+## 0.33.1 — Read archival metadata through the note identity endpoint
+
+`Note.metadata()` now uses `GET /notes/:id`, the server's direct metadata
+endpoint. The initial 0.33.0 helper used a nonexistent namespace-scoped GET and
+returned `NoteNotFound` despite successful archive operations. Reading remains
+read-only and preserves local editing baselines.
+
 ## 0.33.0 — Note and folder archival
 
 Notes gain `archive()`, `unarchive()`, `metadata()` and nullable `NoteRef.archived_at`.

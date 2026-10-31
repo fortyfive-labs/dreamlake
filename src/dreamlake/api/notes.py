@@ -405,7 +405,10 @@ class Note:
 
     def metadata(self) -> NoteRef:
         """Read current metadata without restoring an archived note."""
-        return _ref(self._get(""), self._ns)
+        with self._client.http() as http:
+            response = http.get(f"/notes/{_seg(self._id)}")
+        _raise_for(response, f"read metadata {self._ns}/{self._id}")
+        return _ref(response.json(), self._ns)
 
     def _set_archived(self, archived: bool) -> NoteRef:
         # Archive is metadata, not a body edit. Preserve the caller's original
