@@ -206,7 +206,27 @@ def test_visit_sends_the_agent_identity_headers_the_cli_sends(monkeypatch):
     (req,) = seen
     assert req.headers['x-dreamlake-agent-id'] == 'review-session-42' and req.headers['x-dreamlake-agent-name'] == 'Codex'
     handle(handler).presence()
-    assert seen[-1].headers['x-dreamlake-agent-id'] == 'review-session-42'
+    assert 'x-dreamlake-agent-id' not in seen[-1].headers  # the roster read asserts nothing
+
+
+def test_roster_read_needs_no_identity_and_ignores_a_bad_one(monkeypatch):
+    # Regression: attributing every presence method made GET roster validate
+    # DREAMLAKE_AGENT_ID and fail before any request.
+    seen = []
+    def handler(req):
+        seen.append(req)
+        return httpx.Response(200, json={'participants': [], 'observedAt': 1}, request=req)
+    for value in (None, '', 'has space'):
+        if value is None:
+            monkeypatch.delenv('DREAMLAKE_AGENT_ID')
+        else:
+            monkeypatch.setenv('DREAMLAKE_AGENT_ID', value)
+        assert handle(handler).presence().participants == ()
+    assert len(seen) == 3 and all('x-dreamlake-agent-id' not in r.headers for r in seen)
+    monkeypatch.setenv('DREAMLAKE_AGENT_ID', 'has space')
+    with pytest.raises(ValueError, match='DREAMLAKE_AGENT_ID'):
+        handle(handler).visit()  # the asserted POST still validates the identity
+    assert len(seen) == 3
 
 
 def test_visit_without_an_agent_identity_is_refused_before_any_request(monkeypatch):

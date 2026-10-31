@@ -131,7 +131,13 @@ class DreamLakeClient:
         base = httpx.URL(self.dl_url)
         if (request.url.scheme, request.url.host, request.url.port) != (base.scheme, base.host, base.port):
             return
-        if not re.match(r"^/namespaces/[^/]+/notes/[^/]+/(body|diff|sections|presence)(/|$)", request.url.path):
+        route = re.match(r"^/namespaces/[^/]+/notes/[^/]+/(body|diff|sections|presence)(/|$)", request.url.path)
+        if not route:
+            return
+        # Presence is attributed only when it is asserted (POST: visit/seek).
+        # Reading the roster registers nothing and needs no identity, as the
+        # CLI's roster reader does not send one.
+        if route.group(1) == "presence" and request.method != "POST":
             return
         agent_id = os.getenv("DREAMLAKE_AGENT_ID")
         if not agent_id:
