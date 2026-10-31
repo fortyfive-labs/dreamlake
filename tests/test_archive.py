@@ -141,3 +141,27 @@ def test_grep_cursor_shared_and_descendants_keep_archive_filter(include):
     assert dl.shared_with_me(include_archived=include, client=c)[0].archived_at == STAMP
     assert c.get_node_descendants(NOTE, include_archived=include)["total"] == 0
     assert len(calls) == 4
+
+
+@pytest.mark.parametrize("bindr", [False, True])
+def test_complete_downloads_include_archived_descendants(monkeypatch, tmp_path, bindr):
+    from types import SimpleNamespace
+    calls = []
+    downloaded = []
+    def descendants(node_id, **options):
+        calls.append((node_id, options))
+        if not options.get("include_archived"):
+            pytest.fail("complete download silently excluded archived paths")
+        return {"root": {"id": NOTE, "name": "Archive", "kind": "folder"},
+                "rootPrefix": ",root,", "descendants": [
+                    {"id": "file", "name": "retained.txt", "path": ",root,"}]}
+    c = SimpleNamespace(get_node_descendants=descendants,
+                        get_bindr=lambda *args: {"id": "bindr", "name": "collection", "members": [NOTE]})
+    monkeypatch.setattr(dl, "_get_client", lambda: c)
+    monkeypatch.setattr(dl, "_download_file", lambda client, node_id, path: downloaded.append(node_id))
+    if bindr:
+        dl.download_bindr("collection", project="project@ns", to=str(tmp_path))
+    else:
+        dl.download(NOTE, to=str(tmp_path))
+    assert downloaded == ["file"]
+    assert all(options["include_archived"] for _, options in calls)

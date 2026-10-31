@@ -432,7 +432,7 @@ def _resolve_to_node(node_id_or_path: str, project: str | None) -> dict:
         # and return a minimal record.
         # However for folder downloads we need kind. Hit GET /nodes?... or skip.
         # Simpler: use the descendants endpoint — it returns the root too.
-        result = client.get_node_descendants(node_id_or_path)
+        result = client.get_node_descendants(node_id_or_path, include_archived=True)
         return result["root"]
 
     # Path resolution
@@ -478,7 +478,7 @@ def download(
 
     - File leaf nodes (video/audio/image/...) download as a single file.
     - Container nodes (folder/episode/project) recursively download all
-      file descendants, preserving relative folder structure.
+      file descendants, including archived paths, preserving relative folder structure.
 
     Args:
         node_id_or_path: 24-char hex node ID, or a path like
@@ -521,7 +521,7 @@ def download(
         return dest
 
     # ── Folder/Episode/Project download (recursive) ─────────────────────
-    result = client.get_node_descendants(node["id"], leaves_only=True)
+    result = client.get_node_descendants(node["id"], leaves_only=True, include_archived=True)
     files = result["descendants"]
     root_prefix = result["rootPrefix"]  # e.g. ",robotics,session-042,sensors,"
 
@@ -675,7 +675,7 @@ def _download_node_member(client, member_id: str, out_dir: "Path") -> int:
     """Download a single node member (file or folder). Returns file count."""
     from pathlib import Path
 
-    result = client.get_node_descendants(member_id, leaves_only=True)
+    result = client.get_node_descendants(member_id, leaves_only=True, include_archived=True)
     root = result["root"]
     member_name = root["name"]
 
@@ -742,7 +742,7 @@ def download_bindr(
 ) -> "Path":
     """Download every node referenced by a bindr (recursing into nested
     bindrs). Each leaf member becomes a top-level entry under `to`,
-    preserving the relative tree for folder members.
+    preserving the relative tree for folder members, including archived paths.
 
     Cycles in the bindr graph are detected and broken — already-visited
     bindrs are skipped with a warning.

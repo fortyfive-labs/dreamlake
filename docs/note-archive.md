@@ -62,6 +62,10 @@ when continuing a cursor. `get_node_descendants()`, `grep_notes()` and
 archived items. Grep cursors are bound to the archive filter just like recursive
 folder search cursors. Direct note metadata reads remain available when archived.
 
+`download()` and `download_bindr()` explicitly include archived paths so a full
+folder or collection download does not silently omit retained files. These
+reads do not unarchive anything.
+
 
 ## Editing restores the folder path
 
