@@ -158,3 +158,87 @@ def test_wrong_project_id_receipt_does_not_confirm_a_different_resource():
     client = client_for(lambda _: httpx.Response(200, json=value))
     with pytest.raises(ProjectAccessError, match="INVALID_PROJECT_ACCESS_RESPONSE"):
         client.projects.access(namespace="acme", project=PROJECT)
+
+
+CAPABILITY = {"apiVersion": 1, "modes": ["workspace", "restricted"], "atomicCreate": True}
+
+
+def test_restricted_creation_checks_capability_then_creates_atomically():
+    calls = []
+
+    def serve(request):
+        calls.append(request)
+        if request.method == "GET":
+            return httpx.Response(200, json={"projects": [], "accessPolicy": CAPABILITY})
+        return httpx.Response(201, json={"id": PROJECT, "name": "Research", "slug": "research", "visibility": "private", "accessMode": "restricted"})
+
+    result = client_for(serve).projects.create(namespace="a/b", name="Research", slug="research", access_mode="restricted")
+    assert result["id"] == PROJECT
+    assert [r.method for r in calls] == ["GET", "POST"]
+    assert calls[0].url.raw_path == b"/namespaces/a%2Fb/projects?pageSize=1"
+    assert json.loads(calls[1].content) == {"name": "Research", "slug": "research", "visibility": "private", "accessMode": "restricted"}
+
+
+@pytest.mark.parametrize("capability", [None, {}, {**CAPABILITY, "apiVersion": 2}, {**CAPABILITY, "apiVersion": True},
+    {**CAPABILITY, "atomicCreate": False}, {**CAPABILITY, "modes": ["workspace"]}])
+def test_older_or_unqualified_server_never_receives_restricted_create(capability):
+    calls = []
+    client = client_for(lambda r: calls.append(r) or httpx.Response(200, json={"accessPolicy": capability}))
+    with pytest.raises(ProjectAccessError, match="PROJECT_ACCESS_UNSUPPORTED"):
+        client.projects.create(namespace="acme", name="Secret", access_mode="restricted")
+    assert len(calls) == 1 and calls[0].method == "GET"
+
+
+def test_creation_with_unconfirmed_policy_preserves_id_and_does_not_retry_or_delete():
+    calls = []
+
+    def serve(request):
+        calls.append(request)
+        if request.method == "GET":
+            return httpx.Response(200, json={"accessPolicy": CAPABILITY})
+        return httpx.Response(201, json={"id": PROJECT, "slug": "research", "visibility": "private", "accessMode": "workspace"})
+
+    with pytest.raises(ProjectAccessError, match="PROJECT_CREATE_UNCONFIRMED") as caught:
+        client_for(serve).projects.create(namespace="acme", name="Research", access_mode="restricted")
+    assert caught.value.project_id == PROJECT and caught.value.outcome == "unknown"
+    assert [r.method for r in calls] == ["GET", "POST"]
+
+
+def test_workspace_create_has_no_extra_preflight_and_returns_verified_policy():
+    calls = []
+    client = client_for(lambda r: calls.append(r) or httpx.Response(201, json={
+        "id": PROJECT, "slug": "research", "name": "Research", "visibility": "public", "accessMode": "workspace",
+    }))
+    result = client.projects.create(namespace="acme", name="Research", visibility="public", description="Shared research")
+    assert result["id"] == PROJECT
+    assert len(calls) == 1 and calls[0].method == "POST"
+    assert json.loads(calls[0].content) == {"name": "Research", "visibility": "public", "accessMode": "workspace", "description": "Shared research"}
+
+
+@pytest.mark.parametrize("kwargs", [
+    {"name": "", "access_mode": "restricted"},
+    {"name": "Research", "access_mode": "restricted", "visibility": "public"},
+    {"name": "Research", "access_mode": "invalid"},
+    {"name": "Research", "slug": ""},
+])
+def test_invalid_creation_never_reads_or_writes(kwargs):
+    calls = []
+    client = client_for(lambda r: calls.append(r) or httpx.Response(500))
+    with pytest.raises(ValueError):
+        client.projects.create(namespace="acme", **kwargs)
+    assert calls == []
+
+
+def test_non_json_success_is_unknown_creation_not_a_safe_to_retry_failure():
+    calls = []
+
+    def serve(request):
+        calls.append(request)
+        if request.method == "GET":
+            return httpx.Response(200, json={"accessPolicy": CAPABILITY})
+        return httpx.Response(201, text="invalid receipt")
+
+    with pytest.raises(ProjectAccessError, match="PROJECT_CREATE_UNCONFIRMED") as caught:
+        client_for(serve).projects.create(namespace="acme", name="Secret", access_mode="restricted")
+    assert caught.value.outcome == "unknown" and caught.value.project_id is None
+    assert [r.method for r in calls] == ["GET", "POST"]
