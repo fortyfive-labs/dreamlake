@@ -255,23 +255,25 @@ def _line_chars(content: str, lines: Any) -> tuple[tuple[int, int], tuple[int, i
     return (first, last), (starts[first - 1], end), (last + 1 if last < total else None)
 
 
-_ATX = re.compile(r"^ {0,3}(#{1,6})(?:[ \t]|$)")
+_ATX = re.compile(r"^ {0,3}(#{1,6})(?:[ \t]|\r|\n|$)")
+_LINE_END = re.compile(r"\r\n|\r|\n")
 
 
 def _heading_level(source: str, tag: str | None) -> int:
     """Heading level from the mapped element's tag, else from its Markdown source.
 
     ``h1``..``h6`` win when the mapping names the element. Otherwise ATX
-    headings allow up to three leading spaces and need a space (or end)
-    after the hashes; a setext underline of ``=`` is level 1, of ``-`` level
-    2. Anything else is 0: not a heading the parser recognizes.
+    headings allow up to three leading spaces and need a space or the end
+    of the line (any terminator: LF, CRLF or CR) after the hashes; a setext
+    underline of ``=`` is level 1, of ``-`` level 2. Anything else is 0: not
+    a heading the parser recognizes.
     """
     if isinstance(tag, str) and re.fullmatch(r"[hH][1-6]", tag):
         return int(tag[1])
     match = _ATX.match(source)
     if match:
         return len(match.group(1))
-    lines = source.rstrip("\r\n").split("\n")
+    lines = _LINE_END.split(source.rstrip("\r\n"))
     if len(lines) >= 2:
         underline = lines[-1].strip()
         if underline and set(underline) == {"="}:

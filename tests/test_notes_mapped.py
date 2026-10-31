@@ -420,6 +420,10 @@ def test_complete_mapped_read_decides_unknown_addresses_without_another_request(
     ('    # code block', None, 0), ('#NoSpace', None, 0), ('####### seven', None, 0),
     ('Title\n=====', None, 1), ('Title\n---', None, 2), ('Title\n- not an underline', None, 0),
     ('whatever', 'h3', 3), ('', 'H2', 2), ('# A', 'h4', 4),
+    # Regression: CR line endings. An empty ATX heading ends at any terminator;
+    # setext lines split on \r\n, \r or \n alike.
+    ('##\r\n', None, 2), ('##\r', None, 2), ('#\n', None, 1), ('# A\r\nbody', None, 1),
+    ('Title\r=====\r', None, 1), ('Title\r\n-----\r\n', None, 2), ('Title\n=====\n', None, 1),
 ])
 def test_heading_level_from_tag_or_markdown(source, tag, level):
     from dreamlake.api._notes_facade import _heading_level
