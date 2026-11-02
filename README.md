@@ -126,6 +126,10 @@ with Episode(
 
 See [examples/](examples/) for more complete examples.
 
+## Native Experiment client
+
+`DreamLakeClient(token=...).experiments` logs runs directly to a project (create run, parameters, metrics, files, status, metric read-back, typed errors with `status`/`code`/`body`, opt-in `retry_conflicts`). See [docs/native-experiments.md](docs/native-experiments.md) for a complete example.
+
 ## Development Setup
 
 ### Installing Dev Dependencies
