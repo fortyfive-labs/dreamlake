@@ -130,6 +130,18 @@ See [examples/](examples/) for more complete examples.
 
 `DreamLakeClient(token=...).experiments` logs runs directly to a project (create run, parameters, metrics, files, status, metric read-back, typed errors with `status`/`code`/`body`, opt-in `retry_conflicts`). See [docs/native-experiments.md](docs/native-experiments.md) for a complete example.
 
+## Dash writer
+
+`dreamlake.experiments.dash_writer(namespace, project)` logs a run to the project's built-in Dash service with DreamLake-minted 60 s tokens (refreshed automatically) and an `ml_dash`-style surface: `params.set`, `metrics(name).log/read`, `files(prefix).upload`, `log`, `set_status`. See [docs/dash-writer.md](docs/dash-writer.md).
+
+```python
+from dreamlake.experiments import dash_writer
+
+with dash_writer("team", "research", run_key="trial_1") as run:
+    run.params.set(lr=3e-4)
+    run.metrics("train").log(step=0, loss=1.2)
+```
+
 ## Development Setup
 
 ### Installing Dev Dependencies

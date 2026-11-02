@@ -27,3 +27,5 @@ Errors: `ExperimentRequestError` carries `status`, `code` (server `error.code`, 
 `OPERATION_CONFLICT`, `NATIVE_RUN_ACTIVE`) and `body`. Write methods take
 `retry_conflicts=True` to retry (up to 5 times, jittered backoff) only on HTTP 409
 `OPERATION_CONFLICT`; it is off by default and nothing else is retried.
+
+For the built-in Dash service (ml-dash managed API) see [dash-writer.md](dash-writer.md).
