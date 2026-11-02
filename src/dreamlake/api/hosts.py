@@ -296,6 +296,67 @@ class Hosts:
                 raise HostNotFound("Host not found", status=404)
             current_page += 1
 
+    @staticmethod
+    def _move_path(namespace: str, host_id: str) -> str:
+        _string(namespace, "namespace")
+        if not isinstance(host_id, str) or not re.fullmatch(r"[a-f0-9]{24}", host_id):
+            raise HostConfigurationError("host_id must be an exact lowercase Host ID")
+        return f"/namespaces/{quote(namespace, safe='')}/hosts/{host_id}/move"
+
+    @staticmethod
+    def _move_response(data: dict, host_id: str, destination_namespace: str, request_id: str | None = None) -> None:
+        if (type(data.get("apiVersion")) is not int or data["apiVersion"] != 1
+                or data.get("hostId") != host_id or data.get("destinationNamespace") != destination_namespace
+                or data.get("visibility") != "private" or type(data.get("revision")) is not int
+                or data["revision"] < 0
+                or any(not isinstance(data.get(key), str) or not data[key]
+                       for key in ("sourceNamespaceId", "destinationNamespaceId", "ownerUserId", "name"))):
+            raise HostError("Host move response could not be verified; reconcile before retrying", request_id=request_id)
+
+    def move_preview(self, namespace: str, host_id: str, destination_namespace: str) -> dict:
+        """Preview a private, identity-preserving namespace move without changing the host."""
+        path = self._move_path(namespace, host_id)
+        if not isinstance(destination_namespace, str) or not _SEGMENT.fullmatch(destination_namespace):
+            raise HostConfigurationError("destination_namespace must be an exact namespace slug")
+        data = self._request("POST", path + "/preview", body={"destinationNamespace": destination_namespace})
+        self._move_response(data, host_id, destination_namespace)
+        if (not isinstance(data.get("previewHash"), str) or not re.fullmatch(r"[a-f0-9]{64}", data["previewHash"])
+                or not isinstance(data.get("blockers"), list)
+                or any(not isinstance(item, str) or not item for item in data["blockers"])
+                or type(data.get("executable")) is not bool or data["executable"] != (not data["blockers"])):
+            raise HostError("Host move preview could not be verified")
+        return data
+
+    def move(self, namespace: str, host_id: str, *, destination_namespace: str,
+             request_id: str, expected_revision: int, preview_hash: str) -> dict:
+        """Apply the reviewed move once. After an uncertain response, replay these exact inputs.
+
+        No key is generated, preview refreshed, or mutation retried automatically.
+        A successful receipt preserves the Host ID and confirms private owner access.
+        """
+        path = self._move_path(namespace, host_id)
+        if not isinstance(destination_namespace, str) or not _SEGMENT.fullmatch(destination_namespace):
+            raise HostConfigurationError("destination_namespace must be an exact namespace slug")
+        if not isinstance(request_id, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}", request_id):
+            raise HostConfigurationError("request_id must be a stable key of 1 to 128 safe characters")
+        if type(expected_revision) is not int or not 0 <= expected_revision < 2147483647:
+            raise HostConfigurationError("expected_revision must be a nonnegative integer")
+        if not isinstance(preview_hash, str) or not re.fullmatch(r"[a-f0-9]{64}", preview_hash):
+            raise HostConfigurationError("preview_hash must be the exact preview SHA-256 hash")
+        data = self._request("POST", path, body={"destinationNamespace": destination_namespace,
+            "requestId": request_id, "expectedRevision": expected_revision, "previewHash": preview_hash},
+            request_id=request_id)
+        self._move_response(data, host_id, destination_namespace, request_id)
+        if (data.get("requestId") != request_id or data["revision"] != expected_revision + 1
+                or not isinstance(data.get("operationId"), str) or not data["operationId"]
+                or type(data.get("replayed")) is not bool or not isinstance(data.get("recordedAt"), str)):
+            raise HostError("Host move receipt could not be verified; replay the same request", request_id=request_id)
+        try:
+            datetime.fromisoformat(data["recordedAt"].replace("Z", "+00:00"))
+        except ValueError:
+            raise HostError("Host move receipt timestamp is invalid", request_id=request_id) from None
+        return data
+
     def enroll(self, name: str | None = None, *, prefix: str | None = None,
                ssh: str | Mapping | None = None, config: str | Path | Mapping | None = None,
                dry_run: bool = False, save_credentials: bool = False, credentials=None,
