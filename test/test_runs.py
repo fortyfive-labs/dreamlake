@@ -91,3 +91,12 @@ def test_provider_placement_resources_are_explicit(tmp_path):
         with pytest.raises(RunConfigurationError):
             runs.submit("ge/lab/box", kind="uv-run", argv=["train.py"], cwd=tmp_path, **extra)
     assert len(seen) == 1
+
+
+def test_submit_user_qualified_target(tmp_path):
+    target = "fortyfive/bos14/bos14-ctrl/geyang"
+    def handler(req):
+        assert json.loads(req.content)["target"] == target
+        return httpx.Response(202, json={"run": {"id": "run1", "status": "queued"}})
+    runs = DreamLakeClient(token="fixture", transport=httpx.MockTransport(handler)).runs
+    assert runs.submit(target, kind="uvx", argv=["tool"], cwd=tmp_path)["id"] == "run1"

@@ -98,8 +98,8 @@ class Runs:
         or uvx on the target. Reuse request_id with identical inputs after an
         uncertain response; there is no automatic write retry.
         """
-        if not isinstance(target, str) or len(target.split("/")) != 3 or any(not _SEGMENT.fullmatch(p) for p in target.split("/")):
-            raise RunConfigurationError("target must be namespace/group/host")
+        if not isinstance(target, str) or len(target.split("/")) not in (3, 4) or any(not _SEGMENT.fullmatch(p) for p in target.split("/")[:3]) or (len(target.split("/")) == 4 and not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_.-]{0,63}\$?", target.split("/")[3])):
+            raise RunConfigurationError("target must be namespace/group/host[/user]")
         if not isinstance(kind, str) or kind not in {"uv-run", "uvx"}:
             raise RunConfigurationError("kind must be uv-run or uvx")
         if isinstance(argv, (str, bytes)) or not isinstance(argv, Sequence) or not argv or any(not isinstance(arg, str) or "\0" in arg for arg in argv):
