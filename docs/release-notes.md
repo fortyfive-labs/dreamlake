@@ -1,5 +1,20 @@
 # Release notes
 
+## 0.40.0 — First-class runnable agents (release candidate)
+
+`DreamLakeClient().runnables` adds typed list, get, create, update, delete,
+archive, and restore APIs. Define an agent with an inline builtin spec or a
+main instruction note plus optional skill notes and folders, and file it in a
+project during creation. Project attachment helpers also accept runnable IDs.
+
+Updates and archive/restore support `expectedUpdatedAt` for stale-write
+protection. Ordinary updates preserve archival state; listing includes archived
+agents only with `include_archived=True`. See [Runnable agents](api/runnables.md)
+for executable definition and lifecycle examples.
+
+This candidate requires the matching first-class runnable backend before
+publication and hosted use. It has not been published to PyPI.
+
 ## 0.38.0 — Reviewed Infrastructure registration moves
 
 `DreamLakeClient().infra` adds `status`, `preview_move`, and `execute_move`.
