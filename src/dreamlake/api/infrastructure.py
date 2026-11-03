@@ -19,9 +19,10 @@ _REQUIRED = set("expectedSourceName destinationNamespaceSlug destinationProjectS
 class InfrastructureError(Exception):
     """Sanitized API error. ``outcome`` is unknown when execution needs reconciliation."""
 
-    def __init__(self, code, *, status=None, outcome="rejected"):
+    def __init__(self, code, *, status=None, outcome="rejected", stack_id=None, operation_id=None):
         super().__init__(code)
         self.code, self.status, self.outcome = code, status, outcome
+        self.stack_id, self.operation_id = stack_id, operation_id
 
 
 def _match(value, pattern):
@@ -103,21 +104,33 @@ class Infrastructure:
         self.client = client
 
     def _request(self, method, path, payload=None, *, executing=False, params=None):
+        identity = ({"stack_id": path.split("/")[3], "operation_id": payload["idempotencyKey"]}
+                    if executing else {})
         try:
             with self.client.http() as http:
                 response = http.request(method, path, json=payload, params=params, follow_redirects=False)
         except httpx.HTTPError:
             raise InfrastructureError("MOVE_OUTCOME_UNKNOWN" if executing else "INFRASTRUCTURE_UNREACHABLE",
-                                      outcome="unknown" if executing else "rejected") from None
+                                      outcome="unknown" if executing else "rejected", **identity) from None
         if not response.is_success:
-            unknown = executing and response.status_code >= 500
-            raise InfrastructureError("MOVE_OUTCOME_UNKNOWN" if unknown else "INFRASTRUCTURE_REQUEST_FAILED",
-                                      status=response.status_code, outcome="unknown" if unknown else "rejected")
+            try:
+                body = response.json()
+                code = body.get("error") if isinstance(body, dict) else None
+            except ValueError:
+                code = None
+            # These 409s explicitly mean a database mutation may have committed.
+            # Keep only allowlisted codes and our already-validated request IDs.
+            reconciliation = isinstance(code, str) and code in {
+                "stack_path_reconciliation_required", "stack_move_reconciliation_required"}
+            unknown = executing and (response.status_code >= 500 or reconciliation)
+            safe_code = code if reconciliation else "MOVE_OUTCOME_UNKNOWN" if unknown else "INFRASTRUCTURE_REQUEST_FAILED"
+            raise InfrastructureError(safe_code, status=response.status_code,
+                                      outcome="unknown" if unknown else "rejected", **identity)
         try:
             return response.json()
         except ValueError:
             raise InfrastructureError("MOVE_OUTCOME_UNKNOWN" if executing else "INVALID_INFRASTRUCTURE_RESPONSE",
-                                      outcome="unknown" if executing else "rejected") from None
+                                      outcome="unknown" if executing else "rejected", **identity) from None
 
     def status(self, stack_id):
         """Read metadata by immutable UUID; never download Terraform state secrets."""
@@ -171,6 +184,10 @@ class Infrastructure:
             stack = _stack(result.get("stack"))
             if (type(result.get("apiVersion")) is not int or result["apiVersion"] != 1
                     or type(result.get("moved")) is not bool or type(result.get("replayed")) is not bool
+                    or (not result["moved"] and (result["replayed"]
+                        or saved["source"]["projectId"] != saved["destination"]["projectId"]
+                        or intent.get("destinationName", saved["stack"]["name"]) != saved["stack"]["name"]
+                        or "destinationPath" in intent))
                     or result.get("operationId") != intent["idempotencyKey"]
                     or stack["id"].lower() != stack_id.lower() or stack["locked"]
                     or stack["namespaceId"] != saved["destination"]["namespaceId"]
@@ -180,5 +197,6 @@ class Infrastructure:
                     or any(stack[k] != saved["stack"][k] for k in ("version", "environment", "repository", "directory", "createdAt"))):
                 raise ValueError()
         except (ValueError, TypeError, AttributeError, KeyError):
-            raise InfrastructureError("MOVE_OUTCOME_UNKNOWN", outcome="unknown") from None
+            raise InfrastructureError("MOVE_OUTCOME_UNKNOWN", outcome="unknown", stack_id=stack_id,
+                                      operation_id=intent["idempotencyKey"]) from None
         return deepcopy(result)

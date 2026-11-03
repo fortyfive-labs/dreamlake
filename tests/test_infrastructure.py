@@ -8,8 +8,8 @@ import pytest
 from dreamlake import DreamLakeClient
 from dreamlake.api.infrastructure import InfrastructureError
 
-STACK = "b8b369d3-27e3-4ca2-8a3d-5e8eb29d2c4d"
-KEY = "d24383e9-4ac3-4070-b00c-df5f7a9d1d1c"
+STACK = "11111111-1111-4111-8111-111111111111"
+KEY = "22222222-2222-4222-8222-222222222222"
 
 
 @pytest.fixture
@@ -19,7 +19,7 @@ def fixture():
                  path="infra/examples/example", version=4, locked=False, environment="recipe",
                  repository="https://github.com/example/repo", directory="infra", createdAt="2026-11-03")
     control = {"stack": stack, "same_project": False, "status": 200, "invalid_receipt": False,
-               "timeout": False, "blocked": False, "replayed": False, "preview_override": None}
+               "timeout": False, "blocked": False, "replayed": False, "preview_override": None, "error_code": None, "moved": True}
 
     def serve(request):
         body = json.loads(request.content) if request.content else None
@@ -49,19 +49,19 @@ def fixture():
         if control["timeout"]:
             raise httpx.ReadTimeout("secret-token-never-echo", request=request)
         if control["status"] != 200:
-            return httpx.Response(control["status"], json={"error": "secret-token-never-echo"})
+            return httpx.Response(control["status"], json={"error": control["error_code"] or "secret-token-never-echo", "receipt": {"stackId": "untrusted"}})
         moved = dict(stack, projectId=body["expectedDestinationProjectId"], namespaceId=body["expectedDestinationNamespaceId"],
                      name=body.get("destinationName", stack["name"]), path=body.get("destinationPath", stack["path"]))
         if control["invalid_receipt"]:
             moved["version"] += 1
-        return httpx.Response(200, json=dict(apiVersion=1, stack=moved, moved=True, replayed=control["replayed"], operationId=body["idempotencyKey"]))
+        return httpx.Response(200, json=dict(apiVersion=1, stack=moved, moved=control["moved"], replayed=control["replayed"], operationId=body["idempotencyKey"]))
 
     client = DreamLakeClient(dl_url="https://fixture.invalid", token="fixture", transport=httpx.MockTransport(serve))
     return client.infra, requests, control
 
 
 def preview(infra, **kw):
-    return infra.preview_move(STACK, destination_namespace="fortyfive", destination_project="archive", **kw)
+    return infra.preview_move(STACK, destination_namespace="acme", destination_project="archive", **kw)
 
 
 def test_preview_preserves_cross_project_path_and_pins_state(fixture):
@@ -154,6 +154,8 @@ def test_failed_execution_is_sanitized_and_never_retried(fixture, mode, expected
     with pytest.raises(InfrastructureError) as caught:
         infra.execute_move(STACK, review, confirm=True)
     assert caught.value.outcome == expected
+    assert caught.value.stack_id == STACK
+    assert caught.value.operation_id == KEY
     assert "secret-token" not in str(caught.value)
     assert len(requests) == 2
 
@@ -166,3 +168,34 @@ def test_status_uses_immutable_uuid_and_invalid_inputs_never_request(fixture):
     with pytest.raises(ValueError):
         preview(infra, destination_path="infra//example")
     assert len(requests) == 1
+
+
+@pytest.mark.parametrize("code", ["stack_path_reconciliation_required", "stack_move_reconciliation_required"])
+def test_reconciliation_409_keeps_unknown_outcome_and_trusted_identity(fixture, code):
+    infra, requests, control = fixture
+    review = preview(infra)
+    control.update(status=409, error_code=code)
+    with pytest.raises(InfrastructureError) as caught:
+        infra.execute_move(STACK, review, confirm=True)
+    assert caught.value.code == code
+    assert caught.value.outcome == "unknown"
+    assert caught.value.stack_id == STACK
+    assert caught.value.operation_id == KEY
+    assert len(requests) == 2
+
+
+def test_same_project_noop_receipt_is_valid(fixture):
+    infra, _, control = fixture
+    control.update(same_project=True, moved=False)
+    review = preview(infra)
+    receipt = infra.execute_move(STACK, review, confirm=True)
+    assert receipt["moved"] is False and receipt["replayed"] is False
+
+
+def test_cross_project_false_move_receipt_requires_reconciliation(fixture):
+    infra, _, control = fixture
+    review = preview(infra)
+    control["moved"] = False
+    with pytest.raises(InfrastructureError) as caught:
+        infra.execute_move(STACK, review, confirm=True)
+    assert caught.value.outcome == "unknown"
