@@ -305,3 +305,30 @@ def test_remote_detaches_ssh_tree_and_disables_askpass(tmp_path, monkeypatch):
     result = _remote(["-J", "jump", "host"], {"action": "probe"})
     assert result["session"] != os.getsid(0)
     assert result["askpass"] == "never"
+
+
+def test_user_qualified_name_and_prefix():
+    hosts = DreamLakeClient(token="test").hosts
+    name = "fortyfive/bos14/bos14-ctrl/geyang"
+    assert hosts.plan(name, ssh="ctrl")["name"] == name
+    assert hosts.plan("bos14-ctrl/geyang", prefix="fortyfive/bos14", ssh="ctrl")["name"] == name
+    for bad in [name + "/extra", name + "/", "fortyfive/bos14/ctrl/*", "fortyfive/bos14/ctrl/../geyang"]:
+        with pytest.raises(HostConfigurationError):
+            hosts.plan(bad, ssh="ctrl")
+
+
+def test_rename_preserves_exact_identity_and_guard():
+    host_id = "a" * 24
+    name = "fortyfive/bos14/bos14-ctrl/geyang"
+    expected = "fortyfive/bos14/bos14-ctrl-geyang"
+    seen = []
+    def handler(req):
+        seen.append(req)
+        assert req.url.path == f"/namespaces/fortyfive/hosts/{host_id}/rename"
+        assert json.loads(req.content) == {"name": name, "expectedName": expected}
+        return httpx.Response(200, json={"host": {"id": host_id, "name": name}, "executionAffected": False})
+    hosts = DreamLakeClient(token="fixture", transport=httpx.MockTransport(handler)).hosts
+    assert hosts.rename("fortyfive", host_id, name=name, expected_name=expected)["host"]["id"] == host_id
+    with pytest.raises(HostConfigurationError):
+        hosts.rename("other", host_id, name=name, expected_name=expected)
+    assert len(seen) == 1

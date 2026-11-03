@@ -179,12 +179,12 @@ def _name(name: Any, prefix: Any = None) -> list[str]:
         pref = _string(prefix, "prefix").split("/")
         if len(pref) != 2 or not all(_SEGMENT.fullmatch(p) for p in pref):
             raise HostConfigurationError("prefix must be namespace/group")
-        if len(parts) == 1:
+        if len(parts) <= 2:
             parts = pref + parts
         elif parts[:2] != pref:
             raise HostConfigurationError("name and prefix conflict")
-    if len(parts) != 3 or not all(_SEGMENT.fullmatch(p) for p in parts):
-        raise HostConfigurationError("name must be namespace/group/host; wildcards are not enrollment names")
+    if len(parts) not in (3, 4) or not all(_SEGMENT.fullmatch(p) for p in parts[:3]) or (len(parts) == 4 and not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_.-]{0,63}\$?", parts[3])):
+        raise HostConfigurationError("name must be namespace/group/host[/user]; wildcards are not enrollment names")
     return parts
 
 
@@ -280,6 +280,8 @@ class Hosts:
             raise HostConfigurationError("page must be between 1 and 100000 and page_size between 1 and 100")
         wildcard = selector.endswith("/*")
         parts = _name(selector[:-1] + "placeholder" if wildcard else selector)
+        if wildcard and len(parts) != 3:
+            raise HostConfigurationError("wildcards must be namespace/group/*")
         prefix = "/".join(parts[:2])
         path = f"/namespaces/{quote(parts[0], safe='')}/hosts"
         current_page = page if wildcard else 1
@@ -295,6 +297,16 @@ class Hosts:
             if type(total_pages) is not int or current_page >= total_pages:
                 raise HostNotFound("Host not found", status=404)
             current_page += 1
+
+    def rename(self, namespace: str, host_id: str, *, name: str, expected_name: str) -> dict:
+        """Rename an owned host in place; keep identical inputs after an uncertain response."""
+        if _name(name)[0] != namespace or _name(expected_name)[0] != namespace:
+            raise HostConfigurationError("Rename must stay in the same namespace")
+        path = self._move_path(namespace, host_id).removesuffix("/move") + "/rename"
+        result = self._request("POST", path, body={"name": name, "expectedName": expected_name})
+        if result.get("host", {}).get("id") != host_id or result.get("host", {}).get("name") != name:
+            raise HostError("Host rename response could not be verified; reconcile before retrying")
+        return result
 
     @staticmethod
     def _move_path(namespace: str, host_id: str) -> str:
@@ -394,6 +406,8 @@ class Hosts:
             raise
         if not isinstance(probe.get("unixUser"), str) or not probe["unixUser"] or not isinstance(probe.get("publicKey"), str) or not re.fullmatch(r"[A-Za-z0-9_-]{43}", probe["publicKey"]):
             raise HostError("Remote host returned invalid identity", request_id=request_id)
+        if len(plan["name"].split("/")) == 4 and plan["name"].split("/")[3] != probe["unixUser"]:
+            raise HostConfigurationError("Host path user must match the enrolled Unix user")
         body = {"name": plan["name"], "unixUser": probe["unixUser"], "publicKey": probe["publicKey"], "requestId": request_id}
         if lakeshore_id is not None:
             body["lakeshoreId"] = lakeshore_id
