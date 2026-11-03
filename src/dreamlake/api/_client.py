@@ -83,6 +83,12 @@ class DreamLakeClient:
         return Projects(self)
 
     @property
+    def infra(self):
+        """Infrastructure registrations and reviewed metadata moves; no cloud mutations."""
+        from .infrastructure import Infrastructure
+        return Infrastructure(self)
+
+    @property
     def ownership(self):
         """Server-authorized ownership previews and transfer inbox decisions."""
         from .ownership import Ownership
