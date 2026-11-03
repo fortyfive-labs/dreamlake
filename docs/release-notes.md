@@ -1,5 +1,14 @@
 # Release notes
 
+## 0.38.0 — Reviewed Infrastructure registration moves
+
+`DreamLakeClient().infra` adds `status`, `preview_move`, and `execute_move`.
+Cross-project moves preserve the source path by default or use an explicit
+destination path, with source placement and state identity pinned in the saved
+review. Execution requires explicit confirmation and consumes that exact request
+without automatic retry. Terraform state and cloud resources remain unchanged.
+See [Infrastructure registration moves](infrastructure.md).
+
 ## 0.34.0 — Notes API facade: `dl.notes(note_id)`
 
 The Python tabs of the Notes API design pages are now implemented. `dl.notes`
