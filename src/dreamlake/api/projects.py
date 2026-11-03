@@ -68,7 +68,7 @@ class Projects:
         return self._request(namespace, project, "DELETE", "/grants/" + quote(grant_id, safe=""))
 
     def _attachment(self, namespace, project, resource_type, resource_id, *, detach):
-        if resource_type not in {"note", "artifact", "annotation", "workflow", "env", "source"}:
+        if resource_type not in {"note", "artifact", "annotation", "workflow", "env", "source", "runnable"}:
             raise ValueError("Unsupported resource type")
         if not re.fullmatch(r"[a-fA-F0-9]{24}", resource_id):
             raise ValueError("A resource database ID is required")

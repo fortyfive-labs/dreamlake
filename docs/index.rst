@@ -37,6 +37,7 @@ Python SDK for ML experiment tracking and data storage.
    release-notes
    runs
    providers
+   api/runnables
    infrastructure
    vault-import
    vault-key-rotation
