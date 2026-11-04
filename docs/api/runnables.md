@@ -2,8 +2,8 @@
 
 `DreamLakeClient.runnables` creates and manages first-class runnable resources.
 An agent is a runnable with `kind="agent"`; creating its definition does not
-start a session. This API requires the companion runnable-content and archival
-backend release. These examples describe the new SDK source; older installed
+start a session. Available in [Python 0.40.0](https://pypi.org/project/dreamlake/0.40.0/)
+with the deployed runnable-content and archival backend. Older installed
 versions may not expose `client.runnables`.
 
 ## Inline instructions

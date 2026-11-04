@@ -1,6 +1,6 @@
 # Release notes
 
-## 0.40.0 — First-class runnable agents (release candidate)
+## 0.40.0 — First-class runnable agents
 
 `DreamLakeClient().runnables` adds typed list, get, create, update, delete,
 archive, and restore APIs. Define an agent with an inline builtin spec or a
@@ -12,8 +12,27 @@ protection. Ordinary updates preserve archival state; listing includes archived
 agents only with `include_archived=True`. See [Runnable agents](api/runnables.md)
 for executable definition and lifecycle examples.
 
-This candidate requires the matching first-class runnable backend before
-publication and hosted use. It has not been published to PyPI.
+**Published to PyPI.** [Release PR #133](https://github.com/fortyfive-labs/dreamlake/pull/133)
+merged at `562156a5ea17caa08d1ee4c0671be68320be621e`; the
+[publish workflow](https://github.com/fortyfive-labs/dreamlake/actions/runs/41751824670)
+built and published that exact source. Public downloads match the workflow artifacts:
+
+| Distribution | SHA256 |
+| --- | --- |
+| Wheel | `064cc34edced26192e7137a7a67dae2b70f9a25c8bce18bc7f4f998b61681f2c` |
+| Source distribution | `b611d556e65b9a2d96e759ad6fdf67e95bd45e1fb7aa65b1cef506049761a208` |
+
+The exact merged commit passed CI tests, package and documentation builds.
+A fresh, no-cache PyPI installation outside the checkout passed live inline and
+main-note/skill agent creation, project filing, list/get, conditional update and
+stale-write rejection, archive-preserving edits, archive filtering, restore,
+project detach/reattach, and deletion against backend `0c0091d0`. All temporary
+agents and notes were deleted successfully.
+
+[Read the Docs built the same commit](https://app.readthedocs.org/projects/dreamlake/builds/35629897/).
+Its configured SDK documentation URL currently returns 404, so use the
+[source examples](https://github.com/fortyfive-labs/dreamlake/blob/main/docs/api/runnables.md)
+until the SDK documentation hostname is corrected.
 
 ## 0.38.0 — Reviewed Infrastructure registration moves
 
