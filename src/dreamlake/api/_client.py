@@ -14,6 +14,10 @@ side unauthenticated with nothing to say why.
 
 import os
 import re
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .runnables import Runnables
 
 import httpx
 
@@ -75,6 +79,12 @@ class DreamLakeClient:
         """Source management, access and terminal deletion under server authority."""
         from .sources import Sources
         return Sources(self)
+
+    @property
+    def runnables(self) -> "Runnables":
+        """Agent and runnable definitions, project filings, archival and restore."""
+        from .runnables import Runnables
+        return Runnables(self)
 
     @property
     def projects(self):

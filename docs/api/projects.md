@@ -132,3 +132,10 @@ body; use the application transfer dialog or an authorized raw API request to
 inspect the server's itemized `error.details.blockers`. `client.ownership.transfer_plan(namespace, project_id)` also
 exposes the scoped GET endpoint directly. Existing generic ownership methods
 remain available for exact saved requests and operation decisions.
+
+## Runnable agents
+
+Use `client.projects.attach(namespace, project, "runnable", agent_id)` to file
+an existing runnable definition, and `detach` to remove its filing. The
+resource ID is the runnable database ID. Creating an agent with `projects`
+can create its filings atomically; see [Agents and runnable definitions](runnables.md).
