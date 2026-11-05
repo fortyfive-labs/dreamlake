@@ -1,5 +1,9 @@
 # Release notes
 
+## 0.40.1 — Memo terminology
+
+Documentation and SDK diagnostics now call collaborative documents Memos: a shared space for people and their agents. Existing `notes` methods, identifiers, and API contracts remain compatible.
+
 ## 0.40.0 — First-class runnable agents
 
 `DreamLakeClient().runnables` adds typed list, get, create, update, delete,
