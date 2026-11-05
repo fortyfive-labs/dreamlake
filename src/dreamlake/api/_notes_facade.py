@@ -183,8 +183,8 @@ class NoteCreatedWithoutSource(NoteError):
     outcome = "unknown"
 
     def __init__(self, note_id: str, namespace: str, cause: BaseException):
-        super().__init__(f"note {note_id!r} was created in {namespace!r} but its initial source was not written "
-                         f"({type(cause).__name__}: {cause}); write to that id instead of creating another note")
+        super().__init__(f"memo {note_id!r} was created in {namespace!r} but its initial source was not written "
+                         f"({type(cause).__name__}: {cause}); write to that id instead of creating another memo")
         self.note_id = note_id
         self.namespace = namespace
         self.outcome = cause.outcome if isinstance(cause, NoteError) else "unknown"
@@ -250,7 +250,7 @@ def _line_chars(content: str, lines: Any) -> tuple[tuple[int, int], tuple[int, i
         starts.pop()
     total = len(starts)
     if last > total:
-        raise InvalidLineRange(f"line {last} is past the end of a {total}-line note")
+        raise InvalidLineRange(f"line {last} is past the end of a {total}-line memo")
     end = starts[last] if last < total else len(content)
     return (first, last), (starts[first - 1], end), (last + 1 if last < total else None)
 
@@ -502,7 +502,7 @@ class NoteHandle:
 
     def __init__(self, ref: str, *, namespace: str | None = None, client: DreamLakeClient | None = None):
         if not isinstance(ref, str) or not ref or ref.strip() != ref:
-            raise ValueError(f"note reference {ref!r} must be a stable 24-hex id, or a slug with namespace=")
+            raise ValueError(f"memo reference {ref!r} must be a stable 24-hex id, or a slug with namespace=")
         if "/" in ref:
             if namespace is not None:
                 raise ValueError("give the namespace once: either 'namespace/ref' or namespace=")
@@ -552,7 +552,7 @@ class NoteHandle:
                     row = response.json()
                     namespace = row.get("namespaceSlug") if isinstance(row, dict) else None
                     if row.get("id") != note_id or not isinstance(namespace, str) or not namespace:
-                        raise NoteError(f"server did not identify note {note_id!r}")
+                        raise NoteError(f"server did not identify memo {note_id!r}")
             else:
                 assert self._ns is not None
                 _, note_id = _resolve(f"{self._ns}/{self._ref}", client)
@@ -565,7 +565,7 @@ class NoteHandle:
         owner = (value.note if isinstance(value, (NoteSnapshot, FocusedRead, MappedRead))
                  else value.get("note") if isinstance(value, Mapping) else None)
         if owner is not None and owner != self.id:
-            raise ValueError(f"{name} belongs to note {owner!r}, not {self.id!r}")
+            raise ValueError(f"{name} belongs to memo {owner!r}, not {self.id!r}")
 
     def _snapshot_of(self, value: Any, name: str) -> NoteSnapshot:
         """A complete source snapshot for a whole-body operation.
@@ -1172,7 +1172,7 @@ class Notes:
         with client.http() as http:
             response = http.post(f"/namespaces/{_seg(namespace)}/notes",
                                  json={"name": name if name is not None else "Untitled", "visibility": visibility})
-        _raise_for(response, f"create note in {namespace}")
+        _raise_for(response, f"create memo in {namespace}")
         try:
             note_id = response.json()["note"]["id"]
         except (ValueError, KeyError, TypeError):
@@ -1189,7 +1189,7 @@ class Notes:
         return handle
 
     def __repr__(self) -> str:  # pragma: no cover - display only
-        return "<dreamlake.notes>" if self._client is None else f"<notes of {self._client.dl_url}>"
+        return "<dreamlake.notes>" if self._client is None else f"<memos of {self._client.dl_url}>"
 
 
 #: Module-level entry point: ``import dreamlake as dl; dl.notes(note_id)``.

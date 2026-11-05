@@ -504,7 +504,7 @@ class GrepResult:
 
     def __repr__(self) -> str:  # pragma: no cover - display only
         more = ", truncated" if self.truncated else ""
-        return f"GrepResult({len(self.hits)} hits from {self.notes_searched} notes{more})"
+        return f"GrepResult({len(self.hits)} hits from {self.notes_searched} memos{more})"
 
 
 def _error_code(resp: httpx.Response) -> str | None:
@@ -579,7 +579,7 @@ class Note:
         return self._etag
 
     def __repr__(self) -> str:  # pragma: no cover - display only
-        return f"<Note {self._ns}/{self._id}>"
+        return f"<Memo {self._ns}/{self._id}>"
 
     def metadata(self) -> NoteRef:
         """Read current metadata without restoring an archived note."""
@@ -825,7 +825,7 @@ class Note:
                 raise ValueError("at requires modern read; omit legacy and if_match")
             self.refresh(legacy=True)
             if if_match is not None and self.etag != if_match:
-                raise NoteChanged(f"note changed since legacy ETag {if_match}", etag=self.etag)
+                raise NoteChanged(f"memo changed since legacy ETag {if_match}", etag=self.etag)
             return Doc(self, self._text or "", self.etag)
         original = self.read_snapshot(at=at)
         self._text, self._text_snapshot = original.content, original
@@ -1199,7 +1199,7 @@ def _resolve(ref: str, client: DreamLakeClient) -> tuple[str, str]:
     if "/" not in ref:
         if not _OBJECT_ID.fullmatch(ref):
             raise ValueError(
-                f"note reference {ref!r} is neither an id nor '<namespace>/<slug>' — "
+                f"memo reference {ref!r} is neither an id nor '<namespace>/<slug>' — "
                 "an id is 24 hex characters"
             )
         with client.http() as http:
@@ -1228,7 +1228,7 @@ def _resolve(ref: str, client: DreamLakeClient) -> tuple[str, str]:
         offset += len(rows)
         if not rows or offset >= data.get("total", offset):
             break
-    raise NoteNotFound(f"no note {rest!r} in namespace {ns!r}")
+    raise NoteNotFound(f"no memo {rest!r} in namespace {ns!r}")
 
 
 def note(ref: str, *, client: DreamLakeClient | None = None) -> Note:
@@ -1267,7 +1267,7 @@ def create_note(
             f"/namespaces/{_seg(namespace)}/notes",
             json={"name": name, "visibility": visibility},
         )
-    _raise_for(r, f"create note {name!r} in {namespace}")
+    _raise_for(r, f"create memo {name!r} in {namespace}")
     note = Note(r.json()["note"]["id"], namespace=namespace, client=c)
     if text:
         note.write(text, force=True)
@@ -1296,7 +1296,7 @@ def list_notes(
             f"/namespaces/{_seg(namespace)}/notes",
             params={"limit": limit, "offset": offset, "includeArchived": str(include_archived).lower()},
         )
-    _raise_for(r, f"list notes in {namespace}")
+    _raise_for(r, f"list memos in {namespace}")
     return [_ref(row, namespace) for row in r.json().get("notes", [])]
 
 
@@ -1338,7 +1338,7 @@ def search_notes(
             f"/namespaces/{_seg(namespace)}/notes",
             params={"q": query, "limit": limit, "includeArchived": str(include_archived).lower()},
         )
-    _raise_for(r, f"search notes in {namespace}")
+    _raise_for(r, f"search memos in {namespace}")
     return [_ref(row, namespace) for row in r.json().get("notes", [])]
 
 
@@ -1420,7 +1420,7 @@ def grep_notes(
             page_params["cursor"] = next_cursor
         with c.http() as http:
             r = http.get(f"/namespaces/{_seg(namespace)}/notes/search", params=page_params)
-        _raise_for(r, f"search notes in {namespace}")
+        _raise_for(r, f"search memos in {namespace}")
         d = r.json()
 
         for row in d.get("hits", []):
