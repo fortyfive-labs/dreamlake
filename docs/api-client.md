@@ -10,7 +10,12 @@ no token is available.
 `DreamLakeClient(transport=...)` applies the supplied synchronous httpx transport
 to all DreamLake API requests, including upload authorization, node registration,
 node lookup, account identity, downloads, and Bindrs. Existing request timeouts
-and HTTP error propagation are preserved. Signed storage transfers and Qdrant
+and HTTP error propagation are preserved. An injected transport is borrowed:
+the caller must keep it open for all SDK operations and close it afterward
+(for example, wrap the whole sequence in `with transport:`). Individual
+`client.http()` contexts close their HTTP clients without closing that shared
+transport. Without injection, each HTTP client owns and closes its connection
+pools, including after failed requests. Signed storage transfers and Qdrant
 use their separate service connections; they do not inherit the DreamLake token.
 
 The Python Bindr helpers retain their project/name arguments and flat

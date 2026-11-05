@@ -39,6 +39,20 @@ def _saved_remote() -> str | None:
         return None
 
 
+class _BorrowedTransport(httpx.BaseTransport):
+    """Let short-lived HTTP clients share a transport owned by their caller."""
+
+    def __init__(self, transport: httpx.BaseTransport):
+        self._transport = transport
+
+    def handle_request(self, request: httpx.Request) -> httpx.Response:
+        return self._transport.handle_request(request)
+
+    def close(self) -> None:
+        # Only the caller that supplied the transport controls its lifetime.
+        pass
+
+
 class BindrMembershipError(RuntimeError):
     """A bulk filing stopped; completed filings and the Bindr remain in place.
 
@@ -168,11 +182,15 @@ class DreamLakeClient:
         return self.memos
 
     def http(self) -> "httpx.Client":
-        """An httpx client bound to dreamlake-server, with auth applied."""
+        """Return an HTTP client; close it after use, preferably with ``with``.
+
+        Injected transports are borrowed and remain caller-owned. Without an
+        injection, closing this client releases its own connection pools.
+        """
         return httpx.Client(
             base_url=self.dl_url,
             headers=self._headers(),
-            transport=self._transport,
+            transport=_BorrowedTransport(self._transport) if self._transport is not None else None,
             timeout=30,
             event_hooks={"request": [self._memo_agent_headers]},
         )

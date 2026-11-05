@@ -125,3 +125,66 @@ def test_download_does_not_follow_storage_redirect():
     with pytest.raises(httpx.HTTPStatusError):
         client.get_node_download_url("node")
     assert len(requests) == 1
+
+
+class CloseSensitiveTransport(httpx.BaseTransport):
+    """Model pooled transports whose close permanently releases their resources."""
+
+    def __init__(self, handler):
+        self.handler = handler
+        self.closed = False
+        self.close_count = 0
+
+    def handle_request(self, request):
+        assert not self.closed, "Attempted to reuse a closed transport"
+        return self.handler(request)
+
+    def close(self):
+        self.closed = True
+        self.close_count += 1
+
+
+def test_injected_transport_is_borrowed_across_domain_legacy_and_bindr_calls():
+    requests = []
+    def handle(request):
+        requests.append(request)
+        if request.method == "POST" and request.url.path.endswith("/bindrs"):
+            return httpx.Response(201, json={"bindr": {"id": "b", "name": "set"}})
+        return httpx.Response(200, json={"id": "source"})
+    transport = CloseSensitiveTransport(handle)
+    client = DreamLakeClient(dl_url="https://api.invalid", token="explicit", transport=transport)
+    with transport:
+        assert client.sources.detail("ns", "source") == {"id": "source"}
+        assert client.get_auth_me() == {"id": "source"}
+        assert client.create_bindr("ns", "project", "set", ["one", "two", "three"])["memberCount"] == 3
+        with client.http() as http:
+            assert http.get("/auth/me").status_code == 200
+        assert http.is_closed
+        assert transport.close_count == 0
+    assert transport.close_count == 1
+    assert len(requests) == 6
+
+
+@pytest.mark.parametrize("fail_request", [False, True])
+def test_default_transports_are_closed_per_request(monkeypatch, fail_request):
+    import httpx._client
+    transports = []
+    def handle(request):
+        if fail_request:
+            raise httpx.ReadTimeout("failed request", request=request)
+        return httpx.Response(200, json={"ok": True})
+    def make_transport(**kwargs):
+        transport = CloseSensitiveTransport(handle)
+        transports.append(transport)
+        return transport
+    # Replace default and proxy transport creation with local fakes. No network.
+    monkeypatch.setattr(httpx._client, "HTTPTransport", make_transport)
+    client = DreamLakeClient(dl_url="https://api.invalid", token="explicit")
+    for _ in range(2):
+        if fail_request:
+            with pytest.raises(httpx.ReadTimeout):
+                client.get_auth_me()
+        else:
+            assert client.get_auth_me() == {"ok": True}
+        assert transports
+        assert all(transport.close_count == 1 for transport in transports)
