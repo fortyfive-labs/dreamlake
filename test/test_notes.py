@@ -621,7 +621,7 @@ def test_diff_defaults_to_successful_write_ref_and_supports_fresh_handles():
 def test_diff_validates_input_and_reports_unknown_refs():
     s = Server()
     n = Note(NOTE_ID, namespace='ns', client=s.client())
-    with pytest.raises(ValueError, match='read the note'):
+    with pytest.raises(ValueError, match='read the memo'):
         n.diff(legacy=True)
     for context in [-1, 101, 1.5, True]:
         with pytest.raises(ValueError):

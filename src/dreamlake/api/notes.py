@@ -310,7 +310,7 @@ def _v2_tokens(data: Any, note_id: str) -> None:
     if (not isinstance(data, dict) or data.get("note") != note_id
             or not isinstance(data.get("hash"), str)
             or not re.fullmatch(r"sha256:[a-f0-9]{64}", data["hash"])):
-        raise NoteError("server did not return the Notes v2 contract; no legacy fallback was attempted")
+        raise NoteError("server did not return the Memos v2 contract; no legacy fallback was attempted")
     try:
         _revision_token(data.get("revision"), "server revision")
     except ValueError as error:
@@ -504,7 +504,7 @@ class GrepResult:
 
     def __repr__(self) -> str:  # pragma: no cover - display only
         more = ", truncated" if self.truncated else ""
-        return f"GrepResult({len(self.hits)} hits from {self.notes_searched} notes{more})"
+        return f"GrepResult({len(self.hits)} hits from {self.notes_searched} memos{more})"
 
 
 def _error_code(resp: httpx.Response) -> str | None:
@@ -579,7 +579,7 @@ class Note:
         return self._etag
 
     def __repr__(self) -> str:  # pragma: no cover - display only
-        return f"<Note {self._ns}/{self._id}>"
+        return f"<Memo {self._ns}/{self._id}>"
 
     def metadata(self) -> NoteRef:
         """Read current metadata without restoring an archived note."""
@@ -678,7 +678,7 @@ class Note:
             raise ValueError("context must be an integer between 0 and 100")
         ref = self._etag if since is None else since
         if not isinstance(ref, str) or not ref:
-            raise ValueError("read the note or refresh first, or supply since=<content hash>")
+            raise ValueError("read the memo or refresh first, or supply since=<content hash>")
         if legacy or context != 3:
             from urllib.parse import urlencode
             return self._get("/diff?" + urlencode({"since": ref, "context": context}))["diff"]
@@ -825,7 +825,7 @@ class Note:
                 raise ValueError("at requires modern read; omit legacy and if_match")
             self.refresh(legacy=True)
             if if_match is not None and self.etag != if_match:
-                raise NoteChanged(f"note changed since legacy ETag {if_match}", etag=self.etag)
+                raise NoteChanged(f"memo changed since legacy ETag {if_match}", etag=self.etag)
             return Doc(self, self._text or "", self.etag)
         original = self.read_snapshot(at=at)
         self._text, self._text_snapshot = original.content, original
@@ -854,7 +854,7 @@ class Note:
         points(text)  # Reject invalid source before any transport.
         if at is not None:
             if not isinstance(at, NoteSnapshot) or at.note != self._id or not isinstance(at.content, str):
-                raise ValueError("at must be this Note's original NoteSnapshot")
+                raise ValueError("at must be this Memo's original NoteSnapshot")
             _revision_token(at.revision, "at.revision")
             points(at.content)
             if at.hash != "sha256:" + hashlib.sha256(at.content.encode()).hexdigest():
@@ -903,7 +903,7 @@ class Note:
         if at is not None and data["revision"] != at:
             raise NoteError("server did not return the requested retained RTC revision")
         if if_match is not None and data["revision"] != if_match:
-            raise NoteChanged("note changed since the acknowledged RTC revision")
+            raise NoteChanged("memo changed since the acknowledged RTC revision")
         return NoteSnapshot(note=self._id, content=data["content"], hash=data["hash"], revision=data["revision"])
 
     def patch(
@@ -1164,7 +1164,7 @@ class Note:
             return self.write(current + text, legacy=True, force=force)
         if at is not None:
             if not isinstance(at, NoteSnapshot) or at.note != self._id or not isinstance(at.content, str):
-                raise ValueError("at must be this Note's original NoteSnapshot")
+                raise ValueError("at must be this Memo's original NoteSnapshot")
             _revision_token(at.revision, "at.revision")
             if at.hash != "sha256:" + hashlib.sha256(at.content.encode("utf-8")).hexdigest():
                 raise ValueError("at source does not match its content hash")
@@ -1199,7 +1199,7 @@ def _resolve(ref: str, client: DreamLakeClient) -> tuple[str, str]:
     if "/" not in ref:
         if not _OBJECT_ID.fullmatch(ref):
             raise ValueError(
-                f"note reference {ref!r} is neither an id nor '<namespace>/<slug>' — "
+                f"memo reference {ref!r} is neither an id nor '<namespace>/<slug>' — "
                 "an id is 24 hex characters"
             )
         with client.http() as http:
@@ -1228,7 +1228,7 @@ def _resolve(ref: str, client: DreamLakeClient) -> tuple[str, str]:
         offset += len(rows)
         if not rows or offset >= data.get("total", offset):
             break
-    raise NoteNotFound(f"no note {rest!r} in namespace {ns!r}")
+    raise NoteNotFound(f"no memo {rest!r} in namespace {ns!r}")
 
 
 def note(ref: str, *, client: DreamLakeClient | None = None) -> Note:
@@ -1267,7 +1267,7 @@ def create_note(
             f"/namespaces/{_seg(namespace)}/notes",
             json={"name": name, "visibility": visibility},
         )
-    _raise_for(r, f"create note {name!r} in {namespace}")
+    _raise_for(r, f"create memo {name!r} in {namespace}")
     note = Note(r.json()["note"]["id"], namespace=namespace, client=c)
     if text:
         note.write(text, force=True)
@@ -1296,7 +1296,7 @@ def list_notes(
             f"/namespaces/{_seg(namespace)}/notes",
             params={"limit": limit, "offset": offset, "includeArchived": str(include_archived).lower()},
         )
-    _raise_for(r, f"list notes in {namespace}")
+    _raise_for(r, f"list memos in {namespace}")
     return [_ref(row, namespace) for row in r.json().get("notes", [])]
 
 
@@ -1338,7 +1338,7 @@ def search_notes(
             f"/namespaces/{_seg(namespace)}/notes",
             params={"q": query, "limit": limit, "includeArchived": str(include_archived).lower()},
         )
-    _raise_for(r, f"search notes in {namespace}")
+    _raise_for(r, f"search memos in {namespace}")
     return [_ref(row, namespace) for row in r.json().get("notes", [])]
 
 
@@ -1420,7 +1420,7 @@ def grep_notes(
             page_params["cursor"] = next_cursor
         with c.http() as http:
             r = http.get(f"/namespaces/{_seg(namespace)}/notes/search", params=page_params)
-        _raise_for(r, f"search notes in {namespace}")
+        _raise_for(r, f"search memos in {namespace}")
         d = r.json()
 
         for row in d.get("hits", []):
@@ -1466,7 +1466,7 @@ def shared_with_me(*, include_archived: bool = False, client: DreamLakeClient | 
     c = client or get_client()
     with c.http() as http:
         r = http.get("/me/notes/shared", params={"includeArchived": str(include_archived).lower()})
-    _raise_for(r, "list shared notes")
+    _raise_for(r, "list shared memos")
     out = []
     for row in r.json().get("notes", []):
         owner = (row.get("owner") or {}).get("name")

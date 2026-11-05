@@ -39,7 +39,7 @@ ds.iter_all_batches / iter_vector / ...     ─┘
 
 ### `db.create(schema, *, backend, schema_type="custom", title=None) -> dreamdb.Dataset`
 
-| in | format | notes |
+| in | format | memos |
 | --- | --- | --- |
 | `schema` | `db.Schema()` builder | required |
 | `backend` | `file:///abs/path` or `https://…` object-store URL | **required** — this layer has no default home |

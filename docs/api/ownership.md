@@ -8,14 +8,14 @@ accept/reject and the source namespace for cancel. All namespace IDs are opaque;
 creator history and filing relationships confer no transfer authority.
 
 SDK 0.30.0 adds `client.projects.transfer_plan` and `client.projects.move` for a
-whole Project and all its owned Notes. SDK **0.31.0+** accepts complete typed
+whole Project and all its owned Memos. SDK **0.31.0+** accepts complete typed
 transfer plans that also include source-owned Artifacts and Envs with the
 matching backend; SDK 0.30.0 rejects those mixed plans. Compatible
 backends also include ordinary Project files, images and videos; episode content remains unsupported. Prefer that convenience workflow over a
 hand-built partial manifest. It requires an enabled whole-Project server adapter;
 check plan `executable`, preview blockers and current capabilities. Installing
 the SDK does not enable backend writer, storage or RTC capabilities. Standalone
-Note and Source ownership transfer remain unsupported by this workflow.
+Memo and Source ownership transfer remain unsupported by this workflow.
 
 ```python
 from dreamlake import DreamLakeClient
@@ -51,19 +51,19 @@ and returns a bounded filing/structure inventory and source version. `resource_t
 is `project` or `source`; other types are rejected before transport. Use these
 facts in the existing version 1 preview request. Filing never chooses ownership.
 For a whole-Project move, `projects.move` uses the dedicated complete server
-plan, includes every supported source-owned Note, Artifact and Env plus direct
+plan, includes every supported source-owned Memo, Artifact and Env plus direct
 file/image/video Nodes, and rejects partial inventories. The updated client
 requires complete typed `resourceNames`; legacy Note-only plans stay compatible.
 Total `limits.maxResources` includes the Project, while `maxNotes` counts only
-Notes. `resourceCounts` in the review reports all included types. The deployed server must advertise media-file
+Memos. `resourceCounts` in the review reports all included types. The deployed server must advertise media-file
 support independently of the installed SDK.
-It defaults to private resources, old access revoked and external Note filings
+It defaults to private resources, old access revoked and external Memo filings
 detached. Access or external-filing retention requires explicit opt-in in the
-reviewed request. Retaining external filings applies only to Notes; Artifact/Env
+reviewed request. Retaining external filings applies only to Memos; Artifact/Env
 attachments in other Projects always detach. The modern preview explicitly
 reports `summary.detachedOtherFilings` in addition to the total detached count.
 
-Source execution remains independently gated; the whole-Project Notes adapter
+Source execution remains independently gated; the whole-Project Memos adapter
 does not enable Source transfer or migrate existing Source bindings.
 A preview has no byte/owner/credential side effects. Destination Connections must
 be independently authorized. Separately authorized source-retaining credential

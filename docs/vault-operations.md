@@ -1,7 +1,7 @@
 # Vault operations
 
 **Python 0.13.0 and CLI 0.16.0 are published.** These APIs
-require the matching Vault backend. See the [runtime note](https://docs.dreamlake.ai/dev/notes/vault-runtime/)
+require the matching Vault backend. See the [runtime memo](https://docs.dreamlake.ai/dev/notes/vault-runtime/)
 for hosted availability; package checks do not establish deployment.
 
 ## Host key rotation (unreleased)

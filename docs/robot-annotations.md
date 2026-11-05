@@ -124,7 +124,7 @@ Rules the order implies:
 
 ### `VideoAnnotation.create(name=None, *, backend=None, visibility=None, preview_height=720, preview_fps=30.0, frag_seconds=2.0) -> VideoAnnotation`
 
-| in | format | notes |
+| in | format | memos |
 | --- | --- | --- |
 | `name` | `[a-z0-9][a-z0-9._-]{0,63}` | platform mode: catalog row + platform bucket. Needs auth |
 | `backend` | `file:///abs/path` or `https://…` S3 URL | self-hosted mode; `name` unused |

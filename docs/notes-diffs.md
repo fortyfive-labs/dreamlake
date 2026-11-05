@@ -1,4 +1,4 @@
-# Note diffs
+# Memo diffs
 
 ## MERGE and EXACT patches (Python 0.20.0)
 
@@ -53,13 +53,13 @@ separate HTTP requests do not share an idempotency receipt. Unknown baselines
 raise `NoteNotFound`; EXACT conflicts raise `NoteChanged`; source mismatches
 raise `PatchFailed`; unavailable RTC responses raise `NoteBusy`.
 
-Python 0.20.0 provides this contract with the matching Notes v2 API. Use
+Python 0.20.0 provides this contract with the matching Memos v2 API. Use
 `legacy=True` for the earlier ETag patch interface. Package and deployed
 acceptance receipts are tracked in [workspace #706](https://github.com/dreamlake-ai/dreamlake-workspace/issues/706).
 
 ## Concurrent edit walkthrough
 
-Use a private test Note containing exactly `Hello world.`. Run the first part,
+Use a private test Memo containing exactly `Hello world.`. Run the first part,
 then prepend `Human: ` in the browser and wait for that edit to sync. Keep the
 original immutable snapshot and patch unchanged.
 
@@ -102,7 +102,7 @@ to MERGE or overwrite the saved snapshot after a failure.
 
 Continue from the merged fixture, taking a new snapshot for this separate edit.
 If a writer intervenes again, EXACT raises `NoteChanged`; retain this snapshot
-and draft and inspect the note before deciding on another request.
+and draft and inspect the memo before deciding on another request.
 
 ```python
 exact_base = note.read_snapshot()
@@ -239,14 +239,14 @@ precondition. Use `read()`/`refresh()` when you want to adopt the latest state.
 
 `GET /namespaces/:slug/notes/:noteId/diff?since=<etag>` returns `diff`, `from`,
 `to`, and `etag` (the current ref). `context` accepts 0–100 lines, default 3.
-The endpoint enforces current note read permissions. Unknown or unavailable
+The endpoint enforces current memo read permissions. Unknown or unavailable
 snapshots return 404, never an empty-baseline diff. Old ETags issued before
 snapshot retention was deployed may be unavailable. Retention requires the
 matching server deployment; the SDK does not infer historical bytes.
 
 ## Inspect and patch a local draft
 
-Read a note once, inspect edits, apply unified diffs locally, and save against
+Read a memo once, inspect edits, apply unified diffs locally, and save against
 that snapshot's revision:
 
 ```python
@@ -273,7 +273,7 @@ the draft and last-edit comparison unchanged. Empty diffs do nothing. Diffs
 preserve Unicode, CRLF, and missing final newlines. `context=0` is supported;
 the default for `diff()` is three context lines.
 
-To apply a patch directly to the remote note, use the existing API:
+To apply a patch directly to the remote memo, use the existing API:
 
 ```python
 result = note.patch(unified_diff, legacy=True, if_match=doc.etag)
@@ -282,7 +282,7 @@ result = note.patch(unified_diff, legacy=True, if_match=doc.etag)
 The CLI equivalent is:
 
 ```bash
-dreamlake notes patch "$NOTE_ID" --legacy --file change.patch --if-match '"<etag>"'
+dreamlake memos patch "$NOTE_ID" --legacy --file change.patch --if-match '"<etag>"'
 ```
 
 Remote writes reject stale revisions. A local patch is committed only when
@@ -303,7 +303,7 @@ assert verified.hash == receipt.hash
 ```
 
 Without `at`, append reads one fresh hash-verified snapshot. With `at`, it validates
-Note identity, source hash and the original opaque revision before any network
+Memo identity, source hash and the original opaque revision before any network
 request; it never substitutes current source. The insertion uses Unicode code
 point positions and escapes inline framing and delimiter punctuation (`+`,
 `-`) in the canonical form the CLI and server use, preserving CRLF and LF bytes.
@@ -340,7 +340,7 @@ be mixed with those compatibility options.
 snapshot. Edits remain local. `doc.save()` submits against that same snapshot,
 returns `PatchReceipt`, and reads the acknowledged retained revision to adopt
 its coherent merged content as the next draft/original. A different write through
-the Note handle does not move this draft's baseline. `exact=True` checks even
+the Memo handle does not move this draft's baseline. `exact=True` checks even
 unchanged drafts; unchanged MERGE returns an observational receipt without a new
 commit or a current-revision claim. `note.read(at=revision)` opens retained source.
 
@@ -360,7 +360,7 @@ ranges must not be guessed into original native snapshot coordinates.
 
 ## Full source reads and remote inspection (Python 0.28.0 release candidate)
 
-Default `note.refresh()` and `note.text` read full source through verified Notes
+Default `note.refresh()` and `note.text` read full source through verified Memos
 v2 snapshots. Cached ETags stay in the quoted content-hash domain; RTC revisions
 stay on immutable snapshots. `note.read()` also populates that verified cache,
 while existing Docs retain their own original snapshot even after another refresh.
@@ -370,7 +370,7 @@ Legacy append and legacy editable reads select that path explicitly on cache mis
 No v2 failure silently falls back to a legacy read.
 
 `note.diff(since=content_hash)` uses the shipped v2 body inspection endpoint and
-continues returning a diff string. It checks Note, base hash, format and revision,
+continues returning a diff string. It checks Memo, base hash, format and revision,
 then reads the retained acknowledged revision to verify its source hash. Inspection
 updates no cache or draft baseline. `since` is a content hash (raw, quoted ETag or
 sha256-prefixed), never an RTC revision or a native patch baseRevision. Omitting
@@ -387,9 +387,9 @@ protocol or parser is introduced. Sections and partial reads still await their
 retained range/discovery contracts and remain an explicit separate migration.
 Publication acceptance for Python 0.28.0 remains separate.
 
-## The Notes API facade (Python 0.34.0)
+## The Memos API facade (Python 0.34.0)
 
-`dl.notes` implements the Python tabs of the [Notes API](https://docs.dreamlake.ai/notes/api/)
+`dl.notes` implements the Python tabs of the [Memos API](https://docs.dreamlake.ai/notes/api/)
 design pages. Stable IDs are primary, every operation takes keyword arguments,
 and the facade is an adapter over the retained-baseline contract above: edits
 compile to one `inline-dff` record against the original revision and go
@@ -423,7 +423,7 @@ case_sensitive=False, at=)` searches exact source and returns absolute ranges;
 `diff(since=revision, format="diff")` returns base/result revisions and hashes
 with the patch.
 
-A `FocusedRead`/scoped `MappedRead` carries the whole note's `hash` and
+A `FocusedRead`/scoped `MappedRead` carries the whole memo's `hash` and
 `revision` but `complete=False`; it baselines a targeted edit inside its span
 and is refused (`SnapshotRequired`) as a whole-body baseline. A complete
 mapped read is accepted wherever a snapshot is.
@@ -448,7 +448,7 @@ added, and input containing `<!-- notes-reading-view` is refused.
 
 ### Receipts, outcomes and command identity
 
-A successful write returns `PatchReceipt {note, mode, base_revision, hash,
+A successful write returns `PatchReceipt {memo, mode, base_revision, hash,
 revision, outcome, command_id, replayed}`; `outcome` is `accepted` or
 `no-write`. Every error carries `.outcome`: `invalid-usage` (refused before
 any request: `RevisionExpected`, `SnapshotRequired`, `InvalidLineRange`,
@@ -473,9 +473,9 @@ server is deployed; without one nothing new is sent.
 `note.rename(name=)`, `note.versions.list()` / `.read(version_id=)`,
 `note.files.move(file=, to_folder=, name=)`, `note.presence()` and
 `note.visit(intent=, address=|cursor=, at=)` mirror the CLI's requests.
-`dl.notes.create(text=...)` creates the note, then writes the initial source
+`dl.notes.create(text=...)` creates the memo, then writes the initial source
 through the retained-baseline contract; if that second step fails,
-`NoteCreatedWithoutSource` carries the created id so no second note is made.
+`NoteCreatedWithoutSource` carries the created id so no second memo is made.
 
 Not in this release (listed by `tests/test_notes_docs_contract.py`):
 `note.watch(...)` and `note.move(...)`; the other collections' move facades.

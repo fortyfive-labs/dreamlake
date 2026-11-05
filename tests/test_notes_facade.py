@@ -217,15 +217,15 @@ def test_read_results_of_another_note_are_refused_before_io():
     focused = FocusedRead(note=OTHER, hash=other.hash, revision=REV, scope={'lines': [1, 1]}, lines=(1, 1), chars=(0, 1), content='x')
     handle = client(never).notes(ID, namespace=NS)
     for at in (other, other.to_dict(), focused):
-        with pytest.raises(ValueError, match='belongs to note'):
+        with pytest.raises(ValueError, match='belongs to memo'):
             handle.patch(patch='@@ chars 0:1 @@\n~ [-x-]\n', format='inline-dff', at=at, mode='exact')
-        with pytest.raises(ValueError, match='belongs to note'):
+        with pytest.raises(ValueError, match='belongs to memo'):
             handle.read(at=at)
-        with pytest.raises(ValueError, match='belongs to note'):
+        with pytest.raises(ValueError, match='belongs to memo'):
             handle.write(text='y', at=at, mode='exact')
-        with pytest.raises(ValueError, match='belongs to note'):
+        with pytest.raises(ValueError, match='belongs to memo'):
             handle.append(text='y', at=at)
-        with pytest.raises(ValueError, match='belongs to note'):
+        with pytest.raises(ValueError, match='belongs to memo'):
             handle.remove(lines=(1, 1), at=at)
 
 
