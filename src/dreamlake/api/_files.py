@@ -207,7 +207,7 @@ class NoteFile:
 
     def _owner(self) -> "NoteFiles":
         if self._files is None:
-            raise RuntimeError("this NoteFile is detached from its note")
+            raise RuntimeError("this NoteFile is detached from its memo")
         return self._files
 
     def __repr__(self) -> str:  # pragma: no cover - display only
@@ -296,7 +296,7 @@ class NoteFiles:
         folder, _, base = current.path.rpartition("/")
         if to_folder is not None:
             if not isinstance(to_folder, str):
-                raise ValueError("to_folder must be a string path relative to the note")
+                raise ValueError("to_folder must be a string path relative to the memo")
             folder = to_folder.strip("/")
         if name is not None:
             base = name

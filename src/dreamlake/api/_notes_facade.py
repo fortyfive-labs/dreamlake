@@ -1176,7 +1176,7 @@ class Notes:
         try:
             note_id = response.json()["note"]["id"]
         except (ValueError, KeyError, TypeError):
-            raise NoteError("create did not return the note's id") from None
+            raise NoteError("create did not return the memo's id") from None
         handle = NoteHandle(note_id, namespace=namespace, client=client)
         if text:
             # From here on the note exists: whatever fails, the caller must

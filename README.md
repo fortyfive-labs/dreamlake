@@ -40,7 +40,7 @@ pip install dreamlake==0.40.0
 ## Agent definitions
 
 Python 0.40.0 includes `DreamLakeClient.runnables` for creating and managing
-agents, including main instruction notes and optional skills. Read the
+agents, including main instruction memos and optional skills. Read the
 [agent definition and lifecycle examples](https://github.com/fortyfive-labs/dreamlake/blob/main/docs/api/runnables.md)
 and [release notes](https://github.com/fortyfive-labs/dreamlake/blob/main/docs/release-notes.md).
 The source documentation links remain available while the SDK documentation

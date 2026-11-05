@@ -193,7 +193,7 @@ def move_project(projects, namespace, project, to_namespace, *, dry_run=True, co
     if type(preserve_access) is not bool or type(preserve_external_filings) is not bool:
         raise ValueError("Preservation flags must be booleans")
     if destination_names is not None and not isinstance(destination_names, dict):
-        raise ValueError("destination_names must map owned Note IDs to explicit new names")
+        raise ValueError("destination_names must map owned Memo IDs to explicit new names")
     ownership = projects.client.ownership
     target = ownership.capabilities(destination)
     if not _text(target.get("namespaceId")):

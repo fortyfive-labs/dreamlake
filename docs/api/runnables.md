@@ -35,14 +35,14 @@ A dotted `name` supplies module and qualified name. Alternatively provide
 `projects` create actual project filings in the same transaction. Missing
 projects or insufficient filing authority reject the whole create.
 
-## Main instruction note and skills
+## Main instruction memo and skills
 
-Use existing note and folder database IDs. The main instruction note is required;
-optional skills are individual notes or folders of notes. Notes must be readable
+Use existing memo and folder database IDs. The main instruction memo is required;
+optional skills are individual memos or folders of memos. Memos must be readable
 by the caller and belong to the runnable's namespace; folders must be readable
-project folders in that namespace. Defining an agent grants no note access to
+project folders in that namespace. Defining an agent grants no memo access to
 other people. At selection and execution, the built-in runtime reads referenced
-notes with the executing caller's permissions and checks their revisions.
+memos with the executing caller's permissions and checks their revisions.
 
 ```python
 import os
@@ -67,10 +67,10 @@ agent = client.runnables.create("fortyfive", {
 ```
 
 Choose `content` or inline `markdown`. To switch an existing inline definition
-to note references, update with `markdown=None` and `content={...}`. To switch
+to memo references, update with `markdown=None` and `content={...}`. To switch
 back, send `content=None` and `markdown="..."`. Up to 20 skill references are
 accepted. The built-in runtime bounds expansion to 20 folders, 200 children per
-folder, 50 distinct notes and 16,000 characters of combined instructions.
+folder, 50 distinct memos and 16,000 characters of combined instructions.
 
 ## Read, edit, archive, restore and delete
 
@@ -109,7 +109,7 @@ response body.
 
 Explicit project READ/WRITE grants can grant catalog reads and definition
 updates through live filings. They do not grant deletion, redistribution,
-version publication or execution rights. Source notes retain their own access
+version publication or execution rights. Source memos retain their own access
 checks. Namespace authority still applies to creating or deleting runnables.
 
 Existing definitions can also be filed through

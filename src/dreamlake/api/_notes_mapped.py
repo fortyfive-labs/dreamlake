@@ -100,14 +100,14 @@ def parse_html_snapshot(html: str, note: str, *, section: str | None = None, tag
     """Validate the snapshot exactly as the CLI does, then expose its root facts."""
     root = _ROOT.match(html)
     if not root or not _END.search(html):
-        raise HtmlSnapshotError("server did not return a complete Notes HTML snapshot")
+        raise HtmlSnapshotError("server did not return a complete Memos HTML snapshot")
     attributes = _attributes(root.group(1), strict=True)
     revision, hash_, source = attributes.get("data-revision"), attributes.get("data-hash"), attributes.get("data-source")
     if (attributes.get("data-note") != note or not revision or "\r" in revision or "\n" in revision
             or not _HASH.fullmatch(hash_ or "") or source is None
             or attributes.get("data-offset-unit") != "unicode-code-point"
             or attributes.get("data-source-type") not in ("markdown", "html")):
-        raise HtmlSnapshotError("server did not return the Notes HTML metadata contract; upgrade the server")
+        raise HtmlSnapshotError("server did not return the Memos HTML metadata contract; upgrade the server")
     assert hash_ is not None and revision is not None
     returned_scope = attributes.get("data-scope")
     source_hash: str | None = hash_

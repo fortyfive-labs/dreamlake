@@ -15,7 +15,7 @@ client.projects.detach("acme", "research", "note", note_id)
 client.projects.revoke("acme", "research", grant_id)
 ```
 
-Attachments take the resource database ID and support note, artifact, annotation,
+Attachments take the resource database ID and support memo, artifact, annotation,
 workflow, env and source. Source uses its whole-Source reference. Attaching
 requires Project content-create and independent resource sharing-management
 permissions. Detachment/revocation removes only the corresponding access source;
@@ -42,7 +42,7 @@ version before using the expanded support.
 
 `client.projects.transfer_plan(namespace, project)` resolves the Project name
 and reads the server's owner-only complete inventory. `client.projects.move`
-previews the Project plus all attached, source-namespace-owned Notes, Artifacts
+previews the Project plus all attached, source-namespace-owned Memos, Artifacts
 and Envs in one ownership journal request when the updated client and backend
 are present. With the compatible file-transfer backend this also
 includes direct ordinary Project files, images and videos; SDK 0.30.0 needs no
@@ -76,9 +76,9 @@ Path("project-move-review.json").write_text(json.dumps(review, indent=2))
 
 Default policy is private with old access revoked, and
 `preserve_external_filings=False`: external Project references to the moved
-Notes detach by default, without deleting Notes or their filings inside the
+Memos detach by default, without deleting Memos or their filings inside the
 transferred Project. Explicit `preserve_external_filings=True` requests retention
-of reviewed **Note** references only. Artifact/Env attachments in other Projects
+of reviewed **Memo** references only. Artifact/Env attachments in other Projects
 always detach. `preview["summary"]["detachedOtherFilings"]` counts those removals;
 `detachedFilings` counts all removals. Detaching does not delete resources. Saved review replay preserves that exact
 policy, including an explicit retention choice. Opt-in `preserve_access=True` requests only
@@ -101,22 +101,22 @@ has already moved. Do not replace the key or simulate transfer with copy/delete.
 
 The expanded backend and updated client accept typed `project`, `note`,
 `artifact` and `env` manifest references. `resourceNames` covers every non-root
-resource and `noteNames` is the exact Note subset; malformed, partial, duplicate
+resource and `noteNames` is the exact Memo subset; malformed, partial, duplicate
 or unknown manifests fail closed. Returned `resourceCounts` includes all four
 types. Older Note-only server plans remain compatible.
 
 Canonical names stay unchanged. Use `destination_name` for an explicit Project
-rename or `destination_names={NOTE_ID: NEW_NAME}` for individual Note collisions,
+rename or `destination_names={NOTE_ID: NEW_NAME}` for individual Memo collisions,
 then review a new preview. Artifact/Env canonical names cannot be overridden;
 their destination collisions block the whole request. Read the server-advertised
 `limits`: the expanded backend permits **512 manifest resources including the
-Project**, up to 511 Notes if no Artifacts or Envs consume slots, and **4,096 tree
+Project**, up to 511 Memos if no Artifacts or Envs consume slots, and **4,096 tree
 nodes**. Ordinary Project files count toward tree nodes, not additional manifest
 resources. The aggregate **5,000-row inventory**, **8 MiB execution ledger** and
 **12 MiB total operation** budgets can block smaller Projects. Note/NoteFile
 storage verification retains its **2,000-object / 512 MiB** limit, separately
 from ordinary Project files. Oversized plans fail as a whole; the SDK never
-truncates or splits the plan, and 511 Notes is a ceiling, not a guaranteed fit.
+truncates or splits the plan, and 511 Memos is a ceiling, not a guaranteed fit.
 Older servers retain their 20-Note / 200-node limits. SDK 0.30.0 follows the server
 plan limits and needs no runtime upgrade for this capacity increase with
 Note-only manifests; typed Artifact/Env plans require the updated client above.
