@@ -13,8 +13,6 @@ from urllib.parse import quote
 
 import httpx
 
-_TOKEN_KEY = "dreamlake-token"
-
 
 def _seg(value: str) -> str:
     """URL-encode a single path segment (same as encodeURIComponent)."""
@@ -31,19 +29,13 @@ class RemoteClient:
         Args:
             base_url: Base URL of dreamlake server (e.g., "http://localhost:3000")
             api_key: JWT token for authentication. If omitted, auto-loaded from
-                     secure token storage (set via `dreamlake login`).
+                     DREAMLAKE_API_KEY, then the saved `dreamlake login` session.
         """
         self.base_url = base_url.rstrip("/")
 
         if not api_key:
-            from dreamlake.auth.token_storage import get_token_storage
-            from dreamlake.auth.exceptions import NotAuthenticatedError
-            token = get_token_storage().load(_TOKEN_KEY)
-            if not token:
-                raise NotAuthenticatedError(
-                    "Not authenticated. Run 'dreamlake login' to log in."
-                )
-            api_key = token
+            from dreamlake._session import get_token
+            api_key = get_token()
         self._api_key = api_key
         self._default_namespace: Optional[str] = None
         self._client = httpx.Client(

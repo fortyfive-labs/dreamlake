@@ -28,23 +28,6 @@ _DEFAULT_DL = DEFAULT_REMOTE_URL
 _DEFAULT_QDRANT = "http://localhost:6333"
 
 
-def _saved_token() -> str | None:
-    """The token `dreamlake login` stored, if there is one.
-
-    Best-effort: the auth extras (keyring, cryptography) are optional, and a
-    missing or unreadable store means "not logged in" rather than an error the
-    caller cannot act on.
-    """
-    try:
-        from dreamlake.auth.token_storage import get_token_storage
-
-        # The same key `dreamlake login` writes. Guessing it wrong is a silent
-        # failure — the load returns None and the client is simply anonymous.
-        return get_token_storage().load("dreamlake-token")
-    except Exception:
-        return None
-
-
 def _saved_remote() -> str | None:
     """The server `dreamlake env use` selected, if any."""
     try:
@@ -65,15 +48,15 @@ class DreamLakeClient:
         token: str | None = None,
         transport: "httpx.BaseTransport | None" = None,
     ):
-        # Injectable so a caller — in practice a test — can serve requests
-        # without a server. The newer API surfaces route through it; older
-        # methods still call module-level httpx directly.
+        # Applies to every DreamLake request. Qdrant uses its own service
+        # connection and never receives DreamLake authentication headers.
         self._transport = transport
         self.dl_url = (
             dl_url or os.environ.get("DREAMLAKE_REMOTE") or _saved_remote() or _DEFAULT_DL
         ).rstrip("/")
         self.qdrant_url = (qdrant_url or os.environ.get("QDRANT_URL", _DEFAULT_QDRANT)).rstrip("/")
-        self._token = token or os.environ.get("DREAMLAKE_API_KEY") or _saved_token()
+        from dreamlake._session import get_token_or_none
+        self._token = token or get_token_or_none()
 
     @property
     def sources(self):
@@ -202,10 +185,11 @@ class DreamLakeClient:
         builds one, because the server checks that a registered key is one it
         authorized for that project.
         """
-        r = httpx.post(
-            f"{self.dl_url}/namespaces/{namespace}/projects/{project}/upload-authorizations",
-            json={"files": files}, headers=self._headers(), timeout=60,
-        )
+        with self.http() as http:
+            r = http.post(
+                f"/namespaces/{namespace}/projects/{project}/upload-authorizations",
+                json={"files": files}, timeout=60,
+            )
         r.raise_for_status()
         return r.json()
 
@@ -221,21 +205,23 @@ class DreamLakeClient:
         aborted, or swept by the lifecycle rule) and 409 that what is stored
         describes a different partitioning of the file. Both mean "start over".
         """
-        r = httpx.post(
-            f"{self.dl_url}/namespaces/{namespace}/projects/{project}"
-            f"/upload-authorizations/resume",
-            json={"objectKey": object_key, "uploadId": upload_id, "size": size},
-            headers=self._headers(), timeout=60,
-        )
+        with self.http() as http:
+            r = http.post(
+                f"/namespaces/{namespace}/projects/{project}"
+                f"/upload-authorizations/resume",
+                json={"objectKey": object_key, "uploadId": upload_id, "size": size},
+                timeout=60,
+            )
         r.raise_for_status()
         return r.json()
 
     def register_node(self, body: dict) -> dict:
         """POST /nodes — create any node (project, episode, folder, or file asset)."""
-        r = httpx.post(
-            f"{self.dl_url}/nodes",
-            json=body, headers=self._headers(), timeout=30,
-        )
+        with self.http() as http:
+            r = http.post(
+                f"/nodes",
+                json=body, timeout=30,
+            )
         r.raise_for_status()
         return r.json()
 
@@ -244,7 +230,8 @@ class DreamLakeClient:
         return self.register_node(body)
 
     def get_auth_me(self) -> dict:
-        r = httpx.get(f"{self.dl_url}/auth/me", headers=self._headers(), timeout=10)
+        with self.http() as http:
+            r = http.get(f"/auth/me", timeout=10)
         r.raise_for_status()
         return r.json()
 
@@ -254,8 +241,9 @@ class DreamLakeClient:
         params: dict = {"namespace": namespace, "project": project, "path": path}
         if episode:
             params["episode"] = episode
-        r = httpx.get(f"{self.dl_url}/nodes/lookup", params=params,
-                      headers=self._headers(), timeout=15)
+        with self.http() as http:
+            r = http.get(f"/nodes/lookup", params=params,
+                          timeout=15)
         r.raise_for_status()
         return r.json()
 
@@ -308,8 +296,9 @@ class DreamLakeClient:
 
     def get_node_download_url(self, node_id: str) -> dict:
         """GET /nodes/:id/download — returns { url, filename } (presigned S3)."""
-        r = httpx.get(f"{self.dl_url}/nodes/{node_id}/download",
-                      headers=self._headers(), timeout=30, follow_redirects=False)
+        with self.http() as http:
+            r = http.get(f"/nodes/{node_id}/download",
+                          timeout=30, follow_redirects=False)
         r.raise_for_status()
         return r.json()
 
@@ -323,27 +312,30 @@ class DreamLakeClient:
         if members is not None: body["members"] = members
         if description is not None: body["description"] = description
         if tags is not None: body["tags"] = tags
-        r = httpx.post(
-            f"{self.dl_url}/namespaces/{namespace}/projects/{project}/bindrs",
-            json=body, headers=self._headers(), timeout=30,
-        )
+        with self.http() as http:
+            r = http.post(
+                f"/namespaces/{namespace}/projects/{project}/bindrs",
+                json=body, timeout=30,
+            )
         r.raise_for_status()
         return r.json()
 
     def get_bindr(self, namespace: str, project: str, name: str) -> dict:
-        r = httpx.get(
-            f"{self.dl_url}/namespaces/{namespace}/projects/{project}/bindrs/{name}",
-            headers=self._headers(), timeout=15,
-        )
+        with self.http() as http:
+            r = http.get(
+                f"/namespaces/{namespace}/projects/{project}/bindrs/{name}",
+                timeout=15,
+            )
         r.raise_for_status()
         return r.json()
 
     def get_bindr_by_id(self, bindr_id: str) -> dict:
         """Lookup a bindr by its ID — used to resolve nested bindr members."""
-        r = httpx.get(
-            f"{self.dl_url}/bindrs/{bindr_id}",
-            headers=self._headers(), timeout=15,
-        )
+        with self.http() as http:
+            r = http.get(
+                f"/bindrs/{bindr_id}",
+                timeout=15,
+            )
         r.raise_for_status()
         return r.json()
 
@@ -357,10 +349,11 @@ class DreamLakeClient:
           - {"type":"bindr", "id":...}
         Server rejects cycles for bindr-typed refs.
         """
-        r = httpx.post(
-            f"{self.dl_url}/namespaces/{namespace}/projects/{project}/bindrs/{name}/members",
-            json={"add": add}, headers=self._headers(), timeout=30,
-        )
+        with self.http() as http:
+            r = http.post(
+                f"/namespaces/{namespace}/projects/{project}/bindrs/{name}/members",
+                json={"add": add}, timeout=30,
+            )
         r.raise_for_status()
         return r.json()
 
