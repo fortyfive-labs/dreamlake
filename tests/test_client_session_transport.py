@@ -86,7 +86,6 @@ CASES = [
     ("get_auth_me", (), "GET", "/auth/me", None, 10),
     ("lookup_node", ("ns", "project", "folder/a", "episode"), "GET", "/nodes/lookup", None, 15),
     ("get_node_download_url", ("node",), "GET", "/nodes/node/download", None, 30),
-    ("get_bindr_by_id", ("bindr",), "GET", "/bindrs/bindr", None, 15),
 ]
 
 

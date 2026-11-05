@@ -15,6 +15,7 @@ side unauthenticated with nothing to say why.
 import os
 import re
 from typing import TYPE_CHECKING
+from urllib.parse import quote
 
 if TYPE_CHECKING:
     from .runnables import Runnables
@@ -36,6 +37,39 @@ def _saved_remote() -> str | None:
         return Config().remote_url
     except Exception:
         return None
+
+
+class BindrMembershipError(RuntimeError):
+    """A bulk filing stopped; completed filings and the Bindr remain in place.
+
+    A transport failure can leave the failed node's outcome unknown. Inspect
+    the Bindr before retrying; filing a node again is idempotent.
+    """
+
+    def __init__(self, bindr_id: str, completed_node_ids: list[str], failed_node_id: str):
+        self.bindr_id = bindr_id
+        self.completed_node_ids = list(completed_node_ids)
+        self.failed_node_id = failed_node_id
+        super().__init__(
+            f"Bindr {bindr_id}: confirmed {len(completed_node_ids)} filing(s); "
+            f"filing {failed_node_id} failed. The Bindr and confirmed filings remain."
+        )
+
+
+def _bindr_node_ids(members: list) -> list[str]:
+    """Accept node IDs and legacy node refs, never reinterpret a Bindr as a node."""
+    ids = []
+    for member in members:
+        node_id = member
+        if isinstance(member, dict):
+            if member.get("type", "node") != "node":
+                raise ValueError("Bindrs cannot be members; use the Bindr parent hierarchy instead")
+            node_id = member.get("nodeId", member.get("id"))
+        if not isinstance(node_id, str) or not node_id:
+            raise ValueError("Each Bindr member must have a nonempty node ID")
+        if node_id not in ids:
+            ids.append(node_id)
+    return ids
 
 
 class DreamLakeClient:
@@ -305,57 +339,87 @@ class DreamLakeClient:
     # ── Bindrs ───────────────────────────────────────────────────────────
 
     def create_bindr(self, namespace: str, project: str, name: str,
-                     members: list[str] | None = None,
+                     members: list[str | dict] | None = None,
                      description: str | None = None,
                      tags: list[str] | None = None) -> dict:
+        """Create a Bindr and file nodes, returning its flat view and members.
+
+        Creation and the first filing are atomic. Later filings are sequential;
+        BindrMembershipError exposes confirmed progress if a later filing fails.
+        """
+        node_ids = _bindr_node_ids(members or [])
         body: dict = {"name": name}
-        if members is not None: body["members"] = members
-        if description is not None: body["description"] = description
-        if tags is not None: body["tags"] = tags
+        if node_ids:
+            body["member"] = {"nodeId": node_ids[0]}
+        if description is not None:
+            body["description"] = description
+        if tags is not None:
+            body["tags"] = tags
         with self.http() as http:
             r = http.post(
-                f"/namespaces/{namespace}/projects/{project}/bindrs",
+                f"/namespaces/{quote(namespace, safe='')}/projects/{quote(project, safe='')}/bindrs",
                 json=body, timeout=30,
             )
         r.raise_for_status()
-        return r.json()
+        bindr = r.json()["bindr"]
+        self._file_bindr_nodes(bindr["id"], node_ids[1:], completed=node_ids[:1])
+        return {**bindr, "memberCount": len(node_ids),
+                "members": [{"nodeId": node_id} for node_id in node_ids]}
 
     def get_bindr(self, namespace: str, project: str, name: str) -> dict:
+        """Resolve an exact project-scoped name, then read the canonical ID route."""
         with self.http() as http:
             r = http.get(
-                f"/namespaces/{namespace}/projects/{project}/bindrs/{name}",
+                f"/namespaces/{quote(namespace, safe='')}/projects/{quote(project, safe='')}/bindrs",
                 timeout=15,
             )
         r.raise_for_status()
-        return r.json()
+        matches = [row for row in r.json()["bindrs"] if row["name"] == name]
+        if not matches:
+            response = httpx.Response(404, request=r.request, json={"error": "Bindr not found"})
+            response.raise_for_status()
+        if len(matches) != 1:
+            raise ValueError(f"Ambiguous Bindr name: {name!r}; use its ID")
+        return self.get_bindr_by_id(matches[0]["id"])
 
     def get_bindr_by_id(self, bindr_id: str) -> dict:
-        """Lookup a bindr by its ID — used to resolve nested bindr members."""
-        with self.http() as http:
-            r = http.get(
-                f"/bindrs/{bindr_id}",
-                timeout=15,
-            )
-        r.raise_for_status()
-        return r.json()
+        """Read all member pages, retaining the legacy flat Bindr return shape.
+
+        The server includes filings in child Bindrs and deduplicates node IDs.
+        """
+        members = []
+        page = 1
+        while True:
+            with self.http() as http:
+                r = http.get(f"/bindrs/{quote(bindr_id, safe='')}",
+                             params={"page": page, "pageSize": 100, "recursive": "true"}, timeout=15)
+            r.raise_for_status()
+            result = r.json()
+            members.extend(result["members"])
+            if page >= result["totalPages"]:
+                return {**result["bindr"], "members": members, "memberCount": result["total"]}
+            page += 1
+
+    def _file_bindr_nodes(self, bindr_id: str, node_ids: list[str], *,
+                         completed: list[str] | None = None) -> None:
+        completed = list(completed or [])
+        for node_id in node_ids:
+            try:
+                with self.http() as http:
+                    r = http.post(f"/bindrs/{quote(bindr_id, safe='')}/members",
+                                  json={"nodeId": node_id}, timeout=30)
+                r.raise_for_status()
+            except httpx.HTTPError as error:
+                raise BindrMembershipError(bindr_id, completed, node_id) from error
+            completed.append(node_id)
 
     def add_bindr_members(self, namespace: str, project: str, name: str,
                           add: list) -> dict:
-        """Add members to a bindr.
-
-        `add` is a list of:
-          - str            → treated as a node ID (backwards compat)
-          - {"type":"node",  "id":...}
-          - {"type":"bindr", "id":...}
-        Server rejects cycles for bindr-typed refs.
-        """
-        with self.http() as http:
-            r = http.post(
-                f"/namespaces/{namespace}/projects/{project}/bindrs/{name}/members",
-                json={"add": add}, timeout=30,
-            )
-        r.raise_for_status()
-        return r.json()
+        """File node IDs or legacy node refs using singular canonical requests."""
+        node_ids = _bindr_node_ids(add)
+        bindr = self.get_bindr(namespace, project, name)
+        self._file_bindr_nodes(bindr["id"], node_ids)
+        return self.get_bindr_by_id(bindr["id"])
 
     def get_node_descendants(self, node_id: str,
                              leaves_only: bool = False,
