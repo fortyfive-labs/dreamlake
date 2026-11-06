@@ -129,14 +129,19 @@ class DreamLakeClient:
         return Hosts(self)
 
     @property
-    def notes(self):
-        """Callable Notes facade bound to this client.
+    def memos(self):
+        """Callable Memos facade bound to this client.
 
-        ``client.notes("ns/note-id")`` opens a handle without a request;
-        ``client.notes.list(namespace=...)`` lists. Nothing else lives here.
+        ``client.memos("ns/note-id")`` opens a handle without a request;
+        ``client.memos.list(namespace=...)`` lists. Nothing else lives here.
         """
-        from ._notes_facade import Notes
-        return Notes(self)
+        from ._memos_facade import Memos
+        return Memos(self)
+
+    @property
+    def notes(self):
+        """Deprecated alias for :attr:`memos`."""
+        return self.memos
 
     def http(self) -> "httpx.Client":
         """An httpx client bound to dreamlake-server, with auth applied."""
@@ -145,11 +150,11 @@ class DreamLakeClient:
             headers=self._headers(),
             transport=self._transport,
             timeout=30,
-            event_hooks={"request": [self._note_agent_headers]},
+            event_hooks={"request": [self._memo_agent_headers]},
         )
 
-    def _note_agent_headers(self, request: httpx.Request) -> None:
-        """Attribute explicit agent Notes operations; never infer from Python use."""
+    def _memo_agent_headers(self, request: httpx.Request) -> None:
+        """Attribute explicit agent Memos operations; never infer from Python use."""
         base = httpx.URL(self.dl_url)
         if (request.url.scheme, request.url.host, request.url.port) != (base.scheme, base.host, base.port):
             return

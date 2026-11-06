@@ -32,6 +32,7 @@ Python SDK for ML experiment tracking and data storage.
    files
    cli
    hosts
+   memos
    notes-diffs
    note-archive
    release-notes

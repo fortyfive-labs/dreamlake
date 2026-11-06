@@ -1,0 +1,1516 @@
+"""Collaborative Memos reads and edits.
+
+The agreed cross-client syntax is the callable facade in ``_memos_facade``:
+``dl.memos("ns/note-id").read()`` / ``.append(text=, at=, mode=)`` and
+``dl.memos.list(namespace=)``. It adapts the methods below without replacing them.
+
+``read_snapshot()`` returns exact v2 source, content hash, and the original RTC
+revision. ``patch(..., base_revision=snapshot.revision)`` validates that saved
+source and maps changes to its original RTC identities through ordinary CRDT
+synchronization. ``exact=True`` opts in to a revision check for one request; explicit
+``if_match=`` remains an exact-mode compatibility alias.
+
+Editable ``read()``/``Doc.save()`` drafts and whole-body edits use original
+native snapshots by default. Explicit legacy drafts/body writes and section
+writes retain ETag semantics. ``patch(..., legacy=True)`` explicitly
+selects the previous unified-diff interface and its cached-ETag guard. Neither
+path replaces an unavailable original baseline with a fresh read or retries an
+ambiguous HTTP patch automatically.
+"""
+
+from __future__ import annotations
+
+import re
+import hashlib
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any, Iterator, Sequence
+
+import httpx
+
+from ._client import DreamLakeClient, get_client
+
+if TYPE_CHECKING:  # pragma: no cover
+    # Both are quoted in return annotations and imported inside the methods
+    # that build them, to keep the import cycle broken at runtime. The block was
+    # empty, so a type checker had nothing to resolve those annotations against
+    # and reported `Doc` and `MemoFiles` as undefined names.
+    from ._doc import Doc
+    from ._files import MemoFiles
+
+__all__ = [
+    "Memo",
+    "MemoRef",
+    "MemoSnapshot",
+    "PatchReceipt",
+    "PatchResult",
+    "Section",
+    "SectionMatch",
+    "MemoError",
+    "MemoNotFound",
+    "MemoChanged",
+    "MemoBusy",
+    "MemoReadOnly",
+    "PatchFailed",
+    "CommandIdentityUnsupportedError",
+    "WriteOutcomeUnknown",
+    "UncertainOutcomeError",
+    "CommandInProgressError",
+    "CommandIntentMismatchError",
+    "CommandStatusInvalid",
+    "CommandStatus",
+    "note",
+    "search_notes",
+    "list_notes",
+    "create_note",
+    "shared_with_me",
+]
+
+_OBJECT_ID = re.compile(r"^[a-f0-9]{24}$", re.I)
+# Caller-stable command identity for v2 body mutations (Phase 1 contract A).
+_COMMAND_ID = re.compile(r"[A-Za-z0-9._:-]{8,128}")
+_OUTCOMES = ("accepted", "no-write")
+_COMMAND_STATES = ("pending", "accepted", "no-write", "unknown")
+_RTC_REVISION = re.compile(r"rtc:[a-f0-9]{64}")
+# Transport errors raised once a connection was attempted: the request may have
+# reached the server. httpx raises UnsupportedProtocol and LocalProtocolError
+# before any connection, and InvalidURL while building the URL; those are
+# deterministic and are never an unknown outcome.
+_UNCERTAIN_TRANSPORT = (httpx.TimeoutException, httpx.NetworkError, httpx.RemoteProtocolError, httpx.ProxyError)
+
+
+# ── Errors ───────────────────────────────────────────────────────────────────
+
+
+class MemoError(RuntimeError):
+    """Base for every failure this module raises deliberately.
+
+    ``outcome`` is the category the Memos API contract names: ``invalid-usage``
+    (refused before any request), ``no-write`` (the server definitively did
+    not write), ``unknown`` (the write may have happened; reconcile before
+    writing again) or ``operational`` (service, transport or capability).
+    """
+
+    outcome = "operational"
+
+
+class MemoNotFound(MemoError):
+    outcome = "no-write"
+
+
+class MemoChanged(MemoError):
+    """The note moved between your read and your write (HTTP 412).
+
+    Not a transient error: retrying the same write reproduces it. Call
+    ``note.refresh()``, redo the edit against the new text, and write again.
+    """
+
+    outcome = "no-write"
+
+    def __init__(self, message: str, etag: str | None = None):
+        super().__init__(message)
+        self.etag = etag
+
+
+class MemoBusy(MemoError):
+    """The realtime service could not acknowledge the write (HTTP 409/503).
+
+    Not "someone is editing" — a write normally goes INTO the live
+    collaboration room and appears on their screens. This means the room was
+    unreachable AND people are connected, so the only fallback (replacing the
+    archive) would reset the room and cost them unsaved work.
+
+    For a patch with an ambiguous acknowledgment, inspect current state before
+    resubmitting; separate HTTP requests do not share an idempotency receipt.
+    """
+
+
+class MemoReadOnly(MemoError):
+    """You may read this note but not write it (HTTP 403)."""
+
+    outcome = "no-write"
+
+
+class PatchFailed(MemoError):
+    """Patch source does not match its original baseline (HTTP 422).
+
+    The draft and saved baseline remain available for inspection. A mismatch
+    is never resolved by silently replacing the baseline with the current text.
+    """
+
+    outcome = "no-write"
+
+
+class WriteOutcomeUnknown(MemoError):
+    """A write without a ``command_id`` may or may not have been applied.
+
+    Transport failed after the request was handed over, or the response was
+    not a receipt. Keep the original baseline and draft, inspect current and
+    retained source, and reconcile before writing again; nothing is replayed.
+    """
+
+    outcome = "unknown"
+
+
+class CommandIdentityUnsupportedError(MemoError):
+    """A ``command_id`` was sent but the receipt did not echo it.
+
+    Capability detection is the echo: a server that recorded the command
+    returns ``commandId``. One that did not is older than this contract, and
+    the write may still have been applied — there is just no durable identity
+    to retry under. Nothing is replayed automatically.
+    """
+
+    outcome = "operational"
+
+
+class UncertainOutcomeError(MemoError):
+    """The request carried a ``command_id`` and its outcome is unknown.
+
+    The transport raised after the request was handed to it, the response was
+    not a receipt, or the server itself reported ``command_outcome_unknown``.
+    The same ``command_id`` is safe to resend: the server returns the stored
+    receipt if it accepted the first attempt, or ``command_status()`` says
+    what it recorded. Carries ``command_id`` for exactly that.
+    """
+
+    outcome = "unknown"
+
+    def __init__(self, command_id: str, what: str = "write"):
+        super().__init__(
+            f"{what} outcome unknown for command {command_id!r}; retry with the same "
+            f"command_id or query command_status({command_id!r}) before any other write"
+        )
+        self.command_id = command_id
+
+
+class CommandInProgressError(MemoError):
+    """HTTP 409 ``command_in_progress``: this ``command_id`` is still being executed.
+
+    Another attempt with the same id holds the pending record. Not a reason
+    to pick a new id — that would be a second write. Wait, then
+    ``command_status()`` says how the first attempt ended.
+    """
+
+    outcome = "operational"
+
+    def __init__(self, command_id: str):
+        super().__init__(f"command {command_id!r} is still in progress; wait, then query "
+                         f"command_status({command_id!r}) rather than retrying under a new id")
+        self.command_id = command_id
+
+
+class CommandStatusInvalid(MemoError):
+    """The command status response is not a verifiable record for this id.
+
+    A stored receipt that names another command, a revision that is not
+    ``rtc:`` + 64 hex, an unknown mode or state, or a non-``rtc:`` baseline
+    cannot reconcile anything. The outcome stays unknown; do not write.
+    """
+
+    outcome = "operational"
+
+    def __init__(self, command_id: str):
+        super().__init__(f"command status for {command_id!r} is not a verifiable record; "
+                         "treat the outcome as still unknown and do not reconcile from it")
+        self.command_id = command_id
+
+
+class CommandIntentMismatchError(MemoError):
+    """HTTP 409 ``command_intent_mismatch``: the id was already used for a different intent.
+
+    The server bound ``command_id`` to a fingerprint of note, baseline, mode,
+    format and patch; this request differs. It is a new command and needs a
+    new id. Nothing was written by this request.
+    """
+
+    outcome = "no-write"
+
+    def __init__(self, command_id: str):
+        super().__init__(f"command {command_id!r} was already used with a different intent; "
+                         "this is a new command and needs a new command_id")
+        self.command_id = command_id
+
+
+# ── Values ───────────────────────────────────────────────────────────────────
+
+
+@dataclass(frozen=True)
+class MemoSnapshot:
+    """Exact v2 source and its original RTC identity baseline."""
+
+    note: str
+    content: str
+    hash: str
+    revision: str
+
+    def to_dict(self) -> dict[str, str]:
+        return {"note": self.note, "content": self.content, "hash": self.hash, "revision": self.revision}
+
+
+@dataclass(frozen=True)
+class PatchReceipt:
+    """V2 patch acknowledgment; content hash and RTC revision are distinct.
+
+    ``outcome`` (``accepted`` | ``no-write``), ``command_id`` and ``replayed``
+    are the command-identity fields; each is ``None`` when the server did not
+    send it, so a receipt from an older server is still a receipt.
+    """
+
+    note: str
+    mode: str
+    base_revision: str
+    hash: str
+    revision: str
+    outcome: str | None = None
+    command_id: str | None = None
+    replayed: bool | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        """Use the same field names as the API and CLI JSON response."""
+        out: dict[str, Any] = {"note": self.note, "mode": self.mode, "baseRevision": self.base_revision,
+                               "hash": self.hash, "revision": self.revision}
+        if self.outcome is not None:
+            out["outcome"] = self.outcome
+        if self.command_id is not None:
+            out["commandId"] = self.command_id
+        if self.replayed is not None:
+            out["replayed"] = self.replayed
+        return out
+
+
+@dataclass(frozen=True)
+class CommandStatus:
+    """What the server recorded for one ``command_id`` of this actor."""
+
+    command_id: str
+    state: str
+    outcome: str | None
+    receipt: PatchReceipt | None
+    error: dict[str, Any] | None
+    created_at: str | None
+    updated_at: str | None
+
+
+def _command_id(value: Any) -> str | None:
+    if value is None:
+        return None
+    # fullmatch, not match with `$`: `$` also matches before a trailing newline.
+    if not isinstance(value, str) or not _COMMAND_ID.fullmatch(value):
+        raise ValueError("command_id must be 8-128 characters from [A-Za-z0-9._:-]")
+    return value
+
+
+def _revision_token(value: Any, name: str) -> str:
+    if not isinstance(value, str) or not value.strip() or value == "*" or "\r" in value or "\n" in value:
+        raise ValueError(f"{name} must be an original saved revision")
+    return value
+
+
+def _v2_tokens(data: Any, note_id: str) -> None:
+    if (not isinstance(data, dict) or data.get("note") != note_id
+            or not isinstance(data.get("hash"), str)
+            or not re.fullmatch(r"sha256:[a-f0-9]{64}", data["hash"])):
+        raise MemoError("server did not return the Memos v2 contract; no legacy fallback was attempted")
+    try:
+        _revision_token(data.get("revision"), "server revision")
+    except ValueError as error:
+        raise MemoError(str(error)) from error
+
+
+def _escape_inline(value: str) -> str:
+    """Canonical inline-record escaping, the form the CLI and server serialize.
+
+    ``\\``, LF, CR and TAB become escapes, and a backslash precedes any of
+    ``[]{}+-``: the delimiter punctuation, not only the framing characters.
+    The server decodes either, but canonical bytes are what the conformance
+    fixtures and cross-client diffs compare.
+    """
+    return "".join("\\" + c if c in "\\[]{}+-" else "\\n" if c == "\n" else
+                   "\\r" if c == "\r" else "\\t" if c == "\t" else c for c in value)
+
+
+class PatchResult(str):
+    """What an explicit legacy patch committed.
+
+    Subclasses `str` and equals its own ETag, so `note.patch(..., legacy=True)` can grow
+    fields without breaking a caller that treated the old return value as the
+    revision string — comparisons, formatting and `if_match=` all still work.
+    """
+
+    # Annotated as well as slotted. `__slots__` reserves the storage; without
+    # the annotation a type checker does not know the attribute exists and
+    # flags every read of it.
+    _size_bytes: int
+
+    __slots__ = ("_size_bytes",)
+
+    def __new__(cls, etag: str, size_bytes: int = 0) -> "PatchResult":
+        self = super().__new__(cls, etag)
+        self._size_bytes = size_bytes
+        return self
+
+    @property
+    def etag(self) -> str:
+        return str(self)
+
+    @property
+    def size_bytes(self) -> int:
+        return self._size_bytes
+
+    def __repr__(self) -> str:  # pragma: no cover - display only
+        return f"PatchResult(etag={str(self)!r}, size_bytes={self.size_bytes})"
+
+
+@dataclass(frozen=True)
+class LineRange:
+    """Part of a body, with enough context to know it is a part.
+
+    `total_lines` and `truncated` are not decoration: without them a caller
+    cannot tell "this is the whole note" from "this is the first page", and a
+    rewrite built on a partial read silently drops everything it never saw.
+    """
+
+    text: str
+    #: The revision of the WHOLE note, not of this range.
+    etag: str | None
+    #: 1-based, inclusive.
+    start_line: int
+    #: The last line actually returned — not necessarily the one asked for.
+    end_line: int
+    total_lines: int
+    truncated: bool
+
+    def __repr__(self) -> str:  # pragma: no cover - display only
+        more = ", truncated" if self.truncated else ""
+        return f"LineRange(lines {self.start_line}-{self.end_line} of {self.total_lines}{more})"
+
+
+@dataclass(frozen=True)
+class Section:
+    """One addressable part of a note: a heading plus everything under it."""
+
+    anchor: str
+    title: str
+    level: int
+    start: int
+    end: int
+
+    def __repr__(self) -> str:  # pragma: no cover - display only
+        return f"<Section {self.anchor!r} h{self.level} {self.title!r}>"
+
+
+@dataclass(frozen=True)
+class SectionMatch:
+    """Where a search hit landed inside a note."""
+
+    anchor: str
+    title: str
+    snippet: str
+
+    def __repr__(self) -> str:  # pragma: no cover - display only
+        return f"<SectionMatch {self.anchor!r} {self.snippet[:40]!r}>"
+
+
+@dataclass(frozen=True)
+class MemoRef:
+    """A note in a listing. Call ``.open()`` for one you can read and write."""
+
+    id: str
+    namespace: str
+    name: str
+    slug: str
+    updated_at: str | None = None
+    shared_by: str | None = None
+    #: Which sections matched, on a search result. Empty otherwise.
+    matches: tuple[SectionMatch, ...] = ()
+    #: Independent archival state; None for an active or legacy note.
+    archived_at: str | None = None
+
+    def open(self, *, client: DreamLakeClient | None = None) -> "Memo":
+        return Memo(self.id, namespace=self.namespace, client=client)
+
+    def __repr__(self) -> str:  # pragma: no cover - display only
+        return f"<MemoRef {self.namespace}/{self.slug}>"
+
+
+@dataclass(frozen=True)
+class Hit:
+    """One match, and everywhere it is.
+
+    Three coordinates because three things consume them, and converting
+    between them by hand is where off-by-ones come from:
+
+        line    1-based, what you read and what ``line=`` takes
+        column  1-based code points into that line, so it lines up with ``rg -n``
+        ind     0-based end-exclusive code points from the start of the
+                document — what ``replace(ind=...)`` addresses
+
+    ``etag`` is the revision these offsets were computed against. Pass it to
+    ``patch(legacy=True, if_match=...)`` and a note edited in between is refused rather than
+    overwritten at offsets that have since moved.
+    """
+
+    note_id: str
+    note_slug: str
+    note_name: str
+    #: Revision the offsets belong to. Use it as the write's precondition.
+    etag: str
+    line: int
+    column: int
+    ind: tuple[int, int]
+    #: The whole line, not just the matched text — enough to judge the hit.
+    text: str
+    match: str
+    before: tuple[str, ...]
+    after: tuple[str, ...]
+    #: Innermost section containing the hit, for addressing it by section.
+    anchor: str
+    namespace: str = ""
+
+    def open(self, *, client: DreamLakeClient | None = None) -> "Memo":
+        """The note this hit is in."""
+        return Memo(self.note_id, namespace=self.namespace, client=client)
+
+    def __repr__(self) -> str:  # pragma: no cover - display only
+        return f"<Hit {self.note_slug}:{self.line}:{self.column} {self.match!r}>"
+
+
+@dataclass(frozen=True)
+class GrepResult:
+    """Hits, plus what was NOT looked at.
+
+    Every field after ``hits`` exists to stop a caller mistaking a bounded
+    answer for a complete one — which is how "replace all of them" quietly
+    replaces some of them.
+    """
+
+    hits: tuple[Hit, ...]
+    #: A note held more matches than the server returns for one note.
+    truncated: bool
+    #: How many notes the caller was allowed to see and search.
+    notes_searched: int
+    #: Notes too large to index in full; their tail was not searched.
+    partial_notes: tuple[str, ...]
+    #: Open notes whose unsaved text could not be flushed in time.
+    stale_notes: int
+    #: Opaque; pass back as ``cursor=`` for the next page. None at the end.
+    next_cursor: str | None
+
+    def __iter__(self):
+        return iter(self.hits)
+
+    def __len__(self) -> int:
+        return len(self.hits)
+
+    def __repr__(self) -> str:  # pragma: no cover - display only
+        more = ", truncated" if self.truncated else ""
+        return f"GrepResult({len(self.hits)} hits from {self.notes_searched} memos{more})"
+
+
+def _error_code(resp: httpx.Response) -> str | None:
+    try:
+        body = resp.json()
+    except ValueError:
+        return None
+    code = body.get("error") if isinstance(body, dict) else None
+    return code if isinstance(code, str) else None
+
+
+def _raise_for(resp: httpx.Response, what: str) -> None:
+    """Turn a response into the error a caller can actually act on."""
+    if resp.status_code < 400:
+        return
+    try:
+        body = resp.json()
+    except Exception:
+        body = {}
+    msg = body.get("message") or body.get("error") or resp.text or resp.reason_phrase
+    if resp.status_code == 412:
+        raise MemoChanged(f"{what}: {msg}", etag=body.get("etag") or resp.headers.get("etag"))
+    if resp.status_code in (409, 503):
+        raise MemoBusy(f"{what}: {msg}")
+    if resp.status_code == 422:
+        raise PatchFailed(f"{what}: {msg}")
+    if resp.status_code == 403:
+        raise MemoReadOnly(f"{what}: {msg}")
+    if resp.status_code == 404:
+        raise MemoNotFound(f"{what}: {msg}")
+    raise MemoError(f"{what}: HTTP {resp.status_code} {msg}")
+
+
+# ── The note ─────────────────────────────────────────────────────────────────
+
+
+class Memo:
+    """A note you can read and edit.
+
+    Addressed as ``namespace/slug`` or ``namespace/<id>``; see ``dl.note()``,
+    which resolves both. The text is fetched on first use and cached with the
+    ETag it came with, so a write knows what it was based on.
+    """
+
+    def __init__(
+        self,
+        note_id: str,
+        *,
+        namespace: str,
+        client: DreamLakeClient | None = None,
+    ):
+        self._id = note_id
+        self._ns = namespace
+        self._client = client or get_client()
+        self._text: str | None = None
+        self._etag: str | None = None
+        self._text_snapshot: MemoSnapshot | None = None
+
+    # ── identity ────────────────────────────────────────────────────────────
+
+    @property
+    def id(self) -> str:
+        return self._id
+
+    @property
+    def namespace(self) -> str:
+        return self._ns
+
+    @property
+    def etag(self) -> str | None:
+        """The version this object last read. ``None`` until something is read."""
+        return self._etag
+
+    def __repr__(self) -> str:  # pragma: no cover - display only
+        return f"<Memo {self._ns}/{self._id}>"
+
+    def metadata(self) -> MemoRef:
+        """Read current metadata without restoring an archived note."""
+        with self._client.http() as http:
+            response = http.get(f"/notes/{_seg(self._id)}")
+        _raise_for(response, f"read metadata {self._ns}/{self._id}")
+        return _ref(response.json(), self._ns)
+
+    def _set_archived(self, archived: bool) -> MemoRef:
+        # Archive is metadata, not a body edit. Preserve the caller's original
+        # revision/draft and never attach a cached body If-Match validator.
+        with self._client.http() as http:
+            response = http.patch(self._base, json={"archived": archived})
+        _raise_for(response, f"{'archive' if archived else 'unarchive'} {self._ns}/{self._id}")
+        return _ref(response.json(), self._ns)
+
+    def archive(self) -> MemoRef:
+        """Archive without deleting or changing tags; return acknowledged metadata.
+
+        The server flushes pending edits first and may raise MemoBusy if it
+        cannot do so safely. A later saved edit restores the note and its live
+        folder paths. Failed operations do not retry or discard local drafts.
+        """
+        return self._set_archived(True)
+
+    def unarchive(self) -> MemoRef:
+        """Restore the note and its live archived folder paths."""
+        return self._set_archived(False)
+
+    # ── plumbing ────────────────────────────────────────────────────────────
+
+    @property
+    def _base(self) -> str:
+        return f"/namespaces/{_seg(self._ns)}/notes/{_seg(self._id)}"
+
+    def _get(self, path: str) -> dict:
+        with self._client.http() as http:
+            r = http.get(f"{self._base}{path}")
+        _raise_for(r, f"read {self._ns}/{self._id}")
+        return r.json()
+
+    def _send(
+        self,
+        method: str,
+        path: str,
+        payload: dict,
+        force: bool,
+        if_match: str | None = None,
+    ) -> dict:
+        headers = {}
+        # The default is a conditional write. Sending no validator would make
+        # every edit a last-writer-wins overwrite, which for a document several
+        # people share is data loss with a success code on it.
+        #
+        # An explicit `if_match` wins over the cached one: a caller who names a
+        # revision is writing against THAT one, and quietly substituting a
+        # newer one this object happens to hold would defeat the check.
+        if if_match is not None:
+            headers["If-Match"] = if_match
+        elif not force and self._etag:
+            headers["If-Match"] = self._etag
+        with self._client.http() as http:
+            r = http.request(method, f"{self._base}{path}", json=payload, headers=headers)
+        _raise_for(r, f"write {self._ns}/{self._id}")
+        out = r.json()
+        # Adopt the version we just created, so consecutive edits work without
+        # a re-read in between.
+        self._etag = out.get("etag") or r.headers.get("etag")
+        self._text = None
+        return out
+
+    # ── reading ─────────────────────────────────────────────────────────────
+
+    def refresh(self, *, legacy: bool = False) -> "Memo":
+        """Re-read the body. The thing to call after MemoChanged."""
+        if legacy:
+            data = self._get("/body")
+            self._text = data["text"]
+            self._etag = data.get("etag")
+            self._text_snapshot = None
+        else:
+            original = self.read_snapshot()
+            self._text = original.content
+            self._text_snapshot = original
+            self._etag = '"' + original.hash.removeprefix('sha256:') + '"'
+        return self
+
+    def diff(self, *, since: str | None = None, context: int = 3, legacy: bool = False) -> str:
+        """Inspect a remote source diff without moving saved draft baselines.
+
+        Modern inspection uses the shipped v2 body diff and verifies its
+        acknowledged retained source. ``since`` is a content-hash reference,
+        never an RTC write baseline. Explicit legacy retains context selection.
+        """
+        if isinstance(context, bool) or not isinstance(context, int) or not 0 <= context <= 100:
+            raise ValueError("context must be an integer between 0 and 100")
+        ref = self._etag if since is None else since
+        if not isinstance(ref, str) or not ref:
+            raise ValueError("read the memo or refresh first, or supply since=<content hash>")
+        if legacy or context != 3:
+            from urllib.parse import urlencode
+            return self._get("/diff?" + urlencode({"since": ref, "context": context}))["diff"]
+        match = re.fullmatch(r'(?:sha256:([a-f0-9]{64})|"([a-f0-9]{64})"|([a-f0-9]{64}))', ref)
+        if not match:
+            raise ValueError("since must be a content hash; RTC revisions are not diff references")
+        base_hash = "sha256:" + next(value for value in match.groups() if value is not None)
+        with self._client.http() as http:
+            response = http.get(f"{self._base}/body", params={"contract": "v2", "since": base_hash, "format": "diff"}, follow_redirects=False)
+        _raise_for(response, f"diff {self._ns}/{self._id}")
+        if response.status_code != 200:
+            raise MemoError("unexpected diff response; source and draft baseline were not adopted")
+        try:
+            data = response.json()
+            _v2_tokens(data, self._id)
+            if data.get("base") != base_hash or data.get("format") != "diff" or not isinstance(data.get("patch"), str):
+                raise MemoError("inconsistent source diff")
+            if len(data['patch'].encode('utf-8')) > 8_000_000:
+                raise MemoError("source diff too large")
+        except (ValueError, MemoError):
+            raise MemoError("invalid source diff response; no cache or baseline was adopted") from None
+        acknowledged = self.read_snapshot(at=data["revision"])
+        if acknowledged.hash != data["hash"]:
+            raise MemoError("source diff does not match its acknowledged source hash")
+        return data["patch"]
+
+    def get_text(self, *, legacy: bool = False) -> str:
+        """Read cached full source; modern cache is a verified v2 snapshot.
+
+        Explicit legacy selects the previous body read on cache miss.
+        Refresh is explicit; cached source never moves an existing Doc baseline.
+        """
+        if self._text is None or (not legacy and getattr(self, "_text_snapshot", None) is None):
+            self.refresh(legacy=legacy)
+        assert self._text is not None
+        return self._text
+
+    @property
+    def text(self) -> str:
+        """Full source through verified v2 cache; use refresh() to read current."""
+        return self.get_text()
+
+    def sections(self) -> list[Section]:
+        """The heading outline, as addressable sections.
+
+        A section is a heading plus everything under it, up to the next heading
+        of the same or a higher level — so ``## Install`` contains its own
+        ``### macOS``. Text before the first heading is addressed as
+        ``preamble``.
+        """
+        data = self._get("/sections")
+        self._etag = data.get("etag")
+        return [
+            Section(
+                anchor=s["anchor"],
+                title=s.get("title", ""),
+                level=s.get("level", 0),
+                start=s.get("start", 0),
+                end=s.get("end", 0),
+            )
+            for s in data.get("sections", [])
+        ]
+
+    def read_section(self, anchor: str) -> str:
+        """One section's text, heading included.
+
+        Named for what it reads. `note.text` is the whole note; every method
+        with `_section` in its name works on one part of it, and every method
+        without works on all of it. There is no third rule.
+        """
+        data = self._get(f"/sections/{_seg(anchor)}")
+        self._etag = data.get("etag")
+        return data["text"]
+
+    # ── writing ─────────────────────────────────────────────────────────────
+
+    def write_section(self, anchor: str, text: str, *, force: bool = False) -> str:
+        """Replace one section. Returns the note's new ETag.
+
+        The text is taken verbatim, heading and all — which is how a section is
+        renamed. Omit the heading and the section stops being one.
+        """
+        return self._send("PUT", f"/sections/{_seg(anchor)}", {"text": text}, force)["etag"]
+
+    @property
+    def files(self) -> "MemoFiles":
+        """Files attached to this note.
+
+            note.files.list("assets/*.png")
+            note.files.upload(Path("diagram.png"), path="assets/diagram.png")
+
+        Distinct from note MEDIA, which is the image-embedding path: a media
+        URL is its own credential and readable by anyone holding it, which is
+        right for a picture in a public note and wrong for an attachment. These
+        inherit the note's permissions on every read.
+        """
+        from ._files import MemoFiles
+
+        return MemoFiles(self)
+
+    def read_lines(
+        self,
+        start_line: int | None = None,
+        end_line: int | None = None,
+    ) -> "LineRange":
+        """Read part of the body, and say what was left out.
+
+            part = note.read_lines(1, 40)
+            part.truncated      # there is more below
+            part.total_lines    # how much more
+
+        For looking at a large note without pulling all of it. NOT a basis for
+        a write: the ETag identifies the WHOLE snapshot, so sending `part.text`
+        back as the body would delete everything outside the range. Use
+        `read()` and edit the draft, or address the range with `line=`.
+        """
+        params = {}
+        if start_line is not None:
+            params["startLine"] = str(start_line)
+        if end_line is not None:
+            params["endLine"] = str(end_line)
+        with self._client.http() as http:
+            r = http.get(f"{self._base}/body", params=params)
+        _raise_for(r, f"read {self._ns}/{self._id}")
+        d = r.json()
+        return LineRange(
+            text=d["text"],
+            etag=d.get("etag"),
+            start_line=d.get("startLine", 1),
+            end_line=d.get("endLine", 1),
+            total_lines=d.get("totalLines", 1),
+            truncated=bool(d.get("truncated", False)),
+        )
+
+    def read(self, *, at: str | None = None, if_match: str | None = None, legacy: bool = False) -> "Doc":
+        """Read an editable draft retaining its original native identity snapshot.
+
+        ``legacy=True`` or an explicit legacy ETag ``if_match`` preserves the
+        prior cached ETag draft. ``at`` selects an original retained RTC source.
+        """
+        from ._doc import Doc
+        if legacy or if_match is not None:
+            if at is not None:
+                raise ValueError("at requires modern read; omit legacy and if_match")
+            self.refresh(legacy=True)
+            if if_match is not None and self.etag != if_match:
+                raise MemoChanged(f"memo changed since legacy ETag {if_match}", etag=self.etag)
+            return Doc(self, self._text or "", self.etag)
+        original = self.read_snapshot(at=at)
+        self._text, self._text_snapshot = original.content, original
+        self._etag = '"' + original.hash.removeprefix('sha256:') + '"'
+        return Doc(self, original.content, self._etag, snapshot=original)
+
+    def write(self, text: str, *, at: MemoSnapshot | None = None, exact: bool = False,
+              if_match: str | None = None, legacy: bool = False, force: bool = False,
+              command_id: str | None = None) -> PatchReceipt | str:
+        """Plan disjoint native edits against original source, without coarse fallback.
+
+        Explicit legacy/force/ETag selects the previous whole-body PUT. Modern
+        callers retain ``at``; absent it, one verified source snapshot is read.
+        ``command_id`` (opt-in) gives the request a caller-stable identity; see
+        ``patch``. With one, even an unchanged MERGE is submitted so the server
+        records the command.
+        """
+        command_id = _command_id(command_id)
+        if legacy or force or if_match is not None:
+            if at is not None or exact or command_id is not None:
+                raise ValueError("at, exact and command_id require modern write; omit legacy, force and if_match")
+            if if_match is not None and force:
+                raise ValueError("if_match and force cannot be combined")
+            return self._send("PUT", "/body", {"text": text}, force, if_match)["etag"]
+        from ._character_plan import character_diff, points
+        points(text)  # Reject invalid source before any transport.
+        if at is not None:
+            if not isinstance(at, MemoSnapshot) or at.note != self._id or not isinstance(at.content, str):
+                raise ValueError("at must be this Memo's original MemoSnapshot")
+            _revision_token(at.revision, "at.revision")
+            points(at.content)
+            if at.hash != "sha256:" + hashlib.sha256(at.content.encode()).hexdigest():
+                raise ValueError("at source does not match its content hash")
+        original = at if at is not None else self.read_snapshot()
+        edits = character_diff(original.content, text)
+        if not edits and not exact and command_id is None:
+            return PatchReceipt(self._id, "merge", original.revision, original.hash, original.revision,
+                                outcome="no-write")
+        records = []
+        for edit in edits:
+            body = ("[-" + _escape_inline(edit['expectedText']) + "-]" if edit['expectedText'] else "")
+            body += ("{+" + _escape_inline(edit['replacementText']) + "+}" if edit['replacementText'] else "")
+            records.append(f"@@ chars {edit['start']}:{edit['end']} @@\n~ {body}\n")
+        return self.patch("".join(records), base_revision=original.revision, exact=exact, command_id=command_id)
+
+    def read_snapshot(self, *, at: str | None = None, if_match: str | None = None) -> MemoSnapshot:
+        """Read exact v2 source and an original RTC baseline, without editing a Doc.
+
+        ``at`` reads retained source at its original revision and verifies it.
+        It cannot be combined with ``if_match``. The legacy text/ETag cache is
+        unchanged. ``if_match`` optionally verifies
+        this read against one explicit RTC revision; it is never filled from
+        the cached legacy ETag.
+        """
+        if at is not None:
+            _revision_token(at, "at")
+            if if_match is not None:
+                raise ValueError("at selects retained source; if_match checks current source; give one")
+        if if_match is not None:
+            _revision_token(if_match, "if_match")
+        with self._client.http() as http:
+            response = http.get(f"{self._base}/body", params={"contract": "v2", **({"at": at} if at is not None else {})},
+                                headers={} if if_match is None else {"If-Match": if_match},
+                                follow_redirects=False)
+        _raise_for(response, f"read {self._ns}/{self._id}")
+        if response.status_code != 200:
+            raise MemoError("unexpected snapshot response; original source was not adopted")
+        try:
+            data = response.json()
+            _v2_tokens(data, self._id)
+            if not isinstance(data.get("content"), str) or data["hash"] != "sha256:" + hashlib.sha256(data["content"].encode("utf-8")).hexdigest():
+                raise MemoError("source does not match the returned hash")
+        except ValueError:
+            raise MemoError("invalid snapshot source response; cache and baseline were not adopted") from None
+        if at is not None and data["revision"] != at:
+            raise MemoError("server did not return the requested retained RTC revision")
+        if if_match is not None and data["revision"] != if_match:
+            raise MemoChanged("memo changed since the acknowledged RTC revision")
+        return MemoSnapshot(note=self._id, content=data["content"], hash=data["hash"], revision=data["revision"])
+
+    def patch(
+        self, diff: str, *, base_revision: str | None = None,
+        if_match: str | None = None, format: str | None = None,
+        exact: bool = False, legacy: bool = False, force: bool = False,
+        command_id: str | None = None,
+    ) -> PatchReceipt | PatchResult:
+        """Apply a patch against its original source and RTC identities.
+
+        Default requests send ``base_revision`` and no ``If-Match`` header.
+        ``exact=True`` requires the original revision to still be current.
+        Explicit ``if_match`` also selects exact mode and can supply the
+        baseline when used alone. Both tokens must match when provided.
+        ``format`` is ``inline-dff`` (default) or ``diff``. A successful v2
+        response is a structured ``PatchReceipt`` matching CLI/API JSON.
+
+        ``command_id`` is opt-in until the server deployment that records it:
+        when supplied it is sent as ``commandId`` and the receipt must echo it
+        (``CommandIdentityUnsupportedError`` otherwise); a failure after the
+        request left raises ``UncertainOutcomeError`` carrying the id, which is
+        safe to resend. A 409 about the id itself is typed: ``command_outcome_unknown``
+        is ``UncertainOutcomeError``, ``command_in_progress`` is
+        ``CommandInProgressError``, ``command_intent_mismatch`` is
+        ``CommandIntentMismatchError``. Without one, nothing new is sent.
+
+        ``legacy=True`` preserves the prior unified-diff/cached-ETag interface
+        and its string-compatible ``PatchResult``. Local ``Doc`` editing and
+        save semantics are unchanged. Errors leave local drafts and caches
+        untouched; an ambiguous outcome requires inspection before resubmission.
+        """
+        command_id = _command_id(command_id)
+        if legacy:
+            if base_revision is not None or format is not None or exact or command_id is not None:
+                raise ValueError("base_revision, format, exact and command_id require the v2 patch contract")
+            if if_match is not None and force:
+                raise ValueError("if_match names a revision and force says to ignore one; give one")
+            data = self._send("PATCH", "/body", {"diff": diff}, force, if_match)
+            return PatchResult(etag=data["etag"], size_bytes=data.get("sizeBytes", 0))
+        if force:
+            raise ValueError("v2 patch does not need force; omit exact and if_match for a merge patch")
+        baseline = _revision_token(base_revision if base_revision is not None else if_match, "base_revision")
+        if if_match is not None:
+            _revision_token(if_match, "if_match")
+            if baseline != if_match:
+                raise ValueError("base_revision and if_match must identify the same original snapshot")
+        selected_format = "inline-dff" if format is None else format
+        if selected_format not in ("inline-dff", "diff"):
+            raise ValueError("format must be inline-dff or diff")
+        if not isinstance(diff, str) or len(diff.encode("utf-8")) > 8_000_000:
+            raise ValueError("patch must be a UTF-8 string of at most 8000000 bytes")
+        mode = "exact" if exact or if_match is not None else "merge"
+        unknown = "write outcome unknown; keep original baseline/draft, reconcile before resubmit"
+        payload: dict[str, Any] = {"format": selected_format, "patch": diff, "baseRevision": baseline, "mode": mode}
+        if command_id is not None:
+            payload["commandId"] = command_id
+
+        def uncertain() -> MemoError:
+            return WriteOutcomeUnknown(unknown) if command_id is None else UncertainOutcomeError(command_id)
+
+        # The client and request are built outside the uncertain window: a URL
+        # or header that cannot be built was never sent.
+        try:
+            http = self._client.http()
+            request = http.build_request("PATCH", f"{self._base}/body", json=payload,
+                                         headers={} if if_match is None else {"If-Match": if_match})
+        except (httpx.InvalidURL, httpx.LocalProtocolError) as error:
+            raise MemoError(f"request could not be built; nothing was sent ({type(error).__name__})") from None
+        with http:
+            try:
+                response = http.send(request, follow_redirects=False)
+            except _UNCERTAIN_TRANSPORT:
+                # Once a connection was attempted nothing here can tell a
+                # refused connection from a lost acknowledgment (an injected
+                # transport may forward the request and then raise), so the
+                # outcome is unknown.
+                raise uncertain() from None
+            except httpx.TransportError as error:
+                # UnsupportedProtocol, LocalProtocolError: raised before any
+                # connection attempt, so the request was not sent.
+                raise MemoError(f"request was not sent ({type(error).__name__})") from None
+        if response.status_code != 200:
+            if command_id is not None and response.status_code == 409:
+                # Contract A.3: the command journal answers before the body
+                # write does. These are about the id, not about the note
+                # being busy, so they must not read as MemoBusy.
+                code = _error_code(response)
+                if code == "command_outcome_unknown":
+                    raise UncertainOutcomeError(command_id)
+                if code == "command_in_progress":
+                    raise CommandInProgressError(command_id)
+                if code == "command_intent_mismatch":
+                    raise CommandIntentMismatchError(command_id)
+            if response.status_code in (400, 401, 403, 404, 409, 412, 413, 415, 422, 503):
+                _raise_for(response, f"patch {self._ns}/{self._id}")
+            raise uncertain()
+        try:
+            data = response.json()
+            _v2_tokens(data, self._id)
+            if data.get("mode") != mode or data.get("baseRevision") != baseline:
+                raise MemoError("inconsistent receipt")
+            outcome, echoed, replayed = data.get("outcome"), data.get("commandId"), data.get("replayed")
+            if ((outcome is not None and outcome not in _OUTCOMES)
+                    or (replayed is not None and not isinstance(replayed, bool))
+                    or (echoed is not None and (not isinstance(echoed, str) or echoed != command_id))):
+                raise MemoError("inconsistent receipt")
+        except (ValueError, MemoError):
+            raise uncertain() from None
+        if command_id is not None and echoed is None:
+            raise CommandIdentityUnsupportedError(
+                f"patch {self._ns}/{self._id}: the receipt did not echo command_id {command_id!r}; "
+                "this server does not record command identity")
+        receipt = PatchReceipt(note=self._id, mode=mode, base_revision=baseline,
+                               hash=data["hash"], revision=data["revision"],
+                               outcome=outcome, command_id=echoed, replayed=replayed)
+        # Keep the legacy cache in its content-hash domain. Never put an RTC
+        # revision into the ETag used by legacy Doc.save()/whole-body writes.
+        self._etag = '"' + data["hash"].removeprefix("sha256:") + '"'
+        self._text = None
+        return receipt
+
+    def command_status(self, command_id: str) -> CommandStatus:
+        """What the server recorded for ``command_id``: the read after an uncertain outcome.
+
+        ``GET .../commands/{command_id}``, scoped to the calling actor. An
+        unknown id raises ``MemoNotFound``. ``receipt`` is the stored v2
+        receipt when the state is ``accepted`` or ``no-write``, verified
+        before it is returned: it must name this note and this command, its
+        ``revision`` and ``baseRevision`` must be ``rtc:`` + 64 hex, ``mode``
+        exact or merge, and envelope and receipt must agree — an
+        ``accepted``/``no-write`` state requires a receipt whose ``outcome``
+        equals both the state and the envelope's ``outcome``; ``pending``/
+        ``unknown`` carry neither. Anything else is ``CommandStatusInvalid`` —
+        a reconciliation read that cannot be trusted must not look like a
+        successful one.
+        """
+        command_id = _command_id(command_id)
+        assert command_id is not None
+        with self._client.http() as http:
+            response = http.get(f"{self._base}/commands/{_seg(command_id)}", follow_redirects=False)
+        _raise_for(response, f"command {command_id} of {self._ns}/{self._id}")
+        invalid = CommandStatusInvalid(command_id)
+        try:
+            data = response.json()
+        except ValueError:
+            raise invalid from None
+        if (response.status_code != 200 or not isinstance(data, dict) or data.get("commandId") != command_id
+                or data.get("state") not in _COMMAND_STATES
+                or (data.get("outcome") is not None and data["outcome"] not in _OUTCOMES)):
+            raise invalid
+        state, outcome, stored = data["state"], data.get("outcome"), data.get("receipt")
+        receipt = None
+        if stored is not None:
+            try:
+                _v2_tokens(stored, self._id)
+            except MemoError:
+                raise invalid from None
+            if (stored.get("commandId") != command_id
+                    or not _RTC_REVISION.fullmatch(stored["revision"])
+                    or stored.get("mode") not in ("exact", "merge")
+                    or not isinstance(stored.get("baseRevision"), str) or not _RTC_REVISION.fullmatch(stored["baseRevision"])
+                    or stored.get("outcome") not in _OUTCOMES
+                    or (stored.get("replayed") is not None and not isinstance(stored["replayed"], bool))):
+                raise invalid
+            receipt = PatchReceipt(note=self._id, mode=stored["mode"], base_revision=stored["baseRevision"],
+                                   hash=stored["hash"], revision=stored["revision"], outcome=stored["outcome"],
+                                   command_id=command_id, replayed=stored.get("replayed"))
+        # Envelope and receipt must tell one story: a settled state has a
+        # receipt saying the same thing; an unsettled one has no receipt.
+        if state in _OUTCOMES:
+            if receipt is None or outcome != state or receipt.outcome != state:
+                raise invalid
+        elif receipt is not None or outcome is not None:
+            raise invalid
+        return CommandStatus(command_id=command_id, state=state, outcome=outcome,
+                             receipt=receipt, error=data.get("error"), created_at=data.get("createdAt"),
+                             updated_at=data.get("updatedAt"))
+
+    def insert_section(
+        self,
+        text: str,
+        *,
+        before: str | None = None,
+        after: str | None = None,
+        force: bool = False,
+    ) -> list[Section]:
+        """Add a section, and return the note's new outline.
+
+        `after` places it past that section AND its subsections — anything else
+        would drop the new one inside the section you named. With neither
+        `before` nor `after`, it goes at the end.
+
+        The heading is part of `text`, so you choose its level; a `###` can go
+        under a `##`. The outline comes back because the new anchor is only
+        knowable afterwards — a duplicate title takes the next free suffix.
+        """
+        if before and after:
+            raise ValueError("pass before or after, not both")
+        payload: dict[str, Any] = {"text": text}
+        if before:
+            payload["before"] = before
+        elif after:
+            payload["after"] = after
+        out = self._send("POST", "/sections", payload, force)
+        return [
+            Section(
+                anchor=s["anchor"],
+                title=s.get("title", ""),
+                level=s.get("level", 0),
+                start=s.get("start", 0),
+                end=s.get("end", 0),
+            )
+            for s in out.get("sections", [])
+        ]
+
+    def delete_section(self, anchor: str, *, force: bool = False) -> str:
+        """Remove a section and everything under it.
+
+        The subtree goes because that is what the section is; leaving its
+        subsections behind would promote them into the previous one.
+        """
+        headers = {}
+        if not force and self._etag:
+            headers["If-Match"] = self._etag
+        with self._client.http() as http:
+            r = http.delete(f"{self._base}/sections/{_seg(anchor)}", headers=headers)
+        _raise_for(r, f"delete section {anchor!r} of {self._ns}/{self._id}")
+        out = r.json()
+        self._etag = out.get("etag") or r.headers.get("etag")
+        self._text = None
+        return out["etag"]
+
+    def append(
+        self, text: str, *, at: MemoSnapshot | None = None, exact: bool = False,
+        legacy: bool = False, force: bool = False, command_id: str | None = None,
+    ) -> PatchReceipt | str:
+        """Append against original RTC source; return its acknowledged receipt.
+
+        Supply ``at`` to retain a previously read snapshot without fetching a
+        newer baseline. ``legacy=True`` (or compatible ``force=True``) retains
+        cached text, ETag PUT and string return semantics. An empty addition
+        preserves the LF separator behavior; an unchanged MERGE returns an
+        observational receipt without writing. EXACT no-ops go through PATCH
+        so the server checks their original precondition, and so does any
+        request carrying a ``command_id`` (opt-in identity; see ``patch``).
+        """
+        if not isinstance(text, str):
+            raise ValueError("text must be a string")
+        command_id = _command_id(command_id)
+        if legacy or force:
+            if at is not None or exact or command_id is not None:
+                raise ValueError("at, exact and command_id require modern append; omit legacy and force")
+            if self._text is None:
+                self.refresh(legacy=True)
+            current = self._text or ""
+            if current and not current.endswith("\n"):
+                current += "\n"
+            return self.write(current + text, legacy=True, force=force)
+        if at is not None:
+            if not isinstance(at, MemoSnapshot) or at.note != self._id or not isinstance(at.content, str):
+                raise ValueError("at must be this Memo's original MemoSnapshot")
+            _revision_token(at.revision, "at.revision")
+            if at.hash != "sha256:" + hashlib.sha256(at.content.encode("utf-8")).hexdigest():
+                raise ValueError("at source does not match its content hash")
+        original = at if at is not None else self.read_snapshot()
+        suffix = ("\n" if original.content and not original.content.endswith("\n") else "") + text
+        if not suffix and not exact and command_id is None:
+            return PatchReceipt(note=self._id, mode="merge", base_revision=original.revision,
+                                hash=original.hash, revision=original.revision, outcome="no-write")
+        escaped = _escape_inline(suffix)
+        patch = f"@@ chars {len(original.content)}:{len(original.content)} @@\n~ {{+{escaped}+}}\n" if suffix else ""
+        return self.patch(patch, base_revision=original.revision, exact=exact, command_id=command_id)
+
+
+def _seg(value: str) -> str:
+    from urllib.parse import quote
+
+    return quote(str(value), safe="")
+
+
+# ── Module-level entry points ────────────────────────────────────────────────
+
+
+def _resolve(ref: str, client: DreamLakeClient) -> tuple[str, str]:
+    """``"<id>"``, ``"ns/slug"`` or ``"ns/<id>"`` -> ``(namespace, note_id)``.
+
+    An id identifies a note on its own, so it does not need a namespace in
+    front of it — the server resolves which namespace it is in, and answers
+    404 for a note the caller may not see exactly as it does for one that does
+    not exist. A slug is only unique within a namespace, so that form still
+    names one.
+    """
+    if "/" not in ref:
+        if not _OBJECT_ID.fullmatch(ref):
+            raise ValueError(
+                f"memo reference {ref!r} is neither an id nor '<namespace>/<slug>' — "
+                "an id is 24 hex characters"
+            )
+        with client.http() as http:
+            r = http.get(f"/notes/{_seg(ref)}")
+        _raise_for(r, f"resolve {ref}")
+        row = r.json()
+        return row["namespaceSlug"], row["id"]
+
+    ns, rest = ref.split("/", 1)
+    if _OBJECT_ID.fullmatch(rest):
+        return ns, rest
+    # A slug. The listing is the only way to turn one into an id, and `q`
+    # matches the NAME, which is not the slug — so filter locally rather than
+    # trusting the server-side match to be the same thing.
+    offset = 0
+    while True:
+        with client.http() as http:
+            r = http.get(f"/namespaces/{_seg(ns)}/notes",
+                         params={"limit": 200, "offset": offset, "includeArchived": "true"})
+        _raise_for(r, f"resolve {ref}")
+        data = r.json()
+        rows = data.get("notes", [])
+        for row in rows:
+            if row.get("slug") == rest or row.get("id") == rest:
+                return ns, row["id"]
+        offset += len(rows)
+        if not rows or offset >= data.get("total", offset):
+            break
+    raise MemoNotFound(f"no memo {rest!r} in namespace {ns!r}")
+
+
+def memo(ref: str, *, client: DreamLakeClient | None = None) -> Memo:
+    """Open a note by ``namespace/slug`` or ``namespace/<id>``.
+
+        dl.note("<namespace>/design-doc")
+        dl.note("<namespace>/507f1f77bcf86cd799439011")
+    """
+    c = client or get_client()
+    ns, note_id = _resolve(ref, c)
+    return Memo(note_id, namespace=ns, client=c)
+
+
+def create_memo(
+    namespace: str,
+    name: str,
+    *,
+    text: str = "",
+    visibility: str = "private",
+    client: DreamLakeClient | None = None,
+) -> Memo:
+    """Create a note, optionally with a body, and return it ready to edit.
+
+        note = dl.create_note("<namespace>", "Design Doc", text="# Design Doc\n")
+
+    Two calls behind one: the note is created, then the body written. The write
+    is unconditional — the note is one request old and there is nothing yet for
+    anyone to have changed.
+
+    Titles may repeat; the server appends a suffix to the SLUG to keep it
+    unique, so `note.id` is what to hold on to rather than the name you passed.
+    """
+    c = client or get_client()
+    with c.http() as http:
+        r = http.post(
+            f"/namespaces/{_seg(namespace)}/notes",
+            json={"name": name, "visibility": visibility},
+        )
+    _raise_for(r, f"create memo {name!r} in {namespace}")
+    note = Memo(r.json()["note"]["id"], namespace=namespace, client=c)
+    if text:
+        note.write(text, force=True)
+    return note
+
+
+def list_memos(
+    namespace: str,
+    *,
+    limit: int = 50,
+    offset: int = 0,
+    include_archived: bool = False,
+    client: DreamLakeClient | None = None,
+) -> list[MemoRef]:
+    """Active notes in a namespace; include_archived also returns archived notes.
+
+    `namespace` is required and has no default. A personal namespace and an
+    organization's are different places holding different notes, and guessing
+    which one you meant would quietly answer for the wrong one. An
+    organization's slug is its own — `dreamlake org list` in the CLI shows the
+    ones you belong to.
+    """
+    c = client or get_client()
+    with c.http() as http:
+        r = http.get(
+            f"/namespaces/{_seg(namespace)}/notes",
+            params={"limit": limit, "offset": offset, "includeArchived": str(include_archived).lower()},
+        )
+    _raise_for(r, f"list memos in {namespace}")
+    return [_ref(row, namespace) for row in r.json().get("notes", [])]
+
+
+def search_memos(
+    query: str,
+    *,
+    namespace: str,
+    limit: int = 50,
+    include_archived: bool = False,
+    client: DreamLakeClient | None = None,
+) -> list[MemoRef]:
+    """Memos in one namespace whose title or body contains `query`.
+
+    Case-insensitive. Archived notes are excluded unless include_archived=True.
+
+    Substring matching, so a phrase inside a note finds it and a fragment of a
+    word or an identifier works too. CJK is matched the same way as anything
+    else.
+
+    A note written before bodies were indexed matches on its title only, until
+    someone edits it or an administrator runs the one-off backfill.
+
+    Current: the search flushes any note open in that namespace before
+    querying, so a sentence a colleague typed seconds ago is findable without
+    waiting for anything.
+
+    Each result carries `.matches`: which sections the query was found in, with
+    a snippet. That is what saves reading a whole note to locate the part you
+    were looking for — go straight to `note.read_section(match.anchor)`.
+
+    Scoped to one namespace, like `list_notes` — searching "everywhere" is not
+    offered, because an organization you belong to and your own namespace are
+    separate collections and a merged result would hide which is which. Use
+    `shared_with_me()` for notes other people sent you.
+    """
+    c = client or get_client()
+    with c.http() as http:
+        r = http.get(
+            f"/namespaces/{_seg(namespace)}/notes",
+            params={"q": query, "limit": limit, "includeArchived": str(include_archived).lower()},
+        )
+    _raise_for(r, f"search memos in {namespace}")
+    return [_ref(row, namespace) for row in r.json().get("notes", [])]
+
+
+def grep_memos(
+    query: str | None = None,
+    *,
+    namespace: str,
+    regex: str | None = None,
+    flags: str = "",
+    case_sensitive: bool | None = None,
+    glob: str | None = None,
+    notes: Sequence[str] | None = None,
+    context: int = 0,
+    limit: int = 50,
+    cursor: str | None = None,
+    include_archived: bool = False,
+    client: DreamLakeClient | None = None,
+) -> GrepResult:
+    """Search note bodies and get the location of every hit.
+
+    ``search_notes`` answers "which notes contain this". This answers "where",
+    so you can go straight to an edit:
+
+        for hit in dl.grep_memos("TODO", namespace="me"):
+            print(f"{hit.note_slug}:{hit.line}:{hit.column}  {hit.text}")
+
+        hit = dl.grep_memos("Draft", namespace="me").hits[0]
+        doc = hit.open().read()
+        doc.replace("Published", ind=hit.ind)
+        doc.save()
+
+    Not the same thing as ``doc.find()``: that searches ONE note you have
+    already loaded, locally and exactly. This searches every note in a
+    namespace you may see, on the server, against the indexed copy.
+
+    Literal and case-insensitive by default — punctuation in ``query`` matches
+    itself, so searching for "v1.2" does not also find "v1x2". Pass ``regex=``
+    for a pattern; that defaults to case-SENSITIVE, because a pattern is
+    written deliberately. ``flags`` takes any of i, m, s, u; "g" is refused,
+    since whether all matches are wanted is decided by this call.
+
+    Archived notes are excluded unless ``include_archived=True``. Keep that
+    value unchanged when continuing a cursor.
+
+    ``limit`` is a number of HITS, and pages are followed to reach it. Read
+    ``.truncated`` and ``.partial_notes`` before concluding you have seen every
+    occurrence.
+    """
+    c = client or get_client()
+    params: dict[str, Any] = {"limit": min(limit, 200), "context": context,
+                              "includeArchived": str(include_archived).lower()}
+    if query is not None:
+        params["q"] = query
+    if regex is not None:
+        params["regex"] = regex
+    if flags:
+        params["flags"] = flags
+    if case_sensitive is not None:
+        params["caseSensitive"] = "true" if case_sensitive else "false"
+    if glob:
+        params["glob"] = glob
+    if notes:
+        params["note"] = ",".join(notes)
+
+    hits: list[Hit] = []
+    truncated = False
+    searched = 0
+    partial: list[str] = []
+    stale = 0
+    next_cursor = cursor
+
+    # Follow pages until `limit` hits are in hand. A caller asking for 50 hits
+    # means 50 hits, not "50 or fewer depending on how the server chose to
+    # chunk them" — and a page boundary is not something they can see.
+    while True:
+        page_params = dict(params)
+        page_params["limit"] = min(limit - len(hits), 200)
+        if next_cursor:
+            page_params["cursor"] = next_cursor
+        with c.http() as http:
+            r = http.get(f"/namespaces/{_seg(namespace)}/notes/search", params=page_params)
+        _raise_for(r, f"search memos in {namespace}")
+        d = r.json()
+
+        for row in d.get("hits", []):
+            ind = row.get("ind") or [0, 0]
+            hits.append(
+                Hit(
+                    note_id=row.get("noteId", ""),
+                    note_slug=row.get("noteSlug", ""),
+                    note_name=row.get("noteName", ""),
+                    etag=row.get("etag", ""),
+                    line=row.get("line", 1),
+                    column=row.get("column", 1),
+                    ind=(ind[0], ind[1]),
+                    text=row.get("text", ""),
+                    match=row.get("match", ""),
+                    before=tuple(row.get("before") or ()),
+                    after=tuple(row.get("after") or ()),
+                    anchor=row.get("anchor", ""),
+                    namespace=namespace,
+                )
+            )
+        truncated = truncated or bool(d.get("truncated"))
+        searched += int(d.get("notesSearched") or 0)
+        partial.extend(d.get("partialNotes") or ())
+        stale = max(stale, int(d.get("staleNotes") or 0))
+        next_cursor = d.get("nextCursor")
+
+        if not next_cursor or len(hits) >= limit:
+            break
+
+    return GrepResult(
+        hits=tuple(hits),
+        truncated=truncated,
+        notes_searched=searched,
+        partial_notes=tuple(dict.fromkeys(partial)),
+        stale_notes=stale,
+        next_cursor=next_cursor,
+    )
+
+
+def shared_with_me(*, include_archived: bool = False, client: DreamLakeClient | None = None) -> list[MemoRef]:
+    """Active notes shared with you; include_archived also returns archived notes."""
+    c = client or get_client()
+    with c.http() as http:
+        r = http.get("/me/notes/shared", params={"includeArchived": str(include_archived).lower()})
+    _raise_for(r, "list shared memos")
+    out = []
+    for row in r.json().get("notes", []):
+        owner = (row.get("owner") or {}).get("name")
+        out.append(_ref(row, row.get("namespaceSlug", ""), shared_by=owner))
+    return out
+
+
+def _ref(row: dict[str, Any], namespace: str, shared_by: str | None = None) -> MemoRef:
+    return MemoRef(
+        id=row["id"],
+        namespace=row.get("namespaceSlug") or namespace,
+        name=row.get("name", ""),
+        slug=row.get("slug", ""),
+        updated_at=row.get("updatedAt"),
+        archived_at=row.get("archivedAt"),
+        shared_by=shared_by,
+        matches=tuple(
+            SectionMatch(
+                anchor=m.get("anchor", ""),
+                title=m.get("title", ""),
+                snippet=m.get("snippet", ""),
+            )
+            for m in row.get("matches") or ()
+        ),
+    )
+
+
+# Deprecated compatibility exports; new integrations use Memo names.
+NoteError = MemoError
+NoteNotFound = MemoNotFound
+NoteChanged = MemoChanged
+NoteBusy = MemoBusy
+NoteReadOnly = MemoReadOnly
+NoteSnapshot = MemoSnapshot
+NoteRef = MemoRef
+Note = Memo
+
+# Deprecated function spellings.
+note = memo
+create_note = create_memo
+list_notes = list_memos
+search_notes = search_memos
+grep_notes = grep_memos
+
+# Preserve published star imports during the phased API transition.
+__all__ += ['Note', 'NoteRef', 'NoteSnapshot', 'NoteError', 'NoteNotFound', 'NoteChanged', 'NoteBusy', 'NoteReadOnly']
+__all__ += ["memo", "create_memo", "list_memos", "search_memos", "grep_memos"]

@@ -1,5 +1,12 @@
 # Release notes
 
+## 0.41.0 — Canonical Memo Python API
+
+Use `dl.memos`, `client.memos`, `Memo`, and the `dreamlake.api.memos` module.
+The implementation now lives in Memo modules; old Note classes, functions, and
+module paths remain aliases during the phased rollout. Existing transport and
+saved content stay compatible. See [Memos](memos.md).
+
 ## 0.40.1 — Memo terminology
 
 Documentation and SDK diagnostics now call collaborative documents Memos: a shared space for people and their agents. Existing `notes` methods, identifiers, and API contracts remain compatible.
