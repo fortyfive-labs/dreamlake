@@ -15,6 +15,7 @@ side unauthenticated with nothing to say why.
 import os
 import re
 from typing import TYPE_CHECKING
+from urllib.parse import quote
 
 if TYPE_CHECKING:
     from .runnables import Runnables
@@ -28,23 +29,6 @@ _DEFAULT_DL = DEFAULT_REMOTE_URL
 _DEFAULT_QDRANT = "http://localhost:6333"
 
 
-def _saved_token() -> str | None:
-    """The token `dreamlake login` stored, if there is one.
-
-    Best-effort: the auth extras (keyring, cryptography) are optional, and a
-    missing or unreadable store means "not logged in" rather than an error the
-    caller cannot act on.
-    """
-    try:
-        from dreamlake.auth.token_storage import get_token_storage
-
-        # The same key `dreamlake login` writes. Guessing it wrong is a silent
-        # failure — the load returns None and the client is simply anonymous.
-        return get_token_storage().load("dreamlake-token")
-    except Exception:
-        return None
-
-
 def _saved_remote() -> str | None:
     """The server `dreamlake env use` selected, if any."""
     try:
@@ -53,6 +37,53 @@ def _saved_remote() -> str | None:
         return Config().remote_url
     except Exception:
         return None
+
+
+class _BorrowedTransport(httpx.BaseTransport):
+    """Let short-lived HTTP clients share a transport owned by their caller."""
+
+    def __init__(self, transport: httpx.BaseTransport):
+        self._transport = transport
+
+    def handle_request(self, request: httpx.Request) -> httpx.Response:
+        return self._transport.handle_request(request)
+
+    def close(self) -> None:
+        # Only the caller that supplied the transport controls its lifetime.
+        pass
+
+
+class BindrMembershipError(RuntimeError):
+    """A bulk filing stopped; completed filings and the Bindr remain in place.
+
+    A transport failure can leave the failed node's outcome unknown. Inspect
+    the Bindr before retrying; filing a node again is idempotent.
+    """
+
+    def __init__(self, bindr_id: str, completed_node_ids: list[str], failed_node_id: str):
+        self.bindr_id = bindr_id
+        self.completed_node_ids = list(completed_node_ids)
+        self.failed_node_id = failed_node_id
+        super().__init__(
+            f"Bindr {bindr_id}: confirmed {len(completed_node_ids)} filing(s); "
+            f"filing {failed_node_id} failed. The Bindr and confirmed filings remain."
+        )
+
+
+def _bindr_node_ids(members: list) -> list[str]:
+    """Accept node IDs and legacy node refs, never reinterpret a Bindr as a node."""
+    ids = []
+    for member in members:
+        node_id = member
+        if isinstance(member, dict):
+            if member.get("type", "node") != "node":
+                raise ValueError("Bindrs cannot be members; use the Bindr parent hierarchy instead")
+            node_id = member.get("nodeId", member.get("id"))
+        if not isinstance(node_id, str) or not node_id:
+            raise ValueError("Each Bindr member must have a nonempty node ID")
+        if node_id not in ids:
+            ids.append(node_id)
+    return ids
 
 
 class DreamLakeClient:
@@ -65,15 +96,15 @@ class DreamLakeClient:
         token: str | None = None,
         transport: "httpx.BaseTransport | None" = None,
     ):
-        # Injectable so a caller — in practice a test — can serve requests
-        # without a server. The newer API surfaces route through it; older
-        # methods still call module-level httpx directly.
+        # Applies to every DreamLake request. Qdrant uses its own service
+        # connection and never receives DreamLake authentication headers.
         self._transport = transport
         self.dl_url = (
             dl_url or os.environ.get("DREAMLAKE_REMOTE") or _saved_remote() or _DEFAULT_DL
         ).rstrip("/")
         self.qdrant_url = (qdrant_url or os.environ.get("QDRANT_URL", _DEFAULT_QDRANT)).rstrip("/")
-        self._token = token or os.environ.get("DREAMLAKE_API_KEY") or _saved_token()
+        from dreamlake._session import get_token_or_none
+        self._token = token or get_token_or_none()
 
     @property
     def sources(self):
@@ -151,11 +182,15 @@ class DreamLakeClient:
         return self.memos
 
     def http(self) -> "httpx.Client":
-        """An httpx client bound to dreamlake-server, with auth applied."""
+        """Return an HTTP client; close it after use, preferably with ``with``.
+
+        Injected transports are borrowed and remain caller-owned. Without an
+        injection, closing this client releases its own connection pools.
+        """
         return httpx.Client(
             base_url=self.dl_url,
             headers=self._headers(),
-            transport=self._transport,
+            transport=_BorrowedTransport(self._transport) if self._transport is not None else None,
             timeout=30,
             event_hooks={"request": [self._memo_agent_headers]},
         )
@@ -202,10 +237,11 @@ class DreamLakeClient:
         builds one, because the server checks that a registered key is one it
         authorized for that project.
         """
-        r = httpx.post(
-            f"{self.dl_url}/namespaces/{namespace}/projects/{project}/upload-authorizations",
-            json={"files": files}, headers=self._headers(), timeout=60,
-        )
+        with self.http() as http:
+            r = http.post(
+                f"/namespaces/{namespace}/projects/{project}/upload-authorizations",
+                json={"files": files}, timeout=60,
+            )
         r.raise_for_status()
         return r.json()
 
@@ -221,21 +257,23 @@ class DreamLakeClient:
         aborted, or swept by the lifecycle rule) and 409 that what is stored
         describes a different partitioning of the file. Both mean "start over".
         """
-        r = httpx.post(
-            f"{self.dl_url}/namespaces/{namespace}/projects/{project}"
-            f"/upload-authorizations/resume",
-            json={"objectKey": object_key, "uploadId": upload_id, "size": size},
-            headers=self._headers(), timeout=60,
-        )
+        with self.http() as http:
+            r = http.post(
+                f"/namespaces/{namespace}/projects/{project}"
+                f"/upload-authorizations/resume",
+                json={"objectKey": object_key, "uploadId": upload_id, "size": size},
+                timeout=60,
+            )
         r.raise_for_status()
         return r.json()
 
     def register_node(self, body: dict) -> dict:
         """POST /nodes — create any node (project, episode, folder, or file asset)."""
-        r = httpx.post(
-            f"{self.dl_url}/nodes",
-            json=body, headers=self._headers(), timeout=30,
-        )
+        with self.http() as http:
+            r = http.post(
+                f"/nodes",
+                json=body, timeout=30,
+            )
         r.raise_for_status()
         return r.json()
 
@@ -244,7 +282,8 @@ class DreamLakeClient:
         return self.register_node(body)
 
     def get_auth_me(self) -> dict:
-        r = httpx.get(f"{self.dl_url}/auth/me", headers=self._headers(), timeout=10)
+        with self.http() as http:
+            r = http.get(f"/auth/me", timeout=10)
         r.raise_for_status()
         return r.json()
 
@@ -254,8 +293,9 @@ class DreamLakeClient:
         params: dict = {"namespace": namespace, "project": project, "path": path}
         if episode:
             params["episode"] = episode
-        r = httpx.get(f"{self.dl_url}/nodes/lookup", params=params,
-                      headers=self._headers(), timeout=15)
+        with self.http() as http:
+            r = http.get(f"/nodes/lookup", params=params,
+                          timeout=15)
         r.raise_for_status()
         return r.json()
 
@@ -308,61 +348,96 @@ class DreamLakeClient:
 
     def get_node_download_url(self, node_id: str) -> dict:
         """GET /nodes/:id/download — returns { url, filename } (presigned S3)."""
-        r = httpx.get(f"{self.dl_url}/nodes/{node_id}/download",
-                      headers=self._headers(), timeout=30, follow_redirects=False)
+        with self.http() as http:
+            r = http.get(f"/nodes/{node_id}/download",
+                          timeout=30, follow_redirects=False)
         r.raise_for_status()
         return r.json()
 
     # ── Bindrs ───────────────────────────────────────────────────────────
 
     def create_bindr(self, namespace: str, project: str, name: str,
-                     members: list[str] | None = None,
+                     members: list[str | dict] | None = None,
                      description: str | None = None,
                      tags: list[str] | None = None) -> dict:
+        """Create a Bindr and file nodes, returning its flat view and members.
+
+        Creation and the first filing are atomic. Later filings are sequential;
+        BindrMembershipError exposes confirmed progress if a later filing fails.
+        """
+        node_ids = _bindr_node_ids(members or [])
         body: dict = {"name": name}
-        if members is not None: body["members"] = members
-        if description is not None: body["description"] = description
-        if tags is not None: body["tags"] = tags
-        r = httpx.post(
-            f"{self.dl_url}/namespaces/{namespace}/projects/{project}/bindrs",
-            json=body, headers=self._headers(), timeout=30,
-        )
+        if node_ids:
+            body["member"] = {"nodeId": node_ids[0]}
+        if description is not None:
+            body["description"] = description
+        if tags is not None:
+            body["tags"] = tags
+        with self.http() as http:
+            r = http.post(
+                f"/namespaces/{quote(namespace, safe='')}/projects/{quote(project, safe='')}/bindrs",
+                json=body, timeout=30,
+            )
         r.raise_for_status()
-        return r.json()
+        bindr = r.json()["bindr"]
+        self._file_bindr_nodes(bindr["id"], node_ids[1:], completed=node_ids[:1])
+        return {**bindr, "memberCount": len(node_ids),
+                "members": [{"nodeId": node_id} for node_id in node_ids]}
 
     def get_bindr(self, namespace: str, project: str, name: str) -> dict:
-        r = httpx.get(
-            f"{self.dl_url}/namespaces/{namespace}/projects/{project}/bindrs/{name}",
-            headers=self._headers(), timeout=15,
-        )
+        """Resolve an exact project-scoped name, then read the canonical ID route."""
+        with self.http() as http:
+            r = http.get(
+                f"/namespaces/{quote(namespace, safe='')}/projects/{quote(project, safe='')}/bindrs",
+                timeout=15,
+            )
         r.raise_for_status()
-        return r.json()
+        matches = [row for row in r.json()["bindrs"] if row["name"] == name]
+        if not matches:
+            response = httpx.Response(404, request=r.request, json={"error": "Bindr not found"})
+            response.raise_for_status()
+        if len(matches) != 1:
+            raise ValueError(f"Ambiguous Bindr name: {name!r}; use its ID")
+        return self.get_bindr_by_id(matches[0]["id"])
 
     def get_bindr_by_id(self, bindr_id: str) -> dict:
-        """Lookup a bindr by its ID — used to resolve nested bindr members."""
-        r = httpx.get(
-            f"{self.dl_url}/bindrs/{bindr_id}",
-            headers=self._headers(), timeout=15,
-        )
-        r.raise_for_status()
-        return r.json()
+        """Read all member pages, retaining the legacy flat Bindr return shape.
+
+        The server includes filings in child Bindrs and deduplicates node IDs.
+        """
+        members = []
+        page = 1
+        while True:
+            with self.http() as http:
+                r = http.get(f"/bindrs/{quote(bindr_id, safe='')}",
+                             params={"page": page, "pageSize": 100, "recursive": "true"}, timeout=15)
+            r.raise_for_status()
+            result = r.json()
+            members.extend(result["members"])
+            if page >= result["totalPages"]:
+                return {**result["bindr"], "members": members, "memberCount": result["total"]}
+            page += 1
+
+    def _file_bindr_nodes(self, bindr_id: str, node_ids: list[str], *,
+                         completed: list[str] | None = None) -> None:
+        completed = list(completed or [])
+        for node_id in node_ids:
+            try:
+                with self.http() as http:
+                    r = http.post(f"/bindrs/{quote(bindr_id, safe='')}/members",
+                                  json={"nodeId": node_id}, timeout=30)
+                r.raise_for_status()
+            except httpx.HTTPError as error:
+                raise BindrMembershipError(bindr_id, completed, node_id) from error
+            completed.append(node_id)
 
     def add_bindr_members(self, namespace: str, project: str, name: str,
                           add: list) -> dict:
-        """Add members to a bindr.
-
-        `add` is a list of:
-          - str            → treated as a node ID (backwards compat)
-          - {"type":"node",  "id":...}
-          - {"type":"bindr", "id":...}
-        Server rejects cycles for bindr-typed refs.
-        """
-        r = httpx.post(
-            f"{self.dl_url}/namespaces/{namespace}/projects/{project}/bindrs/{name}/members",
-            json={"add": add}, headers=self._headers(), timeout=30,
-        )
-        r.raise_for_status()
-        return r.json()
+        """File node IDs or legacy node refs using singular canonical requests."""
+        node_ids = _bindr_node_ids(add)
+        bindr = self.get_bindr(namespace, project, name)
+        self._file_bindr_nodes(bindr["id"], node_ids)
+        return self.get_bindr_by_id(bindr["id"])
 
     def get_node_descendants(self, node_id: str,
                              leaves_only: bool = False,

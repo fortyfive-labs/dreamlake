@@ -255,16 +255,7 @@ class Episode:
         self._track_last_auto_timestamp: float = 0.0  # Ensure unique auto-generated timestamps
 
         if self.mode in (OperationMode.REMOTE, OperationMode.HYBRID):
-            # TODO: Auto-load API key from ~/.dreamlake/token (like ML-Dash does)
-            # For now, require environment variable or fail gracefully
-            import os
-            api_key = os.environ.get("DREAMLAKE_API_KEY")
-            if not api_key:
-                raise ValueError(
-                    "DREAMLAKE_API_KEY environment variable required for remote mode. "
-                    "Set it or use root for local-only mode."
-                )
-            self._client = RemoteClient(base_url=url, api_key=api_key)
+            self._client = RemoteClient(base_url=url)
 
         if self.mode in (OperationMode.LOCAL, OperationMode.HYBRID):
             self._storage = LocalStorage(root_path=Path(root))

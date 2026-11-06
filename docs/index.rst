@@ -31,6 +31,7 @@ Python SDK for ML experiment tracking and data storage.
    dash-writer
    files
    cli
+   api-client
    hosts
    memos
    notes-diffs

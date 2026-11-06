@@ -12,7 +12,7 @@ Usage:
         episode.log("Training started")
         episode.track("loss").append(step=0, value=0.5)
 
-    # Remote mode (API server; requires DREAMLAKE_API_KEY env var)
+    # Remote mode (API server; uses saved login or DREAMLAKE_API_KEY)
     with Episode(
         prefix="my-workspace/my-experiment",
         url="http://localhost:3000",
@@ -633,15 +633,15 @@ def bindr(
     tags: list[str] | None = None,
     create: bool = True,
 ) -> dict:
-    """Get or create a bindr. Adds members and/or nested bindrs if provided.
+    """Get or create a Bindr and file its node members.
 
     Args:
         name: Bindr name (unique within project)
         project: "slug@namespace" — overrides Prefix context
         members: List of paths (each resolves to a node id). Paths are
             absolute (`/episode/sensors`) or relative to Prefix context.
-        bindrs: List of bindr names to include as nested bindr members
-            (resolved within the same project). Server rejects cycles.
+        bindrs: Retired. Bindrs use a parent hierarchy, not Bindr membership.
+            Nonempty values raise ValueError before any request.
         description: Optional description (set on create)
         tags: Optional tag list (set on create)
         create: If True, create the bindr if missing. Default True.
@@ -651,11 +651,9 @@ def bindr(
         with dl.Prefix(project="robotics@alice", prefix="/run-100"):
             dl.bindr("training-set", members=["camera/front", "labels/yolo"])
 
-        # Nest other bindrs
-        dl.bindr("master-train",
-                 project="robotics@alice",
-                 bindrs=["train-batch-1", "train-batch-2"])
     """
+    if bindrs:
+        raise ValueError("Bindrs cannot be members; use the Bindr parent hierarchy instead")
     from .api.prefix import _ctx_prefix
     client = _get_client()
     project_slug, namespace = _parse_project_arg(project)
@@ -670,24 +668,19 @@ def bindr(
         for m in members:
             node_id = _resolve_path_to_id(m, namespace, project_slug, episode_name)
             refs.append({"type": "node", "id": node_id})
-    if bindrs:
-        for bname in bindrs:
-            b = client.get_bindr(namespace, project_slug, bname)
-            refs.append({"type": "bindr", "id": b["id"]})
-
     # Try to fetch existing bindr
     import httpx as _httpx
     try:
         existing = client.get_bindr(namespace, project_slug, name)
-        if refs:
-            updated = client.add_bindr_members(namespace, project_slug, name, refs)
-            existing["members"] = updated.get("members", existing.get("members"))
-        return existing
     except _httpx.HTTPStatusError as e:
         if e.response.status_code != 404 or not create:
             raise
+    else:
+        if refs:
+            return client.add_bindr_members(namespace, project_slug, name, refs)
+        return existing
 
-    # Create — pass refs as members (the server normalizes either form)
+    # The compatibility client files each node through the canonical API.
     return client.create_bindr(
         namespace, project_slug, name,
         members=refs or None, description=description, tags=tags,
@@ -698,6 +691,8 @@ def _normalize_member_ref(m) -> dict:
     """Coerce a member entry into {type, id}. Legacy strings become node refs."""
     if isinstance(m, str):
         return {"type": "node", "id": m}
+    if isinstance(m, dict) and "nodeId" in m:
+        return {"type": "node", "id": m["nodeId"]}
     if isinstance(m, dict) and "id" in m:
         return {"type": "bindr" if m.get("type") == "bindr" else "node", "id": m["id"]}
     return {"type": "node", "id": str(m)}
