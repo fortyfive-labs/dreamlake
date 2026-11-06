@@ -1,6 +1,6 @@
 # Artifact visibility
 
-Python 0.40.2 adds `DreamLakeClient.artifacts` for catalog reads and visibility
+Python 0.41.1 adds `DreamLakeClient.artifacts` for catalog reads and visibility
 management. It uses the same saved login or `DREAMLAKE_API_KEY` as other SDK APIs.
 
 ```python

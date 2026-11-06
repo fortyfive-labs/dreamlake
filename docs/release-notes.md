@@ -1,5 +1,10 @@
 # Release notes
 
+## 0.41.1
+
+Visibility updates resolve renamed artifact URLs to their stored IDs before
+writing, so changing visibility never creates a catalog entry for the new slug.
+
 ## 0.41.0 — Canonical Memo Python API
 
 Use `dl.memos`, `client.memos`, `Memo`, and the `dreamlake.api.memos` module.

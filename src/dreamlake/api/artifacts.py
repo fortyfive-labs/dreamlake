@@ -67,7 +67,10 @@ class Artifacts:
         row = self.get(namespace, artifact)
         if row.get("viewerCanManage") is not True:
             raise ArtifactError(403, "ARTIFACT_MANAGEMENT_DENIED")
-        result = self._request(namespace, artifact, visibility=visibility)
+        resolved = row.get("artifactId")
+        if not isinstance(resolved, str):
+            raise ArtifactError(502, "INVALID_ARTIFACT_RESPONSE")
+        result = self._request(namespace, resolved, visibility=visibility)
         if result.get("visibility") != visibility:
             raise ArtifactError(502, "INVALID_ARTIFACT_RESPONSE")
         return result

@@ -68,7 +68,7 @@ def test_uncertain_write_is_not_retried():
         calls.append(request.method)
         if request.method == "POST":
             raise httpx.ReadTimeout("fixture")
-        return httpx.Response(200, json={"viewerCanManage": True})
+        return httpx.Response(200, json={"viewerCanManage": True, "artifactId":"report"})
 
     with pytest.raises(httpx.ReadTimeout):
         api(serve).set_visibility("team", "report", "unlisted")
@@ -81,3 +81,16 @@ def test_python_push_parser_accepts_unlisted_and_rejects_unknown_visibility(tmp_
     assert "file not found" in capsys.readouterr().err
     with pytest.raises(SystemExit):
         cmd_push([str(tmp_path / "missing.html"), "--visibility", "team"])
+
+
+def test_renamed_url_is_resolved_to_stored_id_before_visibility_update():
+    calls = []
+
+    def serve(request):
+        calls.append(request)
+        return httpx.Response(200, json={"viewerCanManage": True, "artifactId": "stored-id",
+                                        "slug": "pretty-url", "visibility": "unlisted"})
+
+    api(serve).set_visibility("team", "pretty-url", "unlisted")
+    assert [r.url.path for r in calls] == ["/namespaces/team/artifacts/pretty-url", "/namespaces/team/artifacts/stored-id"]
+    assert json.loads(calls[1].content) == {"visibility": "unlisted"}
