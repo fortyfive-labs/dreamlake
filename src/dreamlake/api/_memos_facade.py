@@ -96,7 +96,7 @@ READING_VIEW_MARKER = "<!-- notes-reading-view"
 
 _MODES = ("exact", "merge")
 _HASH_LIKE = re.compile(r'^(?:sha256:)?"?[a-f0-9]{64}"?$', re.IGNORECASE)
-_RTC_REVISION = re.compile(r"rtc:[a-f0-9]{64}")
+_SCOPED_REVISION = re.compile(r"memo-rtc:v1:[a-f0-9]{24}:[a-f0-9]{64}:[a-f0-9]{64}")
 _MARKDOWN = "markdown"
 
 
@@ -219,9 +219,11 @@ def _revision_of(value: Any, name: str) -> str:
     if isinstance(value, str):
         if _HASH_LIKE.match(value):
             raise RevisionExpected(f"{name} is a content hash; pass the read result or its rtc: revision")
+        if _SCOPED_REVISION.fullmatch(value):
+            return value
         if value.startswith("rtc:") and value.strip() == value and len(value) > 4 and "\r" not in value and "\n" not in value:
             return value
-    raise ValueError(f"{name} must be a read result or an 'rtc:' revision string")
+    raise ValueError(f"{name} must be a read result, an 'rtc:' revision or a complete 'memo-rtc:v1:' reference")
 
 
 def _line_chars(content: str, lines: Any) -> tuple[tuple[int, int], tuple[int, int], int | None]:
