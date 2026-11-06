@@ -1,5 +1,10 @@
 # Release notes
 
+## 0.40.3
+
+Visibility updates resolve renamed artifact URLs to their stored IDs before
+writing, so changing visibility never creates a catalog entry for the new slug.
+
 ## 0.40.2
 
 Artifact visibility now supports Unlisted through `DreamLakeClient.artifacts`
