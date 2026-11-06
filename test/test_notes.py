@@ -565,13 +565,18 @@ class TestPicksUpTheCliLogin:
     pointing at the cause.
     """
 
-    def test_the_storage_key_matches_the_one_login_writes(self):
-        from pathlib import Path as _P
+    def test_the_storage_key_matches_the_one_login_writes(self, monkeypatch):
+        from unittest.mock import Mock
 
-        client_src = _P(__file__).parent.parent / "src/dreamlake/api/_client.py"
-        login_src = _P(__file__).parent.parent / "src/dreamlake/cli_commands/login.py"
+        login_src = Path(__file__).parent.parent / "src/dreamlake/cli_commands/login.py"
         key = re.search(r'TOKEN_KEY\s*=\s*"([^"]+)"', login_src.read_text()).group(1)
-        assert f'"{key}"' in client_src.read_text(), f"_client.py must load {key!r}"
+        storage = Mock()
+        storage.load.return_value = "saved-login-token"
+        monkeypatch.delenv("DREAMLAKE_API_KEY", raising=False)
+        monkeypatch.setattr("dreamlake.auth.token_storage.get_token_storage", lambda: storage)
+
+        assert DreamLakeClient()._token == "saved-login-token"
+        storage.load.assert_called_once_with(key)
 
     def test_an_explicit_token_still_wins(self, server):
         c = DreamLakeClient(dl_url="https://api.test", token="explicit", transport=None)
