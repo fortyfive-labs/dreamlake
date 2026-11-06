@@ -44,18 +44,18 @@ except PackageNotFoundError:
 
 from .api import TextTrack, VectorIndex, Prefix
 from .api import (
-    Note,
-    NoteRef,
-    NoteSnapshot,
+    Memo,
+    MemoRef,
+    MemoSnapshot,
     PatchReceipt,
     PatchResult,
     Section,
     SectionMatch,
-    NoteError,
-    NoteNotFound,
-    NoteChanged,
-    NoteBusy,
-    NoteReadOnly,
+    MemoError,
+    MemoNotFound,
+    MemoChanged,
+    MemoBusy,
+    MemoReadOnly,
     PatchFailed,
     CommandIdentityUnsupportedError,
     UncertainOutcomeError,
@@ -71,7 +71,7 @@ from .api import (
     search_notes,
     shared_with_me,
 )
-from .api._notes_facade import (
+from .api._memos_facade import (
     AgentIdentityRequired,
     DiffResult,
     FindResult,
@@ -80,10 +80,10 @@ from .api._notes_facade import (
     InvalidLineRange,
     MappedElement,
     MappedRead,
-    NoteCreatedWithoutSource,
-    NoteHandle,
-    NoteVersions,
-    Notes,
+    MemoCreatedWithoutSource,
+    MemoHandle,
+    MemoVersions,
+    Memos,
     Outline,
     OutlineEntry,
     ReadingViewRefused,
@@ -862,3 +862,20 @@ def __getattr__(name):
 
         return importlib.import_module(".db", __name__)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+# Canonical Memo functions and legacy import compatibility.
+from .api.memos import memo, create_memo, list_memos, search_memos, grep_memos
+from .api._memos_facade import memos
+NoteCreatedWithoutSource = MemoCreatedWithoutSource  # Deprecated compatibility name.
+NoteHandle = MemoHandle  # Deprecated compatibility name.
+NoteVersions = MemoVersions  # Deprecated compatibility name.
+Notes = Memos  # Deprecated compatibility name.
+NoteError = MemoError  # Deprecated compatibility name.
+NoteNotFound = MemoNotFound  # Deprecated compatibility name.
+NoteChanged = MemoChanged  # Deprecated compatibility name.
+NoteBusy = MemoBusy  # Deprecated compatibility name.
+NoteReadOnly = MemoReadOnly  # Deprecated compatibility name.
+NoteSnapshot = MemoSnapshot  # Deprecated compatibility name.
+NoteRef = MemoRef  # Deprecated compatibility name.
+Note = Memo  # Deprecated compatibility name.
+__all__ += ["Memo", "MemoRef", "MemoSnapshot", "MemoError", "MemoNotFound", "MemoChanged", "MemoBusy", "MemoReadOnly", "Memos", "MemoHandle", "MemoVersions", "MemoCreatedWithoutSource", "memo", "create_memo", "list_memos", "search_memos", "grep_memos", "memos"]

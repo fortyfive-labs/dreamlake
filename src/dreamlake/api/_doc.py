@@ -33,7 +33,7 @@ from . import _html as _h
 from ._toc import TocEntry, toc as _toc
 
 if TYPE_CHECKING:  # pragma: no cover
-    from .notes import Note
+    from .memos import Memo
 
 __all__ = ["Doc", "Element", "SaveResult"]
 
@@ -284,7 +284,7 @@ class Doc:
 
     __slots__ = ("_note", "_original", "_text", "_etag", "_element_epoch", "_previous", "_snapshot", "_pending_receipt")
 
-    def __init__(self, note: "Note", text: str, etag: str | None, *, snapshot=None) -> None:
+    def __init__(self, note: "Memo", text: str, etag: str | None, *, snapshot=None) -> None:
         self._note = note
         self._snapshot = snapshot
         self._pending_receipt = None
@@ -424,9 +424,9 @@ class Doc:
         request. Explicit legacy/force and legacy-read drafts retain SaveResult.
         Failed readback exposes the acknowledged receipt and fences resubmission.
         """
-        from .notes import NoteError
+        from .memos import MemoError
         if self._pending_receipt is not None:
-            error = NoteError("previous write acknowledged but readback failed; reconcile before resubmit")
+            error = MemoError("previous write acknowledged but readback failed; reconcile before resubmit")
             error.receipt = self._pending_receipt
             raise error
         if self._snapshot is not None and not legacy and not force:
@@ -437,9 +437,9 @@ class Doc:
             try:
                 acknowledged = self._note.read_snapshot(at=receipt.revision)
                 if acknowledged.hash != receipt.hash:
-                    raise NoteError("acknowledged source hash mismatch")
+                    raise MemoError("acknowledged source hash mismatch")
             except Exception:
-                error = NoteError("write acknowledged but readback failed; keep draft and original baseline, reconcile before resubmit")
+                error = MemoError("write acknowledged but readback failed; keep draft and original baseline, reconcile before resubmit")
                 error.receipt = receipt
                 raise error from None
             self._snapshot = acknowledged
