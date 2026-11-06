@@ -12,7 +12,7 @@ Usage:
         episode.log("Training started")
         episode.track("loss").append(step=0, value=0.5)
 
-    # Remote mode (API server; requires DREAMLAKE_API_KEY env var)
+    # Remote mode (API server; uses saved login or DREAMLAKE_API_KEY)
     with Episode(
         prefix="my-workspace/my-experiment",
         url="http://localhost:3000",

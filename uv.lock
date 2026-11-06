@@ -514,7 +514,7 @@ wheels = [
 
 [[package]]
 name = "dreamlake"
-version = "0.41.4"
+version = "0.41.5"
 source = { editable = "." }
 dependencies = [
     { name = "httpx" },

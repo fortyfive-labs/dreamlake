@@ -1,5 +1,18 @@
 # Release notes
 
+## 0.41.5 — Consistent Python sessions and Bindr contracts
+
+Remote Episodes and both HTTP clients share explicit-token, environment-token,
+and saved-login precedence. Every DreamLake API request honors its configured
+transport; injected transports remain caller-owned across repeated operations.
+
+Bindr helpers now resolve names to stable IDs, file nodes through singular
+`nodeId` requests, read every member page, and recognize canonical members in
+downloads. Multi-node failures expose confirmed progress instead of silently
+reporting success. Retired Bindr-as-member inputs fail before any request. Memo
+facades, Note compatibility aliases, and existing wire contracts remain intact.
+See [Python client sessions and transport](api-client.md).
+
 ## 0.41.2 — Room-bound Memo baseline compatibility
 
 The Memo facade and command reconciliation accept complete `memo-rtc:v1:` baseline references alongside existing `rtc:` revisions. This prepares clients for the coordinated RTC room migration; it does not activate that migration. Preserve the complete original read result when editing or reconciling an uncertain command.
