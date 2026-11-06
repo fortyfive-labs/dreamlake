@@ -602,10 +602,10 @@ class Memo:
         if visibility not in ("private", "public", "unlisted"):
             raise ValueError("visibility must be private, unlisted or public")
         with self._client.http() as http:
-            current = http.get(self._base, follow_redirects=False)
+            current = http.get(f"/notes/{_seg(self._id)}", follow_redirects=False)
             _raise_for(current, "read memo visibility")
             row = current.json()
-            if row.get("id") != self._id or row.get("namespaceSlug", self._ns) != self._ns:
+            if row.get("id") != self._id or row.get("namespaceSlug") != self._ns:
                 raise MemoError("memo identity changed; reopen it before updating visibility")
             if row.get("permissions", {}).get("setVisibility") is not True:
                 raise MemoReadOnly("not allowed to change memo visibility")

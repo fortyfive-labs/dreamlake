@@ -4,7 +4,7 @@ import httpx
 import pytest
 
 from dreamlake.api._client import DreamLakeClient
-from dreamlake.api.memos import MemoReadOnly, WriteOutcomeUnknown
+from dreamlake.api.memos import MemoError, MemoReadOnly, WriteOutcomeUnknown
 
 ID = "6ae3f318608512b4ba34860c"
 NS = "fortyfive"
@@ -25,7 +25,7 @@ def test_visibility_updates_only_metadata_and_reads_back(alias, visibility):
     calls = []
     def handler(req):
         calls.append(req)
-        assert req.url.path == f"/namespaces/{NS}/notes/{ID}"
+        assert req.url.path == (f"/notes/{ID}" if req.method == "GET" else f"/namespaces/{NS}/notes/{ID}")
         return httpx.Response(200, json=row(visibility if req.method == "PATCH" else "private"))
     memo = getattr(client(handler), alias)(ID, namespace=NS)
     assert memo.set_visibility(visibility=visibility).visibility == visibility
@@ -59,6 +59,17 @@ def test_denied_visibility_cannot_patch():
         calls.append(req)
         return httpx.Response(200, json=row(permissions={"setVisibility": False}))
     with pytest.raises(MemoReadOnly):
+        client(handler).memos(ID, namespace=NS).set_visibility(visibility="unlisted")
+    assert [r.method for r in calls] == ["GET"]
+
+
+@pytest.mark.parametrize("namespace", [None, "different"])
+def test_wrong_or_missing_namespace_cannot_patch(namespace):
+    calls = []
+    def handler(req):
+        calls.append(req)
+        return httpx.Response(200, json=row(namespaceSlug=namespace))
+    with pytest.raises(MemoError, match="identity changed"):
         client(handler).memos(ID, namespace=NS).set_visibility(visibility="unlisted")
     assert [r.method for r in calls] == ["GET"]
 
