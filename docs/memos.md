@@ -25,7 +25,7 @@ receipt = memo.append(text="\nReviewed.", at=snapshot, mode="merge")
 ```
 
 Use the snapshot returned by the original read as the edit baseline. The rename
-does not change revision validation, command identity, failure outcomes, file
+does not change command identity, failure outcomes, file
 permissions, or the exact source submitted for an edit.
 
 Collection operations are `dl.memos.list(namespace="team")` and
@@ -44,3 +44,13 @@ This SDK release uses the existing server routes and response fields. Physical
 database names and RTC wire changes are separate coordinated rollout steps.
 Existing `:note[...]` content remains readable. Use ordinary links for new Memo
 references; this release introduces no `:memo` directive.
+
+## Baseline references
+
+Python 0.41.2 accepts complete room-bound `memo-rtc:v1:` references as well as
+historical native `rtc:` revisions. Treat either as opaque: carry the original
+snapshot through edits, pinned reads and command reconciliation. Do not truncate
+a reference or substitute the content hash. The matching server decides whether
+a saved draft belongs to its current collaboration room; preserve the draft and
+read a fresh baseline if it reports a session change. Publishing this SDK does
+not activate the server's RTC migration.

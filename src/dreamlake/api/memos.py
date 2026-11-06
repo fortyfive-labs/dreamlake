@@ -70,7 +70,7 @@ _OBJECT_ID = re.compile(r"^[a-f0-9]{24}$", re.I)
 _COMMAND_ID = re.compile(r"[A-Za-z0-9._:-]{8,128}")
 _OUTCOMES = ("accepted", "no-write")
 _COMMAND_STATES = ("pending", "accepted", "no-write", "unknown")
-_RTC_REVISION = re.compile(r"rtc:[a-f0-9]{64}")
+_RTC_REVISION = re.compile(r"(?:rtc:[a-f0-9]{64}|memo-rtc:v1:[a-f0-9]{24}:[a-f0-9]{64}:[a-f0-9]{64})")
 # Transport errors raised once a connection was attempted: the request may have
 # reached the server. httpx raises UnsupportedProtocol and LocalProtocolError
 # before any connection, and InvalidURL while building the URL; those are
@@ -1032,7 +1032,7 @@ class Memo:
         unknown id raises ``MemoNotFound``. ``receipt`` is the stored v2
         receipt when the state is ``accepted`` or ``no-write``, verified
         before it is returned: it must name this note and this command, its
-        ``revision`` and ``baseRevision`` must be ``rtc:`` + 64 hex, ``mode``
+        ``revision`` and ``baseRevision`` must be complete native ``rtc:`` or room-bound ``memo-rtc:v1:`` references, ``mode``
         exact or merge, and envelope and receipt must agree — an
         ``accepted``/``no-write`` state requires a receipt whose ``outcome``
         equals both the state and the envelope's ``outcome``; ``pending``/

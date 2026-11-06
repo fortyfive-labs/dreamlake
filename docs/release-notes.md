@@ -1,5 +1,9 @@
 # Release notes
 
+## 0.41.2 — Room-bound Memo baseline compatibility
+
+The Memo facade and command reconciliation accept complete `memo-rtc:v1:` baseline references alongside existing `rtc:` revisions. This prepares clients for the coordinated RTC room migration; it does not activate that migration. Preserve the complete original read result when editing or reconciling an uncertain command.
+
 ## 0.41.1
 
 Visibility updates resolve renamed artifact URLs to their stored IDs before
