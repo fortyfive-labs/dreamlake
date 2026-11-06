@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .runnables import Runnables
+    from .artifacts import Artifacts
 
 import httpx
 
@@ -79,6 +80,12 @@ class DreamLakeClient:
         """Source management, access and terminal deletion under server authority."""
         from .sources import Sources
         return Sources(self)
+
+    @property
+    def artifacts(self) -> "Artifacts":
+        """Artifact catalog reads and visibility management."""
+        from .artifacts import Artifacts
+        return Artifacts(self)
 
     @property
     def runnables(self) -> "Runnables":
