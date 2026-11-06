@@ -6,21 +6,21 @@ MAX_WORK = 4_000_000
 MAX_TRACE = 250_000
 MAX_EDITS = 10_000
 
-class NotePatchError(ValueError):
+class MemoPatchError(ValueError):
     def __init__(self, message, code='INVALID_PATCH'):
         super().__init__(message)
         self.code = code
 
 def limit(condition, message):
     if condition:
-        raise NotePatchError(message, 'LIMIT_EXCEEDED')
+        raise MemoPatchError(message, 'LIMIT_EXCEEDED')
 
 def points(text):
     if not isinstance(text, str):
-        raise NotePatchError('Source must be a string')
+        raise MemoPatchError('Source must be a string')
     limit(len(text) > MAX_SOURCE, 'Source too large')
     if any(0xD800 <= ord(c) <= 0xDFFF for c in text):
-        raise NotePatchError('Unpaired Unicode surrogate')
+        raise MemoPatchError('Unpaired Unicode surrogate')
     return text
 
 def collect(a, b, steps, offset):
@@ -68,7 +68,7 @@ def character_diff(base, target, offset=0, budget=None):
     if (n+1)*(m+1) > MAX_WORK-budget[0]:
         try:
             return sparse(a, b, offset, spend)
-        except NotePatchError as e:
+        except MemoPatchError as e:
             if str(e) != 'Character alignment trace limit exceeded':
                 raise
             return packed(a, b, offset, spend)
@@ -118,7 +118,7 @@ def sparse(a,b,offset,spend):
                     else:
                         reversed_steps.append('delete'); x -= 1
             return collect(a,b,reversed(reversed_steps),offset)
-    raise NotePatchError('Character alignment failed')
+    raise MemoPatchError('Character alignment failed')
 
 def packed(a,b,offset,spend):
     words=(len(b)+63)//64
@@ -149,3 +149,7 @@ def packed(a,b,offset,spend):
             else:
                 yield 'insert'; j += 1
     return collect(a,b,steps(),offset)
+
+
+# Deprecated compatibility exports; new integrations use Memo names.
+NotePatchError = MemoPatchError

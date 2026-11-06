@@ -1,6 +1,6 @@
 """JavaScript regular expressions, executed in Python.
 
-The Notes editing API takes regex patterns and replacement strings and has to
+The Memos editing API takes regex patterns and replacement strings and has to
 behave the same in the Python SDK, the TypeScript CLI, and anything an agent
 writes against either. JavaScript is the shared dialect — the CLI runs on Node,
 and the patterns people bring come from JavaScript documentation.
@@ -27,7 +27,7 @@ differential fixture set, stdlib `re` agreed on 19 of 24 cases and `regex` on
 
 The 24th is deliberate. `'a😀b'.replace(/./g, '.')` gives four dots in
 JavaScript, because a regex without the `u` flag counts UTF-16 code units and
-an emoji is two of them. This module gives three. The Notes API specifies
+an emoji is two of them. This module gives three. The Memos API specifies
 character indices as "0-based, end-exclusive Unicode code points", and says
 JavaScript offsets must be converted at the boundary — so code points are the
 contract and matching JavaScript's historical behaviour here would be the bug.

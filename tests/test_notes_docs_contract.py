@@ -1,4 +1,4 @@
-"""The Notes API docs' Python tabs are the contract; the SDK must have what they name.
+"""The Memos API docs' Python tabs are the contract; the SDK must have what they name.
 
 `notes-api-docs.fixtures.json` vendors every ```python block of the seven
 `docs/pages/notes/api/**` pages at a pinned workspace commit. Each snippet must
@@ -20,22 +20,22 @@ from pathlib import Path
 
 import pytest
 
-from dreamlake.api._files import NoteFiles
-from dreamlake.api._notes_facade import (
+from dreamlake.api._files import MemoFiles
+from dreamlake.api._memos_facade import (
     DiffResult,
     FindResult,
     FocusedRead,
     MappedRead,
-    NoteHandle,
-    Notes,
-    NoteVersions,
+    MemoHandle,
+    Memos,
+    MemoVersions,
     Outline,
     Roster,
     SavedVersion,
     VersionPage,
     VisitReceipt,
 )
-from dreamlake.api.notes import NoteRef, NoteSnapshot, PatchReceipt
+from dreamlake.api.memos import MemoRef, MemoSnapshot, PatchReceipt
 
 FIXTURE = json.loads((Path(__file__).parent / "notes-api-docs.fixtures.json").read_text())
 SNIPPETS = FIXTURE["snippets"]
@@ -43,9 +43,9 @@ SNIPPETS = FIXTURE["snippets"]
 #: Documented in the pinned pages, deliberately not implemented in this release.
 #: Key = the symbol the snippet uses; value = why it is still a gap.
 KNOWN_GAPS = {
-    "NoteHandle.watch": "typed watch stream with total timeout; durable catch-up (after=) needs server retention",
-    "NoteHandle.move": "one move facade across collections is still being specified; rename(name=) covers the title-only case",
-    "dl.projects": "other collections' move facades are out of the Notes SDK's scope in this release",
+    "MemoHandle.watch": "typed watch stream with total timeout; durable catch-up (after=) needs server retention",
+    "MemoHandle.move": "one move facade across collections is still being specified; rename(name=) covers the title-only case",
+    "dl.projects": "other collections' move facades are out of the Memos SDK's scope in this release",
     "dl.artifacts": "see dl.projects",
     "dl.envs": "see dl.projects",
     "dl.pipelines": "see dl.projects",
@@ -55,16 +55,16 @@ KNOWN_GAPS = {
     "dl.infra": "see dl.projects",
 }
 
-READ_RESULT = (NoteSnapshot, FocusedRead, MappedRead)
-COLLECTIONS = {"notes": Notes}
+READ_RESULT = (MemoSnapshot, FocusedRead, MappedRead)
+COLLECTIONS = {"notes": Memos}
 #: What a documented call or property evaluates to, so chained usage is checked too.
 RETURNS = {
-    (Notes, "__call__"): NoteHandle, (Notes, "list"): list, (Notes, "create"): NoteHandle,
-    (NoteHandle, "read"): READ_RESULT, (NoteHandle, "outline"): Outline, (NoteHandle, "find"): FindResult,
-    (NoteHandle, "diff"): DiffResult, (NoteHandle, "presence"): Roster, (NoteHandle, "visit"): VisitReceipt,
-    (NoteHandle, "rename"): NoteRef, (NoteHandle, "versions"): NoteVersions, (NoteHandle, "files"): NoteFiles,
-    (NoteVersions, "list"): VersionPage, (NoteVersions, "read"): SavedVersion,
-    **{(NoteHandle, name): PatchReceipt for name in ("replace", "insert", "remove", "append", "write", "patch")},
+    (Memos, "__call__"): MemoHandle, (Memos, "list"): list, (Memos, "create"): MemoHandle,
+    (MemoHandle, "read"): READ_RESULT, (MemoHandle, "outline"): Outline, (MemoHandle, "find"): FindResult,
+    (MemoHandle, "diff"): DiffResult, (MemoHandle, "presence"): Roster, (MemoHandle, "visit"): VisitReceipt,
+    (MemoHandle, "rename"): MemoRef, (MemoHandle, "versions"): MemoVersions, (MemoHandle, "files"): MemoFiles,
+    (MemoVersions, "list"): VersionPage, (MemoVersions, "read"): SavedVersion,
+    **{(MemoHandle, name): PatchReceipt for name in ("replace", "insert", "remove", "append", "write", "patch")},
 }
 
 
@@ -202,17 +202,17 @@ def test_every_known_gap_is_still_a_gap_and_still_documented():
         hit |= check(snippet["code"]).missing & set(KNOWN_GAPS)
     assert hit == set(KNOWN_GAPS), f"stale known gaps: {sorted(set(KNOWN_GAPS) - hit)}"
     for name in ("watch", "move"):
-        assert not hasattr(NoteHandle, name)
+        assert not hasattr(MemoHandle, name)
 
 
 def test_the_core_documented_surface_is_exercised():
     used: set[str] = set()
     for snippet in SNIPPETS:
         used |= check(snippet["code"]).used
-    for label in ("dl.notes(...)", "Notes.list", "Notes.create", "NoteHandle.read", "NoteHandle.outline", "NoteHandle.find",
-                  "NoteHandle.diff", "NoteHandle.replace", "NoteHandle.insert", "NoteHandle.remove", "NoteHandle.append",
-                  "NoteHandle.write", "NoteHandle.patch", "NoteHandle.presence", "NoteHandle.visit", "NoteHandle.rename",
-                  "NoteVersions.list", "NoteVersions.read", "NoteFiles.move"):
+    for label in ("dl.notes(...)", "Memos.list", "Memos.create", "MemoHandle.read", "MemoHandle.outline", "MemoHandle.find",
+                  "MemoHandle.diff", "MemoHandle.replace", "MemoHandle.insert", "MemoHandle.remove", "MemoHandle.append",
+                  "MemoHandle.write", "MemoHandle.patch", "MemoHandle.presence", "MemoHandle.visit", "MemoHandle.rename",
+                  "MemoVersions.list", "MemoVersions.read", "MemoFiles.move"):
         assert label in used, label
 
 

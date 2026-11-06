@@ -23,9 +23,9 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Iterator
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
-    from .notes import Note
+    from .memos import Memo
 
-__all__ = ["NoteFile", "NoteFiles", "FileExists", "NotTextFile", "NotPreviewable"]
+__all__ = ["MemoFile", "MemoFiles", "FileExists", "NotTextFile", "NotPreviewable"]
 
 
 class FileExists(Exception):
@@ -50,7 +50,7 @@ class NotTextFile(Exception):
     """
 
 
-# `NoteFile.bytes()` is a method, and inside the class body that name shadows
+# `MemoFile.bytes()` is a method, and inside the class body that name shadows
 # the builtin — so an annotation written as `bytes` there means the method, not
 # the type. Runtime is unaffected (annotations are strings under
 # `from __future__ import annotations`, resolved against module globals), but a
@@ -60,7 +60,7 @@ _Bytes = bytes
 
 
 @dataclass(frozen=True)
-class NoteFile:
+class MemoFile:
     """One attached file, and the operations that act on it.
 
     `etag` is the sha256 of the content. Pass it as `if_match=` to a mutation
@@ -83,7 +83,7 @@ class NoteFile:
     #: Whether `text()` and text writes are allowed.
     is_text: bool
 
-    _files: "NoteFiles | None" = None
+    _files: "MemoFiles | None" = None
 
     # ── reading ─────────────────────────────────────────────────────────────
 
@@ -138,13 +138,13 @@ class NoteFile:
         *,
         overwrite: bool = False,
         if_match: str | None = None,
-    ) -> "NoteFile":
+    ) -> "MemoFile":
         """Rename or move. The id does not change, so held references survive."""
         return self._owner()._patch(
             self.id, {"path": path, "overwrite": overwrite}, if_match=if_match
         )
 
-    def copy(self, path: str, *, overwrite: bool = False) -> "NoteFile":
+    def copy(self, path: str, *, overwrite: bool = False) -> "MemoFile":
         """Copy to another path. The copy gets its own storage, not a share."""
         return self._owner()._copy(self.id, path, overwrite=overwrite)
 
@@ -154,19 +154,19 @@ class NoteFile:
         text: str | None = None,
         data: _Bytes | None = None,
         if_match: str | None = None,
-    ) -> "NoteFile":
+    ) -> "MemoFile":
         """Replace this file's content, keeping its path and id."""
         return self._owner().put(
             self.path, text=text, data=data, content_type=self.content_type,
             overwrite=True, if_match=if_match,
         )
 
-    def trash(self, *, if_match: str | None = None) -> "NoteFile":
+    def trash(self, *, if_match: str | None = None) -> "MemoFile":
         """Move to the trash. Recoverable with `restore()`."""
         self._owner()._delete(self.id, purge=False, if_match=if_match)
         return self._owner().get(self.id)
 
-    def restore(self, *, path: str | None = None) -> "NoteFile":
+    def restore(self, *, path: str | None = None) -> "MemoFile":
         """Bring it back. Refused if its path has since been taken."""
         return self._owner()._restore(self.id, path)
 
@@ -201,22 +201,22 @@ class NoteFile:
         """Withdraw the shared preview link. Every copy stops working."""
         self._owner()._unshare(self.id)
 
-    def refresh(self) -> "NoteFile":
+    def refresh(self) -> "MemoFile":
         """Re-read the metadata."""
         return self._owner().get(self.id)
 
-    def _owner(self) -> "NoteFiles":
+    def _owner(self) -> "MemoFiles":
         if self._files is None:
-            raise RuntimeError("this NoteFile is detached from its memo")
+            raise RuntimeError("this MemoFile is detached from its memo")
         return self._files
 
     def __repr__(self) -> str:  # pragma: no cover - display only
         where = " (trashed)" if self.trashed else ""
-        return f"<NoteFile {self.path} {self.size_bytes}B {self.content_type}{where}>"
+        return f"<MemoFile {self.path} {self.size_bytes}B {self.content_type}{where}>"
 
 
-def _view(row: dict[str, Any], files: "NoteFiles") -> NoteFile:
-    return NoteFile(
+def _view(row: dict[str, Any], files: "MemoFiles") -> MemoFile:
+    return MemoFile(
         id=row.get("id", ""),
         path=row.get("path", ""),
         content_type=row.get("contentType", ""),
@@ -232,12 +232,12 @@ def _view(row: dict[str, Any], files: "NoteFiles") -> NoteFile:
     )
 
 
-class NoteFiles:
-    """`note.files` — the collection, reached from a Note."""
+class MemoFiles:
+    """`note.files` — the collection, reached from a Memo."""
 
     __slots__ = ("_note",)
 
-    def __init__(self, note: "Note") -> None:
+    def __init__(self, note: "Memo") -> None:
         self._note = note
 
     # ── discovery ───────────────────────────────────────────────────────────
@@ -250,7 +250,7 @@ class NoteFiles:
         trashed: bool = False,
         limit: int = 100,
         offset: int = 0,
-    ) -> list[NoteFile]:
+    ) -> list[MemoFile]:
         """Files, ordered by path.
 
             note.files.list("assets/*.png")
@@ -269,7 +269,7 @@ class NoteFiles:
         data = self._get("", params=params)
         return [_view(row, self) for row in data.get("files", [])]
 
-    def __iter__(self) -> Iterator[NoteFile]:
+    def __iter__(self) -> Iterator[MemoFile]:
         return iter(self.list())
 
     def move(
@@ -280,7 +280,7 @@ class NoteFiles:
         name: str | None = None,
         overwrite: bool = False,
         if_match: str | None = None,
-    ) -> NoteFile:
+    ) -> MemoFile:
         """Move and/or rename one attachment within this note's file tree.
 
         ``to_folder`` is relative to the note's tree; ``name`` is the new
@@ -302,11 +302,11 @@ class NoteFiles:
             base = name
         return current.move(f"{folder}/{base}" if folder else base, overwrite=overwrite, if_match=if_match)
 
-    def get(self, file_id: str) -> NoteFile:
+    def get(self, file_id: str) -> MemoFile:
         """One file's metadata, by id. Works for a trashed file too."""
         return _view(self._get(f"/{file_id}"), self)
 
-    def find(self, path: str) -> NoteFile | None:
+    def find(self, path: str) -> MemoFile | None:
         """The live file at this path, or None."""
         for f in self.list():
             if f.path == path:
@@ -323,7 +323,7 @@ class NoteFiles:
         data: bytes | None = None,
         content_type: str | None = None,
         overwrite: bool = False,
-    ) -> NoteFile:
+    ) -> MemoFile:
         """Create a file from a string or from bytes.
 
         `overwrite` defaults to False and raises `FileExists` on a collision:
@@ -341,7 +341,7 @@ class NoteFiles:
         path: str | None = None,
         content_type: str | None = None,
         overwrite: bool = False,
-    ) -> NoteFile:
+    ) -> MemoFile:
         """Upload a local file. `path` defaults to its name.
 
             note.files.upload(Path("diagram.png"), path="assets/diagram.png")
@@ -370,7 +370,7 @@ class NoteFiles:
         content_type: str | None = None,
         overwrite: bool = False,
         if_match: str | None = None,
-    ) -> NoteFile:
+    ) -> MemoFile:
         """Write a file, from text, bytes, or a binary file object.
 
         `stream` is any object with `.read()` opened in binary mode. It is
@@ -450,13 +450,13 @@ class NoteFiles:
             r = http.get(f"{self._base()}{suffix}", params=params or {})
         return self._checked(r, f"list files of {self._note._id}")
 
-    def _patch(self, file_id: str, payload: dict, *, if_match: str | None) -> NoteFile:
+    def _patch(self, file_id: str, payload: dict, *, if_match: str | None) -> MemoFile:
         headers = {"If-Match": if_match} if if_match else {}
         with self._note._client.http() as http:
             r = http.patch(f"{self._base()}/{file_id}", json=payload, headers=headers)
         return _view(self._checked(r, f"move {file_id}"), self)
 
-    def _copy(self, file_id: str, path: str, *, overwrite: bool) -> NoteFile:
+    def _copy(self, file_id: str, path: str, *, overwrite: bool) -> MemoFile:
         with self._note._client.http() as http:
             r = http.post(
                 f"{self._base()}/{file_id}/copy",
@@ -481,7 +481,7 @@ class NoteFiles:
             r = http.delete(f"{self._base()}/{file_id}/preview")
         self._checked(r, f"unshare {file_id}")
 
-    def _restore(self, file_id: str, path: str | None) -> NoteFile:
+    def _restore(self, file_id: str, path: str | None) -> MemoFile:
         with self._note._client.http() as http:
             r = http.post(
                 f"{self._base()}/{file_id}/restore",
@@ -513,7 +513,7 @@ class NoteFiles:
             body = resp.json() if resp.content else {}
             if body.get("error") == "not_text":
                 raise NotTextFile(body.get("message") or what)
-        from .notes import _raise_for
+        from .memos import _raise_for
 
         _raise_for(resp, what)
         if not json:
@@ -528,4 +528,9 @@ class NoteFiles:
             return None
 
     def __repr__(self) -> str:  # pragma: no cover - display only
-        return f"<NoteFiles of {self._note._ns}/{self._note._id}>"
+        return f"<MemoFiles of {self._note._ns}/{self._note._id}>"
+
+
+# Deprecated compatibility exports; new integrations use Memo names.
+NoteFile = MemoFile
+NoteFiles = MemoFiles
