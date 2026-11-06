@@ -1,5 +1,11 @@
 # Release notes
 
+## 0.40.2
+
+Artifact visibility now supports Unlisted through `DreamLakeClient.artifacts`
+and the importable Python artifact push command. Unlisted links allow anonymous
+reads while staying out of public profiles and feeds.
+
 ## 0.40.1 — Memo terminology
 
 Documentation and SDK diagnostics now call collaborative documents Memos: a shared space for people and their agents. Existing `notes` methods, identifiers, and API contracts remain compatible.

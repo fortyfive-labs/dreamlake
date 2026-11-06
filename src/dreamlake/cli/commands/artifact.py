@@ -165,9 +165,9 @@ def cmd_push(args: list) -> int:
     p.add_argument("--namespace", default=None)
     p.add_argument(
         "--visibility",
-        choices=["public", "private"],
+        choices=["public", "private", "unlisted"],
         default=None,
-        help="read visibility (default: private). public artifacts are readable without login.",
+        help="read visibility (default: private). public and unlisted allow direct-link reads; unlisted hides public profile/feed listings.",
     )
     p.add_argument(
         "--share",
