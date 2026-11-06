@@ -23,7 +23,7 @@ from __future__ import annotations
 import re
 import hashlib
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Iterator, Sequence
+from typing import TYPE_CHECKING, Any, Iterator, Sequence, Literal
 
 import httpx
 
@@ -40,6 +40,7 @@ if TYPE_CHECKING:  # pragma: no cover
 __all__ = [
     "Memo",
     "MemoRef",
+    "MemoVisibility",
     "MemoSnapshot",
     "PatchReceipt",
     "PatchResult",
@@ -79,6 +80,9 @@ _UNCERTAIN_TRANSPORT = (httpx.TimeoutException, httpx.NetworkError, httpx.Remote
 
 
 # ── Errors ───────────────────────────────────────────────────────────────────
+
+
+MemoVisibility = Literal["private", "public", "unlisted"]
 
 
 class MemoError(RuntimeError):
@@ -425,6 +429,7 @@ class MemoRef:
     matches: tuple[SectionMatch, ...] = ()
     #: Independent archival state; None for an active or legacy note.
     archived_at: str | None = None
+    visibility: MemoVisibility | None = None
 
     def open(self, *, client: DreamLakeClient | None = None) -> "Memo":
         return Memo(self.id, namespace=self.namespace, client=client)
@@ -587,6 +592,38 @@ class Memo:
             response = http.get(f"/notes/{_seg(self._id)}")
         _raise_for(response, f"read metadata {self._ns}/{self._id}")
         return _ref(response.json(), self._ns)
+
+    def set_visibility(self, visibility: MemoVisibility) -> MemoRef:
+        """Set private, unlisted or public without changing content or share links.
+
+        Unlisted permits anonymous direct-link reads but excludes public catalogs.
+        Reads current management permission first; never retries a write.
+        """
+        if visibility not in ("private", "public", "unlisted"):
+            raise ValueError("visibility must be private, unlisted or public")
+        with self._client.http() as http:
+            current = http.get(self._base, follow_redirects=False)
+            _raise_for(current, "read memo visibility")
+            row = current.json()
+            if row.get("id") != self._id or row.get("namespaceSlug", self._ns) != self._ns:
+                raise MemoError("memo identity changed; reopen it before updating visibility")
+            if row.get("permissions", {}).get("setVisibility") is not True:
+                raise MemoReadOnly("not allowed to change memo visibility")
+            try:
+                response = http.patch(self._base, json={"visibility": visibility}, follow_redirects=False)
+            except _UNCERTAIN_TRANSPORT as error:
+                raise WriteOutcomeUnknown("memo visibility update unconfirmed; read metadata before retrying") from error
+            _raise_for(response, "set memo visibility")
+            try:
+                result = response.json()
+                confirmed = (isinstance(result, dict) and result.get("id") == self._id
+                             and result.get("namespaceSlug", self._ns) == self._ns
+                             and result.get("visibility") == visibility)
+            except ValueError:
+                confirmed = False
+            if not confirmed:
+                raise WriteOutcomeUnknown("memo visibility update unconfirmed; read metadata before retrying")
+        return _ref(result, self._ns)
 
     def _set_archived(self, archived: bool) -> MemoRef:
         # Archive is metadata, not a body edit. Preserve the caller's original
@@ -1247,7 +1284,7 @@ def create_memo(
     name: str,
     *,
     text: str = "",
-    visibility: str = "private",
+    visibility: MemoVisibility = "private",
     client: DreamLakeClient | None = None,
 ) -> Memo:
     """Create a note, optionally with a body, and return it ready to edit.
@@ -1261,6 +1298,8 @@ def create_memo(
     Titles may repeat; the server appends a suffix to the SLUG to keep it
     unique, so `note.id` is what to hold on to rather than the name you passed.
     """
+    if visibility not in ("private", "public", "unlisted"):
+        raise ValueError("visibility must be private, unlisted or public")
     c = client or get_client()
     with c.http() as http:
         r = http.post(
@@ -1482,6 +1521,7 @@ def _ref(row: dict[str, Any], namespace: str, shared_by: str | None = None) -> M
         slug=row.get("slug", ""),
         updated_at=row.get("updatedAt"),
         archived_at=row.get("archivedAt"),
+        visibility=row.get("visibility"),
         shared_by=shared_by,
         matches=tuple(
             SectionMatch(
