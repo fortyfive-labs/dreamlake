@@ -50,6 +50,7 @@ from .memos import (
     Memo,
     MemoError,
     MemoRef,
+    MemoVisibility,
     MemoSnapshot,
     PatchReceipt,
     _escape_inline,
@@ -969,6 +970,16 @@ class MemoHandle:
 
     # ── resources ───────────────────────────────────────────────────────────
 
+    def metadata(self) -> MemoRef:
+        """Read current metadata, including visibility, without reading the body."""
+        return self._target().metadata()
+
+    def set_visibility(self, *, visibility: MemoVisibility) -> MemoRef:
+        """Change visibility only; preserve content, history, and existing share links."""
+        if visibility not in ("private", "public", "unlisted"):
+            raise ValueError("visibility must be private, unlisted or public")
+        return self._target().set_visibility(visibility)
+
     def rename(self, *, name: str) -> MemoRef:
         """Change the display name. Stable id, source and RTC history are untouched.
 
@@ -1151,7 +1162,7 @@ class Memos:
         return list_notes(namespace, limit=limit, offset=offset, include_archived=include_archived, client=self._client)
 
     def create(self, *, namespace: str, name: str | None = None, text: str | None = None,
-               visibility: str = "private") -> MemoHandle:
+               visibility: MemoVisibility = "private") -> MemoHandle:
         """Create a note and return its handle; ``name`` and ``text`` are optional.
 
         Omitted ``text`` means exact empty source; omitted ``name`` displays as
@@ -1168,8 +1179,8 @@ class Memos:
         if text is not None:
             _refuse_reading_view(text, "text")
             points(text)  # Invalid source is refused before the note exists.
-        if visibility not in ("private", "public"):
-            raise ValueError("visibility must be 'private' or 'public'")
+        if visibility not in ("private", "public", "unlisted"):
+            raise ValueError("visibility must be private, unlisted or public")
         client = self._client or get_client()
         with client.http() as http:
             response = http.post(f"/namespaces/{_seg(namespace)}/notes",

@@ -54,3 +54,21 @@ a reference or substitute the content hash. The matching server decides whether
 a saved draft belongs to its current collaboration room; preserve the draft and
 read a fresh baseline if it reports a session change. Publishing this SDK does
 not activate the server's RTC migration.
+
+## Visibility
+
+Memos support `private`, `unlisted` and `public`. Unlisted memos are readable by
+anyone with their direct URL, without signing in, but stay out of public profiles
+and discovery. Private memos require existing access; Public memos are listed.
+
+```python
+memo = dl.memos.create(namespace="team", name="Review", visibility="unlisted")
+memo.set_visibility(visibility="unlisted")
+assert memo.metadata().visibility == "unlisted"
+```
+
+`dl.notes` remains an alias. `set_visibility` reads current management permission
+before sending one metadata-only PATCH. It preserves content, history, attachments
+and share links. It never retries an uncertain write; read metadata before deciding
+whether to try again. Only callers with `permissions.setVisibility` may change it.
+Changing visibility does not revoke existing share grants or grant anonymous editing.
