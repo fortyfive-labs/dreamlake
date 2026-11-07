@@ -974,6 +974,12 @@ class MemoHandle:
         """Read current metadata, including visibility, without reading the body."""
         return self._target().metadata()
 
+    def permalink(self, *, slug: str | None = None) -> dict[str, Any]:
+        """Get or allocate a public URL, or edit its slug while retaining previous URLs."""
+        if slug is not None and (not isinstance(slug, str) or not slug):
+            raise ValueError("slug must be a nonempty string")
+        return self._target().permalink(slug=slug)
+
     def set_visibility(self, *, visibility: MemoVisibility) -> MemoRef:
         """Change visibility only; preserve content, history, and existing share links."""
         if visibility not in ("private", "public", "unlisted"):

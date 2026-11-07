@@ -72,3 +72,24 @@ before sending one metadata-only PATCH. It preserves content, history, attachmen
 and share links. It never retries an uncertain write; read metadata before deciding
 whether to try again. Only callers with `permissions.setVisibility` may change it.
 Changing visibility does not revoke existing share grants or grant anonymous editing.
+
+## Public article URLs
+
+For public or unlisted memos, get or allocate a URL from the saved H1, then edit
+its public slug independently of the internal slug or display name:
+
+```python
+memo = dl.memos("<namespace>/<memo-id>")
+current = memo.permalink()
+changed = memo.permalink(slug="my-article")
+print(changed["href"], changed["aliases"])
+```
+
+The dictionary contains `noteId`, `namespaceSlug`, `slug`, `href` (relative to the
+web app), and `aliases` (previous slugs). Metadata management permission is
+required. Title edits preserve the URL. Old slugs remain reserved aliases within
+the namespace; `MemoPermalinkConflict` means an explicit slug is already reserved.
+Choose another slug rather than retrying. Automatic allocation suffixes collisions.
+Copies allocate fresh URLs without inheriting alias history. Private visibility
+revokes anonymous access through current and previous URLs. These operations use
+the same REST permalink endpoint as the web UI and TypeScript SDK.
