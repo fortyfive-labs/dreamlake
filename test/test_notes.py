@@ -498,7 +498,7 @@ class TestTheNamingRule:
              "command_status"}
     RANGE = {"read_lines"}
     ACCESSORS = {"files"}
-    METADATA = {"metadata", "archive", "unarchive", "set_visibility"}
+    METADATA = {"metadata", "archive", "unarchive", "set_visibility", "permalink"}
     PART = {"read_section", "write_section", "insert_section", "delete_section"}
 
     def test_every_public_method_is_on_one_side_of_the_rule(self):

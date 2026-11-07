@@ -1,5 +1,12 @@
 # Release notes
 
+## 0.42.0 — Editable public article URLs
+
+`memo.permalink()` gets or allocates a public URL; `memo.permalink(slug="new-title")`
+edits it while retaining previous slugs. Both Memo handles and compatibility
+Note handles return the canonical URL and alias history. Namespace collisions
+raise `MemoPermalinkConflict` without automatic retries. See [Memos](memos.md).
+
 ## 0.41.5 — Consistent Python sessions and Bindr contracts
 
 Remote Episodes and both HTTP clients share explicit-token, environment-token,

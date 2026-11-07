@@ -51,6 +51,7 @@ __all__ = [
     "MemoChanged",
     "MemoBusy",
     "MemoReadOnly",
+    "MemoPermalinkConflict",
     "PatchFailed",
     "CommandIdentityUnsupportedError",
     "WriteOutcomeUnknown",
@@ -95,6 +96,10 @@ class MemoError(RuntimeError):
     """
 
     outcome = "operational"
+
+
+class MemoPermalinkConflict(MemoError):
+    """The requested public slug is reserved in this namespace; choose another."""
 
 
 class MemoNotFound(MemoError):
@@ -592,6 +597,40 @@ class Memo:
             response = http.get(f"/notes/{_seg(self._id)}")
         _raise_for(response, f"read metadata {self._ns}/{self._id}")
         return _ref(response.json(), self._ns)
+
+    def permalink(self, *, slug: str | None = None) -> dict[str, Any]:
+        """Get or allocate a public/unlisted URL, optionally editing its slug.
+
+        Returns noteId, namespaceSlug, slug, href, and aliases. Title edits never
+        change this URL. Previous slugs remain reserved in the namespace.
+        Requires metadata management permission; never retries a mutation.
+        """
+        if slug is not None and (not isinstance(slug, str) or not slug):
+            raise ValueError("slug must be a nonempty string")
+        with self._client.http() as http:
+            try:
+                response = http.post(f"{self._base}/permalink",
+                                     json={} if slug is None else {"slug": slug},
+                                     follow_redirects=False)
+            except _UNCERTAIN_TRANSPORT as error:
+                raise WriteOutcomeUnknown("public URL update unconfirmed; read permalink before retrying") from error
+        if response.status_code == 409 and _error_code(response) == "permalink_conflict":
+            raise MemoPermalinkConflict("public slug is reserved in this namespace; choose another")
+        # Metadata refusal, not RTC contention.
+        if response.status_code == 409:
+            raise MemoError("public URL refused; the memo must be public or unlisted")
+        _raise_for(response, "manage public URL")
+        try:
+            result = response.json()
+            confirmed = (result["noteId"] == self._id and result["namespaceSlug"] == self._ns
+                         and isinstance(result["slug"], str) and isinstance(result["href"], str)
+                         and isinstance(result["aliases"], list)
+                         and all(isinstance(value, str) for value in result["aliases"]))
+        except (ValueError, KeyError, TypeError):
+            confirmed = False
+        if not confirmed:
+            raise WriteOutcomeUnknown("public URL update unconfirmed; read permalink before retrying")
+        return result
 
     def set_visibility(self, visibility: MemoVisibility) -> MemoRef:
         """Set private, unlisted or public without changing content or share links.
