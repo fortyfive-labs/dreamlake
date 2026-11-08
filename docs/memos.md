@@ -93,3 +93,27 @@ Choose another slug rather than retrying. Automatic allocation suffixes collisio
 Copies allocate fresh URLs without inheriting alias history. Private visibility
 revokes anonymous access through current and previous URLs. These operations use
 the same REST permalink endpoint as the web UI and TypeScript SDK.
+
+## Presence and selections
+
+Read the live roster without joining or renewing a lease:
+
+```python
+roster = memo.presence(selections=True)
+print(roster.status, roster.selection_status, roster.observed_at)
+if roster.selection_status == "available":
+    print(roster.selection_hash, roster.participants)
+```
+
+`selections` defaults to false and requires a bool. Matching servers return
+`status` (`available` or `inactive`), `selection_status` (`available`, `inactive`
+or `not_requested`), and `selection_hash` when source-bound selections are
+available. Older servers yield `unknown` / `unsupported`. Transport and access
+failures raise; they never become an empty successful roster.
+
+Participant dictionaries retain the server's `selection`: null, unresolved, or
+resolved with `anchor`, `head`, `start`, `end`, `unit`, `text` and `truncated`.
+Offsets are Unicode code points at `selection_hash`. A collapsed selection is a
+caret. The preview may be truncated; selection data does not prove attention or
+human edit authorship. Use `memo.diff(since=prior_revision)` for recent source
+changes and retain the normal source snapshot/revision guards for edits.

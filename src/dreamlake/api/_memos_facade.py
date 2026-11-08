@@ -478,6 +478,9 @@ class Roster:
     note: str
     participants: tuple[dict[str, Any], ...]
     observed_at: Any
+    status: str = "unknown"
+    selection_status: str = "unsupported"
+    selection_hash: str | None = None
 
 
 @dataclass(frozen=True)
@@ -1012,11 +1015,19 @@ class MemoHandle:
 
     # ── collaboration ───────────────────────────────────────────────────────
 
-    def presence(self) -> Roster:
-        """The roster, without joining or extending any lease."""
+    def presence(self, *, selections: bool = False) -> Roster:
+        """Read the roster; optionally include source-bound human selections.
+
+        Selections use Unicode code points at ``selection_hash``. Inactive,
+        unavailable and unsupported observations must not be interpreted as an
+        empty live room. Service errors raise; old servers report unsupported.
+        This does not join, extend a lease, or identify who edited the Memo.
+        """
+        if not isinstance(selections, bool):
+            raise ValueError("selections must be a bool")
         note = self._target()
         with note._client.http() as http:
-            response = http.get(f"{note._base}/presence", params={"format": "json"}, follow_redirects=False)
+            response = http.get(f"{note._base}/presence", params={"format": "json", **({"selections": "true"} if selections else {})}, follow_redirects=False)
         _raise_for(response, f"presence {note.namespace}/{note.id}")
         try:
             data = response.json()
@@ -1025,7 +1036,8 @@ class MemoHandle:
         if response.status_code != 200 or not isinstance(data, dict) or not isinstance(data.get("participants"), list):
             raise MemoError("invalid presence response")
         return Roster(note=note.id, participants=tuple(p for p in data["participants"] if isinstance(p, dict)),
-                      observed_at=data.get("observedAt"))
+                      observed_at=data.get("observedAt"), status=data.get("status", "unknown"),
+                      selection_status=data.get("selectionStatus", "unsupported"), selection_hash=data.get("selectionHash"))
 
     def visit(self, *, intent: str | None = None, address: str | None = None, cursor: int | None = None,
               at: Any = None) -> VisitReceipt:
