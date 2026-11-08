@@ -34,14 +34,14 @@ class Artifacts:
         path = f"/namespaces/{_segment(namespace)}/artifacts"
         if artifact is not None:
             path += "/" + _segment(artifact)
-        payload = {}
+        payload: dict[str, Any] = {}
         if visibility is not None:
             payload["visibility"] = visibility
         if share_latest_only is not None:
             payload["shareLatestOnly"] = share_latest_only
         with self.client.http() as http:
-            response = http.request("POST" if payload else "GET", path,
-                                    **({"json": payload} if payload else {}))
+            response = (http.request("POST", path, json=payload) if payload
+                        else http.request("GET", path))
         if not response.is_success:
             raise ArtifactError(response.status_code, "ARTIFACT_REQUEST_FAILED")
         try:

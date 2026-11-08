@@ -1,5 +1,10 @@
 # Release notes
 
+## 0.42.2 — Artifact policy request typing
+
+Types mixed visibility/boolean metadata payloads explicitly and separates GET
+from POST request arguments. Latest-only sharing behavior is unchanged.
+
 ## 0.42.1 — Latest-only artifact sharing
 
 `client.artifacts.set_share_latest_only(namespace, artifact, enabled)` controls
