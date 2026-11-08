@@ -1,5 +1,12 @@
 # Release notes
 
+## 0.42.1 — Latest-only artifact sharing
+
+`client.artifacts.set_share_latest_only(namespace, artifact, enabled)` controls
+recipient version history without uploading or changing the share token. Python
+artifact pushes accept `--latest-only` and `--no-latest-only`; omission preserves
+the saved policy. See [Artifact sharing](api/artifacts.md).
+
 ## 0.42.0 — Editable public article URLs
 
 `memo.permalink()` gets or allocates a public URL; `memo.permalink(slug="new-title")`

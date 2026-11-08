@@ -174,6 +174,8 @@ def cmd_push(args: list) -> int:
         action="store_true",
         help="issue a share token so the artifact can be read via a ?share= link.",
     )
+    p.add_argument("--latest-only", action=argparse.BooleanOptionalAction, default=None,
+                   help="restrict recipients to the most recent version; --no-latest-only allows history")
     ns = p.parse_args(args)
 
     file_path = Path(ns.file)
@@ -281,6 +283,8 @@ def cmd_push(args: list) -> int:
         body["visibility"] = ns.visibility
     if ns.share:
         body["share"] = True
+    if ns.latest_only is not None:
+        body["shareLatestOnly"] = ns.latest_only
     share_token = None
     try:
         vr = httpx.post(

@@ -94,3 +94,53 @@ def test_renamed_url_is_resolved_to_stored_id_before_visibility_update():
     api(serve).set_visibility("team", "pretty-url", "unlisted")
     assert [r.url.path for r in calls] == ["/namespaces/team/artifacts/pretty-url", "/namespaces/team/artifacts/stored-id"]
     assert json.loads(calls[1].content) == {"visibility": "unlisted"}
+
+@pytest.mark.parametrize('enabled', [True, False])
+def test_latest_only_resolves_slug_and_preserves_other_metadata(enabled):
+    calls = []
+    state = {'artifactId': 'stored', 'viewerCanManage': True, 'latestVersion': 7,
+             'shareToken': 'unchanged', 'visibility': 'private'}
+    def serve(request):
+        calls.append(request)
+        if request.method == 'POST':
+            body = json.loads(request.content)
+            assert body == {'shareLatestOnly': enabled}
+            state.update(body)
+        return httpx.Response(200, json=state)
+    row = api(serve).set_share_latest_only('team', 'pretty', enabled)
+    assert row['shareLatestOnly'] is enabled
+    assert row['latestVersion'] == 7 and row['shareToken'] == 'unchanged'
+    assert [r.url.path for r in calls] == ['/namespaces/team/artifacts/pretty', '/namespaces/team/artifacts/stored']
+
+@pytest.mark.parametrize('enabled', [None, 'true', 1, 0])
+def test_latest_only_requires_boolean_before_network(enabled):
+    def unexpected(request):
+        raise AssertionError('unexpected request')
+    with pytest.raises(ValueError):
+        api(unexpected).set_share_latest_only('team', 'report', enabled)
+
+@pytest.mark.parametrize('row', [{}, {'viewerCanManage': False}, {'viewerCanManage': True, 'artifactId': 'report'}])
+def test_latest_only_refuses_denied_or_unconfirmed_updates(row):
+    calls = []
+    def serve(request):
+        calls.append(request.method)
+        return httpx.Response(200, json=row)
+    with pytest.raises(ArtifactError):
+        api(serve).set_share_latest_only('team', 'report', True)
+    assert calls == (['GET', 'POST'] if row.get('viewerCanManage') else ['GET'])
+
+def test_latest_only_uncertain_write_is_not_retried():
+    calls = []
+    def serve(request):
+        calls.append(request.method)
+        if request.method == 'POST':
+            raise httpx.ReadTimeout('fixture')
+        return httpx.Response(200, json={'viewerCanManage': True, 'artifactId': 'report'})
+    with pytest.raises(httpx.ReadTimeout):
+        api(serve).set_share_latest_only('team', 'report', True)
+    assert calls == ['GET', 'POST']
+
+@pytest.mark.parametrize('flag', ['--latest-only', '--no-latest-only'])
+def test_python_push_accepts_latest_only_flags(flag, tmp_path, capsys):
+    assert cmd_push([str(tmp_path / 'missing.html'), flag]) == 1
+    assert 'file not found' in capsys.readouterr().err
