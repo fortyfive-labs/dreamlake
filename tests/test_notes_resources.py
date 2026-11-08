@@ -237,3 +237,30 @@ def test_visit_without_an_agent_identity_is_refused_before_any_request(monkeypat
     monkeypatch.setenv('DREAMLAKE_AGENT_ID', '')
     with pytest.raises(AgentIdentityRequired):
         handle(never).visit()
+
+def test_presence_selection_snapshot_and_legacy_capability():
+    calls = []
+    selection = {'status': 'resolved', 'unit': 'unicode-code-point', 'anchor': 1, 'head': 2,
+                 'start': 1, 'end': 2, 'text': '😀', 'truncated': False}
+    def handler(req):
+        calls.append(req)
+        return httpx.Response(200, json={'status': 'available', 'selectionStatus': 'available',
+            'selectionHash': 'sha256:' + 'a' * 64, 'observedAt': 42,
+            'participants': [{'client': 'tab', 'user': {'id': 'ge'}, 'selection': selection}]}, request=req)
+    roster = handle(handler).presence(selections=True)
+    assert roster.status == 'available' and roster.selection_status == 'available'
+    assert roster.selection_hash == 'sha256:' + 'a' * 64
+    assert roster.participants[0]['selection'] == selection
+    assert len(calls) == 1 and calls[0].method == 'GET'
+    assert dict(calls[0].url.params) == {'format': 'json', 'selections': 'true'}
+    legacy = handle(lambda req: httpx.Response(200, json={'participants': [], 'observedAt': 42}, request=req)).presence(selections=True)
+    assert legacy.status == 'unknown' and legacy.selection_status == 'unsupported'
+    with pytest.raises(ValueError, match='bool'):
+        handle(handler).presence(selections='true')
+    assert len(calls) == 1
+
+
+@pytest.mark.parametrize('status', [403, 404, 503])
+def test_presence_failures_are_not_empty_rosters(status):
+    with pytest.raises(NoteError):
+        handle(lambda req: httpx.Response(status, json={'error': 'presence_unavailable'}, request=req)).presence(selections=True)
