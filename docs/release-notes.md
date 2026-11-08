@@ -1,5 +1,10 @@
 # Release notes
 
+## 0.43.1 — Artifact policy request typing
+
+Types mixed visibility/boolean metadata payloads explicitly and separates GET
+from POST request arguments. Latest-only sharing behavior is unchanged.
+
 ## 0.43.0 — Source-bound Memo selection snapshots
 
 `memo.presence(selections=True)` optionally reads human selections resolved
