@@ -1,5 +1,12 @@
 # Release notes
 
+## 0.43.0 — Source-bound Memo selection snapshots
+
+`memo.presence(selections=True)` optionally reads human selections resolved
+against the observed source hash. The roster reports inactive and unsupported
+states separately from an observed empty room; service failures still raise.
+The default read remains roster-only and never joins. See [Memos](memos.md).
+
 ## 0.42.1 — Latest-only artifact sharing
 
 `client.artifacts.set_share_latest_only(namespace, artifact, enabled)` controls
