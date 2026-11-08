@@ -29,13 +29,19 @@ class Artifacts:
         self.client = client
 
     def _request(self, namespace: str, artifact: str | None = None, *,
-                 visibility: ArtifactVisibility | None = None) -> dict[str, Any]:
+                 visibility: ArtifactVisibility | None = None,
+                 share_latest_only: bool | None = None) -> dict[str, Any]:
         path = f"/namespaces/{_segment(namespace)}/artifacts"
         if artifact is not None:
             path += "/" + _segment(artifact)
+        payload = {}
+        if visibility is not None:
+            payload["visibility"] = visibility
+        if share_latest_only is not None:
+            payload["shareLatestOnly"] = share_latest_only
         with self.client.http() as http:
-            response = http.request("GET" if visibility is None else "POST", path,
-                                    **({} if visibility is None else {"json": {"visibility": visibility}}))
+            response = http.request("POST" if payload else "GET", path,
+                                    **({"json": payload} if payload else {}))
         if not response.is_success:
             raise ArtifactError(response.status_code, "ARTIFACT_REQUEST_FAILED")
         try:
@@ -72,5 +78,25 @@ class Artifacts:
             raise ArtifactError(502, "INVALID_ARTIFACT_RESPONSE")
         result = self._request(namespace, resolved, visibility=visibility)
         if result.get("visibility") != visibility:
+            raise ArtifactError(502, "INVALID_ARTIFACT_RESPONSE")
+        return result
+
+    def set_share_latest_only(self, namespace: str, artifact: str,
+                              enabled: bool) -> dict[str, Any]:
+        """Restrict recipients to the latest version; members retain history.
+
+        Does not mint or revoke a share link or upload content. Omitted metadata
+        is preserved. After an uncertain write, reconcile with get() before retrying.
+        """
+        if not isinstance(enabled, bool):
+            raise ValueError("enabled must be a boolean")
+        row = self.get(namespace, artifact)
+        if row.get("viewerCanManage") is not True:
+            raise ArtifactError(403, "ARTIFACT_MANAGEMENT_DENIED")
+        resolved = row.get("artifactId")
+        if not isinstance(resolved, str):
+            raise ArtifactError(502, "INVALID_ARTIFACT_RESPONSE")
+        result = self._request(namespace, resolved, share_latest_only=enabled)
+        if result.get("shareLatestOnly") is not enabled:
             raise ArtifactError(502, "INVALID_ARTIFACT_RESPONSE")
         return result
