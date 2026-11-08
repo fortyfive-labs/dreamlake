@@ -1,9 +1,16 @@
 # Release notes
 
-## 0.42.2 — Artifact policy request typing
+## 0.43.1 — Artifact policy request typing
 
 Types mixed visibility/boolean metadata payloads explicitly and separates GET
 from POST request arguments. Latest-only sharing behavior is unchanged.
+
+## 0.43.0 — Source-bound Memo selection snapshots
+
+`memo.presence(selections=True)` optionally reads human selections resolved
+against the observed source hash. The roster reports inactive and unsupported
+states separately from an observed empty room; service failures still raise.
+The default read remains roster-only and never joins. See [Memos](memos.md).
 
 ## 0.42.1 — Latest-only artifact sharing
 
