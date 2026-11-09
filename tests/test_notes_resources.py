@@ -264,3 +264,33 @@ def test_presence_selection_snapshot_and_legacy_capability():
 def test_presence_failures_are_not_empty_rosters(status):
     with pytest.raises(NoteError):
         handle(lambda req: httpx.Response(status, json={'error': 'presence_unavailable'}, request=req)).presence(selections=True)
+
+@pytest.mark.parametrize('file_id', [FILE, None])
+def test_cover_metadata_only_and_acknowledgement(file_id):
+    calls = []
+    def handler(req):
+        calls.append(req)
+        row = {'id': ID, 'name': 'Cover', 'slug': 'cover', 'namespaceSlug': NS,
+               'permissions': {'rename': True}, 'coverFileId': file_id}
+        return httpx.Response(200, json=row, request=req)
+    result = handle(handler).set_cover(file_id=file_id)
+    assert result.cover_file_id == file_id
+    assert [(r.method, r.url.path) for r in calls] == [('GET', f'/notes/{ID}'), ('PATCH', f'/namespaces/{NS}/notes/{ID}')]
+    assert json.loads(calls[-1].content) == {'coverFileId': file_id}
+
+
+def test_cover_refuses_missing_permission_and_unconfirmed_clear():
+    from dreamlake.api.memos import MemoReadOnly, WriteOutcomeUnknown
+    calls = []
+    def denied(req):
+        calls.append(req)
+        return httpx.Response(200, json={'id': ID, 'namespaceSlug': NS, 'permissions': {'rename': False}}, request=req)
+    with pytest.raises(MemoReadOnly):
+        handle(denied).set_cover(file_id=FILE)
+    assert len(calls) == 1
+    def unconfirmed(req):
+        return httpx.Response(200, json={'id': ID, 'namespaceSlug': NS, 'permissions': {'rename': True}}, request=req)
+    with pytest.raises(WriteOutcomeUnknown):
+        handle(unconfirmed).set_cover(file_id=None)
+    with pytest.raises(ValueError):
+        handle(never).set_cover(file_id='invalid')

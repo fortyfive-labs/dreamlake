@@ -435,6 +435,7 @@ class MemoRef:
     #: Independent archival state; None for an active or legacy note.
     archived_at: str | None = None
     visibility: MemoVisibility | None = None
+    cover_file_id: str | None = None
 
     def open(self, *, client: DreamLakeClient | None = None) -> "Memo":
         return Memo(self.id, namespace=self.namespace, client=client)
@@ -662,6 +663,37 @@ class Memo:
                 confirmed = False
             if not confirmed:
                 raise WriteOutcomeUnknown("memo visibility update unconfirmed; read metadata before retrying")
+        return _ref(result, self._ns)
+
+    def set_cover(self, file_id: str | None) -> MemoRef:
+        """Set an existing image attachment as cover; None clears it, retaining bytes.
+
+        Changes metadata only. Never retries an unconfirmed write.
+        """
+        if file_id is not None and (not isinstance(file_id, str) or not _OBJECT_ID.fullmatch(file_id)):
+            raise ValueError("file_id must be a 24-hex attachment ID or None")
+        with self._client.http() as http:
+            current = http.get(f"/notes/{_seg(self._id)}", follow_redirects=False)
+            _raise_for(current, "read memo cover")
+            row = current.json()
+            if row.get("id") != self._id or row.get("namespaceSlug") != self._ns:
+                raise MemoError("memo identity changed; reopen it before updating the cover")
+            if row.get("permissions", {}).get("rename") is not True:
+                raise MemoReadOnly("not allowed to change memo cover")
+            try:
+                response = http.patch(self._base, json={"coverFileId": file_id}, follow_redirects=False)
+            except _UNCERTAIN_TRANSPORT as error:
+                raise WriteOutcomeUnknown("memo cover update unconfirmed; read metadata before retrying") from error
+            _raise_for(response, "set memo cover")
+            try:
+                result = response.json()
+                confirmed = (isinstance(result, dict) and result.get("id") == self._id
+                             and result.get("namespaceSlug", self._ns) == self._ns
+                             and "coverFileId" in result and result["coverFileId"] == file_id)
+            except ValueError:
+                confirmed = False
+            if not confirmed:
+                raise WriteOutcomeUnknown("memo cover update unconfirmed; read metadata before retrying")
         return _ref(result, self._ns)
 
     def _set_archived(self, archived: bool) -> MemoRef:
@@ -1561,6 +1593,7 @@ def _ref(row: dict[str, Any], namespace: str, shared_by: str | None = None) -> M
         updated_at=row.get("updatedAt"),
         archived_at=row.get("archivedAt"),
         visibility=row.get("visibility"),
+        cover_file_id=row.get("coverFileId"),
         shared_by=shared_by,
         matches=tuple(
             SectionMatch(

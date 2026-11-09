@@ -983,6 +983,10 @@ class MemoHandle:
             raise ValueError("slug must be a nonempty string")
         return self._target().permalink(slug=slug)
 
+    def set_cover(self, *, file_id: str | None) -> MemoRef:
+        """Set an existing image attachment as cover, or None to remove it."""
+        return self._target().set_cover(file_id)
+
     def set_visibility(self, *, visibility: MemoVisibility) -> MemoRef:
         """Change visibility only; preserve content, history, and existing share links."""
         if visibility not in ("private", "public", "unlisted"):
