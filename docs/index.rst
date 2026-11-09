@@ -40,6 +40,7 @@ Python SDK for ML experiment tracking and data storage.
    release-notes
    runs
    providers
+   cict
    api/runnables
    api/artifacts
    api/annotations

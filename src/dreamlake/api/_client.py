@@ -155,6 +155,12 @@ class DreamLakeClient:
         return Providers(self)
 
     @property
+    def cict(self):
+        """CI/CT through GitHub Actions: GitHub connection, runner pools and runs."""
+        from .cict import Cict
+        return Cict(self)
+
+    @property
     def runs(self):
         """Tracked execution through the account-authenticated main API."""
         from .runs import Runs
