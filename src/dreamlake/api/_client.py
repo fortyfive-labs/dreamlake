@@ -161,6 +161,12 @@ class DreamLakeClient:
         return Experiments(self)
 
     @property
+    def sessions(self):
+        """Read Codex/Claude registry metadata without starting or attaching."""
+        from .sessions import Sessions
+        return Sessions(self)
+
+    @property
     def hosts(self):
         """Host enrollment, input validation, and status using this account."""
         from .hosts import Hosts
