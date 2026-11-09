@@ -1,5 +1,13 @@
 # Release notes
 
+## 0.45.0 — Saved session registry reads
+
+`client.sessions` reads saved Codex/Claude/DreamLake agent session metadata,
+searches titles or the existing broad scope, and preserves pagination, durable
+attention, observation timestamps and exact host/enrollment bindings. Explicit
+namespace and registry IDs select reads; no method starts or attaches a process.
+See [Saved sessions](sessions.md) for supported routes and boundaries.
+
 ## 0.44.0 — Memo cover images
 
 `MemoRef.cover_file_id` and `memo.set_cover(file_id=...)` expose cover metadata.
