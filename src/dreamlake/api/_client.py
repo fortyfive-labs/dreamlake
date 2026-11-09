@@ -161,6 +161,12 @@ class DreamLakeClient:
         return Experiments(self)
 
     @property
+    def agent(self):
+        """Stream turns through the built-in agent's existing server harness."""
+        from .agent import Agent
+        return Agent(self)
+
+    @property
     def sessions(self):
         """Read Codex/Claude registry metadata without starting or attaching."""
         from .sessions import Sessions
