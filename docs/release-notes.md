@@ -1,5 +1,12 @@
 # Release notes
 
+## 0.44.0 — Memo cover images
+
+`MemoRef.cover_file_id` and `memo.set_cover(file_id=...)` expose cover metadata.
+Set an existing image attachment ID or clear with `None`, preserving body and
+live collaboration. Permission preflight and exact acknowledgement checks prevent
+unsupported or unconfirmed writes from being reported as success.
+
 ## 0.43.1 — Artifact policy request typing
 
 Types mixed visibility/boolean metadata payloads explicitly and separates GET

@@ -117,3 +117,22 @@ Offsets are Unicode code points at `selection_hash`. A collapsed selection is a
 caret. The preview may be truncated; selection data does not prove attention or
 human edit authorship. Use `memo.diff(since=prior_revision)` for recent source
 changes and retain the normal source snapshot/revision guards for edits.
+
+## Cover images
+
+From Python 0.44.0, set a memo's header cover independently of its collaborative
+body. Upload an image through the existing attachment API, then select its ID:
+
+```python
+memo = dl.memos("team/<memo-id>")
+image = memo.files.upload("cover.png", path="covers/cover.png")
+memo.set_cover(file_id=image.id)
+assert memo.metadata().cover_file_id == image.id
+memo.set_cover(file_id=None)  # Clear the header; retain the attachment.
+```
+
+Only an existing live image attachment from this memo may be selected. The
+server enforces metadata management permission. Readers receive the same cover
+metadata; images remain subject to memo access. An unconfirmed write raises
+`WriteOutcomeUnknown`; inspect metadata before retrying. No body write, history
+reset or collaboration-room replacement is involved.
