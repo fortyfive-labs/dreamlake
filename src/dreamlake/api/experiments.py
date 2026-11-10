@@ -141,7 +141,9 @@ class Experiments:
                              params={"limit": limit, **({"cursor": cursor} if cursor is not None else {})})
 
     def delete_run(self, namespace: str, project: str, run_id: str) -> dict:
-        """Move a terminal run to trash; running runs must finish first."""
+        """Move a run to trash. Lifecycle-enabled servers also allow running runs;
+        older servers require a terminal run.
+        """
         return self._request("DELETE", self._base(namespace, project) + f"/runs/{self._run_id(run_id)}")["experiment"]
 
     def restore_deleted(self, namespace: str, project: str, run_id: str) -> dict:
