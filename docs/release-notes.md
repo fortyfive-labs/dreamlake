@@ -1,5 +1,11 @@
 # Release notes
 
+## 0.45.1 — Native experiment upload filenames
+
+Native experiment file uploads preserve Unicode, quotes and literal percent
+sequences in filenames using extended multipart filenames. File bytes and
+integrity checks are unchanged.
+
 ## 0.45.0 — Saved session registry reads
 
 `client.sessions` reads saved Codex/Claude/DreamLake agent session metadata,
