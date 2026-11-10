@@ -37,6 +37,14 @@ pip install dreamlake==0.46.1
 </tr>
 </table>
 
+## Project permissions
+
+Python SDK 0.46.1 supports Workspace/Restricted Project policy, atomic restricted
+creation and direct user/team grants. See the
+[Project API reference](https://github.com/fortyfive-labs/dreamlake/blob/main/docs/api/projects.md)
+for tested examples and the effective-audience boundary. Interactive terminal
+management is provided by standalone CLI 0.117.0+, through `dl project permissions`.
+
 ## Agent definitions
 
 Python 0.40.0 includes `DreamLakeClient.runnables` for creating and managing

@@ -37,10 +37,12 @@ Web use and does not replace the server's authorization checks.
 
 ## Workspace or restricted Project access
 
-The following methods require the companion Project-access-policy backend.
-They are new SDK source APIs; merging these docs does not prove a package or
-server release. Existing `inspect`, `grants`, `grant` and `revoke` calls remain
-compatible.
+These methods are published in SDK 0.46.1 and require the compatible
+Project-access-policy backend (production revision `d0efbb75` or later compatible
+code). The public 0.46.1 package was verified against that API. Existing `inspect`,
+`grants`, `grant` and `revoke` calls remain compatible. Check server capability
+when using a different environment; a package version alone does not prove server
+support.
 
 ```python
 from dreamlake import DreamLakeClient
@@ -234,3 +236,17 @@ Use `client.projects.attach(namespace, project, "runnable", agent_id)` to file
 an existing runnable definition, and `detach` to remove its filing. The
 resource ID is the runnable database ID. Creating an agent with `projects`
 can create its filings atomically; see [Agents and runnable definitions](runnables.md).
+
+## Effective audience and other interfaces
+
+`grants()` returns direct grants and baseline metadata, not a list of every person
+with access. This SDK has no dedicated whole-audience helper. Use the authenticated
+REST `GET /namespaces/:namespace/projects/:project/audience` or CLI 0.117.0+
+`dl project audience PROJECT --namespace ORG --json`; current Project ADMIN is
+required and an over-limit inventory fails closed instead of returning partial
+results. The keyboard manager is `dl project permissions`.
+
+For the deployed REST, GraphQL, built-in tool and local MCP boundaries, see
+[Project interface coverage](https://docs.dreamlake.ai/workspaces/project-access#interface-coverage).
+Namespace owners retain ADMIN/recovery. Independent resource shares remain
+separate, and revoking one grant leaves any other surviving access paths.
