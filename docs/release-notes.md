@@ -1,5 +1,15 @@
 # Release notes
 
+## 0.46.0 — Restricted Project access
+
+`client.projects.access` and `client.projects.set_access` inspect and change
+Workspace/Restricted baseline policy. `create(..., access_mode="restricted")`
+requires advertised atomic-create support before creating a private Project.
+Unsupported contracts fail closed; uncertain mutation outcomes are not retried.
+Restricted mode removes organization-member READ, while explicit user/team
+grants and namespace-owner ADMIN recovery remain. Independent resource shares
+remain separate. Requires the compatible Project access backend.
+
 ## 0.45.1 — Native experiment upload filenames
 
 Native experiment file uploads preserve Unicode, quotes and literal percent
