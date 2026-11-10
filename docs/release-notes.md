@@ -1,6 +1,6 @@
 # Release notes
 
-## 0.46.0 — Restricted Project access
+## 0.46.1 — Restricted Project access
 
 `client.projects.access` and `client.projects.set_access` inspect and change
 Workspace/Restricted baseline policy. `create(..., access_mode="restricted")`
@@ -9,6 +9,13 @@ Unsupported contracts fail closed; uncertain mutation outcomes are not retried.
 Restricted mode removes organization-member READ, while explicit user/team
 grants and namespace-owner ADMIN recovery remain. Independent resource shares
 remain separate. Requires the compatible Project access backend.
+
+## 0.46.0 — Native experiment recording
+
+Adds complete native recording through `Experiment` and
+`client.experiments.project(...).run(...)`, including Tracks, Bindrs, folders,
+project files, writer management and job submission. The general Episode API
+and historical managed writer remain available. See [Native Experiments](native-experiments.md).
 
 ## 0.45.1 — Native experiment upload filenames
 

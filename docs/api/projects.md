@@ -1,5 +1,7 @@
 # Project grants and attachments
 
+Project policy and atomic Restricted creation require SDK 0.46.1+ and a compatible backend.
+
 Available in Python SDK 0.29.0 with the companion Project-sharing backend release.
 Project visibility alone does not expose private resources. Explicit grants include
 current and future attached content; independent resource sharing remains valid.
