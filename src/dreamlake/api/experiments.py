@@ -50,6 +50,20 @@ class Experiments:
     def __init__(self, client):
         self._client = client
 
+    def project(self, namespace: str, project: str):
+        """All native Dash operations scoped to one DreamLake project."""
+        from .experiment_project import ExperimentProject
+        return ExperimentProject(self, namespace, project)
+
+    def run(self, namespace: str | None = None, project: str | None = None, key: str | None = None, **options):
+        """Record a native run, or use the worker's pinned run when called without arguments."""
+        if namespace is None and project is None and key is None:
+            from dreamlake.experiments import Experiment
+            return Experiment(**options)
+        if not namespace or not project or not key:
+            raise ValueError("namespace, project and key must be provided together")
+        return self.project(namespace, project).run(key, **options)
+
     @staticmethod
     def _base(namespace: str, project: str) -> str:
         for name, value in (("namespace", namespace), ("project", project)):
@@ -218,33 +232,11 @@ class Experiments:
 
         Returns the server's file record. ``name`` overrides the stored filename.
         """
-        filename = name if name is not None else os.path.basename(os.fspath(path))
-        if not filename or "/" in filename or "\\" in filename:
-            raise ValueError("file name must be a nonempty single segment")
-        with open(path, "rb") as fh:
-            content = fh.read()
-        fields = {"sizeBytes": str(len(content)), "checksum": hashlib.sha256(content).hexdigest(), "prefix": prefix}
-        if description is not None:
-            fields["description"] = description
-        if tags:
-            fields["tags"] = ",".join(tags)
-        if metadata is not None:
-            fields["metadata"] = json.dumps(metadata)
-        ctype = mimetypes.guess_type(filename)[0] or "application/octet-stream"
-        # httpx's HTML form encoder changes a quote in a filename to literal
-        # %22. Use an extended filename so the server receives the original name,
-        # while retaining an ASCII fallback and fields before the file part.
-        boundary = "dreamlake-" + uuid.uuid4().hex
-        parts = []
-        for key, value in fields.items():
-            parts.append(f'--{boundary}\r\nContent-Disposition: form-data; name="{key}"\r\n\r\n{value}\r\n'.encode())
-        fallback = "".join(c if 32 <= ord(c) < 127 and c not in '\\"' else "_" for c in filename)
-        parts.append((f'--{boundary}\r\nContent-Disposition: form-data; name="file"; filename="{fallback}"; '
-                      f"filename*=UTF-8''{quote(filename, safe='')}\r\nContent-Type: {ctype}\r\n\r\n").encode())
-        parts.extend([content, f"\r\n--{boundary}--\r\n".encode()])
+        from ._experiment_upload import file_upload
+        content, headers = file_upload(path, name=name, prefix=prefix, description=description,
+                                       tags=tags, metadata=metadata)
         return self._request("POST", self._base(namespace, project) + f"/runs/{self._run_id(run_id)}/files",
-                             content=b"".join(parts), headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
-                             retry_conflicts=retry_conflicts)
+                             content=content, headers=headers, retry_conflicts=retry_conflicts)
 
     def list_files(self, namespace: str, project: str, run_id: str, *, prefix: str | None = None,
                    tags: list[str] | None = None) -> dict:

@@ -1,0 +1,3 @@
+from dreamlake.config import DEFAULT_REMOTE_URL
+
+DEFAULT_API_URL = DEFAULT_REMOTE_URL

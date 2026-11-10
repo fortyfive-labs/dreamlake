@@ -874,3 +874,13 @@ NoteSnapshot = MemoSnapshot  # Deprecated compatibility name.
 NoteRef = MemoRef  # Deprecated compatibility name.
 Note = Memo  # Deprecated compatibility name.
 __all__ += ["Memo", "MemoRef", "MemoSnapshot", "MemoError", "MemoNotFound", "MemoChanged", "MemoBusy", "MemoReadOnly", "Memos", "MemoHandle", "MemoVersions", "MemoCreatedWithoutSource", "memo", "create_memo", "list_memos", "search_memos", "grep_memos", "memos"]
+
+# Complete native experiment recording, alongside the general Episode API.
+from .experiments import Experiment, NativeConnection, NativeExperimentError, JobLifecycle, RUN, experiment
+__all__ += ["Experiment", "NativeConnection", "NativeExperimentError", "JobLifecycle", "RUN", "experiment"]
+
+from .experiments import NativeLocalStorage, MetricColumn, MetricRowBlock, MetricRowsPage
+__all__ += ["NativeLocalStorage", "MetricColumn", "MetricRowBlock", "MetricRowsPage"]
+
+from .experiments import ExperimentError, MetricRowsError, ConfigurationError, NetworkError, StorageError, AuthenticationError, ExperimentRecordingError
+__all__ += ["ExperimentError", "MetricRowsError", "ConfigurationError", "NetworkError", "StorageError", "AuthenticationError", "ExperimentRecordingError"]
