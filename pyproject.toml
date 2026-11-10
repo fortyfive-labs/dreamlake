@@ -1,6 +1,6 @@
 [project]
 name = "dreamlake"
-version = "0.45.1"
+version = "0.46.0"
 description = "ML experiment tracking and data storage"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -37,6 +37,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+video = ["imageio[ffmpeg]>=2.31", "scikit-image>=0.22"]
 auth = [
     "keyring>=25.0.0",
     "cryptography>=42.0.0",

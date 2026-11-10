@@ -23,14 +23,14 @@ A simple and flexible SDK for ML experiment tracking and data storage.
 <td>
 
 ```shell
-uv add dreamlake@0.45.1
+uv add dreamlake@0.46.0
 ```
 
 </td>
 <td>
 
 ```shell
-pip install dreamlake==0.45.1
+pip install dreamlake==0.46.0
 ```
 
 </td>
@@ -137,7 +137,7 @@ See [examples/](examples/) for more complete examples.
 
 ## Native Experiment client
 
-`DreamLakeClient(token=...).experiments` logs runs directly to a project (create run, parameters, metrics, files, status, metric read-back, typed errors with `status`/`code`/`body`, opt-in `retry_conflicts`). See [docs/native-experiments.md](docs/native-experiments.md) for a complete example.
+`DreamLakeClient().experiments.project(namespace, project)` provides complete native experiment recording (`with project.run(key)`), parameters, logs, metrics, Tracks, files, Bindrs, folders, writers and jobs. `Experiment` also records locally or through a job reporting broker. See [docs/native-experiments.md](docs/native-experiments.md).
 
 ## Dash writer
 

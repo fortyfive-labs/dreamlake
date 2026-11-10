@@ -1,0 +1,1717 @@
+"""
+Experiment recording for the DreamLake SDK.
+
+Supports three usage styles:
+1. Decorator: @experiment(...)
+2. Context manager: with Experiment(...).run as exp:
+3. Direct instantiation: exp = Experiment(...)
+"""
+
+import functools
+import logging
+import math
+import numbers
+import os
+import re
+import sys
+import threading
+import time
+import warnings
+from datetime import datetime, timezone
+from enum import Enum
+from pathlib import Path
+from typing import Any, Callable, Dict, List, Optional, Union
+
+from .auth.exceptions import AuthenticationError
+from .buffer import BackgroundBufferManager, BufferConfig
+from .client import RemoteClient
+from .exceptions import ConfigurationError, ExperimentError, NetworkError, StorageError
+from .files import BindrsBuilder, FilesAccessor
+from .job_lifecycle import JobLifecycle
+from .log import LogBuilder, LogLevel
+from .metric_rows import MetricRowsPage
+from .params import ParametersBuilder
+from .run import RUN, requires_open
+from .storage import LocalStorage
+
+_logger = logging.getLogger("dreamlake.experiments")
+
+
+def _expand_exp_template(template: str) -> str:
+  """
+  Expand {EXP.attr} placeholders in template string.
+
+  Handles both regular attributes and property descriptors on the EXP class.
+
+  Args:
+      template: String containing {EXP.attr} placeholders
+
+  Returns:
+      String with placeholders expanded to actual values
+  """
+  def replace_match(match: re.Match) -> str:
+    attr_name = match.group(1)
+    # Get the attribute from the class __dict__, handling properties correctly
+    # EXP is a params_proto class where properties are stored in EXP.__dict__
+    attr = RUN.__dict__.get(attr_name)
+    if isinstance(attr, property):
+      # For properties, call the getter with EXP as self
+      return str(attr.fget(RUN))
+    else:
+      # For regular attributes, access via getattr
+      return str(getattr(RUN, attr_name))
+
+  # Match {EXP.attr_name} pattern
+  pattern = r"\{EXP\.(\w+)\}"
+  return re.sub(pattern, replace_match, template)
+
+
+def _non_finite_field(value: Any, path: str = "") -> Optional[str]:
+  """Return the path of the first NaN/inf number in value (dicts, lists, numpy), else None."""
+  if isinstance(value, bool):
+    return None
+  if isinstance(value, numbers.Real):
+    return None if math.isfinite(value) else path
+  if isinstance(value, dict):
+    for key, item in value.items():
+      found = _non_finite_field(item, f"{path}.{key}" if path else str(key))
+      if found is not None:
+        return found
+    return None
+  if isinstance(value, (list, tuple)):
+    for index, item in enumerate(value):
+      found = _non_finite_field(item, f"{path}[{index}]")
+      if found is not None:
+        return found
+    return None
+  if hasattr(value, "tolist"):  # numpy arrays and scalars
+    return _non_finite_field(value.tolist(), path)
+  return None
+
+
+from dreamlake.episode import OperationMode
+
+
+class Experiment:
+  """
+  Record a DreamLake experiment locally or in a native DreamLake project.
+
+  Prefix format: {owner}/{project}/path.../[name]
+    - owner: First segment (e.g., your username)
+    - project: Second segment (e.g., project name)
+    - path: Remaining segments form the folder structure
+    - name: Derived from last segment (may be a seed/id)
+
+  Usage examples:
+
+  # Local mode (default)
+  experiment = Experiment(prefix="ge/my-project/experiments/exp1")
+
+  # Custom local storage directory
+  experiment = Experiment(
+      prefix="ge/my-project/experiments/exp1",
+      dash_root=".dash"
+  )
+
+  # Remote mode with custom server
+  experiment = Experiment(
+      prefix="ge/my-project/experiments/exp1",
+      dash_url="https://custom-server.com"
+  )
+
+  # Context manager
+  with Experiment(prefix="ge/my-project/exp1").run as exp:
+      exp.logs.info("Training started")
+
+  # Decorator
+  @experiment(prefix="ge/ws/experiments/exp", dash_url="https://api.dreamlake.ai")
+  def train():
+      ...
+  """
+
+  run: RUN
+  """
+  Get the RunManager for lifecycle operations.
+
+  Usage:
+      # Method calls
+      experiment.run.start()
+      experiment.run.complete()
+
+      # Context manager
+      with Experiment(...).run as exp:
+          exp.log("Training...")
+
+      # Decorator
+      @experiment.run
+      def train(exp):
+          exp.log("Training...")
+
+  Returns:
+      RunManager instance
+  """
+
+  def __init__(
+    self,
+    prefix: Optional[str] = None,
+    *,
+    readme: Optional[str] = None,
+    # Instance-only: not propagated to the RUN namespace
+    tags: Optional[List[str]] = None,
+    # Instance-only: not propagated to the RUN namespace
+    bindrs: Optional[List[str]] = None,
+    # Instance-only: not propagated to the RUN namespace
+    metadata: Optional[Dict[str, Any]] = None,
+    # Explicit application lifecycle for an existing DreamLake job attempt.
+    job_lifecycle: Optional[JobLifecycle] = None,
+    # Mode configuration
+    dash_url: Optional[Union[str, bool]] = None,
+    dash_root: Optional[str] = ".dreamlake/experiments",
+    managed=None,
+    connection=None,
+    url=None,
+    root=...,
+    # Deprecated parameters (for backward compatibility)
+    remote: Optional[Union[str, bool]] = None,
+    local_path: Optional[str] = None,
+    # Internal parameters
+    _write_protected: bool = False,
+    # The rest of the params go directly to populate the RUN object.
+    **run_params,
+  ):
+    """
+    Initialize a DreamLake experiment.
+
+    Args:
+        prefix: Full experiment path like "owner/project/folder.../name" (defaults to DASH_PREFIX env var).
+                Format: {owner}/{project}/path.../[name]
+                - owner: First segment (e.g., username)
+                - project: Second segment (e.g., project name)
+                - path: Remaining segments form the folder path
+                - name: Derived from last segment (may be a seed/id, not always meaningful)
+        readme: Optional experiment readme/description
+        tags: Optional list of tags
+        bindrs: Optional list of bindrs
+        metadata: Optional metadata dict
+        job_lifecycle: Explicit, durably journaled DreamLake job/attempt reporter.
+        dash_url: Remote API URL. True=use EXP.API_URL, str=custom URL, None=no remote. Uses the existing DreamLake login
+        dash_root: Local storage root path (defaults to ".dreamlake/experiments"). Set to None for remote-only mode.
+        connection: A ``NativeConnection`` for DreamLake-native runs.
+                    Prefix is ``namespace/project/run``. ``managed`` is a compatibility alias.
+        remote: (Deprecated) Use dash_url instead
+        local_path: (Deprecated) Use dash_root instead
+        _write_protected: Internal parameter - if True, experiment becomes immutable after creation
+
+    Mode Selection:
+        - Default (no dash_url): Local-only mode (writes to ".dreamlake/experiments/")
+        - dash_url + dash_root: Hybrid mode (local + remote)
+        - dash_url + dash_root=None: Remote-only mode
+    """
+    if connection is not None:
+      if managed is not None:
+        raise ValueError("Pass connection or managed, not both")
+      managed = connection
+    if url is not None:
+      if dash_url is not None:
+        raise ValueError("Pass url or dash_url, not both")
+      dash_url = url
+    if root is not Ellipsis:
+      dash_root = root
+
+    # A worker-provided broker is authoritative, including malformed/partial
+    # environment configuration. Never fall back to standalone or local auth.
+    if any(key in os.environ for key in ('DREAMLAKE_EXPERIMENT_BROKER', 'DREAMLAKE_EXPERIMENT_BROKER_TOKEN')):
+      from .native_job import JobNativeConnection as JobManagedConnection
+      if dash_url is not None or remote is not None or local_path is not None or dash_root not in (None, ".dash", ".dreamlake/experiments"):
+        raise ValueError("Job experiment cannot use standalone server or local storage options")
+      if managed is not None and not isinstance(managed, JobManagedConnection):
+        raise ValueError("Job experiment cannot use another managed connection")
+      owns_job_connection = managed is None
+      managed = managed if managed is not None else JobManagedConnection()
+      if not managed.matches_job_environment():
+        raise ValueError("Job experiment broker must match the worker environment")
+      if prefix is not None and prefix != managed.prefix:
+        if owns_job_connection:
+          managed.client().close()
+        raise ValueError("Job experiment prefix must match the platform run")
+      prefix = managed.prefix
+
+    # Handle backward compatibility
+    if remote is not None:
+      warnings.warn(
+        "Parameter 'remote' is deprecated. Use 'dash_url' instead.",
+        DeprecationWarning,
+        stacklevel=2,
+      )
+      if dash_url is None:
+        dash_url = remote
+
+    if local_path is not None:
+      warnings.warn(
+        "Parameter 'local_path' is deprecated. Use 'dash_root' instead.",
+        DeprecationWarning,
+        stacklevel=2,
+      )
+      if dash_root in (".dash", ".dreamlake/experiments"):  # Only override if dash_root is default
+        dash_root = local_path
+
+    if prefix:
+      run_params["prefix"] = prefix
+
+    # Must be set before RUN() so the _is_open_fn lambda resolves on construction.
+    self._is_open = False
+    self.run = RUN(
+      _open_fn=self._open,
+      _close_fn=self._close,
+      _is_open_fn=lambda: self._is_open,
+      **run_params,
+    )
+
+    self.readme = readme
+    self.tags = tags
+    self._bindrs_list = bindrs
+    self._write_protected = _write_protected
+    self.metadata = metadata
+    self._managed_connection = managed
+    self._job_lifecycle = job_lifecycle
+
+    # Determine operation mode
+    # dash_root defaults to ".dash", dash_url defaults to None
+    if dash_url and dash_root:
+      self.mode = OperationMode.HYBRID
+    elif dash_url:
+      self.mode = OperationMode.REMOTE
+    else:
+      self.mode = OperationMode.LOCAL
+
+    # Initialize backend
+    self._experiment_id: Optional[str] = None
+    self._experiment_data: Optional[Dict[str, Any]] = None
+    self._metrics_manager: Optional["MetricsManager"] = None  # Cached metrics manager
+    self._tracks_manager: Optional["TracksManager"] = None  # Cached tracks manager
+    self._client: Optional["RemoteClient"] = None
+    self._storage: Optional["LocalStorage"] = None
+
+    # Initialize buffer manager
+    self._buffer_config = BufferConfig.from_env()
+    self._buffer_manager: Optional[BackgroundBufferManager] = None
+
+    # Track timestamp inheritance for _ts=-1 support (thread-local for safety)
+    self._ts_local = threading.local()
+    self._track_last_auto_timestamp: float = 0.0  # Ensure unique auto-generated timestamps
+    self._track_timestamp_lock = threading.Lock()
+
+    if managed is not None:
+      if dash_url is not None or remote is not None or local_path is not None or dash_root not in (None, ".dash", ".dreamlake/experiments"):
+        raise ValueError("managed cannot be combined with standalone server or local storage options")
+      self.mode = OperationMode.REMOTE
+      self._client = managed.client()
+
+    if managed is None and self.mode in (OperationMode.REMOTE, OperationMode.HYBRID):
+      # Select the existing DreamLake login for this API origin.
+      # Use RUN.api_url if dash_url=True (boolean), otherwise use the provided URL
+      api_url = RUN.api_url if dash_url is True else dash_url
+      from .native import NativeConnection
+      self._managed_connection = NativeConnection.from_login(self.run.owner, self.run.project, dreamlake_url=api_url, auto_create_project=True)
+      self._client = self._managed_connection.client()
+
+    if self.mode in (OperationMode.LOCAL, OperationMode.HYBRID):
+      self._storage = LocalStorage(root_path=Path(dash_root))
+
+  def __enter__(self):
+    return self.run.__enter__()
+
+  def __exit__(self, exc_type, exc_val, exc_tb):
+    return self.run.__exit__(exc_type, exc_val, exc_tb)
+
+  @property
+  def connection(self):
+    """The native project connection (or the worker's pinned broker connection)."""
+    return self._managed_connection
+
+  @property
+  def writer_id(self):
+    """Registered writer metadata ID, if this interactive run registered one."""
+    return getattr(self._client, 'workload_id', None)
+
+  @property
+  def _last_timestamp(self) -> Optional[float]:
+    return getattr(self._ts_local, 'last_timestamp', None)
+
+  @_last_timestamp.setter
+  def _last_timestamp(self, value: Optional[float]) -> None:
+    self._ts_local.last_timestamp = value
+
+  def _open(self) -> "Experiment":
+    """
+    Open the experiment (create or update on server/filesystem).
+
+    Returns:
+        self for chaining
+    """
+    if self._is_open:
+      return self
+
+    if self._job_lifecycle:
+      self._job_lifecycle.start()
+
+    self._open_remote()
+    self._open_local()
+    self._start_buffer()
+
+    self._is_open = True
+    return self
+
+  def _open_remote(self) -> None:
+    """Create or update experiment on the remote server."""
+    if not self._client:
+      return
+
+    try:
+      response = self._client.create_or_update_experiment(
+        project=self.run.project,
+        name=self.run.name,
+        description=self.readme,
+        tags=self.tags,
+        bindrs=self._bindrs_list,
+        prefix=self.run._folder_path,
+        write_protected=self._write_protected,
+        metadata=self.metadata,
+      )
+      self._experiment_data = response
+      self._experiment_id = response["experiment"]["id"]
+      self._print_startup_banner()
+
+    except Exception as e:
+      if isinstance(e, AuthenticationError):
+        self._print_auth_error()
+      raise
+
+  def _open_local(self) -> None:
+    """Create experiment directory structure in local storage."""
+    if not self._storage:
+      return
+
+    self._storage.create_experiment(
+      project=self.run.project,
+      prefix=self.run._folder_path,
+      description=self.readme,
+      tags=self.tags,
+      bindrs=self._bindrs_list,
+      metadata=self.metadata,
+    )
+
+  def _start_buffer(self) -> None:
+    """Start the background buffer manager if buffering is enabled."""
+    if self._buffer_config.buffer_enabled:
+      self._buffer_manager = BackgroundBufferManager(self, self._buffer_config)
+      self._buffer_manager.start()
+
+  def _view_url(self) -> Optional[str]:
+    if self._managed_connection is None:
+      return None
+    base = self._managed_connection._experiment_url
+    if not base:
+      return None
+    from urllib.parse import urlsplit, urlencode, urlunsplit, parse_qsl
+    parts = urlsplit(base)
+    query = dict(parse_qsl(parts.query))
+    query['run'] = str(self._experiment_id)
+    return urlunsplit(parts._replace(query=urlencode(query)))
+
+  def _print_startup_banner(self) -> None:
+    """Print experiment started message with URL after successful remote open."""
+    if self._managed_connection is not None:
+      connection = self._managed_connection
+      destination = self._view_url() or f'DreamLake project {connection.namespace}/{connection.project} (page URL unavailable)'
+      print(f"Experiment started: {destination}")
+      return
+    experiment_url = self._view_url() or self.run.prefix
+    try:
+      from rich.console import Console
+
+      console = Console()
+      console.print(
+        f"[dim]✓ Experiment started: [bold]{self.run.name}[/bold] (project: {self.run.project})[/dim]\n"
+        f"[dim]View your data, statistics, and plots online at:[/dim] "
+        f"[link={experiment_url}]{experiment_url}[/link]"
+      )
+    except ImportError:
+      print(f"✓ Experiment started: {self.run.name} (project: {self.run.project})")
+      print(f"View your data at: {experiment_url}")
+
+  def _print_auth_error(self) -> None:
+    """Print authentication error message and instructions."""
+    try:
+      from rich.console import Console
+      from rich.panel import Panel
+
+      console = Console()
+      message = (
+        "[bold red]Authentication Required[/bold red]\n\n"
+        "You need to authenticate before using remote experiments.\n\n"
+        "[bold]To authenticate:[/bold]\n"
+        "  [cyan]dreamlake login[/cyan]\n\n"
+        "[dim]This will open your browser for secure OAuth2 authentication.\n"
+        "Your token will be stored securely in your system keychain.[/dim]\n\n"
+        "[bold]Alternative:[/bold]\n"
+        "  Use [cyan]local_path[/cyan] instead of [cyan]remote[/cyan] for offline experiments"
+      )
+      panel = Panel(
+        message,
+        title="[bold yellow]⚠ Not Authenticated[/bold yellow]",
+        border_style="yellow",
+        expand=False,
+      )
+      console.print("\n")
+      console.print(panel)
+      console.print("\n")
+    except ImportError:
+      print("\n" + "=" * 60)
+      print("⚠ Authentication Required")
+      print("=" * 60)
+      print("\nYou need to authenticate before using remote experiments.\n")
+      print("To authenticate:")
+      print("  dreamlake login\n")
+      print("Alternative:")
+      print("  Use local_path instead of remote for offline experiments\n")
+      print("=" * 60 + "\n")
+
+  def _close(self, status: str = "COMPLETED"):
+    """
+    Internal method to close the experiment and update status.
+
+    If buffered data cannot all be sent, a requested COMPLETED is written as
+    FAILED (FAILED and CANCELLED are kept) and the flush error is raised.
+
+    Args:
+        status: Status to set - "COMPLETED" (default), "FAILED", or "CANCELLED"
+    """
+    self._report_unsummarized_metrics()
+
+    # Flush and stop buffer BEFORE status update
+    flush_error = None
+    if self._buffer_manager:
+      try:
+        self._buffer_manager.stop()
+      except Exception as e:
+        flush_error = e
+        if status == "COMPLETED":
+          status = "FAILED"
+
+    # Explicit application evidence precedes the unrelated experiment PATCH.
+    # Preserve the existing completion-to-failure rule for a failed buffer flush.
+    if self._job_lifecycle:
+      # A lost terminal ACK (or later experiment PATCH failure) must not leave
+      # this instance open: a subsequent start must check the durable terminal
+      # guard before allowing another application body to run.
+      self._is_open = False
+      {"COMPLETED": self._job_lifecycle.complete,
+       "FAILED": self._job_lifecycle.fail,
+       "CANCELLED": self._job_lifecycle.cancel}[status]()
+
+    # A compute task's terminal state comes from the execution receipt. Closing
+    # a logging scope cannot mark a still-running or cancelled process complete.
+    platform_status = bool(getattr(self._managed_connection, 'platform_controls_status', False))
+    if platform_status:
+      print(f"Experiment reporting scope closed; task status is tracked by DreamLake. Results: {self._view_url()}")
+
+    # Update experiment status in ordinary remote mode.
+    if self._client and self._experiment_id and not platform_status:
+      try:
+        self._client.update_experiment_status(
+          experiment_id=self._experiment_id, status=status
+        )
+
+        # Display completion message with link to view results
+        status_emoji = {"COMPLETED": "✓", "FAILED": "✗", "CANCELLED": "⊘"}.get(
+          status, "•"
+        )
+
+        status_color = {
+          "COMPLETED": "green",
+          "FAILED": "red",
+          "CANCELLED": "yellow",
+        }.get(status, "white")
+
+        try:
+          from rich.console import Console
+          from dreamlake import __version__
+
+          console = Console()
+          experiment_url = self._view_url()
+          result_link = f"[link={experiment_url}]{experiment_url}[/link]" if experiment_url else 'Open the project Experiments page in DreamLake.'
+          console.print(
+            f"[{status_color}]{status_emoji} Experiment {status.lower()}: "
+            f"[bold]{self.run.name}[/bold] (project: {self.run.project})[/{status_color}]\n"
+            f"[dim]View results, statistics, and plots online at:[/dim] "
+            f"{result_link}\n"
+            f"[dim]DreamLake version: {__version__}[/dim]"
+          )
+        except ImportError:
+          # Fallback if rich is not available
+          from dreamlake import __version__
+
+          experiment_url = self._view_url()
+          print(
+            f"{status_emoji} Experiment {status.lower()}: {self.run.name} (project: {self.run.project})"
+          )
+          print(f"View results at: {experiment_url}" if experiment_url else 'Open the project Experiments page in DreamLake.')
+          print(f"DreamLake version: {__version__}")
+
+      except Exception as e:
+        if flush_error is not None:
+          self._is_open = False
+          raise NetworkError(
+            f"{flush_error}\n"
+            f"Also failed to update experiment status to {status}: {type(e).__name__}: {e}"
+          ) from flush_error
+        # Raise on status update failure
+        raise NetworkError(
+          f"Failed to update experiment status to {status}: {e}\n"
+          f"Experiment may not be marked as {status.lower()} on the server."
+        ) from e
+
+    self._is_open = False
+
+    if flush_error is not None:
+      if self._client and self._experiment_id and not platform_status:
+        raise NetworkError(f"{flush_error}\nExperiment status set to {status}.") from flush_error
+      raise flush_error
+
+  def _report_unsummarized_metrics(self) -> None:
+    """
+    Log values stored for a summary but never summarized; close does not send them.
+
+    Logged, not warnings.warn(): a warnings-as-errors filter must not stop close.
+    """
+    manager = self._metrics_manager
+    if manager is None:
+      return
+
+    pending = []
+    if manager._buffer_manager is not None:
+      for prefix, keys in manager._buffer_manager._buffers.items():
+        count = sum(len(values) for values in keys.values())
+        if count:
+          pending.append(f"{prefix or 'unnamed'} buffer(): {count} value(s)")
+    for name, builder in manager._metric_builders.items():
+      cache = builder._summary_cache
+      if cache is not None and cache._stored_since_summary:
+        pending.append(f"{name} summary_cache: {cache._stored_since_summary} value(s)")
+
+    if pending:
+      _logger.warning(
+        "[DreamLake] Closing with stored values that were never summarized, so they are "
+        "not sent: %s. Call metrics.buffer.log_summary() or "
+        "metrics(name).summary_cache.summarize() for the last window before closing.",
+        "; ".join(pending),
+      )
+
+  @property
+  @requires_open
+  def params(self) -> ParametersBuilder:
+    """
+    Get a ParametersBuilder for parameter operations.
+
+    Usage:
+        # Set parameters
+        experiment.params.set(lr=0.001, batch_size=32)
+
+        # Get parameters
+        params = experiment.params.get()
+
+    Returns:
+        ParametersBuilder instance
+
+    Raises:
+        RuntimeError: If experiment is not open
+    """
+    return ParametersBuilder(self)
+
+  @property
+  @requires_open
+  def logs(self) -> LogBuilder:
+    """
+    Get a LogBuilder for fluent-style logging.
+
+    Returns a LogBuilder that allows chaining with level methods like
+    .info(), .warn(), .error(), .debug(), .fatal().
+
+    Returns:
+        LogBuilder instance for fluent logging
+
+    Raises:
+        RuntimeError: If experiment is not open
+
+    Examples:
+        exp.logs.info("Training started", epoch=1)
+        exp.logs.error("Failed to load data", error_code=500)
+        exp.logs.warn("GPU memory low", memory_available="1GB")
+        exp.logs.debug("Debug info", step=100)
+    """
+    return LogBuilder(self, metadata=None)
+
+  @requires_open
+  def log(
+    self,
+    message: Optional[str] = None,
+    level: Optional[str] = None,
+    metadata: Optional[Dict[str, Any]] = None,
+    **extra_metadata,
+  ) -> Optional[LogBuilder]:
+    """
+    Create a log entry (traditional style).
+
+    .. deprecated::
+        The fluent style (calling without message) is deprecated.
+        Use the `logs` property instead: `exp.logs.info("message")`
+
+    Recommended usage:
+        exp.logs.info("Training started", epoch=1)
+        exp.logs.error("Failed", error_code=500)
+
+    Traditional style (still supported):
+        experiment.log("Training started", level="info", epoch=1)
+        experiment.log("Training started")  # Defaults to "info"
+
+    Args:
+        message: Log message (required for recommended usage)
+        level: Log level (defaults to "info")
+        metadata: Optional metadata dict
+        **extra_metadata: Additional metadata as keyword arguments
+
+    Returns:
+        None when used in traditional style (message provided)
+        LogBuilder when used in deprecated fluent style (message=None)
+
+    Raises:
+        ExperimentError: If experiment is not open
+        ConfigurationError: If log level is invalid
+    """
+
+    # Fluent mode: return LogBuilder (deprecated)
+    if message is None:
+      warnings.warn(
+        "Using exp.log() without a message is deprecated. "
+        "Use exp.logs.info('message') instead.",
+        DeprecationWarning,
+        stacklevel=2,
+      )
+      combined_metadata = {**(metadata or {}), **extra_metadata}
+      return LogBuilder(self, combined_metadata if combined_metadata else None)
+
+    # Traditional mode: write immediately
+    level = level or LogLevel.INFO.value  # Default to "info"
+    level = LogLevel.validate(level)  # Validate level
+
+    combined_metadata = {**(metadata or {}), **extra_metadata}
+    self._write_log(
+      message=message,
+      level=level,
+      metadata=combined_metadata if combined_metadata else None,
+      timestamp=None,
+    )
+    return None
+
+  def _write_log(
+    self,
+    message: str,
+    level: str,
+    metadata: Optional[Dict[str, Any]],
+    timestamp: Optional[datetime],
+  ) -> None:
+    """
+    Internal method to write a log entry.
+    Uses buffering if enabled, otherwise writes directly.
+
+    Args:
+        message: Log message
+        level: Log level (already validated)
+        metadata: Optional metadata dict
+        timestamp: Optional custom timestamp (defaults to now)
+    """
+    # Print to console immediately (user visibility)
+    self._print_log(message, level, metadata)
+
+    # Buffer or write immediately
+    if self._buffer_manager and self._buffer_config.buffer_enabled:
+      self._buffer_manager.buffer_log(message, level, metadata, timestamp)
+    else:
+      # Immediate write (backward compatibility)
+      log_entry = {
+        "timestamp": (timestamp or datetime.now(timezone.utc).replace(tzinfo=None)).isoformat() + "Z",
+        "level": level,
+        "message": message,
+      }
+
+      if metadata:
+        log_entry["metadata"] = metadata
+
+      if self._client:
+        # Remote mode: send to API (wrapped in array for batch API)
+        try:
+          self._client.create_log_entries(
+            experiment_id=self._experiment_id,
+            logs=[log_entry],  # Single log in array
+          )
+        except Exception as e:
+          raise NetworkError(
+            f"Failed to write log to remote server: {e}\n"
+            f"Data loss occurred. Check your network connection and server status."
+          ) from e
+
+      if self._storage:
+        # Local mode: write to file immediately
+        try:
+          self._storage.write_log(
+            owner=self.run.owner,
+            project=self.run.project,
+            prefix=self.run._folder_path,
+            message=log_entry["message"],
+            level=log_entry["level"],
+            metadata=log_entry.get("metadata"),
+            timestamp=log_entry["timestamp"],
+          )
+        except Exception as e:
+          raise StorageError(
+            f"Failed to write log to local storage: {e}\n"
+            f"Check disk space and file permissions."
+          ) from e
+
+  def _print_log(
+    self, message: str, level: str, metadata: Optional[Dict[str, Any]]
+  ) -> None:
+    """
+    Print log to stdout or stderr based on level.
+
+    ERROR and FATAL go to stderr, all others go to stdout.
+
+    Args:
+        message: Log message
+        level: Log level
+        metadata: Optional metadata dict
+    """
+    # Format the log message
+    level_upper = level.upper()
+
+    # Build metadata string if present
+    metadata_str = ""
+    if metadata:
+      # Format metadata as key=value pairs
+      pairs = [f"{k}={v}" for k, v in metadata.items()]
+      metadata_str = f" [{', '.join(pairs)}]"
+
+    # Format: [LEVEL] message [key=value, ...]
+    formatted_message = f"[{level_upper}] {message}{metadata_str}"
+
+    # Route to stdout or stderr based on level
+    if level in (LogLevel.ERROR.value, LogLevel.FATAL.value):
+      print(formatted_message, file=sys.stderr)
+    else:
+      print(formatted_message, file=sys.stdout)
+
+  @property
+  @requires_open
+  def files(self) -> FilesAccessor:
+    """
+    Get a FilesAccessor for fluent file operations.
+
+    Returns:
+        FilesAccessor instance for chaining
+
+    Raises:
+        RuntimeError: If experiment is not open
+
+    Examples:
+        # Upload file - supports flexible syntax
+        experiment.files("checkpoints").upload("./model.pt", to="checkpoint.pt")
+        experiment.files(prefix="checkpoints").upload("./model.pt")
+        experiment.files().upload("./model.pt", to="models/model.pt")  # root
+
+        # List files
+        files = experiment.files("/some/location").list()
+        files = experiment.files("/models").list()
+
+        # Download file
+        experiment.files("some.text").download()
+        experiment.files("some.text").download(to="./model.pt")
+
+        # Download files via glob pattern
+        file_paths = experiment.files("images").list("*.png")
+        experiment.files("images").download("*.png")
+
+        # This is equivalent to downloading to a directory
+        experiment.files.download("images/*.png", to="local_images")
+
+        # Delete files
+        experiment.files("some.text").delete()
+        experiment.files.delete("some.text")
+
+        # Specific file types
+        dxp.files.save_text("content", to="view.yaml")
+        dxp.files.save_json(dict(hey="yo"), to="config.json")
+        dxp.files.save_blob(b"xxx", to="data.bin")
+    """
+    return FilesAccessor(self)
+
+  @requires_open
+  def bindrs(self, bindr_name: str) -> BindrsBuilder:
+    """
+    Get a BindrsBuilder for working with file collections (bindrs).
+
+    Bindrs are collections of files that can span multiple prefixes.
+
+    Args:
+        bindr_name: Name of the bindr (collection)
+
+    Returns:
+        BindrsBuilder instance for chaining
+
+    Raises:
+        RuntimeError: If experiment is not open
+
+    Examples:
+        # List files in a bindr
+        file_paths = experiment.bindrs("some-bindr").list()
+
+    Note:
+        This is a placeholder for future bindr functionality.
+    """
+    return BindrsBuilder(self, bindr_name)
+
+  def _upload_file(
+    self,
+    file_path: str,
+    prefix: str,
+    filename: str,
+    description: Optional[str],
+    tags: Optional[List[str]],
+    metadata: Optional[Dict[str, Any]],
+    checksum: str,
+    content_type: str,
+    size_bytes: int,
+    bindrs: Optional[List[str]] = None,
+  ) -> Dict[str, Any]:
+    """
+    Internal method to upload a file.
+    Uses buffering if enabled, otherwise uploads directly.
+
+    Args:
+        file_path: Local file path
+        prefix: Logical path prefix
+        filename: Original filename
+        description: Optional description
+        tags: Optional tags
+        metadata: Optional metadata
+        checksum: SHA256 checksum
+        content_type: MIME type
+        size_bytes: File size in bytes
+        bindrs: Optional list of bindr names this file belongs to
+
+    Returns:
+        File metadata dict (or pending status if buffering)
+    """
+    # Buffer or upload immediately
+    if self._buffer_manager and self._buffer_config.buffer_enabled:
+      self._buffer_manager.buffer_file(
+        file_path, prefix, filename, description, tags, metadata,
+        checksum, content_type, size_bytes, bindrs
+      )
+      return {"id": "pending", "status": "queued"}
+    else:
+      # Immediate upload (backward compatibility)
+      result = None
+
+      if self._client:
+        # Remote mode: upload to API
+        result = self._client.upload_file(
+          experiment_id=self._experiment_id,
+          file_path=file_path,
+          prefix=prefix,
+          filename=filename,
+          description=description,
+          tags=tags,
+          metadata=metadata,
+          checksum=checksum,
+          content_type=content_type,
+          size_bytes=size_bytes,
+        )
+
+      if self._storage:
+        # Local mode: copy to local storage
+        result = self._storage.write_file(
+          owner=self.run.owner,
+          project=self.run.project,
+          prefix=self.run._folder_path,
+          file_path=file_path,
+          path=prefix,
+          filename=filename,
+          description=description,
+          tags=tags,
+          bindrs=bindrs,
+          metadata=metadata,
+          checksum=checksum,
+          content_type=content_type,
+          size_bytes=size_bytes,
+        )
+
+      return result
+
+  def _list_files(
+    self, prefix: Optional[str] = None, tags: Optional[List[str]] = None
+  ) -> List[Dict[str, Any]]:
+    """
+    Internal method to list files. Paginates through all pages automatically.
+
+    Args:
+        prefix: Optional prefix filter (local mode only)
+        tags: Optional tags filter
+
+    Returns:
+        List of file metadata dicts
+    """
+    if self._client:
+      # Remote mode: paginate through all pages
+      files: List[Dict[str, Any]] = []
+      offset = 0
+      limit = 500
+      while True:
+        result = self._client.list_files(
+          experiment_id=self._experiment_id, limit=limit, offset=offset
+        )
+        files.extend(result["files"])
+        if not result["hasMore"]:
+          break
+        offset += limit
+
+      if tags:
+        files = [f for f in files if any(tag in f.get("tags", []) for tag in tags)]
+      return files
+
+    if self._storage:
+      # Local mode: read from metadata file
+      return self._storage.list_files(
+        owner=self.run.owner,
+        project=self.run.project,
+        prefix=self.run._folder_path,
+        path_prefix=prefix,
+        tags=tags,
+      )
+
+    return []
+
+  def _find_file_by_path(self, path: str) -> Optional[Dict[str, Any]]:
+    """
+    Find a single file by its path using the server-side search endpoint.
+    Uses the filename as the search pattern and matches the full path locally.
+
+    Args:
+        path: File path relative to experiment root (e.g. "images/photo.jpg")
+
+    Returns:
+        File search result dict, or None if not found
+    """
+    search_path = path.lstrip('/')
+
+    if not self._client:
+      # Local mode: search through listed files by filename or prefix/filename
+      all_files = self._list_files()
+      for f in all_files:
+        file_prefix = f.get('path', '').lstrip('/')
+        filename = f.get('filename', '')
+        full_path = f"{file_prefix}/{filename}" if file_prefix else filename
+        if full_path == search_path or filename == search_path:
+          return f
+      return None
+
+    filename = search_path.split('/')[-1]
+    # Use **/ prefix so the search matches the filename at any directory depth
+    results = self._client.search_files(
+      pattern=f'**/{filename}',
+      experiment_id=self._experiment_id,
+      limit=1,
+    )
+    for f in results:
+      file_path = f.get('path', '').lstrip('/')
+      if file_path == search_path or f.get('name', '') == search_path:
+        return f
+    return None
+
+  def _download_file(self, file_id: str, dest_path: Optional[str] = None) -> str:
+    """
+    Internal method to download a file.
+
+    Args:
+        file_id: File ID
+        dest_path: Optional destination path (defaults to original filename)
+
+    Returns:
+        Path to downloaded file
+    """
+    if self._client:
+      # Remote mode: download from API
+      return self._client.download_file(
+        experiment_id=self._experiment_id, file_id=file_id, dest_path=dest_path
+      )
+
+    if self._storage:
+      # Local mode: copy from local storage
+      return self._storage.read_file(
+        owner=self.run.owner,
+        project=self.run.project,
+        prefix=self.run._folder_path,
+        file_id=file_id,
+        dest_path=dest_path,
+      )
+
+    raise ExperimentError("No client or storage configured")
+
+  def _delete_file(self, file_id: str) -> Dict[str, Any]:
+    """
+    Internal method to delete a file.
+
+    Args:
+        file_id: File ID
+
+    Returns:
+        Dict with id and deletedAt
+    """
+    result = None
+
+    if self._client:
+      # Remote mode: delete via API
+      result = self._client.delete_file(
+        experiment_id=self._experiment_id, file_id=file_id
+      )
+
+    if self._storage:
+      # Local mode: soft delete in metadata
+      result = self._storage.delete_file(
+        owner=self.run.owner,
+        project=self.run.project,
+        prefix=self.run._folder_path,
+        file_id=file_id,
+      )
+
+    return result
+
+  def _update_file(
+    self,
+    file_id: str,
+    description: Optional[str],
+    tags: Optional[List[str]],
+    metadata: Optional[Dict[str, Any]],
+  ) -> Dict[str, Any]:
+    """
+    Internal method to update file metadata.
+
+    Args:
+        file_id: File ID
+        description: Optional description
+        tags: Optional tags
+        metadata: Optional metadata
+
+    Returns:
+        Updated file metadata dict
+    """
+    result = None
+
+    if self._client:
+      # Remote mode: update via API
+      result = self._client.update_file(
+        experiment_id=self._experiment_id,
+        file_id=file_id,
+        description=description,
+        tags=tags,
+        metadata=metadata,
+      )
+
+    if self._storage:
+      # Local mode: update in metadata file
+      result = self._storage.update_file_metadata(
+        owner=self.run.owner,
+        project=self.run.project,
+        prefix=self.run._folder_path,
+        file_id=file_id,
+        description=description,
+        tags=tags,
+        metadata=metadata,
+      )
+
+    return result
+
+  def _write_params(self, flattened_params: Dict[str, Any]) -> None:
+    """
+    Internal method to write/merge parameters.
+
+    Args:
+        flattened_params: Already-flattened parameter dict with dot notation
+    """
+    if self._client:
+      # Remote mode: send to API
+      self._client.set_parameters(
+        experiment_id=self._experiment_id, data=flattened_params
+      )
+
+    if self._storage:
+      # Local mode: write to file
+      self._storage.write_parameters(
+        owner=self.run.owner,
+        project=self.run.project,
+        prefix=self.run._folder_path,
+        data=flattened_params,
+      )
+
+  def _read_params(self) -> Optional[Dict[str, Any]]:
+    """
+    Internal method to read parameters.
+
+    Returns:
+        Flattened parameters dict, or None if no parameters exist
+    """
+    params = None
+
+    if self._client:
+      # Remote mode: fetch from API
+      try:
+        params = self._client.get_parameters(experiment_id=self._experiment_id)
+      except Exception:
+        # Parameters don't exist yet
+        params = None
+
+    if self._storage:
+      # Local mode: read from file
+      params = self._storage.read_parameters(
+        owner=self.run.owner, project=self.run.project, prefix=self.run._folder_path
+      )
+
+    return params
+
+  @property
+  @requires_open
+  def metrics(self) -> "MetricsManager":
+    """
+    Get a MetricsManager for metric operations.
+
+    Supports two usage patterns:
+    1. Named: experiment.metrics("train").log(loss=0.5, accuracy=0.9)
+    2. Unnamed: experiment.metrics.log(epoch=epoch).flush()
+
+    Returns:
+        MetricsManager instance
+
+    Raises:
+        RuntimeError: If experiment is not open
+
+    Examples:
+        # Named metric with multi-field logging
+        experiment.metrics("train").log(loss=0.5, accuracy=0.9)
+        experiment.metrics("eval").log(loss=0.6, accuracy=0.85)
+        experiment.metrics.log(epoch=epoch).flush()
+
+        # Nested dict pattern (single call for all metrics)
+        experiment.metrics.log(
+            epoch=100,
+            train=dict(loss=0.142, accuracy=0.80),
+            eval=dict(loss=0.201, accuracy=0.76)
+        )
+
+        # Read data
+        data = experiment.metrics("train").read(start_index=0, limit=100)
+
+        # Get statistics
+        stats = experiment.metrics("train").stats()
+    """
+    from .metric import MetricsManager
+
+    # Cache the MetricsManager instance to preserve MetricBuilder cache across calls
+    if self._metrics_manager is None:
+      self._metrics_manager = MetricsManager(self)
+    return self._metrics_manager
+
+  @property
+  @requires_open
+  def tracks(self) -> "TracksManager":
+    """
+    Get a TracksManager for timestamped track operations.
+
+    Supports topic-based logging with automatic timestamp merging:
+    - experiment.tracks("robot/position").append(q=[0.1, 0.2], _ts=0.0)
+    - experiment.tracks.flush()  # Flush all topics
+    - experiment.tracks("robot/position").flush()  # Flush specific topic
+
+    Returns:
+        TracksManager instance
+
+    Raises:
+        RuntimeError: If experiment is not open
+
+    Examples:
+        # Log track data with timestamp
+        experiment.tracks("robot/position").append(
+            q=[0.1, -0.22, 0.45],
+            e=[0.5, 0.0, 0.6],
+            _ts=2.0
+        )
+
+        # Entries with same timestamp are automatically merged
+        experiment.tracks("camera/rgb").append(frame_id=0, _ts=0.0)
+        experiment.tracks("camera/rgb").append(path="frame_0.png", _ts=0.0)
+
+        # Read track data
+        data = experiment.tracks("robot/position").read(format="json")
+
+        # Download in different formats
+        jsonl = experiment.tracks("robot/position").read(format="jsonl")
+        parquet = experiment.tracks("robot/position").read(format="parquet")
+        mocap = experiment.tracks("robot/position").read(format="mocap")
+    """
+    from .track import TracksManager
+
+    # Cache the TracksManager instance to preserve TrackBuilder cache across calls
+    if self._tracks_manager is None:
+      self._tracks_manager = TracksManager(self)
+    return self._tracks_manager
+
+  def _append_to_metric(
+    self,
+    name: Optional[str],
+    data: Dict[str, Any],
+    description: Optional[str],
+    tags: Optional[List[str]],
+    metadata: Optional[Dict[str, Any]],
+    timestamp: Optional[float] = None,
+  ) -> Optional[Dict[str, Any]]:
+    """
+    Internal method to append a single data point to a metric.
+    Uses buffering if enabled, otherwise writes directly.
+
+    Args:
+        name: Metric name (can be None for unnamed metrics)
+        data: Data point (flexible schema)
+        description: Optional metric description
+        tags: Optional tags
+        metadata: Optional metadata
+        timestamp: Optional explicit timestamp (seconds since epoch).
+                   Use -1 to inherit from the previous append call (same thread).
+
+    Returns:
+        Dict with metricId, index, bufferedDataPoints, chunkSize or None if buffering enabled/all backends fail
+    """
+    # The server cannot store NaN or inf; fail here rather than in a background flush.
+    # Local storage keeps accepting them.
+    if self._client:
+      bad_field = _non_finite_field(data)
+      if bad_field is not None:
+        metric_display = f"'{name}'" if name else "unnamed metric"
+        raise ValueError(
+          f"Cannot log a non-finite value (NaN or inf) in field '{bad_field}' of {metric_display}: "
+          f"the remote server does not accept them. Use buffer() or summary_cache.store() "
+          f"for values that may be NaN; summaries leave NaN out."
+        )
+
+    # Resolve timestamp
+    if timestamp == -1:
+      if self._last_timestamp is None:
+        raise ConfigurationError(
+          "Cannot use _ts=-1: no previous timestamp to inherit from in this thread."
+        )
+      timestamp = self._last_timestamp
+    elif timestamp is not None:
+      timestamp = float(timestamp)
+    else:
+      timestamp = time.time()
+    self._last_timestamp = timestamp
+    data = {**data, "_ts": timestamp}
+
+    # Buffer or write immediately
+    if self._buffer_manager and self._buffer_config.buffer_enabled:
+      self._buffer_manager.buffer_metric(name, data, description, tags, metadata)
+      return None  # No immediate response when buffering
+    else:
+      # Immediate write (backward compatibility)
+      result = None
+
+      if self._client:
+        # Remote mode: append via API
+        try:
+          result = self._client.append_to_metric(
+            experiment_id=self._experiment_id,
+            metric_name=name,
+            data=data,
+            description=description,
+            tags=tags,
+            metadata=metadata,
+          )
+        except Exception as e:
+          metric_display = f"'{name}'" if name else "unnamed metric"
+          raise NetworkError(
+            f"Failed to log {metric_display} to remote server: {e}\n"
+            f"Data loss occurred. Check your network connection and server status."
+          ) from e
+
+      if self._storage:
+        # Local mode: append to local storage
+        try:
+          result = self._storage.append_to_metric(
+            owner=self.run.owner,
+            project=self.run.project,
+            prefix=self.run._folder_path,
+            metric_name=name,
+            data=data,
+            description=description,
+            tags=tags,
+            metadata=metadata,
+          )
+        except Exception as e:
+          metric_display = f"'{name}'" if name else "unnamed metric"
+          raise StorageError(
+            f"Failed to log {metric_display} to local storage: {e}\n"
+            f"Check disk space and file permissions."
+          ) from e
+
+      return result
+
+  def _write_track(
+    self,
+    topic: str,
+    timestamp: float,
+    data: Dict[str, Any],
+  ) -> None:
+    """
+    Internal method to write a track entry with timestamp.
+    Uses buffering with timestamp-based merging if enabled.
+
+    Args:
+        topic: Track topic (e.g., "robot/position")
+        timestamp: Entry timestamp
+        data: Data fields
+
+    Note:
+        Entries with the same timestamp are automatically merged in the buffer.
+    """
+    # Buffer or write immediately
+    if self._buffer_manager and self._buffer_config.buffer_enabled:
+      self._buffer_manager.buffer_track(topic, timestamp, data)
+    else:
+      # Immediate write (no buffering)
+      if self._client:
+        # Remote mode: append via API
+        try:
+          self._client.append_batch_to_track(
+            experiment_id=self._experiment_id,
+            topic=topic,
+            entries=[{"timestamp": timestamp, **data}],
+          )
+        except Exception as e:
+          raise RuntimeError(
+            f"Failed to log track '{topic}' to remote server: {e}\n"
+            f"Data loss occurred. Check your network connection and server status."
+          ) from e
+
+      if self._storage:
+        # Local mode: append to local storage
+        try:
+          self._storage.append_batch_to_track(
+            owner=self.run.owner,
+            project=self.run.project,
+            prefix=self.run._folder_path,
+            topic=topic,
+            entries=[{"timestamp": timestamp, **data}],
+          )
+        except Exception as e:
+          raise RuntimeError(
+            f"Failed to log track '{topic}' to local storage: {e}\n"
+            f"Check disk space and file permissions."
+          ) from e
+
+  def _append_batch_to_metric(
+    self,
+    name: Optional[str],
+    data_points: List[Dict[str, Any]],
+    description: Optional[str],
+    tags: Optional[List[str]],
+    metadata: Optional[Dict[str, Any]],
+  ) -> Optional[Dict[str, Any]]:
+    """
+    Internal method to append multiple data points to a metric.
+
+    Args:
+        name: Metric name (can be None for unnamed metrics)
+        data_points: List of data points
+        description: Optional metric description
+        tags: Optional tags
+        metadata: Optional metadata
+
+    Returns:
+        Dict with metricId, startIndex, endIndex, count or None if all backends fail
+    """
+    result = None
+
+    if self._client:
+      # Remote mode: append batch via API
+      try:
+        result = self._client.append_batch_to_metric(
+          experiment_id=self._experiment_id,
+          metric_name=name,
+          data_points=data_points,
+          description=description,
+          tags=tags,
+          metadata=metadata,
+        )
+      except Exception as e:
+        metric_display = f"'{name}'" if name else "unnamed metric"
+        raise NetworkError(
+          f"Failed to log batch to {metric_display} on remote server: {e}\n"
+          f"Data loss occurred. Check your network connection and server status."
+        ) from e
+
+    if self._storage:
+      # Local mode: append batch to local storage
+      try:
+        result = self._storage.append_batch_to_metric(
+          owner=self.run.owner,
+          project=self.run.project,
+          prefix=self.run._folder_path,
+          metric_name=name,
+          data_points=data_points,
+          description=description,
+          tags=tags,
+          metadata=metadata,
+        )
+      except Exception as e:
+        metric_display = f"'{name}'" if name else "unnamed metric"
+        raise StorageError(
+          f"Failed to log batch to {metric_display} in local storage: {e}\n"
+          f"Check disk space and file permissions."
+        ) from e
+
+    return result
+
+  def _read_metric_data(
+    self, name: str, start_index: int, limit: int
+  ) -> Dict[str, Any]:
+    """
+    Internal method to read data points from a metric.
+
+    Args:
+        name: Metric name
+        start_index: Starting index
+        limit: Max points to read
+
+    Returns:
+        Dict with data, startIndex, endIndex, total, hasMore
+
+    Raises:
+        ConfigurationError: for a remote-only experiment. The server no longer
+            pages by index; use _read_metric_rows().
+    """
+    if self._storage:
+      # Local and hybrid mode: read from local storage, which keeps the index
+      return self._storage.read_metric_data(
+        owner=self.run.owner,
+        project=self.run.project,
+        prefix=self.run._folder_path,
+        metric_name=name,
+        start_index=start_index,
+        limit=limit,
+      )
+
+    if self._client:
+      # Remote-only: raises, pointing at read_rows()
+      return self._client.read_metric_data(
+        experiment_id=self._experiment_id,
+        metric_name=name,
+        start_index=start_index,
+        limit=limit,
+      )
+
+    return None
+
+  def _read_metric_rows(
+    self, name: str, limit: Optional[int], cursor: Optional[str]
+  ) -> MetricRowsPage:
+    """
+    Internal method to read one page of a metric's committed rows from the server.
+
+    Raises:
+        ConfigurationError: if the experiment has no server (local-only)
+        ExperimentError: if the experiment has no server-side ID yet
+        MetricRowsError: if the read fails; see RemoteClient.read_metric_rows
+    """
+    if not self._client:
+      raise ConfigurationError(
+        "read_rows() reads committed rows from the server, and this experiment is "
+        "local-only. Use read() for local metric data."
+      )
+    if not self._experiment_id:
+      raise ExperimentError(
+        "The experiment has no server-side ID yet. Open it first, e.g. `with exp.run:`."
+      )
+    return self._client.read_metric_rows(
+      experiment_id=self._experiment_id,
+      metric_name=name,
+      limit=limit,
+      cursor=cursor,
+    )
+
+  def _get_metric_stats(self, name: str) -> Dict[str, Any]:
+    """
+    Internal method to get metric statistics.
+
+    Args:
+        name: Metric name
+
+    Returns:
+        Dict with metric stats
+    """
+    result = None
+
+    if self._client:
+      # Remote mode: get stats via API
+      result = self._client.get_metric_stats(
+        experiment_id=self._experiment_id, metric_name=name
+      )
+
+    if self._storage:
+      # Local mode: get stats from local storage
+      result = self._storage.get_metric_stats(
+        owner=self.run.owner,
+        project=self.run.project,
+        prefix=self.run._folder_path,
+        metric_name=name,
+      )
+
+    return result
+
+  def _list_metrics(self) -> List[Dict[str, Any]]:
+    """
+    Internal method to list all metrics in experiment.
+
+    Returns:
+        List of metric summaries
+    """
+    result = None
+
+    if self._client:
+      # Remote mode: list via API
+      result = self._client.list_metrics(experiment_id=self._experiment_id)
+
+    if self._storage:
+      # Local mode: list from local storage
+      result = self._storage.list_metrics(
+        owner=self.run.owner, project=self.run.project, prefix=self.run._folder_path
+      )
+
+    return result or []
+
+  @property
+  def owner(self) -> Optional[str]:
+    """Get the owner (first segment of prefix)."""
+    return self.run.owner
+
+  @owner.setter
+  def owner(self, value: str) -> None:
+    """Set the owner."""
+    self.run.owner = value
+
+  @property
+  def project(self) -> Optional[str]:
+    """Get the project (second segment of prefix or RUN.project)."""
+    return self.run.project
+
+  @project.setter
+  def project(self, value: str) -> None:
+    """Set the project."""
+    self.run.project = value
+
+  @property
+  def name(self) -> Optional[str]:
+    """Get the experiment name (last segment of prefix)."""
+    return self.run.name
+
+  @name.setter
+  def name(self, value: str) -> None:
+    """Set the name."""
+    self.run.name = value
+
+  @property
+  def _folder_path(self) -> Optional[str]:
+    """Get the full folder path (same as prefix)."""
+    return self.run._folder_path
+
+  @_folder_path.setter
+  def _folder_path(self, value: str) -> None:
+    """Set the full folder path and re-parse into components."""
+    self.run._folder_path = value
+    self.run.prefix = value
+    # Re-parse prefix into components
+    if value:
+      parts = value.strip("/").split("/")
+      if len(parts) >= 2:
+        self.run.owner = parts[0]
+        self.run.project = parts[1]
+        self.run.name = parts[-1] if len(parts) > 2 else parts[1]
+
+  def flush(self) -> None:
+    """
+    Manually flush all buffered data.
+
+    Forces immediate flush of all queued logs, metrics, and files.
+    Waits for all file uploads to complete.
+
+    Examples:
+        with Experiment("my-project/exp").run as exp:
+            for epoch in range(100):
+                exp.metrics("train").log(loss=loss)
+
+            exp.flush()  # Ensure metrics written before checkpoint
+            torch.save(model, "model.pt")
+    """
+    if self._buffer_manager:
+      self._buffer_manager.flush_all()
+
+  @property
+  def id(self) -> Optional[str]:
+    """Get the experiment ID (only available after open in remote mode)."""
+    return self._experiment_id
+
+  @property
+  def data(self) -> Optional[Dict[str, Any]]:
+    """Get the full experiment data (only available after open in remote mode)."""
+    return self._experiment_data
+
+
+def experiment(prefix: str, **kwargs) -> Callable:
+  """
+  Decorator for wrapping functions with an ML-Dash experiment.
+
+  Args:
+      prefix: Full experiment path like "owner/project/folder.../name"
+      **kwargs: Additional arguments passed to Experiment constructor
+
+  Usage:
+      @experiment(
+          prefix="ge/my-project/experiments/my-experiment",
+          dash_url="https://api.dreamlake.ai"
+      )
+      def train_model():
+          # Function code here
+          pass
+
+  The decorated function will receive an 'experiment' keyword argument
+  with the active Experiment instance.
+  """
+
+  def decorator(func: Callable) -> Callable:
+    @functools.wraps(func)
+    def wrapper(*args, **func_kwargs):
+      with Experiment(prefix=prefix, **kwargs).run as experiment:
+        # Inject experiment into function kwargs
+        func_kwargs["experiment"] = experiment
+        return func(*args, **func_kwargs)
+
+    return wrapper
+
+  return decorator
