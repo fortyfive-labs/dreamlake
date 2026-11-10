@@ -29,6 +29,11 @@ class Sources:
             raise SourceError(code, response.status_code)
         return None if response.status_code == 204 else response.json()
 
+    def files(self, namespace, source_id, *, prefix, storage_transport=None):
+        """Managed text files with explicit prefix and conditional revisions."""
+        from .workspace_files import SourceWorkspace
+        return SourceWorkspace(self.client, namespace, source_id, prefix, storage_transport=storage_transport)
+
     def detail(self, namespace, source_id):
         return self._request(namespace, source_id)
 
