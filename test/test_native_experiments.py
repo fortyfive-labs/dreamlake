@@ -124,6 +124,27 @@ def test_upload_list_get_download_file(tmp_path):
         exp.upload_file("team", "research", RUN, f, name="a/b")
 
 
+@pytest.mark.parametrize("filename", ['模型,2".bin', 'literal%22.bin'])
+def test_upload_preserves_filename_and_binary_bytes(tmp_path, filename):
+    from urllib.parse import unquote
+
+    content = b'\x00\xff\r\n\n"binary"\x01'
+    path = tmp_path / "data.bin"
+    path.write_bytes(content)
+
+    def handle(request):
+        boundary = request.headers["content-type"].split("boundary=", 1)[1].encode()
+        parts = request.content.split(b"--" + boundary)
+        file_part = next(p for p in parts if b'name="file"' in p.split(b"\r\n\r\n", 1)[0])
+        header, payload = file_part.split(b"\r\n\r\n", 1)
+        extended = header.split(b"filename*=UTF-8''", 1)[1].split(b"\r\n", 1)[0]
+        assert unquote(extended.decode("ascii")) == filename
+        assert payload == content + b"\r\n"
+        return httpx.Response(200, json={"id": "f1", "filename": filename})
+
+    assert _exp(handle).upload_file("team", "research", RUN, path, name=filename)["filename"] == filename
+
+
 def test_error_carries_status_code_and_body():
     def handle(request):
         return httpx.Response(409, json={"error": {"code": "NATIVE_RUN_ACTIVE"}})

@@ -22,6 +22,8 @@ page["rows"], page["nextCursor"]                          # nextCursor is None o
 
 Files: `upload_file` (direct multipart; size and sha256 are sent and verified by the server),
 `list_files`, `get_file`, `download_file(..., dest=None)`.
+`prefix` is an absolute run file folder such as `/checkpoints` (default `/`).
+Version 0.45.1 preserves Unicode, quotes and literal percent sequences in uploaded filenames.
 
 Errors: `ExperimentRequestError` carries `status`, `code` (server `error.code`, e.g.
 `OPERATION_CONFLICT`, `NATIVE_RUN_ACTIVE`) and `body`. Write methods take

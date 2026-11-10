@@ -9,6 +9,7 @@ import os
 import random
 import re
 import time
+import uuid
 from urllib.parse import quote
 
 import httpx
@@ -64,7 +65,7 @@ class Experiments:
 
     _sleep = staticmethod(time.sleep)
 
-    def _send(self, method: str, path: str, *, body=None, params=None, data=None, files=None,
+    def _send(self, method: str, path: str, *, body=None, params=None, data=None, files=None, content=None, headers=None,
               retry_conflicts: bool = False):
         if not self._client._token:
             raise ExperimentRequestError(401, "DreamLake authentication is required")
@@ -72,7 +73,8 @@ class Experiments:
         while True:
             try:
                 with self._client.http() as http:
-                    response = http.request(method, path, json=body, params=params, data=data, files=files)
+                    response = http.request(method, path, json=body, params=params, data=data, files=files,
+                                            content=content, headers=headers)
             except httpx.HTTPError:
                 raise ExperimentRequestError(None, "Experiment API unavailable; reconcile before retrying writes") from None
             if response.is_success:
@@ -95,9 +97,9 @@ class Experiments:
                 response.status_code, f"Experiment API request failed (HTTP {response.status_code}{suffix})",
                 code=code, body=err_body)
 
-    def _request(self, method: str, path: str, *, body=None, params=None, data=None, files=None,
+    def _request(self, method: str, path: str, *, body=None, params=None, data=None, files=None, content=None, headers=None,
                  retry_conflicts: bool = False) -> dict:
-        response = self._send(method, path, body=body, params=params, data=data, files=files,
+        response = self._send(method, path, body=body, params=params, data=data, files=files, content=content, headers=headers,
                               retry_conflicts=retry_conflicts)
         try:
             result = response.json()
@@ -227,9 +229,19 @@ class Experiments:
         if metadata is not None:
             fields["metadata"] = json.dumps(metadata)
         ctype = mimetypes.guess_type(filename)[0] or "application/octet-stream"
-        # Form fields precede the file part: the server reads them off the file part's field map.
+        # httpx's HTML form encoder changes a quote in a filename to literal
+        # %22. Use an extended filename so the server receives the original name,
+        # while retaining an ASCII fallback and fields before the file part.
+        boundary = "dreamlake-" + uuid.uuid4().hex
+        parts = []
+        for key, value in fields.items():
+            parts.append(f'--{boundary}\r\nContent-Disposition: form-data; name="{key}"\r\n\r\n{value}\r\n'.encode())
+        fallback = "".join(c if 32 <= ord(c) < 127 and c not in '\\"' else "_" for c in filename)
+        parts.append((f'--{boundary}\r\nContent-Disposition: form-data; name="file"; filename="{fallback}"; '
+                      f"filename*=UTF-8''{quote(filename, safe='')}\r\nContent-Type: {ctype}\r\n\r\n").encode())
+        parts.extend([content, f"\r\n--{boundary}--\r\n".encode()])
         return self._request("POST", self._base(namespace, project) + f"/runs/{self._run_id(run_id)}/files",
-                             data=fields, files={"file": (filename, content, ctype)},
+                             content=b"".join(parts), headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
                              retry_conflicts=retry_conflicts)
 
     def list_files(self, namespace: str, project: str, run_id: str, *, prefix: str | None = None,
