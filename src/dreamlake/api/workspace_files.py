@@ -44,6 +44,8 @@ class SourceWorkspace:
         _path(path, True)
         if not self.prefix:
             return path
+        if path == self.prefix:
+            return ''
         if not path.startswith(self.prefix + '/'):
             raise WorkspaceFileError('file_endpoint_outside_prefix')
         return path[len(self.prefix) + 1:]
@@ -69,6 +71,8 @@ class SourceWorkspace:
                 with http.stream(method, url, headers=headers, content=content) as response:
                     if response.status_code in {409, 412}:
                         raise WorkspaceFileError('file_revision_conflict')
+                    if method == 'GET' and response.status_code == 404:
+                        raise WorkspaceFileError('file_not_found')
                     if not response.is_success:
                         raise WorkspaceFileError('file_write_unconfirmed' if method == 'PUT' else 'file_read_failed')
                     data = bytearray()
@@ -125,6 +129,8 @@ class SourceWorkspace:
 
     def replace(self, path, old_text, new_text, *, expected_revision):
         _text(old_text), _text(new_text)
+        if not old_text:
+            raise WorkspaceFileError('file_replace_empty_match')
         file = self.read(path)
         if file['revision'] != expected_revision:
             raise WorkspaceFileError('file_revision_conflict')

@@ -77,3 +77,13 @@ def test_binary_and_weak_revision_refused(workspace):
     objects['/workspaces/test/weak'] = (b'hello', 'W/"rev1"')
     with pytest.raises(WorkspaceFileError, match='file_revision_unavailable'):
         fs.read('weak')
+
+
+def test_missing_file_and_empty_match_share_typescript_errors(workspace):
+    fs, _, calls = workspace
+    with pytest.raises(WorkspaceFileError, match='file_not_found'):
+        fs.read('absent.xml')
+    before = len(calls)
+    with pytest.raises(WorkspaceFileError, match='file_replace_empty_match'):
+        fs.replace('absent.xml', '', 'x', expected_revision='"rev1"')
+    assert len(calls) == before
