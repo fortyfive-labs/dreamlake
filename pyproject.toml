@@ -1,6 +1,6 @@
 [project]
 name = "dreamlake"
-version = "0.46.1"
+version = "0.46.2"
 description = "ML experiment tracking and data storage"
 readme = "README.md"
 requires-python = ">=3.11"
