@@ -18,6 +18,9 @@ class Projects:
         if not namespace or not project:
             raise ValueError("An explicit namespace and project slug are required")
         path = "/namespaces/" + quote(namespace, safe="") + "/projects/" + quote(project, safe="") + suffix
+        return self._request_path(path, method, payload, params)
+
+    def _request_path(self, path, method="GET", payload=None, params=None):
         with self.client.http() as http:
             response = http.request(method, path, json=payload, **({"params": params} if params is not None else {}))
         if not response.is_success:
@@ -55,6 +58,139 @@ class Projects:
 
     def grants(self, namespace, project):
         return self._request(namespace, project, suffix="/grants")
+
+    @staticmethod
+    def _access_target(namespace, project):
+        if any(not isinstance(value, str) or not value.strip() for value in (namespace, project)):
+            raise ValueError("An explicit namespace and project ID or slug are required")
+
+    @staticmethod
+    def _access_policy(value, namespace, project, *, mode=None, visibility=None):
+        """Do not present an unconfirmed or wrong-resource policy as success."""
+        valid = (
+            isinstance(value, dict)
+            and isinstance(value.get("projectId"), str)
+            and re.fullmatch(r"[a-fA-F0-9]{24}", value["projectId"]) is not None
+            and value.get("namespace") == namespace
+            and isinstance(value.get("projectSlug"), str)
+            and bool(value["projectSlug"])
+            and value.get("accessMode") in ("workspace", "restricted")
+            and value.get("visibility") in ("private", "public")
+            and value.get("viewerRole") in ("READ", "WRITE", "ADMIN")
+            and isinstance(value.get("manageGrants"), bool)
+            and value["manageGrants"] == (value["viewerRole"] == "ADMIN")
+        )
+        if valid:
+            expected = value["projectId"].lower() == project.lower() if re.fullmatch(r"[a-fA-F0-9]{24}", project) else value["projectSlug"] == project
+            baseline = value.get("baseline")
+            valid = (
+                expected
+                and isinstance(baseline, dict)
+                and baseline.get("namespaceOwners") == "ADMIN"
+                and "orgMembers" in baseline and baseline["orgMembers"] in ("READ", None)
+                and "public" in baseline and baseline["public"] in ("READ", None)
+                and not (value["accessMode"] == "restricted" and (
+                    value["visibility"] != "private" or baseline["orgMembers"] is not None or baseline["public"] is not None
+                ))
+                and (mode is None or value["accessMode"] == mode)
+                and (visibility is None or value["visibility"] == visibility)
+            )
+        if not valid:
+            raise ProjectAccessError(502, "INVALID_PROJECT_ACCESS_RESPONSE")
+        return value
+
+    def access(self, *, namespace, project):
+        """Read the server-authorized Project policy, by scoped ID or slug.
+
+        This is distinct from listing grants: workspace/public baseline access
+        may remain even when no explicit grant exists. Requires a compatible
+        Project-access server; an unsupported endpoint never falls back.
+        """
+        self._access_target(namespace, project)
+        value = self._request(namespace, project, suffix="/access")
+        return self._access_policy(value, namespace, project)
+
+    def set_access(self, *, namespace, project, access_mode, visibility=None):
+        """Set Project baseline policy under current ADMIN authority.
+
+        Restricted mode excludes workspace-member and public baseline access;
+        explicit user/team grants and namespace-owner authority remain. Turning
+        a public Project restricted requires explicit ``visibility="private"``
+        in the same call. Independent resource shares are unchanged. No local
+        role/permission inference and no automatic mutation retry are used.
+        """
+        self._access_target(namespace, project)
+        if access_mode not in ("workspace", "restricted"):
+            raise ValueError("access_mode must be workspace or restricted")
+        if visibility is not None and visibility not in ("private", "public"):
+            raise ValueError("visibility must be private or public")
+        if access_mode == "restricted" and visibility == "public":
+            raise ValueError("A restricted Project cannot be public")
+        payload = {"accessMode": access_mode}
+        if visibility is not None:
+            payload["visibility"] = visibility
+        value = self._request(namespace, project, "PATCH", "/access", payload)
+        return self._access_policy(value, namespace, project, mode=access_mode, visibility=visibility)
+
+    def create(self, *, namespace, name, slug=None, description=None,
+               access_mode="workspace", visibility="private"):
+        """Create with the intended policy in the same server transaction.
+
+        Restricted creation checks explicit atomic-create capability first;
+        there is no create-then-restrict fallback or automatic write retry.
+        An unconfirmed result exposes any returned ID for reconciliation.
+        """
+        self._access_target(namespace, name)
+        if slug is not None and (not isinstance(slug, str) or not slug.strip()):
+            raise ValueError("slug must be a nonempty string")
+        if description is not None and not isinstance(description, str):
+            raise ValueError("description must be a string")
+        if access_mode not in ("workspace", "restricted"):
+            raise ValueError("access_mode must be workspace or restricted")
+        if visibility not in ("private", "public"):
+            raise ValueError("visibility must be private or public")
+        if access_mode == "restricted" and visibility == "public":
+            raise ValueError("A restricted Project cannot be public")
+        path = "/namespaces/" + quote(namespace, safe="") + "/projects"
+        if access_mode == "restricted":
+            catalog = self._request_path(path, params={"pageSize": 1})
+            capability = catalog.get("accessPolicy") if isinstance(catalog, dict) else None
+            if not (
+                isinstance(capability, dict)
+                and type(capability.get("apiVersion")) is int and capability["apiVersion"] == 1
+                and capability.get("atomicCreate") is True
+                and isinstance(capability.get("modes"), list)
+                and all(mode in capability["modes"] for mode in ("workspace", "restricted"))
+            ):
+                raise ProjectAccessError(501, "PROJECT_ACCESS_UNSUPPORTED")
+        payload = {"name": name, "visibility": visibility, "accessMode": access_mode}
+        if slug is not None:
+            payload["slug"] = slug
+        if description is not None:
+            payload["description"] = description
+        try:
+            value = self._request_path(path, "POST", payload)
+        except ProjectAccessError as exc:
+            if not (200 <= exc.status < 300 and exc.code == "INVALID_PROJECT_RESPONSE"):
+                raise
+            error = ProjectAccessError(502, "PROJECT_CREATE_UNCONFIRMED")
+            error.outcome = "unknown"
+            error.project_id = None
+            raise error from None
+        if not (
+            isinstance(value, dict)
+            and isinstance(value.get("id"), str)
+            and re.fullmatch(r"[a-fA-F0-9]{24}", value["id"]) is not None
+            and isinstance(value.get("slug"), str) and bool(value["slug"])
+            and (slug is None or value["slug"] == slug)
+            and value.get("accessMode") == access_mode
+            and value.get("visibility") == visibility
+        ):
+            error = ProjectAccessError(502, "PROJECT_CREATE_UNCONFIRMED")
+            error.outcome = "unknown"
+            error.project_id = value.get("id") if isinstance(value, dict) and isinstance(value.get("id"), str) else None
+            raise error
+        return value
 
     def grant(self, namespace, project, role, *, user=None, team=None):
         if role not in {"READ", "WRITE", "ADMIN"} or bool(user) == bool(team):

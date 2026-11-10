@@ -33,6 +33,99 @@ temporary credentials; static custom-S3/MinIO or an unscoped STS fallback return
 attachments immediately after backend release. This SDK release is optional for
 Web use and does not replace the server's authorization checks.
 
+## Workspace or restricted Project access
+
+The following methods require the companion Project-access-policy backend.
+They are new SDK source APIs; merging these docs does not prove a package or
+server release. Existing `inspect`, `grants`, `grant` and `revoke` calls remain
+compatible.
+
+```python
+from dreamlake import DreamLakeClient
+
+client = DreamLakeClient()
+policy = client.projects.access(namespace="acme", project=project_id)
+print(policy["accessMode"], policy["baseline"], policy["viewerRole"])
+
+# Explicitly narrow a public Project in one authorized operation.
+policy = client.projects.set_access(
+    namespace="acme",
+    project=project_id,
+    access_mode="restricted",
+    visibility="private",
+)
+
+# Reuse the current user/team grants; IDs are not implicit authority.
+client.projects.grant("acme", project_id, "WRITE", team=team_id)
+client.projects.grant("acme", project_id, "READ", user="alice")
+```
+
+`access()` and `set_access()` take keyword-only arguments. A Project database ID
+or slug is accepted within the explicit source namespace. Namespace is lookup
+context, not proof of access. Python `access_mode` maps to the shared wire field
+`accessMode`; role and visibility strings match the other clients.
+
+`workspace` keeps the existing workspace-member and public baseline rules.
+`restricted` excludes those baselines while retaining namespace-owner authority
+and active explicit user/team grants. A restricted Project cannot be public.
+If the current Project is public, explicitly pass `visibility="private"` with
+`access_mode="restricted"` to change both atomically. Omitting visibility leaves
+it unchanged; the SDK never silently privatizes or publishes a Project. `visibility`
+is optional, accepts `private` or `public`, and cannot be `public` with restricted
+mode. There is no new namespace-wide default setting in this feature.
+
+The response carries `projectId`, `namespace`, `projectSlug`, `accessMode`,
+`visibility`, `baseline`, `viewerRole` and `manageGrants`. Baseline fields describe
+organization-member, namespace-owner and public access. Grant details remain
+available through `grants()`. `access()` requires Project read access; changing
+the policy requires current Project ADMIN. Unauthorized/unsupported requests use
+the server's errors rather than a weaker fallback. The SDK checks that successful
+responses identify the requested resource and confirm the requested mode.
+
+Restricting the Project changes only Project-derived access. It does not revoke
+independent Note, Artifact, attachment or resource shares. A resource may remain
+accessible through another Project or its own owner/visibility/share contract.
+Removing a single user/team grant also does not remove other access paths.
+
+The SDK sends one request and never automatically retries policy writes. A
+transport timeout can follow an accepted change; inspect the policy before
+resubmitting. An invalid response is not a confirmed policy update. `ProjectAccessError`
+exposes stable HTTP/error codes without copying arbitrary server-body details.
+Existing role/ownership, last-administrator and team-membership checks remain
+server responsibilities.
+
+See the [shared API design](https://docs.dreamlake.ai/notes/api/) for named
+argument, identity and outcome conventions across CLI, TypeScript and tools.
+
+### Create restricted from the start
+
+Use atomic creation for confidential new Projects, rather than creating a
+workspace-readable Project and restricting it afterward:
+
+```python
+project = client.projects.create(
+    namespace="acme",
+    name="Confidential research",
+    slug="confidential-research",
+    access_mode="restricted",
+    visibility="private",
+)
+project_id = project["id"]
+```
+
+The named helper accepts optional `slug` and `description`; `name` is the display
+name. `workspace` and `private` are its defaults. Before restricted creation, the
+SDK reads the Project catalog's explicit `accessPolicy` capability and requires
+API version 1, both modes and `atomicCreate: true`. An old/unsupported server gets
+no creation request, so it cannot ignore the field and expose the Project. The
+SDK then sends one POST containing the intended mode and checks the returned ID,
+slug, visibility and mode. There is no create-then-PATCH fallback.
+
+If creation returns an unconfirmed receipt, `PROJECT_CREATE_UNCONFIRMED` exposes
+`project_id` when available and `outcome="unknown"`. Preserve that ID and inspect
+the server before deciding what to do; do not create a replacement or delete it
+automatically. Existing creation paths retain their own compatibility behavior.
+
 ## Whole Project transfer
 
 Typed Artifact/Env transfer plans require SDK **0.31.0+** and a compatible
