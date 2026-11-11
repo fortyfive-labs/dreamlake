@@ -352,6 +352,36 @@ class DreamLakeClient:
         response.raise_for_status()
         return response.json()
 
+    def move_nodes(self, node_ids: list[str], parent_id: str) -> dict:
+        """Atomically move up to 200 files/folders; refuse collisions or stale paths.
+
+        A folder includes its subtree. Nodes must remain in the same project
+        and Episode. Storage bytes, IDs and references are preserved. A network
+        error may hide a committed response: inspect locations before retrying.
+        """
+        import re
+        if (not node_ids or len(node_ids) > 200 or len(set(node_ids)) != len(node_ids)
+                or any(not isinstance(value, str) or not re.fullmatch(r"[a-fA-F0-9]{24}", value)
+                       for value in [*node_ids, parent_id])):
+            raise ValueError("Supply 1–200 unique node IDs and a destination node ID")
+        with self.http() as http:
+            nodes = []
+            for node_id in node_ids:
+                response = http.get(f"/nodes/{node_id}")
+                response.raise_for_status()
+                nodes.append({"id": node_id, "expectedPath": response.json()["path"]})
+            response = http.post("/nodes/move", json={"nodes": nodes, "parentId": parent_id}, timeout=60)
+        response.raise_for_status()
+        return response.json()
+
+    def move_file(self, node_id: str, parent_id: str) -> dict:
+        """Move a project file by node ID; return its confirmed location."""
+        return self.move_nodes([node_id], parent_id)["nodes"][0]
+
+    def move_folder(self, node_id: str, parent_id: str) -> dict:
+        """Move a folder and its descendants atomically without copying bytes."""
+        return self.move_nodes([node_id], parent_id)["nodes"][0]
+
     def get_node_download_url(self, node_id: str) -> dict:
         """GET /nodes/:id/download — returns { url, filename } (presigned S3)."""
         with self.http() as http:
