@@ -255,20 +255,26 @@ def open_annotation(name: str, *, schema=None, row: dict | None = None,
     return _attach_lease(ds, broker, namespace, name)
 
 
-def patch_annotation(name: str, *, visibility: str) -> None:
-    """Update the catalog row. The server's PATCH accepts visibility only."""
+def patch_annotation(name: str, *, visibility: str | None = None,
+                     title: str | None = None, slug: str | None = None) -> dict:
+    """Update metadata; a slug change uses one fresh, guarded read snapshot."""
+    from .api._client import DreamLakeClient
+    from .api.annotations import AnnotationMetadataError
     ns_arg, name = split_qualified(name)
     token, namespace, remote = _platform_context(ns_arg)
-    r = _request("PATCH", f"{remote}/namespaces/{namespace}/annotations/{name}",
-                 token, json_body={"visibility": visibility})
-    if r.status_code == 404:
-        raise AnnotationNotFoundError(
-            f"annotation '{name}' not found in namespace '{namespace}'."
-        )
-    if r.status_code >= 400:
-        raise _forbidden(r, namespace, "update an annotation") or PlatformError(
-            f"could not update annotation '{name}' ({r.status_code}).{_server_said(r)}"
-        )
+    api = DreamLakeClient(dl_url=remote, token=token).annotations
+    guard = {}
+    if slug is not None:
+        row = api.get(namespace, name)
+        if not row.get("id") or not row.get("slug") or type(row.get("slugRevision")) is not int:
+            raise PlatformError("This server does not support annotation slug rename")
+        guard = dict(expected_resource_id=row["id"], expected_slug=row["slug"], expected_revision=row["slugRevision"])
+    try:
+        return api.update(namespace, name, visibility=visibility, title=title, slug=slug, **guard)
+    except AnnotationMetadataError as error:
+        if error.status == 404:
+            raise AnnotationNotFoundError(f"annotation '{name}' not found in namespace '{namespace}'") from error
+        raise PlatformError(str(error)) from error
 
 
 def list_annotations(schema_type: str | None = None, *,

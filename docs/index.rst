@@ -42,6 +42,7 @@ Python SDK for ML experiment tracking and data storage.
    providers
    api/runnables
    api/artifacts
+   api/annotations
    infrastructure
    vault-import
    vault-key-rotation

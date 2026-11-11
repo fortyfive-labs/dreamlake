@@ -50,6 +50,9 @@ class AnnotationInfo:
     namespace: str
     schema_type: str
     visibility: str
+    title: str | None = None
+    slug: str | None = None
+    slug_revision: int = 0
 
 
 class Annotation:
@@ -231,6 +234,8 @@ class Annotation:
                 name=r.get("name", ""), namespace=ns,
                 schema_type=r.get("schemaType", ""),
                 visibility=r.get("visibility", "private"),
+                title=r.get("title"), slug=r.get("slug", r["name"]),
+                slug_revision=r.get("slugRevision", 0),
             )
             for r in rows
         ]
@@ -257,6 +262,23 @@ class Annotation:
     @property
     def visibility(self) -> str:
         return self._row.get("visibility", "private")
+
+    @property
+    def slug(self) -> str | None:
+        """Canonical URL spelling; name remains the immutable storage name."""
+        return self._row.get("slug", self.name)
+
+    @property
+    def title(self) -> str | None:
+        return self._row.get("title")
+
+    def set_title(self, title: str) -> None:
+        from dreamlake import _platform
+        self._row.update(_platform.patch_annotation(self._qualified(), title=title))
+
+    def rename_slug(self, slug: str) -> None:
+        from dreamlake import _platform
+        self._row.update(_platform.patch_annotation(self._qualified(), slug=slug))
 
     def set_visibility(self, visibility: str) -> None:
         """``"private"`` or ``"public"`` — public annotations get anonymous

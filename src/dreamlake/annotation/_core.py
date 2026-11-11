@@ -327,12 +327,14 @@ class VideoAnnotation(_GenericAnnotation):
             from dreamlake import _platform
 
             try:
-                inner = _platform.open_annotation(name)
+                row = _platform.get_annotation(name)
+                inner = _platform.open_annotation(name, row=row)
             except _platform.AnnotationNotFoundError as e:
                 raise AnnotationError(str(e)) from e
             _check_schema_type(inner, f"annotation '{name}'")
             lease = getattr(inner, "dreamlake_lease", None)
             ds = cls(inner, (lease or {}).get("backend_url", ""), name)
+            ds._row.update(row)
 
         for key, want in (
             ("preview_height", preview_height),
