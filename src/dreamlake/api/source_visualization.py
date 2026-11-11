@@ -89,6 +89,6 @@ def publish_visualization(client, namespace, source_id, directory, *, entry='ind
             response = storage.put(put['url'], headers=put['headers'], content=data)
             if not response.is_success:
                 raise ValueError('Visualization upload failed; .dreamrc was not changed')
-    workspace.write('.dreamrc', content, revision)
+    workspace.write('.dreamrc', content, expected_revision=revision)
     return {'namespace': namespace, 'sourceId': source_id, 'entry': path, 'files': len(files),
             'url': f"https://dreamlake.ai/{quote(namespace, safe='')}/sources/{quote(detail['name'], safe='')}?view=visualize"}
