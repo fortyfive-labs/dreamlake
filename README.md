@@ -23,14 +23,14 @@ A simple and flexible SDK for ML experiment tracking and data storage.
 <td>
 
 ```shell
-uv add dreamlake@0.48.1
+uv add dreamlake@0.49.0
 ```
 
 </td>
 <td>
 
 ```shell
-pip install dreamlake==0.48.1
+pip install dreamlake==0.49.0
 ```
 
 </td>
