@@ -113,6 +113,12 @@ class DreamLakeClient:
         return Sources(self)
 
     @property
+    def annotations(self):
+        """Annotation metadata, titles and guarded URL slug changes."""
+        from .annotations import Annotations
+        return Annotations(self)
+
+    @property
     def artifacts(self) -> "Artifacts":
         """Artifact catalog reads and visibility management."""
         from .artifacts import Artifacts

@@ -149,3 +149,7 @@ __all__ += ["memo", "create_memo", "list_memos", "search_memos", "grep_memos"]
 
 # Preserve published star imports during the phased API transition.
 __all__ += ['Note', 'NoteRef', 'NoteSnapshot', 'NoteError', 'NoteNotFound', 'NoteChanged', 'NoteBusy', 'NoteReadOnly', 'Notes', 'NoteCreatedWithoutSource', 'NoteHandle', 'NoteVersions']
+
+from .annotations import Annotations, AnnotationMetadataError
+
+__all__ += ["Annotations", "AnnotationMetadataError"]
