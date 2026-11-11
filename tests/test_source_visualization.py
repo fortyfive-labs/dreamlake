@@ -22,6 +22,8 @@ def test_publication_switches_only_after_upload(tmp_path, monkeypatch):
     monkeypatch.setattr(SourceWorkspace, 'read', lambda *args: {'content': 'dataset: {format: folder}', 'revision': '"baseline"'})
     monkeypatch.setattr(SourceWorkspace, 'write', lambda *args: writes.append(args[1:]))
     def api(self, method, suffix, *, payload=None, **kwargs):
+        if suffix == '':
+            return {'name': 'my data'}
         if suffix == '/visualization-session':
             return {}
         return {'mode': 's3-presigned-batch', 'files': [{**f, 'canonicalPath': payload['targetPrefix'] + '/' + f['relativePath'], 'transfer': {'kind': 'single-put', 'put': {'url': 'https://storage.test/file', 'headers': {}}}} for f in payload['files']]}
@@ -31,5 +33,6 @@ def test_publication_switches_only_after_upload(tmp_path, monkeypatch):
     assert writes == []
     result = publish_visualization(None, 'team', '1' * 24, tmp_path, storage_transport=httpx.MockTransport(lambda request: httpx.Response(200)))
     assert result['files'] == 1
+    assert result['url'] == 'https://dreamlake.ai/team/sources/my%20data?view=visualize'
     assert writes[0][2] == '"baseline"'
     assert yaml.safe_load(writes[0][1])['dataset'] == {'format': 'folder'}

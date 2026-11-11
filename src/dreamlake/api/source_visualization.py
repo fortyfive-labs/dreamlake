@@ -3,7 +3,7 @@ import hashlib
 import json
 import re
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import urlparse, quote
 import httpx
 import yaml
 from .workspace_files import SourceWorkspace, WorkspaceFileError, _path
@@ -49,6 +49,9 @@ def publish_visualization(client, namespace, source_id, directory, *, entry='ind
     """Upload a new generation, then CAS the .dreamrc pointer. No Artifact or ACL is created."""
     files, prefix = collect_visualization(directory, entry)
     workspace = SourceWorkspace(client, namespace, source_id, '', storage_transport=storage_transport)
+    detail = workspace._api('GET', '')
+    if not isinstance(detail.get('name'), str) or not detail['name']:
+        raise ValueError('Source detail has no name')
     text, revision = '', None
     try:
         baseline = workspace.read('.dreamrc')
@@ -88,4 +91,4 @@ def publish_visualization(client, namespace, source_id, directory, *, entry='ind
                 raise ValueError('Visualization upload failed; .dreamrc was not changed')
     workspace.write('.dreamrc', content, revision)
     return {'namespace': namespace, 'sourceId': source_id, 'entry': path, 'files': len(files),
-            'url': f'https://dreamlake.ai/{namespace}/sources/{source_id}?view=visualize'}
+            'url': f"https://dreamlake.ai/{quote(namespace, safe='')}/sources/{quote(detail['name'], safe='')}?view=visualize"}
