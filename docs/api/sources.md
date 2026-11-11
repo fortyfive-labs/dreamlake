@@ -17,3 +17,24 @@ mean cleanup completed. Restore-after-delete and archive are unsupported.
 
 Use `client.ownership.inspect`/`manifest` to inspect ownership and preflight
 constraints. Ownership transfer execution remains gated in package C.
+
+
+## Custom static visualization
+
+`client.sources.publish_visualization(namespace, source_id, directory,
+entry="index.html")` publishes a static build into the Source and returns its
+Visualize URL. It uses a new directory beneath `.dreamlake/visualization/`, then
+conditionally updates the managed `.dreamrc` without replacing other YAML keys.
+It creates no Artifact resource or independent permissions.
+
+```python
+from dreamlake import DreamLakeClient
+
+client = DreamLakeClient()
+result = client.sources.publish_visualization("my-team", "SOURCE_ID", "./dist")
+print(result["url"])
+```
+
+Build with relative asset URLs. See the canonical
+[custom Source visualization guide](https://docs.dreamlake.ai/sources/custom-visualization)
+for limits, external configuration handling, browser data access and permissions.

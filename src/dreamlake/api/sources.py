@@ -34,6 +34,11 @@ class Sources:
         from .workspace_files import SourceWorkspace
         return SourceWorkspace(self.client, namespace, source_id, prefix, storage_transport=storage_transport)
 
+    def publish_visualization(self, namespace, source_id, directory, *, entry="index.html", storage_transport=None):
+        """Publish a static build under .dreamlake/visualization and update .dreamrc with a revision guard."""
+        from .source_visualization import publish_visualization
+        return publish_visualization(self.client, namespace, source_id, directory, entry=entry, storage_transport=storage_transport)
+
     def detail(self, namespace, source_id):
         return self._request(namespace, source_id)
 
