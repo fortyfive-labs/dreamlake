@@ -284,7 +284,7 @@ class VideoAnnotation(_GenericAnnotation):
                 raise AnnotationError(str(e)) from e
 
         inner.set_meta(ENCODING_META_KEY, json.dumps(profile))
-        if visibility == "public":
+        if visibility in ("public", "unlisted"):
             inner.set_meta(PUBLIC_META_KEY, "1")
         lease = getattr(inner, "dreamlake_lease", None)
         return cls(inner, backend or (lease or {}).get("backend_url", ""), name)

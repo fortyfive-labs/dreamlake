@@ -57,3 +57,50 @@ def test_invalid_slug_never_sends(slug):
         raise AssertionError("must not send")
     with pytest.raises(ValueError):
         client(handler).update("team", "old", slug=slug, expected_resource_id=ROW["id"], expected_slug="old", expected_revision=3)
+
+
+def test_sharing_settings_and_revocation_do_not_rewrite_annotation_content():
+    import json
+    seen = []
+    def handler(request):
+        seen.append(request)
+        return httpx.Response(200, json={"shareToken": "token", "shareRole": "write"})
+    api = client(handler)
+    api.get_share("team", "old-slug")
+    api.set_share("team", "old-slug", "write")
+    api.share_access("team", "old-slug")
+    api.remove_share_access("team", "old-slug", "legacy-user")
+    api.revoke_share("team", "old-slug", revoke_accepted=True)
+    api.update("team", "old-slug", visibility="unlisted")
+    assert [(r.method, r.url.path) for r in seen] == [
+        ("GET", "/namespaces/team/annotations/old-slug/share"),
+        ("PUT", "/namespaces/team/annotations/old-slug/share"),
+        ("GET", "/namespaces/team/annotations/old-slug/share/access"),
+        ("DELETE", "/namespaces/team/annotations/old-slug/share/access/legacy-user"),
+        ("DELETE", "/namespaces/team/annotations/old-slug/share"),
+        ("PATCH", "/namespaces/team/annotations/old-slug"),
+    ]
+    assert json.loads(seen[1].content) == {"role": "write"}
+    assert seen[4].url.params["revokeAccepted"] == "true"
+    assert json.loads(seen[5].content) == {"visibility": "unlisted"}
+
+
+@pytest.mark.parametrize("status", [403, 409, 500])
+def test_sharing_writes_are_never_retried(status):
+    seen = []
+    def handler(request):
+        seen.append(request)
+        return httpx.Response(status, json={"error": "DENIED"})
+    with pytest.raises(AnnotationMetadataError):
+        client(handler).set_share("team", "shared", "write")
+    assert len(seen) == 1
+
+
+def test_invalid_sharing_role_or_recipient_path_never_sends():
+    def handler(request):
+        raise AssertionError("must not send")
+    api = client(handler)
+    with pytest.raises(ValueError):
+        api.set_share("team", "shared", "owner")
+    with pytest.raises(ValueError):
+        api.remove_share_access("team", "shared", "../other")

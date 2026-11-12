@@ -223,6 +223,20 @@ def test_end_to_end_write_then_read(tmp_path):
 
 
 @pytestmark_e2e
+@pytest.mark.parametrize("visibility", ["private", "unlisted", "public"])
+def test_anonymous_visibility_omits_absolute_video_source_paths(tmp_path, visibility):
+    from dreamlake.annotation import VideoAnnotation
+
+    video = _make_clip(tmp_path / "clip.mp4", size="64x64", seconds=0.5)
+    backend = f"file://{tmp_path}/space"
+    ds = VideoAnnotation.create(backend=backend, visibility=visibility, preview_height=64)
+    ds.add_episode(video, episode_id="ep0")
+    camera = VideoAnnotation.open(backend=backend).episode("ep0").cameras["main"]
+    assert camera["source_rel"].endswith("/clip.mp4")
+    assert ("source_uri" in camera) == (visibility == "private")
+
+
+@pytestmark_e2e
 def test_encoding_profile_persists_and_open_verifies(tmp_path):
     from dreamlake.annotation import VideoAnnotation, AnnotationError
 

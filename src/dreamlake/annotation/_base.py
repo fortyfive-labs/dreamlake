@@ -281,12 +281,12 @@ class Annotation:
         self._row.update(_platform.patch_annotation(self._qualified(), slug=slug))
 
     def set_visibility(self, visibility: str) -> None:
-        """``"private"`` or ``"public"`` — public annotations get anonymous
-        presigned reads on the platform."""
+        """Set private, unlisted or public visibility independently of sharing.
+        Public and unlisted annotations allow anonymous presigned reads."""
         from dreamlake import _platform
 
-        if visibility not in ("private", "public"):
-            raise AnnotationError(f'visibility must be "private" or "public", got {visibility!r}')
+        if visibility not in ("private", "unlisted", "public"):
+            raise AnnotationError(f'visibility must be "private", "unlisted" or "public", got {visibility!r}')
         _platform.patch_annotation(self._qualified(), visibility=visibility)
         self._row["visibility"] = visibility
 

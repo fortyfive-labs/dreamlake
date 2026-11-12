@@ -26,13 +26,16 @@ class Annotations:
         self.client = client
 
     def _request(self, method: str, namespace: str, name: str | None = None,
-                 body: dict | None = None, share: str | None = None) -> dict[str, Any]:
+                 body: dict | None = None, share: str | None = None, *,
+                 suffix: str = "", query: dict[str, str] | None = None) -> dict[str, Any]:
         path = f"/namespaces/{_segment(namespace)}/annotations"
         if name is not None:
             path += "/" + _segment(name)
+        path += suffix
+        params = {**(query or {}), **({"share": share} if share else {})}
         with self.client.http() as http:
             response = http.request(method, path, **({"json": body} if body is not None else {}),
-                                    **({"params": {"share": share}} if share else {}))
+                                    **({"params": params} if params else {}))
         try:
             result = response.json()
         except ValueError:
@@ -62,8 +65,8 @@ class Annotations:
         if title is not None:
             body["title"] = title
         if visibility is not None:
-            if visibility not in ("private", "public"):
-                raise ValueError("visibility must be private or public")
+            if visibility not in ("private", "unlisted", "public"):
+                raise ValueError("visibility must be private, unlisted or public")
             body["visibility"] = visibility
         if slug is not None:
             if not re.fullmatch(r"[a-z0-9][a-z0-9._-]{0,63}", slug):
@@ -81,3 +84,31 @@ class Annotations:
             raise AnnotationMetadataError(501, "ANNOTATION_SLUG_UNSUPPORTED")
         return self.update(namespace, name, slug=slug, expected_resource_id=row["id"],
                            expected_slug=row["slug"], expected_revision=row["slugRevision"])
+
+
+    def get_share(self, namespace: str, name: str) -> dict[str, Any]:
+        """Read current sharing settings; requires sharing management permission."""
+        return self._request("GET", namespace, name, suffix="/share")
+
+    def set_share(self, namespace: str, name: str, role: str = "read") -> dict[str, Any]:
+        """Enable the signed-in link or change its live role without changing visibility."""
+        if role not in ("read", "write"):
+            raise ValueError("role must be read or write")
+        return self._request("PUT", namespace, name, {"role": role}, suffix="/share")
+
+    def revoke_share(self, namespace: str, name: str, *, revoke_accepted: bool = False) -> dict[str, Any]:
+        """Disable link-derived access. Existing content leases last until expiry.
+
+        Retained acceptances regain access if sharing is re-enabled, unless
+        revoke_accepted=True deletes them. Never retries an uncertain write.
+        """
+        return self._request("DELETE", namespace, name, suffix="/share",
+                             query={"revokeAccepted": "true"} if revoke_accepted else None)
+
+    def share_access(self, namespace: str, name: str) -> dict[str, Any]:
+        """List retained recipients and the current link role (null when disabled)."""
+        return self._request("GET", namespace, name, suffix="/share/access")
+
+    def remove_share_access(self, namespace: str, name: str, user_id: str) -> dict[str, Any]:
+        """Remove one acceptance, not a block: a live link can re-admit the user."""
+        return self._request("DELETE", namespace, name, suffix="/share/access/" + _segment(user_id))
