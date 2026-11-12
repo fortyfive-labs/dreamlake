@@ -1,5 +1,15 @@
 # Release notes
 
+## 0.50.0 — CI/CT with GitHub Actions
+
+`client.cict` covers CI/CT channel A:
+- `github.connect` and `github.installations` connect GitHub App installations;
+- `pools.list`, `create`, `update`, `delete` and `targets` manage runner pools and list the providers they can use;
+- `runs.list`, `get`, `result` and `comparison` read runs, their `result.json` and the case-by-case comparison with the default-branch baseline;
+- `platform.status`, `start` and `set_source` use DreamLake GPU, and `usage` reports its GPU time.
+
+`client.cict.admin` administers DreamLake GPU (admins of the platform namespace). See [CI/CT with GitHub Actions](cict.md).
+
 ## 0.46.1 — Restricted Project access
 
 `client.projects.access` and `client.projects.set_access` inspect and change
