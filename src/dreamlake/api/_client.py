@@ -199,6 +199,11 @@ class DreamLakeClient:
         """Deprecated alias for :attr:`memos`."""
         return self.memos
 
+    def workspace_files(self, endpoint, *, storage_transport=None):
+        """Explicit Source or Project endpoint with the same text/byte operations."""
+        from .workspace_files import workspace_files
+        return workspace_files(self, endpoint, storage_transport=storage_transport)
+
     def http(self) -> "httpx.Client":
         """Return an HTTP client; close it after use, preferably with ``with``.
 
