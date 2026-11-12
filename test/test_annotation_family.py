@@ -560,6 +560,9 @@ class TestCustomDatasetFlow:
         ds.set_visibility("public")
         assert ds.visibility == "public"
         assert Annotation.open("l1").visibility == "public"
+        ds.set_visibility("unlisted")
+        assert ds.visibility == "unlisted"
+        assert Annotation.open("l1").visibility == "unlisted"
 
     def test_expired_lease_says_reload(self, catalog):
         from dreamlake.annotation import Annotation, AnnotationError

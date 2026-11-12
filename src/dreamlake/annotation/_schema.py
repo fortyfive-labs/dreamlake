@@ -192,7 +192,7 @@ DEFAULT_ENCODING = {
     "preview_fps": DEFAULT_PREVIEW_FPS,
     "frag_seconds": 2.0,
 }
-# "1" when the annotation was created with visibility="public" — episode meta
+# "1" when created public or unlisted — episode meta
 # then omits absolute source paths (they leak the uploader's filesystem).
 PUBLIC_META_KEY = "dreamdb.dataset.public"
 # JSON object {track_name: kind} of user tracks declared via add_track — the

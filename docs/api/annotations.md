@@ -43,3 +43,39 @@ resolves the catalog's immutable storage name. Listing `AnnotationInfo` adds
 
 The [canonical REST contract](https://docs.dreamlake.ai/annotations/reference)
 also covers ownership moves, upload credentials and old-link reservations.
+
+## Sharing and visibility
+
+Visibility and signed-in link access are independent. Private requires existing
+permission; unlisted permits anonymous reads at the known URL without public
+catalog discovery; public also appears in public listings. Namespace managers
+control these settings. Read-link recipients can read content, and write-link
+recipients can also edit titles and obtain scoped content-write credentials.
+Neither role grants sharing management, URL renaming or visibility changes.
+
+```python
+api = client.annotations
+settings = api.get_share("team", "original-name")
+api.set_share("team", "original-name", role="write")
+api.update("team", "original-name", visibility="unlisted")
+recipients = api.share_access("team", "original-name")
+```
+
+A signed-in active user accepts the live invitation with
+`api.get("team", "original-name", share=invitation_token)`. Later requests can
+omit the token: retained acceptance follows the current role while the link is
+enabled. Content handles may then open the same annotation using that identity.
+
+`api.revoke_share(namespace, name)` disables link-derived access, preserving
+acceptance records. Re-enabling creates a new token and restores retained
+recipients at the current role. Pass `revoke_accepted=True` to remove those
+records too. `api.remove_share_access(namespace, name, user_id)` removes one
+acceptance, but a still-valid link can admit that user again; removal is not a
+block. Public or unlisted visibility continues to allow anonymous reads even
+when the invitation is disabled. Already issued URLs and scoped credentials
+remain valid until expiry.
+
+These metadata methods never retry writes automatically or upload content.
+`Annotation.set_visibility("unlisted")` is also supported. New public and
+unlisted `VideoAnnotation` datasets omit absolute source paths from episode
+metadata; changing visibility does not rewrite existing episode content.
