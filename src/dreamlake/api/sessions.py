@@ -160,6 +160,23 @@ class Sessions:
         """Personal owner's durable waiting/error counts and newest 20 previews."""
         return self._get(f"/namespaces/{_namespace(namespace)}/sessions/attention")
 
+    def memo_progress(self, memo_namespace: str, memo_id: str, *, page_size: int = 50, cursor: str | None = None) -> dict[str, Any]:
+        """One access-aware page of exact linked sessions and sourced observations.
+
+        Namespace owns the memo, not necessarily its sessions. Requires the
+        matching Visibility backend. No probing, dispatch or acceptance inference.
+        An empty page with nextCursor is not proof that there are no more links.
+        """
+        if type(page_size) is not int or not 1 <= page_size <= 50:
+            raise ValueError("page_size must be 1–50")
+        params = {"pageSize": page_size}
+        if cursor is not None:
+            params["cursor"] = _id(cursor)
+        result = self._get(f"/namespaces/{_namespace(memo_namespace)}/notes/{_id(memo_id)}/progress", params)
+        if result.get("schemaVersion") != 1 or not isinstance(result.get("sessions"), list) or not isinstance(result.get("task"), dict) or result["task"].get("id") != memo_id:
+            raise SessionError("session_invalid_response")
+        return result
+
     def targets(self, namespace: str) -> dict[str, Any]:
         """Read authorized enrolled SSH targets; never choose the first as default."""
         return self._get(f"/namespaces/{_namespace(namespace)}/hosts/terminal-targets")
