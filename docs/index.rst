@@ -28,6 +28,7 @@ Python SDK for ML experiment tracking and data storage.
    parameters
    tracks
    native-experiments
+   experiment-workflow
    dash-writer
    files
    cli
