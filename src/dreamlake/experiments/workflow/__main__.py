@@ -16,9 +16,10 @@ def _folder(args):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(prog='python -m dreamlake.experiments.workflow',
-                                     description='Plan, launch and review DreamLake experiment sweeps (generate → commit → launch → review).')
+                                     description='Plan, launch, evaluate and analyse DreamLake experiment sweeps '
+                                                 '(generate → commit → launch → evaluate → review → analyse).')
     sub = parser.add_subparsers(dest='command', required=True)
-    init = sub.add_parser('init', help='copy the generator / train / launcher / README / .dashrc template into DIR')
+    init = sub.add_parser('init', help='copy the template (generator, plan, launcher, analysis.py, plain train.py/play.py, README, .dashrc) into DIR')
     init.add_argument('dir')
     for name, help_text in (('status', 'print the server contract counts and diagnostics'),
                             ('export', 'write results/runs.jsonl (one line per attempt) from the server contract')):
@@ -34,7 +35,12 @@ def main(argv=None):
         if target.exists() and any(target.iterdir()):
             parser.error(f'{target} is not empty')
         shutil.copytree(TEMPLATE, target, dirs_exist_ok=True, ignore=shutil.ignore_patterns('__pycache__', 'runs', 'results'))
-        print(f'{target}: edit train.py and the sweep in *_generate.py, then: python *_generate.py && git add grids && git commit')
+        print(f'{target}: a synthetic, CPU-only example (tested with Python 3.13 and params-proto 3.3.0; it needs only '
+              'params-proto beyond dreamlake: `uv pip install params-proto`). Edit train.py, play.py and the sweep, then:\n'
+              '  python ppo_lr_generate.py && git add grids && git commit -m plan\n'
+              '  python ppo_experiment_lr_launch.py --launch.namespace <ns> --launch.project <project> --launch.publish\n'
+              '  python ppo_experiment_lr_launch.py --launch.namespace <ns> --launch.project <project>   # train, then evaluate\n'
+              '  python analysis.py --analysis.namespace <ns> --analysis.project <project>             # exit 0 met / 1 not / 2 error')
     elif args.command == 'status':
         contract = _folder(args).contract()
         print(json.dumps({'experiment': contract['experiment'], 'complete': contract['complete'], 'counts': contract['counts'],

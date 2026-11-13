@@ -1,7 +1,9 @@
-"""Launcher: reads the committed grid, runs plain training per slug, and records each attempt in Dash.
+"""Launcher: reads the committed grid, runs plain training per slug, records each attempt in Dash, and evaluates
+every attempt whose training COMPLETED.
 
-It never redefines combinations (that is the generator's job) and the training code never imports DreamLake:
-train.py writes ordinary files, this launcher uploads them into the attempt's native run.
+It never redefines combinations (that is the generator's job) and neither train.py nor play.py imports DreamLake:
+they write ordinary files, this launcher uploads them. Evaluation is a separate step after training: a failed
+check or a crashed play.py is recorded as the attempt's evaluation and never changes its Completed training status.
 
     # publish the manifest, README and plan, then run every slug as a fresh attempt
     python ppo_experiment_lr_launch.py --launch.publish
@@ -15,6 +17,11 @@ train.py writes ordinary files, this launcher uploads them into the attempt's na
     python ppo_experiment_lr_launch.py --launch.slugs <slug> --launch.attempt <attempt> --launch.sync-only true --launch.finish COMPLETED
     # export results/runs.jsonl (derived from the server's contract) for review
     python ppo_experiment_lr_launch.py --launch.export
+    # skip evaluation (the attempt then shows "Not recorded"); inject an evaluation crash (a technical error)
+    python ppo_experiment_lr_launch.py --launch.slugs <slug> --launch.skip-eval
+    python ppo_experiment_lr_launch.py --launch.slugs <slug> --launch.eval-fail
+    # evaluate an existing attempt again (a new evaluation replaces its current one; the old files stay)
+    python ppo_experiment_lr_launch.py --launch.slugs <slug> --launch.attempt <attempt> --launch.eval-only
 
 Auth: the saved `dl login`, or DREAMLAKE_REMOTE / DREAMLAKE_API_KEY.
 """
@@ -56,6 +63,9 @@ class Launch:
     fail_at: int = -1              # fault injection for the example
     publish: bool = False
     export: bool = False
+    skip_eval: bool = False        # do not play the final checkpoint after training completes (play.py evaluates by default)
+    eval_only: bool = False        # with --launch.attempt: evaluate that existing attempt again, no training
+    eval_fail: bool = False        # fault injection: play.py crashes (a technical evaluation error, not a verdict)
 
 
 def rows_of(path):
@@ -69,6 +79,39 @@ def upload_outputs(attempt, slug, out):
             print(f'{slug} {attempt.attempt_id} {name}: +{attempt.sync_metric(name, rows_of(rows_file))} rows')
     for media in sorted((out / 'media').glob('*.png')):
         attempt.sync_file(media, prefix='/media')
+
+
+def evaluate(folder, attempt, row, out, *, replaces=None):
+    """The evaluation hook: play the attempt's final checkpoint (plain play.py), then record its checks on the attempt.
+    Training status is never touched here."""
+    steps = row['params']['train.steps']
+    checkpoint = out / 'ckpt' / f'{steps}.json'
+    evaluation = attempt.evaluation(checkpoint=checkpoint, step=steps, config='play', replaces=replaces, cwd=str(HERE))
+    eval_dir = out / 'eval' / evaluation.id
+    cmd = [sys.executable, 'play.py', '--play.checkpoint', str(checkpoint), '--play.out', str(eval_dir),
+           '--play.steps', str(steps), *(['--play.fail', 'true'] if Launch.eval_fail else [])]
+    evaluation.base['command'] = cmd
+    evaluation.start()
+    done = subprocess.run(cmd, cwd=HERE, capture_output=True, text=True)
+    if done.returncode != 0:
+        tail = (done.stderr or done.stdout or '').strip().splitlines()[-3:]
+        result = evaluation.fail(f'play.py exited {done.returncode}: ' + ' | '.join(tail))
+    else:
+        result = evaluation.finish(eval_dir / 'summary.json', evidence=[eval_dir / 'play.png'])
+    stored = result.get('evaluation', {})
+    if stored.get('status') == 'error':
+        print(f'{row["slug"]} attempt {attempt.attempt_id} evaluation {evaluation.id}: ERROR {stored.get("error")}')
+    else:  # the server derives the evaluation state from these; the Runs view shows it
+        results = [c['result'] for c in stored.get('checks') or []]
+        print(f'{row["slug"]} attempt {attempt.attempt_id} evaluation {evaluation.id}: '
+              + ', '.join(f'{results.count(r)} {r}' for r in ('pass', 'fail', 'inconclusive') if r in results))
+
+
+def current_evaluation_id(folder, slug):
+    """The id of the evaluation the server currently counts for this run (a re-evaluation replaces it)."""
+    run = next((r for r in folder.contract()['runs'] if r['run'] == slug), None)
+    current = ((run or {}).get('evaluation') or {}).get('current') or {}
+    return current.get('id')
 
 
 @proto.cli
@@ -89,6 +132,14 @@ def main():
     if not Launch.slugs and (Launch.publish or Launch.export):
         return
     rows = read_grid(HERE / Launch.grid, only=Launch.slugs.split(',') if Launch.slugs else None)
+    if Launch.eval_only:
+        if not Launch.attempt:
+            raise SystemExit('--launch.eval-only needs --launch.attempt <id> (the attempt to evaluate)')
+        for row in rows:
+            attempt = folder.attach(row['slug'], Launch.attempt).open()
+            evaluate(folder, attempt, row, HERE / 'runs' / row['slug'] / attempt.attempt_id,
+                     replaces=current_evaluation_id(folder, row['slug']))
+        return
     if Launch.sync_only:
         # Reconnect: the stored record decides kind, parent and resume step; nothing is trained, nothing is re-created.
         if not Launch.attempt:
@@ -120,8 +171,11 @@ def main():
                              'or start a new attempt')
         code = subprocess.run(cmd, cwd=HERE).returncode
         upload_outputs(attempt, row['slug'], out)
+        # The training outcome first: an evaluation below never changes it.
         attempt.finish('COMPLETED' if code == 0 else 'FAILED', error=None if code == 0 else f'train.py exited {code}')
         print(f'{row["slug"]} attempt {attempt.attempt_id} ({Launch.kind}): {"completed" if code == 0 else "failed"}')
+        if code == 0 and not Launch.skip_eval:
+            evaluate(folder, attempt, row, out)
 
 
 if __name__ == '__main__':

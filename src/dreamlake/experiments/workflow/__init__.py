@@ -13,6 +13,8 @@ records and reads the contract; it never decides which attempt is active. See
         attempt.sync_metric("eval", rows)                                      # idempotent: only new rows
     folder.attempt("lr3e-4-s0", kind="resume", parent="<attempt>", checkpoint="ckpt/3000.pt", step=3000)
     folder.attach("lr3e-4-s0", "<attempt>")                                     # reconnect: the same run, stored link
+    attempt.evaluation(checkpoint="ckpt/100000.json", step=100_000).start().finish("eval/summary.json")
+    folder.publish_analysis("analysis/out/<id>", report)                       # report.json last, inputs from folder.inputs()
 
 Command line (template, status and export): ``python -m dreamlake.experiments.workflow --help``.
 """
@@ -36,6 +38,8 @@ from urllib.parse import quote
 
 MANIFEST_SCHEMA = 'dreamlake.experiment/v1'
 ATTEMPT_SCHEMA = 1
+EVALUATION_SCHEMA = 1
+ANALYSIS_SCHEMA = 'dreamlake.analysis/v1'
 GRID_FILE = 'grid.jsonl'
 _SLUG = re.compile(r'^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$')
 _ATTEMPT = re.compile(r'^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$')
@@ -205,6 +209,40 @@ class ExperimentFolder:
     def contract(self) -> dict:
         """The server's reconciled contract (plan, logical runs, chains, segments, counts, diagnostics)."""
         return self.project._request('GET', f'/experiments/{self.id}')['contract']
+
+    def inputs(self) -> dict:
+        """The server's fingerprint of what an analysis can read now (chains, states, plan, evaluations, metric
+        revisions). Copy it verbatim into a report; the server compares it later and marks a changed report stale."""
+        return self.project._request('GET', f'/experiments/{self.id}', params={'inputs': '1'})['contract']['inputs']
+
+    def publish_analysis(self, generation: str | os.PathLike, report: Mapping[str, Any]) -> dict:
+        """Publish one analysis generation: every file of ``generation`` (``report.md``, figures) into the folder's
+        ``analysis/<id>/``, then ``analysis/report.json`` LAST, so a reader never sees a report naming files that are
+        not uploaded yet. Earlier generations stay in their own folders. Returns ``{'report', 'stale'}``: ``stale`` is
+        True when the server's inputs moved while the analysis ran (the report keeps the inputs it read, so the
+        server shows it stale, never current)."""
+        report = {'schema': ANALYSIS_SCHEMA, **report}
+        if not _ATTEMPT.match(str(report.get('id', ''))):
+            raise ValueError('report["id"] must be a generation id (new_attempt_id())')
+        generation = Path(generation)
+        own = self.project.folders.create(f'{self.path}/analysis/{report["id"]}')
+        held = {f['filename'] for f in self.project.project_files.list(folder_id=own['id'])}
+        for path in sorted(generation.iterdir()):
+            if path.is_file() and path.name != 'report.json' and path.name not in held:
+                self.project.project_files.upload(path, folder_id=own['id'], name=path.name)
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / 'report.json'
+            target.write_text(json.dumps(report, indent=2, sort_keys=True))
+            if 'report.json' not in held:
+                self.project.project_files.upload(target, folder_id=own['id'], name='report.json', content_type='application/json')
+            pointer_folder = self.project.folders.create(f'{self.path}/analysis')
+            pointer = next((f for f in self.project.project_files.list(folder_id=pointer_folder['id']) if f['filename'] == 'report.json'), None)
+            if pointer:
+                self.project.project_files.replace(pointer['id'], target, content_type='application/json')
+            else:
+                self.project.project_files.upload(target, folder_id=pointer_folder['id'], name='report.json', content_type='application/json')
+        now = self.inputs()
+        return {'report': report, 'stale': now.get('key') != (report.get('inputs') or {}).get('key')}
 
     def series(self, metric: int = 0, *, configs: Optional[list[str]] = None, bins: Optional[int] = None) -> dict:
         """Effective curves and per-config statistics, composed by the server from the contract's selection."""
@@ -405,6 +443,13 @@ class Attempt:
     def set_status(self, status: str):
         self.project.runs.set_status(self.run_id, status)
 
+    def evaluation(self, *, checkpoint: str | os.PathLike, step: int | float, config: str = 'play',
+                   overrides: Optional[Mapping[str, Any]] = None, command: Optional[list[str]] = None,
+                   cwd: Optional[str] = None, evaluation_id: Optional[str] = None, replaces: Optional[str] = None) -> 'Evaluation':
+        """An evaluation of this attempt's checkpoint at absolute ``step``: see :class:`Evaluation`."""
+        return Evaluation(self, checkpoint=checkpoint, step=step, config=config, overrides=overrides, command=command,
+                          cwd=cwd, evaluation_id=evaluation_id, replaces=replaces)
+
     def finish(self, status: str, *, error: Optional[str] = None, extra: Optional[Mapping[str, Any]] = None):
         """Set the run's status and store ``experiment/receipt.json`` (an export of the record and outcome)."""
         self.set_status(status)
@@ -426,6 +471,90 @@ class Attempt:
         return False
 
 
+class Evaluation:
+    """One evaluation execution of an attempt's checkpoint, recorded on that attempt only
+    (``PUT experiments/:folderId/attempts/:runId/evaluation``; no other metadata of the run is touched).
+
+    ``start()`` records it running; ``finish(summary)`` uploads the evaluation's own files under ``/eval/<id>/`` and
+    records the named checks from ``summary`` (``{"checks": [{name, id?, result: pass|fail|inconclusive, value?,
+    threshold?, reason}]}``, written by your plain evaluation script); ``fail(error)`` records a technical error.
+    A failed check is a result, not an error, and neither changes the training run's status. The checkpoint's
+    SHA-256 is recorded when the file is readable here; a path alone is shown as unverified."""
+
+    def __init__(self, attempt: Attempt, *, checkpoint, step, config='play', overrides=None, command=None, cwd=None,
+                 evaluation_id=None, replaces=None):
+        if attempt.run_id is None:
+            raise ExperimentWorkflowError('open the attempt before evaluating it')
+        if not isinstance(step, (int, float)) or isinstance(step, bool):
+            raise ValueError('step must be the absolute step of the checkpoint')
+        self.attempt, self.id, self.replaces = attempt, evaluation_id or new_attempt_id(), replaces
+        path = Path(checkpoint)
+        self.checkpoint: dict[str, Any] = {'step': step, 'path': str(checkpoint)}
+        if path.is_file():
+            self.checkpoint.update(sha256=hashlib.sha256(path.read_bytes()).hexdigest(), size=path.stat().st_size)
+        self.base: dict[str, Any] = {'v': EVALUATION_SCHEMA, 'id': self.id, 'attempt': attempt.attempt_id, 'checkpoint': self.checkpoint,
+                                     'config': {'name': config, **({'overrides': dict(overrides)} if overrides else {})}}
+        if command is not None:
+            self.base['command'] = [str(arg) for arg in command]
+        if cwd is not None:
+            self.base['cwd'] = str(cwd)
+        self.started = None
+
+    def _put(self, record: dict) -> dict:
+        body: dict[str, Any] = {'evaluation': record}
+        if self.replaces:
+            body['replaces'] = self.replaces
+        return self.attempt.project._request(
+            'PUT', f'/experiments/{self.attempt.folder.id}/attempts/{self.attempt.run_id}/evaluation', body=body)
+
+    @staticmethod
+    def _now() -> str:
+        return time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
+
+    def start(self) -> 'Evaluation':
+        self.started = self._now()
+        self._put({**self.base, 'status': 'running', 'startedAt': self.started})
+        # A later write of the same id continues this one; it never needs `replaces` again.
+        self.replaces = None
+        return self
+
+    def _upload(self, files: Iterable[str | os.PathLike]) -> list[dict]:
+        out = []
+        for path in files:
+            path = Path(path)
+            uploaded = self.attempt.project.files.upload(self.attempt.run_id, path, prefix=f'/eval/{self.id}')
+            view = uploaded.get('file', uploaded) if isinstance(uploaded, dict) else {}
+            entry = {'label': path.name, 'path': f'/eval/{self.id}/{path.name}', 'sha256': hashlib.sha256(path.read_bytes()).hexdigest()}
+            if isinstance(view.get('id'), str):
+                entry['fileId'] = view['id']
+            if isinstance(view.get('contentType'), str):
+                entry['contentType'] = view['contentType']
+            out.append(entry)
+        return out
+
+    def finish(self, summary: str | os.PathLike, *, evidence: Iterable[str | os.PathLike] = ()) -> dict:
+        """Upload ``summary`` and ``evidence`` (videos, images) and record the checks. A summary the server refuses
+        (unknown result word, missing reason) is recorded as an evaluation ERROR with the server's reason."""
+        summary = Path(summary)
+        try:
+            checks = json.loads(summary.read_text())['checks']
+        except Exception as error:  # the evaluation script's output is unreadable: a technical error, not a verdict
+            return self.fail(f'{summary.name} could not be read: {type(error).__name__}: {error}'[:2000])
+        files = self._upload([summary, *evidence])
+        record = {**self.base, 'status': 'done', 'checks': checks, 'files': files, 'endedAt': self._now(),
+                  **({'startedAt': self.started} if self.started else {})}
+        try:
+            return self._put(record)
+        except Exception as error:
+            if getattr(error, 'status', None) != 400:
+                raise
+            return self.fail(f'the evaluation summary was refused: {error}'[:2000], files=files)
+
+    def fail(self, error: str, *, files: Optional[list[dict]] = None) -> dict:
+        return self._put({**self.base, 'status': 'error', 'error': str(error)[:2000] or 'unknown error', 'files': files or [],
+                          'endedAt': self._now(), **({'startedAt': self.started} if self.started else {})})
+
+
 def _flat(params: Mapping[str, Any], prefix: str = '') -> dict:
     out: dict[str, Any] = {}
     for key, value in params.items():
@@ -439,5 +568,5 @@ def _flat(params: Mapping[str, Any], prefix: str = '') -> dict:
 
 TEMPLATE = Path(__file__).parent / 'template'
 
-__all__ = ['TEMPLATE', 'MANIFEST_SCHEMA', 'ExperimentFolder', 'Attempt', 'ExperimentWorkflowError', 'grid_rows', 'write_grid', 'read_grid',
+__all__ = ['TEMPLATE', 'MANIFEST_SCHEMA', 'ANALYSIS_SCHEMA', 'ExperimentFolder', 'Attempt', 'Evaluation', 'ExperimentWorkflowError', 'grid_rows', 'write_grid', 'read_grid',
            'config_slug', 'collect_provenance', 'reproduce_script', 'new_attempt_id']

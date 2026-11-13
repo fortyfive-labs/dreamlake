@@ -134,4 +134,59 @@ def test_reproduce_script_does_not_claim_exactness_with_untracked_files(tmp_path
 
 def test_init_copies_the_template(tmp_path):
     assert cli(['init', str(tmp_path / 'sweep')]) == 0
-    assert {'train.py', 'ppo_lr_generate.py', 'ppo_experiment_lr_launch.py', 'README.md', '.dashrc'} <= {p.name for p in (tmp_path / 'sweep').iterdir()}
+    assert {'train.py', 'play.py', 'analysis.py', 'ppo_lr_generate.py', 'ppo_experiment_lr_launch.py', 'README.md', '.dashrc'} <= {p.name for p in (tmp_path / 'sweep').iterdir()}
+
+
+class Refused(Exception):
+    status = 400
+
+
+class EvalProject(FakeProject):
+    """Adds the evaluation PUT, project folders/files (upload order kept) and the contract inputs."""
+
+    def __init__(self, refuse_checks=False):
+        super().__init__()
+        self.puts, self.order, self.refuse_checks = [], [], refuse_checks
+        project = self
+        self.folders = type('F', (), {'create': lambda _, path: {'id': path, 'path': path}})()
+        self.project_files = type('PF', (), {
+            'list': lambda _, folder_id: [{'filename': n, 'id': n} for f, n in project.order if f == folder_id],
+            'upload': lambda _, path, folder_id, name, **kw: project.order.append((folder_id, name)),
+            'replace': lambda _, file_id, path, **kw: project.order.append(('replace', file_id))})()
+        self.files = type('Files', (), {'upload': lambda _, run_id, path, **kw: {'file': {'id': 'a' * 24, 'contentType': 'image/png'}},
+                                        'list': lambda _, run_id, **kw: {'files': []}})()
+
+    def _request(self, method, path, body=None, params=None, **_):
+        if path.endswith('/evaluation'):
+            if self.refuse_checks and body['evaluation'].get('checks'):
+                raise Refused('checks[0].result is "ok"')
+            self.puts.append(body)
+            return {'evaluation': body['evaluation'], 'changed': True}
+        if method == 'GET' and path.startswith('/experiments/'):
+            return {'contract': {'inputs': {'key': 'k1'}}}
+        return super()._request(method, path, body=body)
+
+
+def test_an_evaluation_records_its_checkpoint_bytes_and_a_refused_summary_is_an_error_not_a_verdict(tmp_path):
+    ckpt = tmp_path / 'ckpt.json'
+    ckpt.write_text('{"step": 10}')
+    summary = tmp_path / 'summary.json'
+    summary.write_text('{"checks": [{"name": "x", "result": "ok", "reason": "r"}]}')
+    f = ExperimentFolder(EvalProject(refuse_checks=True), 'ppo/lr-sweep')
+    attempt = f.attempt('s0', params={}, provenance=PROV).open()
+    evaluation = attempt.evaluation(checkpoint=ckpt, step=10).start()
+    evaluation.finish(summary)
+    running, error = f.project.puts
+    assert running['evaluation']['status'] == 'running' and len(running['evaluation']['checkpoint']['sha256']) == 64
+    assert error['evaluation']['status'] == 'error' and 'refused' in error['evaluation']['error']
+    assert error['evaluation']['id'] == running['evaluation']['id']
+
+
+def test_publish_analysis_uploads_the_generation_first_and_the_report_pointer_last(tmp_path):
+    (tmp_path / 'report.md').write_text('# r')
+    (tmp_path / 'endpoint.svg').write_text('<svg/>')
+    f = ExperimentFolder(EvalProject(), 'ppo/lr-sweep')
+    out = f.publish_analysis(tmp_path, {'id': 'g1', 'status': 'complete', 'criteria': [], 'inputs': {'key': 'k1'}})
+    names = [name for _, name in f.project.order]
+    assert names[-1] == 'report.json' and f.project.order[-1][0] == 'ppo/lr-sweep/analysis'
+    assert {'report.md', 'endpoint.svg'} <= set(names[:-1]) and out['stale'] is False

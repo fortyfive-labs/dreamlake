@@ -1,2 +1,4 @@
 runs/
 results/
+analysis/out/
+__pycache__/
