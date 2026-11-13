@@ -1,0 +1,4 @@
+Python workspace endpoint parity, 2026-11-12
+
+Six focused pytest tests passed: Source text/byte revision guards and token-free object transfer, Project HTTP adapter parity, limits and conflicting edits.
+Project HTTP tests use a mock transport; deployed Project acceptance remains pending backend release. Product API examples are maintained in companion workspace docs PR1897.
