@@ -103,6 +103,8 @@ the contract for diffs and review.
 - On a worker whose write session is bound to the attempt's run, build the attempt from known ids instead (nothing is
   created or looked up): `Attempt.existing(ExperimentFolder(project, path, folder_id=...), run=..., attempt_id=...,
   run_id=...)`. A managed job session cannot record evaluations (its run is not an attempt).
+- The experiment is its folder's id: attempts and analysis reports are written to the folder where it is NOW (re-read by
+  id, analysis folders created by parent id), so a rename or move never recreates the old path.
 - `folder.inputs()` returns the server's inputs fingerprint. `folder.publish_analysis(dir, report)` uploads `dir`'s files
   into `analysis/<id>/` and `analysis/report.json` last; every file the report names must be in `dir`. A generation is
   immutable: the same id with the same content reconciles, other content is refused (use a new id). It returns the

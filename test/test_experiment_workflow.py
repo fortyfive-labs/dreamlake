@@ -18,7 +18,9 @@ class FakeProject:
     def __init__(self):
         self.namespace, self.project = 'ns', 'p'
         self.runs_by_path, self.metrics_rows, self.files_by_run, self.lock = {}, {}, {}, threading.Lock()
-        self.folders = type('F', (), {'create': lambda _, path: {'id': 'f' * 24, 'path': path}})()
+        self.folder_paths = {}
+        self.folders = type('F', (), {'create': lambda _, path: self.folder_paths.setdefault('f' * 24, {'id': 'f' * 24, 'path': path}),
+                                      'get': lambda _, folder_id: self.folder_paths[folder_id]})()
         self.parameters = type('P', (), {'set': lambda *_: None})()
         project = self
         self.files = type('Files', (), {
@@ -157,7 +159,8 @@ class EvalProject(FakeProject):
             project.order.append(('replace', file_id))
             folder_id, name = file_id.rsplit('/', 1)
             project.held[(folder_id, name)]['checksum'] = digest(path)
-        self.folders = type('F', (), {'create': lambda _, path: {'id': path, 'path': path}})()
+        self.folders = type('F', (), {'create': lambda _, path: {'id': path, 'path': path},
+                                      'get': lambda _, folder_id: {'id': folder_id, 'path': folder_id}})()
         self.project_files = type('PF', (), {'list': lambda _, folder_id: [f for (fid, _n), f in project.held.items() if fid == folder_id],
                                              'upload': upload, 'replace': replace})()
         self.files = type('Files', (), {'upload': lambda _, run_id, path, **kw: {'file': {'id': 'a' * 24, 'contentType': 'image/png'}},
@@ -169,6 +172,8 @@ class EvalProject(FakeProject):
                 raise Refused('checks[0].result is "ok"')
             self.puts.append(body)
             return {'evaluation': body['evaluation'], 'changed': True}
+        if method == 'POST' and path == '/folders':  # child folders by parent id
+            return {'folder': {'id': f"{body['parentId']}/{body['name']}", 'parentId': body['parentId']}}
         if method == 'GET' and path.startswith('/experiments/'):
             if self.contract_fails:
                 raise ConnectionError('API unreachable')
@@ -250,3 +255,13 @@ def test_a_failed_read_after_publishing_is_reported_unverified_not_republished(t
     project.contract_fails = True
     out = f.publish_analysis(gen, report)
     assert out['published'] and out['verified'] is False and 'unreachable' in out['error']
+
+
+def test_a_renamed_experiment_folder_is_followed_by_id_never_recreated_at_its_old_path():
+    project = FakeProject()
+    f = ExperimentFolder(project, 'ppo/lr-sweep')
+    f.attempt('s0', params={}, provenance=PROV).open()
+    project.folder_paths['f' * 24]['path'] = 'archive/lr-sweep'  # renamed and moved elsewhere, same id
+    f.attempt('s1', params={}, provenance=PROV).open()
+    assert 'archive/lr-sweep/s1.' in next(k for k in project.runs_by_path if '/s1.' in k)
+    assert not any(k.startswith('ppo/lr-sweep/s1') for k in project.runs_by_path)

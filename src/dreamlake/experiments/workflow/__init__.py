@@ -193,6 +193,22 @@ class ExperimentFolder:
             self._folder = self.project.folders.create(self.path)
         return self._folder
 
+    def current_path(self) -> str:
+        """The folder's path NOW, read by its immutable id: a rename or move since this object was made is followed, never
+        recreated at the old path. (Creates the folder only when this object has never resolved it.)"""
+        if self._folder is None:
+            return self.folder()['path'].strip('/')
+        self.path = self.project.folders.get(self.id)['path'].strip('/')
+        return self.path
+
+    def _child(self, parent_id: str, name: str) -> dict:
+        """The child folder ``name`` of folder ``parent_id`` (created if missing), addressed by the parent's id."""
+        child = self.project._request('POST', '/folders', body={'parentId': parent_id, 'name': name})['folder']
+        if child.get('parentId') not in (None, parent_id):
+            raise ExperimentWorkflowError(f'folder {name} was created under {child.get("parentId")}, not {parent_id}; '
+                                          'the experiment folder moved meanwhile: publish again')
+        return child
+
     def publish(self, manifest: Mapping[str, Any], *, grid: str | os.PathLike, readme: str | os.PathLike | None = None) -> dict:
         """Make the folder an experiment: set its manifest and upload the plan (and the README).
 
@@ -248,7 +264,9 @@ class ExperimentFolder:
             body.write_text(json.dumps(report, indent=2, sort_keys=True))
             files = {**local, 'report.json': body}
             digests = {name: _sha256_file(path) for name, path in files.items()}
-            own = self.project.folders.create(f'{self.path}/analysis/{gid}')
+            # By the experiment folder's id, never its cached path: a renamed or moved experiment keeps its analysis.
+            analysis_folder = self._child(self.id, 'analysis')
+            own = self._child(analysis_folder['id'], gid)
             held = {f['filename']: f for f in self.project.project_files.list(folder_id=own['id'])}  # a failed listing raises
             differs = sorted(name for name, f in held.items() if digests.get(name) != f.get('checksum'))
             if differs:
@@ -258,10 +276,9 @@ class ExperimentFolder:
                 if name not in held:
                     self.project.project_files.upload(files[name], folder_id=own['id'], name=name,
                                                       **({'content_type': 'application/json'} if name == 'report.json' else {}))
-            pointer_folder = self.project.folders.create(f'{self.path}/analysis')
-            pointer = next((f for f in self.project.project_files.list(folder_id=pointer_folder['id']) if f['filename'] == 'report.json'), None)
+            pointer = next((f for f in self.project.project_files.list(folder_id=analysis_folder['id']) if f['filename'] == 'report.json'), None)
             if pointer is None:
-                self.project.project_files.upload(body, folder_id=pointer_folder['id'], name='report.json', content_type='application/json')
+                self.project.project_files.upload(body, folder_id=analysis_folder['id'], name='report.json', content_type='application/json')
             elif pointer.get('checksum') != digests['report.json']:
                 self.project.project_files.replace(pointer['id'], body, content_type='application/json')
         try:
@@ -315,7 +332,7 @@ class ExperimentFolder:
     def attach(self, run: str, attempt_id: str, *, dashrc: str | os.PathLike | None = None) -> 'Attempt':
         """Reconnect to an EXISTING attempt by id, taking its kind, parent, resume, config, seed and params from the
         stored record (so a resume stays a resume). Raises when no such attempt exists; never creates one."""
-        path = f'{self.path}/{run}.{attempt_id}'
+        path = f'{self.current_path()}/{run}.{attempt_id}'
         try:
             found = self.project.by_path(path)
         except Exception as error:
@@ -390,7 +407,8 @@ class Attempt:
         """Create the attempt's run, or attach to it when it exists with the SAME identity. Uses the server's
         create-only PUT: only the request that creates the run writes its record, so concurrent callers never
         overwrite each other; a conflicting identity is refused, never merged."""
-        path = f'{self.folder.path}/{self.run_name}'
+        # The folder's current path by its id: a run is never created under a path the folder has left.
+        path = f'{self.folder.current_path()}/{self.run_name}'
         mine = self._metadata()
         if self.record['kind'] == 'resume':
             # The parent must be an attempt of this logical run; the server reports orphans, but refusing early is clearer.
