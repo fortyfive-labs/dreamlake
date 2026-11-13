@@ -92,3 +92,22 @@ attempts with roles (`active`, `superseded`, `branch`, `orphan`), parameter drif
 `folder.series(metric)` returns the composed curves, per-config mean/s.d./min/max with the seed count per step,
 and the full-budget endpoint. `folder.export_receipts("results/runs.jsonl")` writes one line per attempt from
 the contract for diffs and review.
+
+## Evaluation and analysis (unreleased)
+
+- `attempt.evaluation(checkpoint=..., step=..., config='play', command=..., replaces=None)` returns an `Evaluation`:
+  `.start()` records it running, `.finish(summary, evidence=[...])` uploads `summary.json` and evidence under
+  `/eval/<id>/` and records the checks (`{"checks": [{name, id?, result, value?, threshold?, reason}]}`), `.fail(error)`
+  records a technical error. A summary the server refuses is recorded as an error. The checkpoint's SHA-256 is recorded
+  when the file is readable locally. Only the attempt's `evaluation` metadata changes; its training status never does.
+- On a worker whose write session is bound to the attempt's run, build the attempt from known ids instead (nothing is
+  created or looked up): `Attempt.existing(ExperimentFolder(project, path, folder_id=...), run=..., attempt_id=...,
+  run_id=...)`. A managed job session cannot record evaluations (its run is not an attempt).
+- The experiment is its folder's id: attempts and analysis reports are written to the folder where it is NOW (re-read by
+  id, analysis folders created by parent id), so a rename or move never recreates the old path.
+- `folder.inputs()` returns the server's inputs fingerprint. `folder.publish_analysis(dir, report)` uploads `dir`'s files
+  into `analysis/<id>/` and `analysis/report.json` last; every file the report names must be in `dir`. A generation is
+  immutable: the same id with the same content reconciles, other content is refused (use a new id). It returns the
+  server's analysis `state` after publishing, or `verified: False` with the error when that read fails (published).
+- The template's `play.py` (plain) and `analysis.py` (exit 0 met / 1 not met or inconclusive / 2 no current verdict:
+  analysis error, or the published report is not current or not readable back) show both. Hashes are streamed. Server rules: `dreamlake-server/docs/experiment-workflow.md`, "Evaluation and analysis".
