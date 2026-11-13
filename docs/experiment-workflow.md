@@ -11,6 +11,23 @@ python -m dreamlake.experiments.workflow export --namespace team --project rl --
 
 (`src/dreamlake/experiments/workflow/template/`; there is no `dl` command for this workflow.)
 
+## Tested environment
+
+Checked end to end with **Python 3.13.14, `dreamlake` 0.50.1 and `params-proto` 3.3.0**. On Python 3.14.5 with
+`params-proto` 3.3.0 the template's grid generator (`python ppo_lr_generate.py`) fails with
+`TypeError: cannot pickle 'itertools.product' object` (raised in params-proto's `Sweep(...).list`). This affects the
+template's generator only, not the rest of the SDK. Use Python 3.13 for the template:
+
+```sh
+uv venv --python 3.13 .venv
+source .venv/bin/activate
+uv pip install "dreamlake==0.50.1" "params-proto==3.3.0"
+```
+
+The project must already exist; the workflow commands do not create it. The step-by-step walkthrough with the
+expected counts after publish, first launch and relaunch is in the
+[Experiment workflow guide](https://docs.dreamlake.ai/ml-dash/guides/experiment-workflow).
+
 ## Three files, one order
 
 `generate → commit → launch → review`
