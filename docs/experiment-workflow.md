@@ -1,8 +1,15 @@
 # Experiment workflow
 
 Organize a sweep in Dash as **question → configs × seeds → attempts → results**. Requires a server whose
-`status` lists the `experiments` capability. A complete example lives in
-[`docs/examples/experiment_workflow/`](examples/experiment_workflow/).
+`status` lists the `experiments` capability. The template ships with the SDK:
+
+```sh
+python -m dreamlake.experiments.workflow init my-sweep        # generator, plain train.py, launcher, README.md, .dashrc
+python -m dreamlake.experiments.workflow status --namespace team --project rl --folder ppo/lr-sweep
+python -m dreamlake.experiments.workflow export --namespace team --project rl --folder ppo/lr-sweep
+```
+
+(`src/dreamlake/experiments/workflow/template/`; there is no `dl` command for this workflow.)
 
 ## Three files, one order
 
@@ -37,8 +44,8 @@ Each attempt is an ordinary native run in the folder, named `<slug>.<attempt id>
 with folder.attempt(slug, params=row["params"], config=row["config"], seed=row["seed"]) as attempt:  # fresh
     attempt.sync_metric("eval", rows)          # appends only rows the run does not hold yet
 
-folder.attempt(slug, kind="resume", parent="<attempt id>", checkpoint="ckpt/30000.json", step=30000)
-folder.attempt(slug, attempt_id="job-1001")   # reconnect: reopens that same run, creates nothing
+folder.attempt(slug, kind="resume", parent="<attempt id>", checkpoint="/abs/ckpt/30000.json", step=30000)
+folder.attach(slug, "job-1001").open()       # reconnect: the stored kind/parent/step, never a new record
 ```
 
 - **Fresh** starts a new attempt. Older attempts keep their data; the newest fresh one (even if it failed) is the
@@ -46,9 +53,16 @@ folder.attempt(slug, attempt_id="job-1001")   # reconnect: reopens that same run
 - **Resume** continues an explicit parent from a checkpoint at an absolute step. Its metrics carry the absolute
   step; the server composes the curve on that step column. The checkpoint step belongs to the parent (the state
   it saved); the resume owns every step after it.
-- **Reconnect** reuses the attempt id, so a restarted launcher never duplicates a run or points. One writer per
-  attempt.
+- **Reconnect** reuses the attempt id. Creation is the server's create-only `PUT`: the first request writes the
+  record, every other one receives it unchanged; a different config, seed or params is refused
+  (`ExperimentWorkflowError`), the creator's provenance is kept. `sync_metric` appends only missing rows after
+  checking that the stored last row matches, and refuses NaN/inf or non-scalar values; `sync_file` skips a file
+  already stored with the same SHA-256. One writer per attempt.
+- Pass `command=` and `cwd=` exactly as executed (the template does): `experiment/reproduce.sh` replays them. It is
+  marked **not exact** when there are untracked files (listed, not captured), tracked changes over 1 MiB, or no git.
+- A plan row whose parameters the attempt did not run with makes the run **invalid** (never averaged).
 
+Manifest `media: [{label, run, file}]` names a run file shown with the primary result (uploaded / planned / missing).
 On exit the attempt's status is set (`COMPLETED` or `FAILED`) and `experiment/receipt.json` is stored next to
 `experiment/reproduce.sh` (and `code.diff` when the tree was dirty).
 

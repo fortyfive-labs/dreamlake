@@ -6,7 +6,8 @@
 grid), opens fresh / resume / reconnect attempts as native runs, uploads metrics idempotently (`sync_metric`),
 stores provenance and receipts, and reads the server's contract and composed series. `grid_rows` and
 `write_grid` turn a params-proto v3 `Sweep` into a committed plan. Needs a server with the `experiments`
-capability. See [Experiment workflow](experiment-workflow.md) and `docs/examples/experiment_workflow/`.
+capability. `python -m dreamlake.experiments.workflow init|status|export` scaffolds the packaged template and reads
+the contract. See [Experiment workflow](experiment-workflow.md).
 
 ## 0.50.0 — CI/CT with GitHub Actions
 
