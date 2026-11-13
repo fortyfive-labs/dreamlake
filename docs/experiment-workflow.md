@@ -93,7 +93,7 @@ attempts with roles (`active`, `superseded`, `branch`, `orphan`), parameter drif
 and the full-budget endpoint. `folder.export_receipts("results/runs.jsonl")` writes one line per attempt from
 the contract for diffs and review.
 
-## Evaluation and analysis (unreleased)
+## Evaluation and analysis (0.51.0)
 
 - `attempt.evaluation(checkpoint=..., step=..., config='play', command=..., replaces=None)` returns an `Evaluation`:
   `.start()` records it running, `.finish(summary, evidence=[...])` uploads `summary.json` and evidence under

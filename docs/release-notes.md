@@ -1,5 +1,15 @@
 # Release notes
 
+## 0.51.0 — Experiment evaluation and analysis
+
+`Attempt.evaluation()` records one attempt's named checks on an exact checkpoint (streamed SHA-256; evidence files under
+`/eval/<id>/`) through the server's evaluation route, without changing the training status; refused summaries and
+upload failures are recorded as evaluation errors. `ExperimentFolder(folder_id=)` and `Attempt.existing()` let a worker
+with a run-bound write session record its evaluation. `ExperimentFolder.inputs()` and `publish_analysis()` publish
+immutable analysis generations (report pointer last, by the folder's id) and report the server's state. The workflow
+template adds a plain `play.py` evaluate step after successful training and a standalone `analysis.py` (exit 0 / 1 / 2).
+Needs a server that answers the evaluation fields (DreamLake API from 2026-11-13).
+
 ## 0.50.1 — Experiment workflow
 
 `dreamlake.experiments.workflow`: `ExperimentFolder` publishes an experiment folder (manifest, `README.md`, plan
