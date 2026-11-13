@@ -1,0 +1,15 @@
+# Per-attempt charts (Dash's run `.dashrc`): uploaded with every attempt by the launcher.
+metrics:
+  fields: ["eval.return", "train.loss"]
+charts:
+  - ctype: line
+    title: Eval return
+    xKey: eval.step
+    yKey: eval.return
+    xLabel: environment steps
+    yLabel: episode return
+  - ctype: line
+    title: Train loss
+    xKey: train.step
+    yKey: train.loss
+    xLabel: environment steps

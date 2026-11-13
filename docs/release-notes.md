@@ -1,5 +1,14 @@
 # Release notes
 
+## 0.50.1 — Experiment workflow
+
+`dreamlake.experiments.workflow`: `ExperimentFolder` publishes an experiment folder (manifest, `README.md`, plan
+grid), opens fresh / resume / reconnect attempts as native runs, uploads metrics idempotently (`sync_metric`),
+stores provenance and receipts, and reads the server's contract and composed series. `grid_rows` and
+`write_grid` turn a params-proto v3 `Sweep` into a committed plan. Needs a server with the `experiments`
+capability. `python -m dreamlake.experiments.workflow init|status|export` scaffolds the packaged template and reads
+the contract. See [Experiment workflow](experiment-workflow.md).
+
 ## 0.50.0 — CI/CT with GitHub Actions
 
 `client.cict` covers CI/CT channel A:

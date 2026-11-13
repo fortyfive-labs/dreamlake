@@ -1,0 +1,76 @@
+# Experiment workflow
+
+Organize a sweep in Dash as **question → configs × seeds → attempts → results**. Requires a server whose
+`status` lists the `experiments` capability. The template ships with the SDK:
+
+```sh
+python -m dreamlake.experiments.workflow init my-sweep        # generator, plain train.py, launcher, README.md, .dashrc
+python -m dreamlake.experiments.workflow status --namespace team --project rl --folder ppo/lr-sweep
+python -m dreamlake.experiments.workflow export --namespace team --project rl --folder ppo/lr-sweep
+```
+
+(`src/dreamlake/experiments/workflow/template/`; there is no `dl` command for this workflow.)
+
+## Three files, one order
+
+`generate → commit → launch → review`
+
+| File | Job |
+|---|---|
+| `*_generate.py` | Defines the combinations with params-proto v3 (`Sweep(Train).product`) and writes `grids/<name>.jsonl`. Each row `{slug, config, seed, params}`; the slug comes only from the configuration and seed (`grid_rows`). Commit it: it is the plan. |
+| `train.py` | Plain training code: a `@proto.prefix` config, ordinary files out (`train.jsonl`, `eval.jsonl` with an absolute `step`, checkpoints). No DreamLake import. |
+| `*_experiment_*_launch.py` | Reads the grid, selects slugs, runs training and records each attempt in Dash. Never redefines combinations. |
+
+## Publish the experiment
+
+```python
+from dreamlake import DreamLakeClient
+from dreamlake.experiments.workflow import ExperimentFolder
+
+folder = ExperimentFolder(DreamLakeClient().experiments.project("team", "rl"), "ppo/lr-sweep")
+folder.publish({"question": "...", "step": "step", "budget": 100_000, "baseline": "<config slug>",
+                "metrics": [{"metric": "eval", "key": "return", "label": "Eval return", "goal": "max"}],
+                "changed": ["train.lr"]}, grid="grids/lr.jsonl", readme="README.md")
+```
+
+The folder's id is the experiment's identity: rename or move it freely. `README.md` is the one summary and
+conclusion; put the full analysis in a Memo and link it with `"memo"`.
+
+## Attempts
+
+Each attempt is an ordinary native run in the folder, named `<slug>.<attempt id>`.
+
+```python
+with folder.attempt(slug, params=row["params"], config=row["config"], seed=row["seed"]) as attempt:  # fresh
+    attempt.sync_metric("eval", rows)          # appends only rows the run does not hold yet
+
+folder.attempt(slug, kind="resume", parent="<attempt id>", checkpoint="/abs/ckpt/30000.json", step=30000)
+folder.attach(slug, "job-1001").open()       # reconnect: the stored kind/parent/step, never a new record
+```
+
+- **Fresh** starts a new attempt. Older attempts keep their data; the newest fresh one (even if it failed) is the
+  one compared.
+- **Resume** continues an explicit parent from a checkpoint at an absolute step. Its metrics carry the absolute
+  step; the server composes the curve on that step column. The checkpoint step belongs to the parent (the state
+  it saved); the resume owns every step after it.
+- **Reconnect** reuses the attempt id. Creation is the server's create-only `PUT`: the first request writes the
+  record, every other one receives it unchanged; a different config, seed or params is refused
+  (`ExperimentWorkflowError`), the creator's provenance is kept. `sync_metric` appends only missing rows after
+  checking that the stored last row matches, and refuses NaN/inf or non-scalar values; `sync_file` skips a file
+  already stored with the same SHA-256. One writer per attempt.
+- Pass `command=` and `cwd=` exactly as executed (the template does): `experiment/reproduce.sh` replays them. It is
+  marked **not exact** when there are untracked files (listed, not captured), tracked changes over 1 MiB, or no git.
+- A plan row whose parameters the attempt did not run with makes the run **invalid** (never averaged).
+
+Manifest `media: [{label, run, file}]` names a run file shown with the primary result (uploaded / planned / missing).
+On exit the attempt's status is set (`COMPLETED` or `FAILED`) and `experiment/receipt.json` is stored next to
+`experiment/reproduce.sh` (and `code.diff` when the tree was dirty).
+
+## Review
+
+`folder.contract()` returns the server's reconciliation: per slug its state (`not_started`, `running`,
+`completed`, `failed`, `cancelled`, `invalid`, or `unknown` when a read failed), active chain, segments,
+attempts with roles (`active`, `superseded`, `branch`, `orphan`), parameter drift and diagnostics.
+`folder.series(metric)` returns the composed curves, per-config mean/s.d./min/max with the seed count per step,
+and the full-budget endpoint. `folder.export_receipts("results/runs.jsonl")` writes one line per attempt from
+the contract for diffs and review.

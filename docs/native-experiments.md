@@ -35,6 +35,7 @@ Errors: `ExperimentRequestError` carries `status`, `code` (server `error.code`, 
 `OPERATION_CONFLICT`; it is off by default and nothing else is retried.
 
 For the built-in Dash service (ml-dash managed API) see [dash-writer.md](dash-writer.md).
+For sweeps with a plan, seeds, retries and resumes see [experiment-workflow.md](experiment-workflow.md).
 
 ## Record a complete experiment
 
