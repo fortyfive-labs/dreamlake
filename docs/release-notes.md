@@ -1,6 +1,6 @@
 # Release notes
 
-## Unreleased — experiment workflow
+## 0.50.1 — Experiment workflow
 
 `dreamlake.experiments.workflow`: `ExperimentFolder` publishes an experiment folder (manifest, `README.md`, plan
 grid), opens fresh / resume / reconnect attempts as native runs, uploads metrics idempotently (`sync_metric`),
