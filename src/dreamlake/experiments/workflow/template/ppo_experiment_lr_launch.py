@@ -137,8 +137,11 @@ def main():
             raise SystemExit('--launch.eval-only needs --launch.attempt <id> (the attempt to evaluate)')
         for row in rows:
             attempt = folder.attach(row['slug'], Launch.attempt).open()
-            evaluate(folder, attempt, row, HERE / 'runs' / row['slug'] / attempt.attempt_id,
-                     replaces=current_evaluation_id(folder, row['slug']))
+            try:
+                evaluate(folder, attempt, row, HERE / 'runs' / row['slug'] / attempt.attempt_id,
+                         replaces=current_evaluation_id(folder, row['slug']))
+            except Exception as error:
+                print(f'{row["slug"]} attempt {attempt.attempt_id}: evaluation not recorded: {type(error).__name__}: {error}')
         return
     if Launch.sync_only:
         # Reconnect: the stored record decides kind, parent and resume step; nothing is trained, nothing is re-created.
@@ -175,7 +178,10 @@ def main():
         attempt.finish('COMPLETED' if code == 0 else 'FAILED', error=None if code == 0 else f'train.py exited {code}')
         print(f'{row["slug"]} attempt {attempt.attempt_id} ({Launch.kind}): {"completed" if code == 0 else "failed"}')
         if code == 0 and not Launch.skip_eval:
-            evaluate(folder, attempt, row, out)
+            try:
+                evaluate(folder, attempt, row, out)
+            except Exception as error:  # training stays COMPLETED; say exactly what is (not) recorded
+                print(f'{row["slug"]} attempt {attempt.attempt_id}: evaluation not recorded: {type(error).__name__}: {error}')
 
 
 if __name__ == '__main__':

@@ -4,7 +4,7 @@ import threading
 
 import pytest
 
-from dreamlake.experiments.workflow import ExperimentFolder, ExperimentWorkflowError, grid_rows, reproduce_script
+from dreamlake.experiments.workflow import Attempt, ExperimentFolder, ExperimentWorkflowError, grid_rows, reproduce_script
 from dreamlake.experiments.workflow.__main__ import main as cli
 
 
@@ -142,17 +142,24 @@ class Refused(Exception):
 
 
 class EvalProject(FakeProject):
-    """Adds the evaluation PUT, project folders/files (upload order kept) and the contract inputs."""
+    """Adds the evaluation PUT, project folders/files (with sha256 checksums, in upload order) and the contract."""
 
     def __init__(self, refuse_checks=False):
         super().__init__()
-        self.puts, self.order, self.refuse_checks = [], [], refuse_checks
+        import hashlib
+        self.puts, self.order, self.held, self.refuse_checks, self.contract_fails = [], [], {}, refuse_checks, False
         project = self
+        digest = lambda path: hashlib.sha256(open(path, 'rb').read()).hexdigest()
+        def upload(_, path, folder_id, name, **kw):
+            project.order.append((folder_id, name))
+            project.held[(folder_id, name)] = {'filename': name, 'id': f'{folder_id}/{name}', 'checksum': digest(path)}
+        def replace(_, file_id, path, **kw):
+            project.order.append(('replace', file_id))
+            folder_id, name = file_id.rsplit('/', 1)
+            project.held[(folder_id, name)]['checksum'] = digest(path)
         self.folders = type('F', (), {'create': lambda _, path: {'id': path, 'path': path}})()
-        self.project_files = type('PF', (), {
-            'list': lambda _, folder_id: [{'filename': n, 'id': n} for f, n in project.order if f == folder_id],
-            'upload': lambda _, path, folder_id, name, **kw: project.order.append((folder_id, name)),
-            'replace': lambda _, file_id, path, **kw: project.order.append(('replace', file_id))})()
+        self.project_files = type('PF', (), {'list': lambda _, folder_id: [f for (fid, _n), f in project.held.items() if fid == folder_id],
+                                             'upload': upload, 'replace': replace})()
         self.files = type('Files', (), {'upload': lambda _, run_id, path, **kw: {'file': {'id': 'a' * 24, 'contentType': 'image/png'}},
                                         'list': lambda _, run_id, **kw: {'files': []}})()
 
@@ -163,7 +170,9 @@ class EvalProject(FakeProject):
             self.puts.append(body)
             return {'evaluation': body['evaluation'], 'changed': True}
         if method == 'GET' and path.startswith('/experiments/'):
-            return {'contract': {'inputs': {'key': 'k1'}}}
+            if self.contract_fails:
+                raise ConnectionError('API unreachable')
+            return {'contract': {'inputs': {'key': 'k1'}, 'analysis': {'state': 'current', 'report': {'id': 'g1'}}}}
         return super()._request(method, path, body=body)
 
 
@@ -179,14 +188,65 @@ def test_an_evaluation_records_its_checkpoint_bytes_and_a_refused_summary_is_an_
     running, error = f.project.puts
     assert running['evaluation']['status'] == 'running' and len(running['evaluation']['checkpoint']['sha256']) == 64
     assert error['evaluation']['status'] == 'error' and 'refused' in error['evaluation']['error']
-    assert error['evaluation']['id'] == running['evaluation']['id']
+    # Missing evidence on disk closes it as an error too, never leaving it running.
+    evaluation.finish(summary, evidence=[tmp_path / 'missing.mp4'])
+    assert f.project.puts[-1]['evaluation']['status'] == 'error' and 'could not be uploaded' in f.project.puts[-1]['evaluation']['error']
 
 
-def test_publish_analysis_uploads_the_generation_first_and_the_report_pointer_last(tmp_path):
-    (tmp_path / 'report.md').write_text('# r')
-    (tmp_path / 'endpoint.svg').write_text('<svg/>')
+def test_a_worker_records_its_own_attempt_with_known_ids_and_creates_no_folder(tmp_path):
+    project = EvalProject()
+    project.folders = None  # a bound worker credential cannot create folders: any attempt would fail here
+    summary = tmp_path / 'summary.json'
+    summary.write_text('{"checks": [{"name": "x", "result": "pass", "reason": "r"}]}')
+    folder = ExperimentFolder(project, 'ppo/lr-sweep', folder_id='f' * 24)
+    attempt = Attempt.existing(folder, run='s0', attempt_id='a1', run_id='b' * 24)
+    attempt.evaluation(checkpoint=tmp_path / 'absent.ckpt', step=10).start().finish(summary)
+    assert project.puts[-1]['evaluation']['status'] == 'done'
+    assert 'sha256' not in project.puts[-1]['evaluation']['checkpoint']  # path only: the server shows it unverified
+
+
+def _generation(tmp_path, text='# r'):
+    gen = tmp_path / 'gen'
+    gen.mkdir(exist_ok=True)
+    (gen / 'report.md').write_text(text)
+    (gen / 'endpoint.svg').write_text('<svg/>')
+    return gen, {'id': 'g1', 'status': 'complete', 'criteria': [], 'report': 'report.md',
+                 'figures': [{'name': 'e', 'label': 'e', 'file': 'endpoint.svg'}], 'inputs': {'key': 'k1'}}
+
+
+def test_publish_analysis_uploads_the_generation_first_and_the_pointer_last_and_reconciles_a_retry(tmp_path):
     f = ExperimentFolder(EvalProject(), 'ppo/lr-sweep')
-    out = f.publish_analysis(tmp_path, {'id': 'g1', 'status': 'complete', 'criteria': [], 'inputs': {'key': 'k1'}})
+    gen, report = _generation(tmp_path)
+    out = f.publish_analysis(gen, report)
     names = [name for _, name in f.project.order]
     assert names[-1] == 'report.json' and f.project.order[-1][0] == 'ppo/lr-sweep/analysis'
-    assert {'report.md', 'endpoint.svg'} <= set(names[:-1]) and out['stale'] is False
+    assert {'report.md', 'endpoint.svg'} <= set(names[:-1]) and out == {**out, 'verified': True, 'state': 'current'}
+    uploads = len(f.project.order)
+    f.publish_analysis(gen, report)  # the same id, files and report: nothing re-uploaded, pointer untouched
+    assert len(f.project.order) == uploads
+
+
+def test_a_generation_is_immutable_and_declared_files_must_exist(tmp_path):
+    f = ExperimentFolder(EvalProject(), 'ppo/lr-sweep')
+    gen, report = _generation(tmp_path)
+    f.publish_analysis(gen, report)
+    uploads = len(f.project.order)
+    (gen / 'report.md').write_text('# other text')
+    with pytest.raises(ExperimentWorkflowError, match='new id'):
+        f.publish_analysis(gen, report)
+    with pytest.raises(ExperimentWorkflowError, match='new id'):
+        (gen / 'report.md').write_text('# r')
+        f.publish_analysis(gen, {**report, 'criteria': [{'name': 'x', 'result': 'pass', 'reason': 'r'}]})
+    (gen / 'endpoint.svg').unlink()
+    with pytest.raises(ExperimentWorkflowError, match='not in'):
+        f.publish_analysis(gen, {**report, 'id': 'g2'})
+    assert len(f.project.order) == uploads  # nothing uploaded and the pointer still names g1
+
+
+def test_a_failed_read_after_publishing_is_reported_unverified_not_republished(tmp_path):
+    project = EvalProject()
+    f = ExperimentFolder(project, 'ppo/lr-sweep')
+    gen, report = _generation(tmp_path)
+    project.contract_fails = True
+    out = f.publish_analysis(gen, report)
+    assert out['published'] and out['verified'] is False and 'unreachable' in out['error']

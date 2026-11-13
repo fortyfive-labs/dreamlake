@@ -21,7 +21,7 @@
 
 `train.py` and `play.py` are ordinary code with no DreamLake import. The loop: generate → commit → launch
 (train, then evaluate) → review in Dash → `python analysis.py` (exit 0: criteria met; 1: not met or
-inconclusive; 2: the analysis itself failed).
+inconclusive; 2: no current verdict — the analysis failed, or its published report is not current).
 
 ## Conclusion
 

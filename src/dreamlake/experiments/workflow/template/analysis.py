@@ -4,8 +4,9 @@ with figures, and publishes it into the experiment folder's analysis/.
     python analysis.py                         # analyse and publish
     python analysis.py --analysis.local        # write analysis/out/<id>/ only, publish nothing
 
-Exit status: 0 every criterion passed; 1 a criterion failed or could not be judged; 2 the analysis itself failed
-(a technical error, recorded as such when it can still be published). The criteria below are this experiment's
+Exit status: 0 every criterion passed; 1 a criterion failed or could not be judged; 2 no current verdict: the
+analysis itself failed (recorded as its own error generation when it can still be published), or the published report
+is not current, or its state could not be read back. The criteria below are this experiment's
 own reading aids, not a significance test. The data of this template is SYNTHETIC: a report on it demonstrates
 the workflow, never a research result.
 
@@ -173,25 +174,48 @@ def main():
         (out / 'report.md').write_text(report_md(report, series, outcome))
         (out / 'report.json').write_text(json.dumps(report, indent=2))
         print(f'{OUTCOME[outcome]}: ' + '; '.join(f'{c["name"]} {c["result"]}' for c in criteria))
-        if not Analysis.local:
-            published = folder.publish_analysis(out, report)
-            print(f'published analysis {gen}' + (' (STALE: the experiment changed while this ran; run it again)' if published['stale'] else ''))
-        else:
-            print(f'written {out} (not published)')
-        return 0 if outcome == 'pass' else 1
     except Exception as error:  # a technical error of the analysis itself: never shown as criteria not met
-        message = f'{type(error).__name__}: {error}'[:2000]
-        traceback.print_exc()
-        if not Analysis.local and inputs is not None:
-            try:
-                folder.publish_analysis(out, {'id': gen, 'status': 'error', 'error': message, 'criteria': [], 'figures': [],
-                                              'report': None, 'generated': generated, 'inputs': inputs})
-                print(f'analysis ERROR recorded as {gen}: {message}', file=sys.stderr)
-            except Exception as publish_error:
-                print(f'analysis ERROR (not recorded: {publish_error}): {message}', file=sys.stderr)
-        else:
-            print(f'analysis ERROR: {message}', file=sys.stderr)
+        return failed(folder, error, generated, inputs)
+    if Analysis.local:
+        print(f'written {out} (not published)')
+        return 0 if outcome == 'pass' else 1
+    try:
+        published = folder.publish_analysis(out, report)
+    except Exception as error:  # not published (the pointer is unchanged): record the failure as its own generation
+        return failed(folder, error, generated, inputs)
+    # Published from here on: this generation is never re-recorded as anything else.
+    if not published['verified']:
+        print(f'published analysis {gen}, but its state could not be read back ({published["error"]}); check it in Dash',
+              file=sys.stderr)
         return 2
+    state = published['state']
+    print(f'published analysis {gen}: {state}' + {
+        'stale': ' (the experiment changed while this ran; run it again)',
+        'replaced': ' (another analysis was published after it)'}.get(state, '')
+        + (f' ({published["reason"]})' if published.get('reason') else ''))
+    if state != 'current':  # no current verdict was produced (stale, replaced or unreadable)
+        return 2
+    return 0 if outcome == 'pass' else 1
+
+
+def failed(folder, error, generated, inputs):
+    """Print the technical error and, when it can still be published, record it as a NEW generation (fresh id, no
+    files): a report that may already be partly uploaded is never overwritten with another record."""
+    message = f'{type(error).__name__}: {error}'[:2000]
+    traceback.print_exc()
+    if Analysis.local or inputs is None:
+        print(f'analysis ERROR: {message}', file=sys.stderr)
+        return 2
+    gen = new_attempt_id()
+    out = HERE / 'analysis' / 'out' / gen
+    out.mkdir(parents=True, exist_ok=True)
+    try:
+        folder.publish_analysis(out, {'id': gen, 'status': 'error', 'error': message, 'criteria': [], 'figures': [],
+                                      'report': None, 'generated': generated, 'inputs': inputs})
+        print(f'analysis ERROR recorded as {gen}: {message}', file=sys.stderr)
+    except Exception as publish_error:
+        print(f'analysis ERROR (not recorded: {type(publish_error).__name__}: {publish_error}): {message}', file=sys.stderr)
+    return 2
 
 
 if __name__ == '__main__':

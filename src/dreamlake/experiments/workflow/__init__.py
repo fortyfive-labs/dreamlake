@@ -165,15 +165,23 @@ def new_attempt_id() -> str:
     return time.strftime('%Y%m%dT%H%M%SZ', time.gmtime()) + '-' + secrets.token_hex(3)
 
 
+def _sha256_file(path: str | os.PathLike) -> str:
+    """SHA-256 of a file, streamed (checkpoints and videos are never read into memory whole)."""
+    with open(path, 'rb') as handle:
+        return hashlib.file_digest(handle, 'sha256').hexdigest()
+
+
 # ── Folder and attempts ──────────────────────────────────────────────────────────────────────────────────────
 
 class ExperimentFolder:
     """One experiment folder of a native project (``DreamLakeClient().experiments.project(ns, project)``)."""
 
-    def __init__(self, project, path: str):
+    def __init__(self, project, path: str, *, folder_id: Optional[str] = None):
+        """``folder_id``: the experiment folder's id when it is already known (a worker's bound credentials cannot
+        create folders); the folder is then never created or looked up."""
         self.project = project
         self.path = path.strip('/')
-        self._folder: Optional[dict] = None
+        self._folder: Optional[dict] = {'id': folder_id, 'path': self.path} if folder_id else None
 
     @property
     def id(self) -> str:
@@ -216,33 +224,53 @@ class ExperimentFolder:
         return self.project._request('GET', f'/experiments/{self.id}', params={'inputs': '1'})['contract']['inputs']
 
     def publish_analysis(self, generation: str | os.PathLike, report: Mapping[str, Any]) -> dict:
-        """Publish one analysis generation: every file of ``generation`` (``report.md``, figures) into the folder's
-        ``analysis/<id>/``, then ``analysis/report.json`` LAST, so a reader never sees a report naming files that are
-        not uploaded yet. Earlier generations stay in their own folders. Returns ``{'report', 'stale'}``: ``stale`` is
-        True when the server's inputs moved while the analysis ran (the report keeps the inputs it read, so the
-        server shows it stale, never current)."""
+        """Publish one analysis generation: the files of ``generation`` into the folder's ``analysis/<id>/``, its
+        ``report.json`` last there, then ``analysis/report.json`` (the pointer) LAST, so a reader never sees a report
+        naming files that are not uploaded. A generation is immutable: publishing the same id again with the same files
+        and report reconciles (nothing is re-uploaded); different content under an existing id is refused (use a new
+        id), and the pointer is left as it was. Every report and figure the report names must be in ``generation``.
+
+        Returns ``{'report', 'published': True, 'state', 'verified'}``: ``state`` is the server's analysis state after
+        publishing (``current``, ``stale``, ...) when ``verified``; when the read after publishing fails, the generation
+        IS published and ``verified`` is False with ``error`` (never retried as another record)."""
         report = {'schema': ANALYSIS_SCHEMA, **report}
-        if not _ATTEMPT.match(str(report.get('id', ''))):
+        gid = str(report.get('id', ''))
+        if not _ATTEMPT.match(gid):
             raise ValueError('report["id"] must be a generation id (new_attempt_id())')
         generation = Path(generation)
-        own = self.project.folders.create(f'{self.path}/analysis/{report["id"]}')
-        held = {f['filename'] for f in self.project.project_files.list(folder_id=own['id'])}
-        for path in sorted(generation.iterdir()):
-            if path.is_file() and path.name != 'report.json' and path.name not in held:
-                self.project.project_files.upload(path, folder_id=own['id'], name=path.name)
+        local = {path.name: path for path in sorted(generation.iterdir()) if path.is_file() and path.name != 'report.json'}
+        declared = [name for name in [report.get('report'), *(f.get('file') for f in report.get('figures') or [])] if name]
+        missing = [name for name in declared if name not in local]
+        if missing:
+            raise ExperimentWorkflowError(f'the report names files that are not in {generation}: {", ".join(missing)}')
         with tempfile.TemporaryDirectory() as tmp:
-            target = Path(tmp) / 'report.json'
-            target.write_text(json.dumps(report, indent=2, sort_keys=True))
-            if 'report.json' not in held:
-                self.project.project_files.upload(target, folder_id=own['id'], name='report.json', content_type='application/json')
+            body = Path(tmp) / 'report.json'
+            body.write_text(json.dumps(report, indent=2, sort_keys=True))
+            files = {**local, 'report.json': body}
+            digests = {name: _sha256_file(path) for name, path in files.items()}
+            own = self.project.folders.create(f'{self.path}/analysis/{gid}')
+            held = {f['filename']: f for f in self.project.project_files.list(folder_id=own['id'])}  # a failed listing raises
+            differs = sorted(name for name, f in held.items() if digests.get(name) != f.get('checksum'))
+            if differs:
+                raise ExperimentWorkflowError(f'analysis generation {gid} already holds other content ({", ".join(differs)}); '
+                                              'publish it under a new id (the published report is unchanged)')
+            for name in sorted(files, key=lambda n: n == 'report.json'):
+                if name not in held:
+                    self.project.project_files.upload(files[name], folder_id=own['id'], name=name,
+                                                      **({'content_type': 'application/json'} if name == 'report.json' else {}))
             pointer_folder = self.project.folders.create(f'{self.path}/analysis')
             pointer = next((f for f in self.project.project_files.list(folder_id=pointer_folder['id']) if f['filename'] == 'report.json'), None)
-            if pointer:
-                self.project.project_files.replace(pointer['id'], target, content_type='application/json')
-            else:
-                self.project.project_files.upload(target, folder_id=pointer_folder['id'], name='report.json', content_type='application/json')
-        now = self.inputs()
-        return {'report': report, 'stale': now.get('key') != (report.get('inputs') or {}).get('key')}
+            if pointer is None:
+                self.project.project_files.upload(body, folder_id=pointer_folder['id'], name='report.json', content_type='application/json')
+            elif pointer.get('checksum') != digests['report.json']:
+                self.project.project_files.replace(pointer['id'], body, content_type='application/json')
+        try:
+            analysis = self.contract().get('analysis') or {}
+        except Exception as error:  # published, but its state could not be read back: say so, never re-publish
+            return {'report': report, 'published': True, 'verified': False, 'state': None, 'error': f'{type(error).__name__}: {error}'}
+        mine = (analysis.get('report') or {}).get('id') == gid
+        return {'report': report, 'published': True, 'verified': True,
+                'state': analysis.get('state') if mine else 'replaced', 'reason': analysis.get('reason')}
 
     def series(self, metric: int = 0, *, configs: Optional[list[str]] = None, bins: Optional[int] = None) -> dict:
         """Effective curves and per-config statistics, composed by the server from the contract's selection."""
@@ -330,6 +358,15 @@ class Attempt:
         self.run_id: Optional[str] = None
         self.reconnected = False
         self._nonce = secrets.token_hex(8)
+
+    @classmethod
+    def existing(cls, folder: 'ExperimentFolder', *, run: str, attempt_id: str, run_id: str) -> 'Attempt':
+        """An attempt already recorded (its run id known), for writes that need no reopen: e.g. a worker holding a write
+        session bound to that run records its evaluation (``.evaluation(...)``). Nothing is created or read."""
+        attempt = cls(folder, run=run, attempt=attempt_id, kind=None, parent=None, resume=None, params={}, config=None,
+                      seed=None, provenance={}, dashrc=None)
+        attempt.run_id, attempt.reconnected = run_id, True
+        return attempt
 
     # The attempt's identity: a reconnect must match every one of these. Provenance (host, process) may differ.
     IDENTITY = ('v', 'experiment', 'run', 'attempt', 'kind', 'parent', 'resume', 'config', 'seed', 'params')
@@ -430,7 +467,7 @@ class Attempt:
         """Upload a file unless the run already holds it under ``prefix`` (same name and SHA-256): a reconnect does not
         duplicate it. A same-named file with other content is refused. Returns whether it uploaded."""
         path = Path(path)
-        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        digest = _sha256_file(path)
         listed = self.project.files.list(self.run_id, prefix=prefix)
         held = [f for f in (listed.get('files', []) if isinstance(listed, dict) else listed) if f.get('filename') == path.name]
         if held:
@@ -491,7 +528,7 @@ class Evaluation:
         path = Path(checkpoint)
         self.checkpoint: dict[str, Any] = {'step': step, 'path': str(checkpoint)}
         if path.is_file():
-            self.checkpoint.update(sha256=hashlib.sha256(path.read_bytes()).hexdigest(), size=path.stat().st_size)
+            self.checkpoint.update(sha256=_sha256_file(path), size=path.stat().st_size)
         self.base: dict[str, Any] = {'v': EVALUATION_SCHEMA, 'id': self.id, 'attempt': attempt.attempt_id, 'checkpoint': self.checkpoint,
                                      'config': {'name': config, **({'overrides': dict(overrides)} if overrides else {})}}
         if command is not None:
@@ -524,7 +561,7 @@ class Evaluation:
             path = Path(path)
             uploaded = self.attempt.project.files.upload(self.attempt.run_id, path, prefix=f'/eval/{self.id}')
             view = uploaded.get('file', uploaded) if isinstance(uploaded, dict) else {}
-            entry = {'label': path.name, 'path': f'/eval/{self.id}/{path.name}', 'sha256': hashlib.sha256(path.read_bytes()).hexdigest()}
+            entry = {'label': path.name, 'path': f'/eval/{self.id}/{path.name}', 'sha256': _sha256_file(path)}
             if isinstance(view.get('id'), str):
                 entry['fileId'] = view['id']
             if isinstance(view.get('contentType'), str):
@@ -540,7 +577,10 @@ class Evaluation:
             checks = json.loads(summary.read_text())['checks']
         except Exception as error:  # the evaluation script's output is unreadable: a technical error, not a verdict
             return self.fail(f'{summary.name} could not be read: {type(error).__name__}: {error}'[:2000])
-        files = self._upload([summary, *evidence])
+        try:
+            files = self._upload([summary, *evidence])
+        except Exception as error:  # a local file or upload failed: close the evaluation as a technical error
+            return self.fail(f'evaluation evidence could not be uploaded: {type(error).__name__}: {error}'[:2000])
         record = {**self.base, 'status': 'done', 'checks': checks, 'files': files, 'endedAt': self._now(),
                   **({'startedAt': self.started} if self.started else {})}
         try:
@@ -551,8 +591,14 @@ class Evaluation:
             return self.fail(f'the evaluation summary was refused: {error}'[:2000], files=files)
 
     def fail(self, error: str, *, files: Optional[list[dict]] = None) -> dict:
-        return self._put({**self.base, 'status': 'error', 'error': str(error)[:2000] or 'unknown error', 'files': files or [],
-                          'endedAt': self._now(), **({'startedAt': self.started} if self.started else {})})
+        """Record a technical error. If the server cannot be reached to record it, raise saying so: the evaluation may
+        still read as running there, and nothing here claims otherwise."""
+        try:
+            return self._put({**self.base, 'status': 'error', 'error': str(error)[:2000] or 'unknown error', 'files': files or [],
+                              'endedAt': self._now(), **({'startedAt': self.started} if self.started else {})})
+        except Exception as unreachable:
+            raise ExperimentWorkflowError(f'evaluation {self.id} failed ({error}) and that could not be recorded '
+                                          f'({type(unreachable).__name__}: {unreachable}); it may still show as running') from unreachable
 
 
 def _flat(params: Mapping[str, Any], prefix: str = '') -> dict:
