@@ -107,6 +107,12 @@ class DreamLakeClient:
         self._token = token or get_token_or_none()
 
     @property
+    def libraries(self):
+        """Caller-authorized Library catalog, search, images and file downloads."""
+        from .libraries import Libraries
+        return Libraries(self)
+
+    @property
     def sources(self):
         """Source management, access and terminal deletion under server authority."""
         from .sources import Sources
