@@ -44,7 +44,8 @@ folder.attempt(slug, attempt_id="job-1001")   # reconnect: reopens that same run
 - **Fresh** starts a new attempt. Older attempts keep their data; the newest fresh one (even if it failed) is the
   one compared.
 - **Resume** continues an explicit parent from a checkpoint at an absolute step. Its metrics carry the absolute
-  step; the server composes the curve on that step column.
+  step; the server composes the curve on that step column. The checkpoint step belongs to the parent (the state
+  it saved); the resume owns every step after it.
 - **Reconnect** reuses the attempt id, so a restarted launcher never duplicates a run or points. One writer per
   attempt.
 
