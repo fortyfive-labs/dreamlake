@@ -1,5 +1,12 @@
 # Release notes
 
+## 0.52.1 — Memo references use immutable IDs
+
+Created Memo handles, low-level Memo objects and catalog rows expose `.directive`
+for canonical `:memo[full-id]` insertion. Names and slugs remain labels. Creation
+with an unconfirmed ID stops before any body write; inspect Memos before retrying.
+Saved legacy references remain readable.
+
 ## 0.51.0 — Experiment evaluation and analysis
 
 `Attempt.evaluation()` records one attempt's named checks on an exact checkpoint (streamed SHA-256; evidence files under

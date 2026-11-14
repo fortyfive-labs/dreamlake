@@ -46,6 +46,7 @@ from ._editing import _spans_to_match
 from ._memos_mapped import HtmlSnapshot, HtmlSnapshotError, annotated_markdown, parse_html_snapshot
 from .memos import (
     _OBJECT_ID,
+    _memo_directive,
     CommandStatus,
     Memo,
     MemoError,
@@ -536,6 +537,11 @@ class MemoHandle:
     def id(self) -> str:
         """The stable 24-hex id. Known locally for an id; resolves a slug on first use."""
         return self._ref if _OBJECT_ID.fullmatch(self._ref) else self._target().id
+
+    @property
+    def directive(self) -> str:
+        """Canonical Markdown reference using the resolved immutable ID, never a title or slug."""
+        return _memo_directive(self.id)
 
     @property
     def namespace(self) -> str:
@@ -1212,6 +1218,8 @@ class Memos:
             note_id = response.json()["note"]["id"]
         except (ValueError, KeyError, TypeError):
             raise MemoError("create did not return the memo's id") from None
+        if not isinstance(note_id, str) or not _OBJECT_ID.fullmatch(note_id):
+            raise MemoError("Memo may already exist, but its full ID was not confirmed. Inspect Memos before creating again.")
         handle = MemoHandle(note_id, namespace=namespace, client=client)
         if text:
             # From here on the note exists: whatever fails, the caller must

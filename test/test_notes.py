@@ -505,7 +505,7 @@ class TestTheNamingRule:
         public = {
             m
             for m in dir(Note)
-            if not m.startswith("_") and m not in {"id", "namespace", "etag"}
+            if not m.startswith("_") and m not in {"id", "namespace", "etag", "directive"}
         }
         assert public == self.WHOLE | self.PART | self.RANGE | self.ACCESSORS | self.METADATA
 

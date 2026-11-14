@@ -42,8 +42,12 @@ use `memos`, `Memo`, and `dreamlake.api.memos`.
 
 This SDK release uses the existing server routes and response fields. Physical
 database names and RTC wire changes are separate coordinated rollout steps.
-Existing `:note[...]` content remains readable. Use ordinary links for new Memo
-references; this release introduces no `:memo` directive.
+Existing `:note[...]` content remains readable and stays unchanged during
+unrelated edits. New references use `:memo[<full-24-hex-id>]`, never a title or
+slug and never a fallback to `:note`. After `created = dl.memos.create(...)`,
+insert `created.directive`. A handle opened by slug resolves its immutable ID
+before producing `.directive`; duplicate titles and renames cannot retarget it.
+If creation has no confirmed ID, inspect the existing Memo before retrying.
 
 ## Baseline references
 

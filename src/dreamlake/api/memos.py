@@ -98,6 +98,12 @@ class MemoError(RuntimeError):
     outcome = "operational"
 
 
+def _memo_directive(memo_id: str) -> str:
+    if not isinstance(memo_id, str) or not _OBJECT_ID.fullmatch(memo_id):
+        raise MemoError("Memo reference requires a full 24-hex ID")
+    return f":memo[{memo_id}]"
+
+
 class MemoPermalinkConflict(MemoError):
     """The requested public slug is reserved in this namespace; choose another."""
 
@@ -437,6 +443,11 @@ class MemoRef:
     visibility: MemoVisibility | None = None
     cover_file_id: str | None = None
 
+    @property
+    def directive(self) -> str:
+        """Canonical Markdown reference; names and slugs are only labels."""
+        return _memo_directive(self.id)
+
     def open(self, *, client: DreamLakeClient | None = None) -> "Memo":
         return Memo(self.id, namespace=self.namespace, client=client)
 
@@ -579,6 +590,11 @@ class Memo:
     @property
     def id(self) -> str:
         return self._id
+
+    @property
+    def directive(self) -> str:
+        """Canonical Markdown reference using this Memo's immutable ID."""
+        return _memo_directive(self.id)
 
     @property
     def namespace(self) -> str:
@@ -1378,7 +1394,12 @@ def create_memo(
             json={"name": name, "visibility": visibility},
         )
     _raise_for(r, f"create memo {name!r} in {namespace}")
-    note = Memo(r.json()["note"]["id"], namespace=namespace, client=c)
+    try:
+        note_id = r.json()["note"]["id"]
+        _memo_directive(note_id)
+    except (ValueError, KeyError, TypeError, MemoError):
+        raise MemoError("Memo may already exist, but its full ID was not confirmed. Inspect Memos before creating again.") from None
+    note = Memo(note_id, namespace=namespace, client=c)
     if text:
         note.write(text, force=True)
     return note
