@@ -40,6 +40,39 @@ class Projects:
     def inspect(self, namespace, project):
         return self._request(namespace, project)
 
+    def update(self, namespace, project, *, name=None, slug=None, slug_mode=None,
+               expected_project_id=None, expected_slug_revision=None):
+        """Rename or set the URL policy using a verified stable ID and revision.
+
+        Name-only edits follow auto mode; custom slugs persist. Reset with
+        slug_mode="auto". Old browser links are preserved by the server.
+        Unsupported servers and stale edits fail without automatic retry.
+        """
+        self._access_target(namespace, project)
+        if slug_mode not in (None, "auto", "custom"):
+            raise ValueError("slug_mode must be auto or custom")
+        if slug is not None and slug_mode == "auto":
+            raise ValueError("slug and slug_mode=auto cannot be combined")
+        if name is None and slug is None and slug_mode is None:
+            raise ValueError("Supply name, slug, or slug_mode")
+        current = self.inspect(namespace, project)
+        if (not isinstance(current, dict) or not current.get("id")
+                or current.get("slugMode") not in ("auto", "custom")
+                or type(current.get("slugRevision")) is not int):
+            raise ProjectAccessError(501, "PROJECT_SLUG_SETTINGS_UNSUPPORTED")
+        if expected_project_id is not None and current["id"] != expected_project_id:
+            raise ProjectAccessError(409, "PROJECT_REPLACED")
+        payload = {"expectedProjectId": current["id"], "expectedSlugRevision":
+                   current["slugRevision"] if expected_slug_revision is None else expected_slug_revision}
+        for key, value in (("name", name), ("slug", slug), ("slugMode", slug_mode)):
+            if value is not None:
+                payload[key] = value
+        result = self._request(namespace, current["id"], "PATCH", payload=payload)
+        if (not isinstance(result, dict) or result.get("id") != current["id"]
+                or not result.get("slug") or result.get("slugMode") not in ("auto", "custom")):
+            raise ProjectAccessError(503, "PROJECT_UPDATE_UNCONFIRMED")
+        return result
+
     def resources(self, namespace, project, *, include_archived=False,
                   parent=None, bindr=None, resource_type=None, search=None,
                   page=1, page_size=50, sort=None):
