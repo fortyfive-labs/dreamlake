@@ -860,7 +860,7 @@ def __getattr__(name):
 
 # Canonical Memo functions and legacy import compatibility.
 from .api.memos import memo, create_memo, list_memos, search_memos, grep_memos
-from .api._memos_facade import memos
+from .api._memos_facade import memos, MemoStreamInterrupted
 NoteCreatedWithoutSource = MemoCreatedWithoutSource  # Deprecated compatibility name.
 NoteHandle = MemoHandle  # Deprecated compatibility name.
 NoteVersions = MemoVersions  # Deprecated compatibility name.
@@ -873,7 +873,7 @@ NoteReadOnly = MemoReadOnly  # Deprecated compatibility name.
 NoteSnapshot = MemoSnapshot  # Deprecated compatibility name.
 NoteRef = MemoRef  # Deprecated compatibility name.
 Note = Memo  # Deprecated compatibility name.
-__all__ += ["Memo", "MemoRef", "MemoSnapshot", "MemoError", "MemoNotFound", "MemoChanged", "MemoBusy", "MemoReadOnly", "Memos", "MemoHandle", "MemoVersions", "MemoCreatedWithoutSource", "memo", "create_memo", "list_memos", "search_memos", "grep_memos", "memos"]
+__all__ += ["MemoStreamInterrupted", "Memo", "MemoRef", "MemoSnapshot", "MemoError", "MemoNotFound", "MemoChanged", "MemoBusy", "MemoReadOnly", "Memos", "MemoHandle", "MemoVersions", "MemoCreatedWithoutSource", "memo", "create_memo", "list_memos", "search_memos", "grep_memos", "memos"]
 
 # Complete native experiment recording, alongside the general Episode API.
 from .experiments import Experiment, NativeConnection, NativeExperimentError, JobLifecycle, RUN, experiment

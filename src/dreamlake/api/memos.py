@@ -279,6 +279,7 @@ class PatchReceipt:
     outcome: str | None = None
     command_id: str | None = None
     replayed: bool | None = None
+    continuation: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Use the same field names as the API and CLI JSON response."""
@@ -290,7 +291,19 @@ class PatchReceipt:
             out["commandId"] = self.command_id
         if self.replayed is not None:
             out["replayed"] = self.replayed
+        if self.continuation is not None:
+            out["continuation"] = dict(self.continuation)
         return out
+
+
+def _insertion_continuation(data: dict[str, Any]) -> dict[str, Any] | None:
+    value = data.get("continuation")
+    if value is None:
+        return None
+    if (not isinstance(value, dict) or value.get("revision") != data.get("revision")
+            or type(value.get("cursor")) is not int or value["cursor"] < 0):
+        raise MemoError("invalid insertion continuation")
+    return {"revision": value["revision"], "cursor": value["cursor"]}
 
 
 @dataclass(frozen=True)
@@ -1130,6 +1143,7 @@ class Memo:
             if data.get("mode") != mode or data.get("baseRevision") != baseline:
                 raise MemoError("inconsistent receipt")
             outcome, echoed, replayed = data.get("outcome"), data.get("commandId"), data.get("replayed")
+            continuation = _insertion_continuation(data)
             if ((outcome is not None and outcome not in _OUTCOMES)
                     or (replayed is not None and not isinstance(replayed, bool))
                     or (echoed is not None and (not isinstance(echoed, str) or echoed != command_id))):
@@ -1142,7 +1156,7 @@ class Memo:
                 "this server does not record command identity")
         receipt = PatchReceipt(note=self._id, mode=mode, base_revision=baseline,
                                hash=data["hash"], revision=data["revision"],
-                               outcome=outcome, command_id=echoed, replayed=replayed)
+                               outcome=outcome, command_id=echoed, replayed=replayed, continuation=continuation)
         # Keep the legacy cache in its content-hash domain. Never put an RTC
         # revision into the ETag used by legacy Doc.save()/whole-body writes.
         self._etag = '"' + data["hash"].removeprefix("sha256:") + '"'
@@ -1183,6 +1197,7 @@ class Memo:
         if stored is not None:
             try:
                 _v2_tokens(stored, self._id)
+                continuation = _insertion_continuation(stored)
             except MemoError:
                 raise invalid from None
             if (stored.get("commandId") != command_id
@@ -1194,7 +1209,7 @@ class Memo:
                 raise invalid
             receipt = PatchReceipt(note=self._id, mode=stored["mode"], base_revision=stored["baseRevision"],
                                    hash=stored["hash"], revision=stored["revision"], outcome=stored["outcome"],
-                                   command_id=command_id, replayed=stored.get("replayed"))
+                                   command_id=command_id, replayed=stored.get("replayed"), continuation=continuation)
         # Envelope and receipt must tell one story: a settled state has a
         # receipt saying the same thing; an unsettled one has no receipt.
         if state in _OUTCOMES:

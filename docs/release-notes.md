@@ -1,5 +1,12 @@
 # Release notes
 
+## 0.53.0
+
+- Stream generated Memo additions with `MemoHandle.stream_insert`, using the server's acknowledged cursor/revision after each bounded chunk.
+- Default whole-body `write` and `patch` to RTC merge; explicit exact remains supported.
+- Preserve interruption and command-replay evidence, including insertion continuation. Requires a server that returns continuation to advance beyond the first chunk.
+
+
 ## 0.52.2 — Project names and URL slugs
 
 `client.projects.update` changes names or URL slug policy using the observed
