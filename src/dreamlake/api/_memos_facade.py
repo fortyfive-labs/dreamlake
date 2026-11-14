@@ -1217,7 +1217,7 @@ class Memos:
         try:
             note_id = response.json()["note"]["id"]
         except (ValueError, KeyError, TypeError):
-            raise MemoError("create did not return the memo's id") from None
+            raise MemoError("Memo may already exist, but its full ID was not confirmed. Inspect Memos before creating again.") from None
         if not isinstance(note_id, str) or not _OBJECT_ID.fullmatch(note_id):
             raise MemoError("Memo may already exist, but its full ID was not confirmed. Inspect Memos before creating again.")
         handle = MemoHandle(note_id, namespace=namespace, client=client)

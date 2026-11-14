@@ -40,6 +40,55 @@ class Projects:
     def inspect(self, namespace, project):
         return self._request(namespace, project)
 
+    def update(self, namespace, project, *, name=None, slug=None, slug_mode=None,
+               expected_project_id=None, expected_slug_revision=None):
+        """Rename or set the URL policy using a verified stable ID and revision.
+
+        Name-only edits follow auto mode; custom slugs persist. Reset with
+        slug_mode="auto". Old browser links are preserved by the server.
+        Unsupported servers and stale edits fail without automatic retry.
+        """
+        self._access_target(namespace, project)
+        if slug_mode not in (None, "auto", "custom"):
+            raise ValueError("slug_mode must be auto or custom")
+        if slug is not None and slug_mode == "auto":
+            raise ValueError("slug and slug_mode=auto cannot be combined")
+        if name is None and slug is None and slug_mode is None:
+            raise ValueError("Supply name, slug, or slug_mode")
+        if expected_slug_revision is not None and (
+                type(expected_slug_revision) is not int or expected_slug_revision < 0):
+            raise ValueError("expected_slug_revision must be a nonnegative integer")
+        current = self.inspect(namespace, project)
+        if (not isinstance(current, dict) or not isinstance(current.get("id"), str)
+                or not re.fullmatch(r"[a-fA-F0-9]{24}", current["id"])
+                or current.get("slugMode") not in ("auto", "custom")
+                or type(current.get("slugRevision")) is not int or current["slugRevision"] < 0):
+            raise ProjectAccessError(501, "PROJECT_SLUG_SETTINGS_UNSUPPORTED")
+        if expected_project_id is not None and current["id"] != expected_project_id:
+            raise ProjectAccessError(409, "PROJECT_REPLACED")
+        payload = {"expectedProjectId": current["id"], "expectedSlugRevision":
+                   current["slugRevision"] if expected_slug_revision is None else expected_slug_revision}
+        for key, value in (("name", name), ("slug", slug), ("slugMode", slug_mode)):
+            if value is not None:
+                payload[key] = value
+        result = self._request(namespace, current["id"], "PATCH", payload=payload)
+        expected_mode = slug_mode or ("custom" if slug is not None else current["slugMode"])
+        expected_slug = slug if slug is not None else current.get("slug") if expected_mode == "custom" else None
+        # Match the server's ECMAScript trim for a changed display name. Existing
+        # unchanged legacy names are retained by the server's field validator.
+        trim_chars = "\u0009\u000a\u000b\u000c\u000d\u0020\u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff"
+        expected_name = name if name == current.get("name") else name.strip(trim_chars) if isinstance(name, str) else name
+        if (not isinstance(result, dict) or result.get("id") != current["id"]
+                or not isinstance(result.get("slug"), str) or not result["slug"]
+                or re.search(r"[,/]", result["slug"]) or result["slug"] in (".", "..")
+                or result.get("slugMode") != expected_mode
+                or type(result.get("slugRevision")) is not int
+                or result["slugRevision"] < current["slugRevision"]
+                or (expected_slug is not None and result["slug"] != expected_slug)
+                or (name is not None and result.get("name") != expected_name)):
+            raise ProjectAccessError(503, "PROJECT_UPDATE_UNCONFIRMED")
+        return result
+
     def resources(self, namespace, project, *, include_archived=False,
                   parent=None, bindr=None, resource_type=None, search=None,
                   page=1, page_size=50, sort=None):

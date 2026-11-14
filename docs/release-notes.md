@@ -1,5 +1,13 @@
 # Release notes
 
+## 0.52.2 — Project names and URL slugs
+
+`client.projects.update` changes names or URL slug policy using the observed
+stable Project ID and slug revision. Unsupported servers and stale edits fail
+without mutation retries. Auto mode follows name changes; custom slugs stay
+stable. Requires the compatible Project slug backend. Memo ID directives from
+0.52.1 remain available. See [Project names and URL slugs](projects.md).
+
 ## 0.52.1 — Memo references use immutable IDs
 
 Created Memo handles, low-level Memo objects and catalog rows expose `.directive`
