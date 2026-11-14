@@ -995,7 +995,7 @@ class MemoHandle:
         _exact(mode)
         if type(cursor) is not int or cursor < 0:
             raise ValueError("cursor must be a nonnegative code-point position")
-        stream_id = stream_id or f"stream:{uuid.uuid4()}"
+        stream_id = f"stream:{uuid.uuid4()}" if stream_id is None else stream_id
         if not isinstance(stream_id, str) or not re.fullmatch(r"[A-Za-z0-9._:-]{8,100}", stream_id):
             raise ValueError("stream_id must contain 8–100 command-id characters")
         self._own(at, "at")

@@ -65,3 +65,11 @@ def test_close_prevents_future_writes_and_empty_stream_does_nothing():
     stream = note.stream_insert(chunks=['x','y'], at=snapshot('a','rtc:0'), cursor=1, mode='exact')
     next(stream); stream.close()
     assert len(calls) == 1 and calls[0]['mode'] == 'exact'
+
+
+@pytest.mark.parametrize("stream_id", ["", False, 0, "short", "bad id here"])
+def test_invalid_explicit_stream_identity_is_not_silently_replaced(stream_id):
+    note, calls = stream_fixture()
+    with pytest.raises(ValueError, match="stream_id"):
+        list(note.stream_insert(chunks=['x'], at=snapshot('a', 'rtc:0'), cursor=1, stream_id=stream_id))
+    assert calls == []
