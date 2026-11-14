@@ -10,7 +10,10 @@ def test_update_binds_namespace_stable_id_and_revision():
     calls = []
     def serve(request):
         calls.append(request)
-        return httpx.Response(200, json={'id': ID, 'name': 'New', 'slug': 'new', 'slugMode': 'auto', 'slugRevision': 4})
+        patch = json.loads(request.content) if request.method == 'PATCH' else {}
+        return httpx.Response(200, json={'id': ID, 'name': patch.get('name', 'New'),
+            'slug': patch.get('slug', 'new'),
+            'slugMode': 'custom' if 'slug' in patch else 'auto', 'slugRevision': 4})
     api = DreamLakeClient(token='synthetic', transport=httpx.MockTransport(serve)).projects
     result = api.update('acme', 'old', name='New')
     assert result['slug'] == 'new'
@@ -46,3 +49,53 @@ def test_conflict_is_not_retried():
         api.update('acme', ID, name='New', expected_slug_revision=1)
     assert caught.value.status == 409
     assert len(calls) == 2
+
+
+@pytest.mark.parametrize('invalid', [{'id': 'display-name'}, {'slugRevision': -1}, {'slugRevision': True}])
+def test_invalid_observed_identity_never_writes(invalid):
+    calls = []
+    def serve(request):
+        calls.append(request)
+        return httpx.Response(200, json={'id': ID, 'slugMode': 'auto', 'slugRevision': 2, **invalid})
+    api = DreamLakeClient(token='synthetic', transport=httpx.MockTransport(serve)).projects
+    with pytest.raises(ProjectAccessError, match='UNSUPPORTED'):
+        api.update('acme', 'old', name='New')
+    assert [r.method for r in calls] == ['GET']
+
+
+@pytest.mark.parametrize('patch,result', [
+    ({'slug': 'stable'}, {'slug': 'wrong', 'slugMode': 'custom'}),
+    ({'slug': 'stable'}, {'slug': 'stable', 'slugMode': 'auto'}),
+    ({'name': 'New'}, {'name': 'Wrong'}),
+    ({'slug_mode': 'auto'}, {'slugMode': 'custom'}),
+    ({'name': 'New'}, {'slugRevision': -1}),
+    ({'name': 'New'}, {'slugRevision': True}),
+    ({'name': 'New'}, {'slugRevision': 1}),
+    ({'slug_mode': 'custom'}, {'slug': 'changed', 'slugMode': 'custom'}),
+    *[({'name': 'New'}, {'slug': slug}) for slug in ('../new', '..', 'bad,slug', '')],
+])
+def test_mismatched_update_result_is_unconfirmed_without_retry(patch, result):
+    calls = []
+    def serve(request):
+        calls.append(request)
+        row = {'id': ID, 'name': 'New', 'slug': 'new', 'slugMode': 'auto', 'slugRevision': 2}
+        return httpx.Response(200, json={**row, **(result if request.method == 'PATCH' else {})})
+    api = DreamLakeClient(token='synthetic', transport=httpx.MockTransport(serve)).projects
+    with pytest.raises(ProjectAccessError, match='PROJECT_UPDATE_UNCONFIRMED'):
+        api.update('acme', 'old', **patch)
+    assert [r.method for r in calls] == ['GET', 'PATCH']
+
+
+def test_changed_name_accepts_server_trimmed_result():
+    def serve(request):
+        return httpx.Response(200, json={'id': ID, 'name': 'New', 'slug': 'new', 'slugMode': 'auto', 'slugRevision': 2})
+    api = DreamLakeClient(token='synthetic', transport=httpx.MockTransport(serve)).projects
+    assert api.update('acme', 'old', name='\ufeff New \u00a0')['name'] == 'New'
+
+
+def test_custom_mode_without_slug_preserves_observed_address():
+    def serve(request):
+        return httpx.Response(200, json={'id': ID, 'name': 'New', 'slug': 'new',
+            'slugMode': 'auto' if request.method == 'GET' else 'custom', 'slugRevision': 3})
+    api = DreamLakeClient(token='synthetic', transport=httpx.MockTransport(serve)).projects
+    assert api.update('acme', 'old', slug_mode='custom')['slug'] == 'new'
