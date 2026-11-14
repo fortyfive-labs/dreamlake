@@ -36,6 +36,7 @@ from __future__ import annotations
 import hashlib
 import os
 import re
+import uuid
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
@@ -77,6 +78,7 @@ __all__ = [
     "MappedRead",
     "MemoCreatedWithoutSource",
     "MemoHandle",
+    "MemoStreamInterrupted",
     "MemoVersions",
     "Memos",
     "Outline",
@@ -114,6 +116,16 @@ class RevisionExpected(MemoError, ValueError):
     """
 
     outcome = "invalid-usage"
+
+
+class MemoStreamInterrupted(MemoError):
+    """Stream stopped; inspect the last receipt and pending command before resuming."""
+
+    def __init__(self, last_receipt, pending, cause):
+        super().__init__("Memo stream stopped; preserve the acknowledged cursor and reconcile the pending command.")
+        self.last_receipt = last_receipt
+        self.pending = pending
+        self.__cause__ = cause
 
 
 class ReadingViewRefused(MemoError, ValueError):
@@ -939,13 +951,13 @@ class MemoHandle:
         assert isinstance(receipt, PatchReceipt)
         return receipt
 
-    def write(self, *, text: str, at: Any, mode: str, command_id: str | None = None) -> PatchReceipt:
+    def write(self, *, text: str, at: Any, mode: str = "merge", command_id: str | None = None) -> PatchReceipt:
         """Replace the whole source with ``text``, planned against the complete snapshot ``at``.
 
         The difference is compiled against the original source and sent as
         retained-baseline edits; no latest-body replacement, no ETag path. A
-        partial read is refused as a baseline. ``mode`` is required until a
-        default is ratified; an unchanged target under ``exact`` is still
+        partial read is refused as a baseline. Merge is the default;
+        an unchanged target under ``exact`` is still
         submitted so the server checks the precondition.
         """
         _refuse_reading_view(text, "text")
@@ -955,10 +967,10 @@ class MemoHandle:
         assert isinstance(receipt, PatchReceipt)
         return receipt
 
-    def patch(self, *, patch: str, format: str, at: Any, mode: str, command_id: str | None = None) -> PatchReceipt:
+    def patch(self, *, patch: str, format: str, at: Any, mode: str = "merge", command_id: str | None = None) -> PatchReceipt:
         """Apply an explicit original-source patch (``diff`` or ``inline-dff``).
 
-        ``format`` and ``mode`` are required. Coordinates refer to the retained
+        ``format`` is required; ``mode`` defaults to merge. Coordinates refer to the retained
         original source named by ``at``; a newer revision is never attached to
         an old patch. ``at`` may be a complete or partial read result (its
         revision is the baseline) or an ``rtc:`` string.
@@ -972,6 +984,40 @@ class MemoHandle:
                                        command_id=command_id)
         assert isinstance(receipt, PatchReceipt)
         return receipt
+
+    def stream_insert(self, *, chunks, cursor: int, at: Any, mode: str = "merge", stream_id: str | None = None):
+        """Yield one receipt per acknowledged chunk, advancing only by server continuation.
+
+        Stops on overlap, missing continuation or uncertain outcome. Never
+        restart a partial stream at index zero or guess an offset from text.
+        Closing the iterator stops future chunks; accepted text remains.
+        """
+        _exact(mode)
+        if type(cursor) is not int or cursor < 0:
+            raise ValueError("cursor must be a nonnegative code-point position")
+        stream_id = f"stream:{uuid.uuid4()}" if stream_id is None else stream_id
+        if not isinstance(stream_id, str) or not re.fullmatch(r"[A-Za-z0-9._:-]{8,100}", stream_id):
+            raise ValueError("stream_id must contain 8–100 command-id characters")
+        self._own(at, "at")
+        sequence, last_receipt, pending = 0, None, None
+        try:
+            for chunk in chunks:
+                if not isinstance(chunk, str):
+                    raise TypeError("stream chunks must be strings")
+                for offset in range(0, len(chunk), 2048):
+                    pending = dict(text=chunk[offset:offset + 2048], cursor=cursor, at=at,
+                                   mode=mode, command_id=f"{stream_id}:{sequence}")
+                    sequence += 1
+                    receipt = self.insert(**pending)
+                    last_receipt, pending = receipt, None
+                    yield receipt
+                    continuation = receipt.continuation
+                    if (not continuation or continuation.get("revision") != receipt.revision
+                            or type(continuation.get("cursor")) is not int or continuation["cursor"] < 0):
+                        raise ValueError("Server did not return an insertion continuation; do not resend the acknowledged chunk")
+                    at, cursor = continuation["revision"], continuation["cursor"]
+        except Exception as cause:
+            raise MemoStreamInterrupted(last_receipt, pending, cause) from cause
 
     def command_status(self, *, command_id: str) -> CommandStatus:
         """What the server recorded for ``command_id``; the read after ``UncertainOutcomeError``."""
