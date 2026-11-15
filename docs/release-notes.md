@@ -1,5 +1,14 @@
 # Release notes
 
+## 0.52.3 — Source, Folder and Bindr visibility
+
+`client.sources.set_visibility`, `client.folders.set_visibility` and
+`client.bindrs.set_visibility` support Private, Unlisted and Public with
+observed-version guards. Unlisted resources remain readable by direct link
+and are excluded from public discovery. Folder and Bindr visibility can also
+inherit from their containing context. Independent resource permissions and
+private parent Projects remain protected. See [Client APIs](api-client.md).
+
 ## 0.52.2 — Project names and URL slugs
 
 `client.projects.update` changes names or URL slug policy using the observed
