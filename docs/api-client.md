@@ -54,3 +54,39 @@ client.sources.set_visibility(
 A stale revision is rejected. No request is automatically retried. On a lost or
 invalid acknowledgment, read `detail()` again before deciding whether to retry.
 The `metadata()` method accepts the same visibility and revision arguments.
+
+## Folder and Bindr visibility
+
+Ordinary folders and Bindrs support `private`, `unlisted` and `public`.
+Unlisted objects are readable by direct link and excluded from public discovery.
+Existing unset visibility retains inherited behavior. Project ADMIN is required
+for a change, and independent private resource permissions remain in force.
+
+```python
+from dreamlake.api._client import DreamLakeClient
+
+client = DreamLakeClient()
+folder = client.folders.get_visibility(folder_id)
+client.folders.set_visibility(
+    folder_id, "unlisted", expected_updated_at=folder["updatedAt"]
+)
+bindr = client.bindrs.get_visibility(bindr_id)
+client.bindrs.set_visibility(
+    bindr_id, "unlisted", expected_updated_at=bindr["updatedAt"]
+)
+```
+
+The methods address stable IDs, so reading an Unlisted object does not require
+finding it in a public Project list. Folder reads return effective `visibility`
+and nullable `explicitVisibility`; Bindr reads may omit visibility for inherited
+legacy behavior. `updatedAt` is required for every visibility update. Invalid
+inputs fail before any request. Writes are sent once; transport failures,
+server errors or invalid acknowledgments raise `VisibilityWriteUnconfirmed`
+(from `dreamlake.api.folder_visibility`). Read current metadata to reconcile an
+uncertain response before deciding whether to retry.
+
+`client.create_bindr(..., visibility="unlisted")` sets visibility at creation and
+checks the acknowledgment before filing additional nodes. `dl.bindr(...,
+visibility="unlisted")` sets it on a new or existing Bindr; existing Bindrs use a
+fresh version read. Ordinary files inherit folder visibility. Sharing a Bindr
+shares the grouping, without changing access to its members or Project.

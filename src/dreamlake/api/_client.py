@@ -113,6 +113,18 @@ class DreamLakeClient:
         return Libraries(self)
 
     @property
+    def folders(self):
+        """Ordinary folder visibility by stable Node ID."""
+        from .folder_visibility import FolderVisibility
+        return FolderVisibility(self)
+
+    @property
+    def bindrs(self):
+        """Bindr visibility by stable Bindr ID; members retain independent access."""
+        from .folder_visibility import FolderVisibility
+        return FolderVisibility(self, "bindr")
+
+    @property
     def sources(self):
         """Source management, access and terminal deletion under server authority."""
         from .sources import Sources
@@ -413,14 +425,19 @@ class DreamLakeClient:
     def create_bindr(self, namespace: str, project: str, name: str,
                      members: list[str | dict] | None = None,
                      description: str | None = None,
-                     tags: list[str] | None = None) -> dict:
+                     tags: list[str] | None = None, *, visibility: str | None = None) -> dict:
         """Create a Bindr and file nodes, returning its flat view and members.
 
         Creation and the first filing are atomic. Later filings are sequential;
         BindrMembershipError exposes confirmed progress if a later filing fails.
         """
+        if visibility is not None:
+            from .folder_visibility import _visibility
+            _visibility(visibility)
         node_ids = _bindr_node_ids(members or [])
         body: dict = {"name": name}
+        if visibility is not None:
+            body["visibility"] = visibility
         if node_ids:
             body["member"] = {"nodeId": node_ids[0]}
         if description is not None:
@@ -434,6 +451,9 @@ class DreamLakeClient:
             )
         r.raise_for_status()
         bindr = r.json()["bindr"]
+        if visibility is not None and bindr.get("visibility") != visibility:
+            from .folder_visibility import VisibilityWriteUnconfirmed
+            raise VisibilityWriteUnconfirmed("Bindr creation visibility was not confirmed; inspect the created Bindr before retrying")
         self._file_bindr_nodes(bindr["id"], node_ids[1:], completed=node_ids[:1])
         return {**bindr, "memberCount": len(node_ids),
                 "members": [{"nodeId": node_id} for node_id in node_ids]}
