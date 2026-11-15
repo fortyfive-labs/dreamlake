@@ -632,6 +632,7 @@ def bindr(
     description: str | None = None,
     tags: list[str] | None = None,
     create: bool = True,
+    visibility: str | None = None,
 ) -> dict:
     """Get or create a Bindr and file its node members.
 
@@ -645,6 +646,8 @@ def bindr(
         description: Optional description (set on create)
         tags: Optional tag list (set on create)
         create: If True, create the bindr if missing. Default True.
+        visibility: Optional private, unlisted or public; sets visibility for a new
+            or existing Bindr using the current version and requires Project ADMIN.
 
     Examples:
         # File/folder members by path
@@ -652,6 +655,9 @@ def bindr(
             dl.bindr("training-set", members=["camera/front", "labels/yolo"])
 
     """
+    if visibility is not None:
+        from .api.folder_visibility import _visibility
+        _visibility(visibility)
     if bindrs:
         raise ValueError("Bindrs cannot be members; use the Bindr parent hierarchy instead")
     from .api.prefix import _ctx_prefix
@@ -677,13 +683,18 @@ def bindr(
             raise
     else:
         if refs:
-            return client.add_bindr_members(namespace, project_slug, name, refs)
+            existing = client.add_bindr_members(namespace, project_slug, name, refs)
+        if visibility is not None:
+            current = client.bindrs.get_visibility(existing["id"])
+            saved = client.bindrs.set_visibility(existing["id"], visibility, expected_updated_at=current["updatedAt"])
+            existing = {**existing, **saved}
         return existing
 
     # The compatibility client files each node through the canonical API.
     return client.create_bindr(
         namespace, project_slug, name,
         members=refs or None, description=description, tags=tags,
+        **({"visibility": visibility} if visibility is not None else {}),
     )
 
 
