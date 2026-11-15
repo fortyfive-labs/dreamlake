@@ -1,5 +1,14 @@
 """Source v1 management. Server decides authority; exact keys survive explicit retries."""
 from urllib.parse import quote
+from typing import Literal
+
+SourceVisibility = Literal["private", "unlisted", "public"]
+
+def _visibility(value):
+    if value not in ("private", "unlisted", "public"):
+        raise ValueError("Visibility must be private, unlisted, or public")
+    return value
+
 
 
 class SourceError(Exception):
@@ -41,6 +50,33 @@ class Sources:
 
     def detail(self, namespace, source_id):
         return self._request(namespace, source_id)
+
+    def metadata(self, namespace, source_id, *, expected_settings_revision, idempotency_key,
+                 visibility: SourceVisibility | None = None, name=None, description=None):
+        """Update metadata using the revision returned by detail(). Never retries."""
+        if type(expected_settings_revision) is not int or expected_settings_revision < 0:
+            raise ValueError("A current settings revision is required")
+        payload = {"expectedSettingsRevision": expected_settings_revision}
+        if visibility is not None:
+            payload["visibility"] = _visibility(visibility)
+        if name is not None:
+            payload["name"] = name
+        if description is not None:
+            payload["description"] = description
+        result = self._request(namespace, source_id, "PATCH", "/metadata", payload, idempotency_key)
+        if visibility is not None and (not isinstance(result, dict) or result.get("id") != source_id or result.get("visibility") != visibility):
+            raise SourceError("SOURCE_VISIBILITY_RECONCILE_REQUIRED", 200)
+        return result
+
+    def set_visibility(self, namespace, source_id, visibility: SourceVisibility, *, expected_settings_revision, idempotency_key):
+        """Private, Unlisted (link only), or Public; signed-in sharing is unchanged.
+
+        Read detail() for expected_settings_revision. If transport/acknowledgment
+        fails, read detail() again before deciding whether to retry.
+        """
+        _visibility(visibility)
+        return self.metadata(namespace, source_id, expected_settings_revision=expected_settings_revision,
+                             idempotency_key=idempotency_key, visibility=visibility)
 
     def disable(self, namespace, source_id, *, idempotency_key):
         return self._request(namespace, source_id, "POST", ":disable", {}, idempotency_key)

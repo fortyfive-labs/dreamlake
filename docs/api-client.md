@@ -32,3 +32,25 @@ are accepted. Legacy Bindr-as-member inputs and `dl.bindr(bindrs=[...])` are
 rejected before any request: the current API represents nesting through a
 Bindr's `parent`, and its reads include child filings. Downloads recognize
 canonical `{nodeId: ...}` members.
+
+## Source visibility
+
+Source visibility is independent of signed-in share links and editors. Private
+Sources keep their current authorized audience; Unlisted Sources are readable
+by link but excluded from public profiles and listings; Public Sources are
+listed for visitors. Link access is read-only and covers the whole Source.
+
+```python
+from uuid import uuid4
+
+source = client.sources.detail("team", source_id)
+client.sources.set_visibility(
+    "team", source_id, "unlisted",
+    expected_settings_revision=source["settingsRevision"],
+    idempotency_key=str(uuid4()),
+)
+```
+
+A stale revision is rejected. No request is automatically retried. On a lost or
+invalid acknowledgment, read `detail()` again before deciding whether to retry.
+The `metadata()` method accepts the same visibility and revision arguments.

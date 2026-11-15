@@ -41,3 +41,32 @@ def test_source_denial_not_retried_or_revealed_and_missing_key_rejected():
     with pytest.raises(ValueError):
         s.enable("owner", "source", idempotency_key="")
     assert len(calls) == 1
+
+@pytest.mark.parametrize('visibility', ['private', 'unlisted', 'public'])
+def test_source_visibility_cas_payload_and_acknowledgment(visibility):
+    import json
+    calls = []
+    def serve(request):
+        calls.append(request)
+        assert request.url.path == '/namespaces/team/sources/source/metadata'
+        assert request.method == 'PATCH'
+        assert json.loads(request.content) == {'visibility': visibility, 'expectedSettingsRevision': 7}
+        return httpx.Response(200, json={'id': 'source', 'visibility': visibility, 'settingsRevision': 8})
+    sources = DreamLakeClient(token='synthetic', transport=httpx.MockTransport(serve)).sources
+    result = sources.set_visibility('team', 'source', visibility, expected_settings_revision=7, idempotency_key='same')
+    assert result['visibility'] == visibility
+    assert len(calls) == 1
+    with pytest.raises(ValueError):
+        sources.set_visibility('team', 'source', 'invalid', expected_settings_revision=7, idempotency_key='same')
+    assert len(calls) == 1
+
+
+def test_source_visibility_unknown_ack_never_retries():
+    calls = []
+    def serve(request):
+        calls.append(request)
+        return httpx.Response(200, json={'id': 'different', 'visibility': 'unlisted'})
+    sources = DreamLakeClient(token='synthetic', transport=httpx.MockTransport(serve)).sources
+    with pytest.raises(SourceError, match='SOURCE_VISIBILITY_RECONCILE_REQUIRED'):
+        sources.set_visibility('team', 'source', 'unlisted', expected_settings_revision=7, idempotency_key='same')
+    assert len(calls) == 1
