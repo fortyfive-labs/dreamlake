@@ -66,6 +66,7 @@ class HostTeamGrant(_HostGrantListing):
     machineId: str
     team: HostGrantTeam
     grantedAt: str
+    inactive: bool  # present (True) when the team was deleted; listed only while sessions are pending
 
 
 class HostAccessGrants(TypedDict):
@@ -388,7 +389,12 @@ class Hosts:
             raise HostError("Host move response could not be verified; reconcile before retrying", request_id=request_id)
 
     def move_preview(self, namespace: str, host_id: str, destination_namespace: str) -> dict:
-        """Preview a private, identity-preserving namespace move without changing the host."""
+        """Preview a private, identity-preserving namespace move without changing the host.
+
+        When the Host is filed in Projects, the preview includes
+        ``projectPlacements`` (``{"count", "policy": "unfile"}``); the move
+        removes those placements and their Bindr tags in the same transaction.
+        """
         path = self._move_path(namespace, host_id)
         if not isinstance(destination_namespace, str) or not _SEGMENT.fullmatch(destination_namespace):
             raise HostConfigurationError("destination_namespace must be an exact namespace slug")

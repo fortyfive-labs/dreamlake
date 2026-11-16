@@ -261,7 +261,10 @@ viewers, external grantees and service accounts never see filed Hosts, and no
 caller sees enrollments, Unix accounts, machine IDs or status through the Project.
 Sharing the Project later does not change this. Project content-delete or the
 Host owner can unfile; unfiling removes the node's bindr tags and leaves the Host
-and its grants unchanged. Moving the Host to another namespace unfiles it;
+and its grants unchanged. Moving the Host to another namespace unfiles it:
+`client.hosts.move_preview(...)` reports `projectPlacements` (`count` and
+`policy: "unfile"`) when the Host is filed, and the move removes those placements
+and their Bindr tags atomically;
 deleting the Project never deletes the Host. A whole-Project move
 (`client.projects.move`) is blocked while a Host is filed in the Project:
 detach it first, then preview the move again.
