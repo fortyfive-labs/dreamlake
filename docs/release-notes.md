@@ -1,5 +1,16 @@
 # Release notes
 
+## 0.54.0 — Host connection grants
+
+`client.hosts.access_grants(ns, host_id)`, `grant_access(ns, host_id,
+enrollment_id=..., grantee=...)` and `revoke_access(ns, host_id, grant_id)` let
+a Host owner share one enrollment's Unix account with one organization member,
+list grants and revoke them. Revocation reports confirmed closes separately from
+connections still pending close (`unconfirmedConnections`, `unconfirmedUntil`);
+revoked grants with pending connections stay listed. `HostError.code` exposes the
+server's error code. Requires a server with Host access grants. See
+[Host enrollment](hosts.md).
+
 ## 0.53.0 — CI/CT onboarding status and usage detail
 
 `client.cict.onboarding(ns)` reports where a namespace stands on CI/CT

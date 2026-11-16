@@ -80,7 +80,8 @@ Failures raise sanitized `HostError` subclasses from `dreamlake.api.hosts`:
 `HostConfigurationError`, `HostAuthorizationError`, `HostConflictError`, and
 `HostNotFound`. HTTP failures expose a numeric `status` and, for enrollment, a
 `request_id`, without copying response bodies or bootstrap tokens into exceptions.
-`operation_id` and `retry_at` preserve valid API recovery fields. If `retry_at` is
+`operation_id` and `retry_at` preserve valid API recovery fields; `code` carries
+the server's fixed error code (for example `grantee_not_member`) when present. If `retry_at` is
 present, wait until that time before starting a new request. Request IDs are
 1–128 letters, digits, underscores, periods, colons or hyphens, beginning with a
 letter or digit. Redirects are refused.
@@ -219,3 +220,54 @@ client.hosts.rename("fortyfive", host_id,
 ```
 
 Rename preserves the existing enrollment and keys. On an uncertain response, retry the same inputs.
+
+## Share connection access with an organization member
+
+Python 0.54.0 or later. The exact owner of a Host in an organization namespace can
+let one named member connect (terminal/SSH relay) to one enrollment. The grant
+covers only that enrollment's Unix account: the member acts with that account's
+existing OS permissions, and no OS user is created. It confers no Host
+management, rename/move/lifecycle, metrics, checks, saved sessions or
+credentials. Personal namespaces cannot share hosts.
+
+```python
+hosts = client.hosts
+detail = hosts.status("fortyfive/bos14/bos14-ctrl")
+host_id = detail["host"]["id"]
+enrollment_id = detail["enrollments"][0]["id"]  # Choose the exact Unix account.
+
+grant = hosts.grant_access("fortyfive", host_id,
+                           enrollment_id=enrollment_id, grantee="alice")["grant"]
+print(grant["unixUser"], grant["grantee"]["username"])
+
+for g in hosts.access_grants("fortyfive", host_id)["grants"]:
+    print(g["id"], g["state"], g["unixUser"], g["grantee"]["username"],
+          g.get("pendingConnections"), g.get("pendingUntil"))
+
+result = hosts.revoke_access("fortyfive", host_id, grant["id"])
+if result["unconfirmedConnections"]:
+    # Not confirmed closed: revoke again to retry, or they end at this time.
+    print(result["unconfirmedConnections"], result["unconfirmedUntil"])
+```
+
+All three calls are owner-only and require an explicit enrollment ID; the grantee
+is a DreamLake username (a leading `@` is accepted) who must currently be a member
+of the namespace. Refusals raise `HostError` subclasses whose `code` names the
+reason, such as `host_access_grant_org_only`, `grantee_not_found`,
+`grantee_is_owner`, `grantee_not_member` or `enrollment_not_found`.
+
+Granting the same enrollment to the same person returns the existing active
+grant. After an uncertain grant response, reconcile with `access_grants(...)`
+rather than repeating the call: a repeated grant also re-activates one that was
+revoked in the meantime, so grant again only as a fresh, explicit decision. Every
+connection rechecks the grant, the owner's and the grantee's current access, so
+a listed `active` grant may still be inert (for example after the member leaves
+the organization). Revocation denies new connections immediately and asks the
+control plane to close open ones; `closedConnections` counts confirmed closes
+only. A revoked grant stays listed with `state: "revoked"`,
+`pendingConnections` and `pendingUntil` while connections remain unconfirmed.
+Responses that do not match the requested Host, enrollment, grantee or grant
+raise `HostError` instead of being reported as success; no call retries a write.
+
+A grantee's `status(...)` shows only the granted enrollments and a
+`host["access"]` marker with `kind: "grant"` and the grant IDs.

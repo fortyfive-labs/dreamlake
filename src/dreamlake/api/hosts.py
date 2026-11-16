@@ -33,12 +33,13 @@ class HostError(Exception):
 
     def __init__(self, message: str, *, status: int | None = None,
                  request_id: str | None = None, operation_id: str | None = None,
-                 retry_at: str | None = None):
+                 retry_at: str | None = None, code: str | None = None):
         super().__init__(message)
         self.status = status
         self.request_id = request_id
         self.operation_id = operation_id
         self.retry_at = retry_at
+        self.code = code
 
 
 class HostConfigurationError(HostError, ValueError):
@@ -77,6 +78,10 @@ def _recovery(data: Any) -> dict:
             safe["retry_at"] = retry
         except ValueError:
             pass
+    # Server error codes are fixed snake_case identifiers, never request data.
+    code = data.get("code")
+    if isinstance(code, str) and re.fullmatch(r"[a-z][a-z0-9_]{0,63}", code):
+        safe["code"] = code
     return safe
 
 
@@ -367,6 +372,90 @@ class Hosts:
             datetime.fromisoformat(data["recordedAt"].replace("Z", "+00:00"))
         except ValueError:
             raise HostError("Host move receipt timestamp is invalid", request_id=request_id) from None
+        return data
+
+    # Connection grants: the exact Host owner shares one enrollment (one Unix
+    # account, with that account's existing OS permissions) with one member of
+    # the organization namespace. No OS user is created and no Host management,
+    # metrics, lifecycle or credential access is shared.
+
+    def _grants_path(self, namespace: str, host_id: str) -> str:
+        return self._move_path(namespace, host_id).removesuffix("/move") + "/access-grants"
+
+    @staticmethod
+    def _grant_view(grant: Any, host_id: str) -> bool:
+        if not isinstance(grant, dict) or grant.get("hostId") != host_id:
+            return False
+        grantee = grant.get("grantee")
+        return (isinstance(grant.get("id"), str) and re.fullmatch(r"[a-f0-9]{64}", grant["id"]) is not None
+                and isinstance(grant.get("enrollmentId"), str) and re.fullmatch(r"[a-f0-9]{24}", grant["enrollmentId"]) is not None
+                and isinstance(grant.get("unixUser"), str) and bool(grant["unixUser"])
+                and isinstance(grant.get("grantedAt"), str)
+                and isinstance(grantee, dict) and isinstance(grantee.get("id"), str) and bool(grantee["id"]))
+
+    def access_grants(self, namespace: str, host_id: str) -> dict:
+        """List the people granted connection access to an owned Host.
+
+        Owner-only. Returns ``{"grants": [...]}`` as sent by the server. Each grant
+        names its enrollment and ``unixUser``; ``state`` is ``"active"`` or
+        ``"revoked"``. A revoked grant stays listed only while connections opened
+        through it are not confirmed closed: ``pendingConnections`` and
+        ``pendingUntil`` (their latest expiry). An active grant can still be inert
+        (for example the grantee left the organization); every use is rechecked.
+        """
+        data = self._request("GET", self._grants_path(namespace, host_id))
+        grants = data.get("grants")
+        if not isinstance(grants, list) or any(
+                not self._grant_view(grant, host_id) or grant.get("state") not in {"active", "revoked"}
+                or (grant["state"] == "revoked" and (
+                    type(grant.get("pendingConnections")) is not int or grant["pendingConnections"] < 1
+                    or not isinstance(grant.get("pendingUntil"), str)))
+                for grant in grants):
+            raise HostError("Host access grant list could not be verified")
+        return data
+
+    def grant_access(self, namespace: str, host_id: str, *, enrollment_id: str, grantee: str) -> dict:
+        """Grant one organization member connection access to one enrollment of an owned Host.
+
+        ``grantee`` is a DreamLake username (a leading ``@`` is accepted). The grant
+        covers only ``enrollment_id``'s Unix account and its existing OS
+        permissions. An unchanged active grant is returned as is. After an
+        uncertain response, call ``access_grants`` to reconcile instead of
+        repeating the grant: a repeat also re-activates a grant revoked
+        meanwhile, so grant again only as a fresh, explicit decision.
+        Returns ``{"grant": {...}}``. Personal namespaces, non-members and the
+        owner themselves are refused (see ``HostError.code``).
+        """
+        path = self._grants_path(namespace, host_id)
+        if not isinstance(enrollment_id, str) or not re.fullmatch(r"[a-f0-9]{24}", enrollment_id):
+            raise HostConfigurationError("enrollment_id must be an exact lowercase enrollment ID")
+        if not isinstance(grantee, str) or not re.fullmatch(r"@?[A-Za-z0-9][A-Za-z0-9_.-]{0,99}", grantee):
+            raise HostConfigurationError("grantee must be a DreamLake username")
+        data = self._request("POST", path, body={"enrollmentId": enrollment_id, "grantee": grantee})
+        grant = data.get("grant")
+        if (not self._grant_view(grant, host_id) or grant["enrollmentId"] != enrollment_id
+                or grant["grantee"].get("username") != grantee.removeprefix("@")):
+            raise HostError("Host access grant response could not be verified; list grants before retrying")
+        return data
+
+    def revoke_access(self, namespace: str, host_id: str, grant_id: str) -> dict:
+        """Revoke one connection grant. New connections are denied at once.
+
+        Returns ``{"revoked": True, "id", "closedConnections",
+        "unconfirmedConnections"[, "unconfirmedUntil"]}``. Connections the control
+        plane did not confirm closed are not reported as closed; revoke again to
+        retry closing them, or they end at ``unconfirmedUntil``. Idempotent.
+        """
+        path = self._grants_path(namespace, host_id)
+        if not isinstance(grant_id, str) or not re.fullmatch(r"[a-f0-9]{64}", grant_id):
+            raise HostConfigurationError("grant_id must be an exact grant ID")
+        data = self._request("DELETE", path + "/" + grant_id)
+        unconfirmed = data.get("unconfirmedConnections")
+        if (data.get("revoked") is not True or data.get("id") != grant_id
+                or type(data.get("closedConnections")) is not int or data["closedConnections"] < 0
+                or type(unconfirmed) is not int or unconfirmed < 0
+                or (unconfirmed > 0) != isinstance(data.get("unconfirmedUntil"), str)):
+            raise HostError("Host access revoke response could not be verified; revoke again to reconcile")
         return data
 
     def enroll(self, name: str | None = None, *, prefix: str | None = None,
