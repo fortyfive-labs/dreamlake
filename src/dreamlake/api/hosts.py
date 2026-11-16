@@ -58,7 +58,13 @@ class HostUserGrant(_HostGrantListing):
     grantedAt: str
 
 
-class HostTeamGrant(_HostGrantListing):
+class _HostTeamGrantFlags(_HostGrantListing, total=False):
+    # Optional on the wire; a total=False base keeps it optional at runtime too
+    # (NotRequired is not seen through postponed annotations in this module).
+    inactive: bool  # only present (True) when the team was deleted; listed while sessions are pending
+
+
+class HostTeamGrant(_HostTeamGrantFlags):
     id: str
     hostId: str
     enrollmentId: str
@@ -66,7 +72,6 @@ class HostTeamGrant(_HostGrantListing):
     machineId: str
     team: HostGrantTeam
     grantedAt: str
-    inactive: bool  # present (True) when the team was deleted; listed only while sessions are pending
 
 
 class HostAccessGrants(TypedDict):
