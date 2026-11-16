@@ -158,3 +158,36 @@ def test_comparison_pool_edits_platform_usage_and_admin():
         with pytest.raises(CictError):
             call()
     assert len(seen) == before
+
+
+def test_usage_detail_onboarding_and_admin_providers():
+    seen = []
+
+    def handler(req):
+        seen.append(req)
+        path = req.url.path
+        if path.endswith("/cict/onboarding"):
+            return httpx.Response(200, json={"ready": False, "route": "dreamlake-gpu", "next": {"key": "platform-started", "how": {"cli": "dl cict platform start team"}}})
+        if path.endswith("/admin/providers"):
+            return httpx.Response(200, json={"providers": [{"id": PROVIDER, "usable": True, "spec": {"gpus": 1}}]})
+        return httpx.Response(200, json={"ok": True})
+
+    cict = make(handler)
+    cict.usage("team", month="2026-11", sender="ada", limit=5)
+    assert dict(seen[-1].url.params) == {"month": "2026-11", "sender": "ada", "limit": "5"}
+    status = cict.onboarding("team")
+    assert (seen[-1].url.path, status["next"]["key"]) == ("/namespaces/team/cict/onboarding", "platform-started")
+    assert cict.admin.providers()[0]["spec"] == {"gpus": 1}
+    cict.admin.overview(month="2026-10")
+    assert (seen[-1].url.path, dict(seen[-1].url.params)) == ("/cict/platform/admin", {"month": "2026-10"})
+
+    before = len(seen)
+    for call in [
+        lambda: cict.usage("team", limit=0),
+        lambda: cict.usage("team", sender="bad login!"),
+        lambda: cict.admin.overview(month="2026-13"),
+        lambda: cict.admin.put_machine("gpu", spec={"gpus": 1}),
+    ]:
+        with pytest.raises(CictError):
+            call()
+    assert len(seen) == before

@@ -11,6 +11,22 @@ The same operations are available as `dl cict` in the CLI and as
 The server must have the GitHub runner integration enabled; otherwise every call
 raises `CictNotFound` with code `github_runners_disabled`.
 
+## Where a namespace stands
+
+```python
+status = client.cict.onboarding("team")
+status["ready"], status["route"]          # True/False, "dreamlake-gpu" or "own-machines"
+status["next"]                            # {"key", "title", "how": {"ui", "cli", "api", "human"}}
+status["workflow"]                        # once ready: the runs-on line and the evidence contract
+```
+
+Each of `status["github"]`, `status["platform"]` and `status["ownMachines"]`
+(enroll the login node, service account, Slurm provider, association, launch
+layer, runner pool) says whether it is `done`. An agent can repeat this call
+and do `next` until `ready`. Only installing the GitHub App needs a person in a
+browser; enrolling a login node needs SSH and binding its service account a
+namespace owner. Added in 0.53.0.
+
 ## Connect GitHub
 
 ```python
@@ -85,13 +101,22 @@ raises `CictError` with code `runner_pool_busy`.
 status = client.cict.platform.status("team")      # catalog, access, limit, occupancy, month GPU time
 client.cict.platform.start("team")                 # creates cict-evidence; you authorize evidence writes
 client.cict.platform.set_source("team", "1123456789abcdef01234567")
-client.cict.usage("team", month="2026-11")         # GPU time by repository and workflow
+usage = client.cict.usage("team", month="2026-11")  # totals, byWorkflow, bySender, runs
+client.cict.usage("team", sender="ada", limit=50)    # one person's jobs, newest first
 ```
+
+`status["authorizer"]` names who authorizes evidence writes and whether they
+still can (`writable`). While it is false, jobs wait in the queue; a namespace
+admin calls `set_source` with the current Source to become the authorizer.
 
 Workflows then use a label from `status["machines"]`, such as
 `runs-on: dreamlake-gpu-rtx5090`. Admins of the platform namespace manage it
-with `client.cict.admin`: `overview()`, `set_namespace(slug, state="allowed",
-max_concurrent=2)` and `put_machine(id, label=..., provider_id=..., enabled=True)`.
+with `client.cict.admin`: `overview(month=...)` (namespaces, machine types and
+the month's platform total), `providers()` (Slurm providers in the platform
+namespace and what one job gets on each), `set_namespace(slug,
+state="allowed", max_concurrent=2)` and `put_machine(id, label=...,
+provider_id=..., enabled=True)`. A machine type's spec (GPUs, CPUs, memory,
+time limit) is read from the provider's launch layer, not passed in.
 
 Errors are `CictError` (and `CictNotFound` for HTTP 404) from
 `dreamlake.api.cict`, with `status` and the server's `code` when recognized.
