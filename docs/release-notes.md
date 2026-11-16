@@ -1,5 +1,15 @@
 # Release notes
 
+## 0.55.0 — Whole-agent releases
+
+`client.runnables.definition_versions`, `definition_version`,
+`publish_definition` and `activate_definition` manage immutable snapshots of
+the complete agent definition, including its README template and prompt.
+Publication and activation require the reviewed `updatedAt`; activation keeps
+the working draft. Frozen source reads check current memo permissions, and
+write requests are never automatically retried. Requires the definition-version
+backend. See [Whole-agent releases](api/runnables.md#whole-agent-releases).
+
 ## 0.54.0 — Host connection grants
 
 `client.hosts.access_grants(ns, host_id)`, `grant_access(ns, host_id,

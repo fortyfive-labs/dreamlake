@@ -118,6 +118,8 @@ with `client.projects.detach(...)`. Use the database ID for attachments.
 
 ## Whole-agent releases
 
+Available in Python SDK 0.55.0+ with the definition-version backend.
+
 Draft updates are independent of published definitions. Publish a reviewed draft
 using its `updatedAt`; stale changes return `RunnableError` with status 409.
 
