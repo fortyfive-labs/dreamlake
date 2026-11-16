@@ -12,6 +12,28 @@ def client_with(handler):
                            transport=httpx.MockTransport(handler))
 
 
+def test_whole_definition_releases_preserve_cas_and_pinned_hash():
+    requests = []
+    def serve(request):
+        requests.append(request)
+        return httpx.Response(200, json={"version": "a" * 64})
+    api = client_with(serve).runnables
+    stamp = "2026-11-16T12:00:00.000Z"
+    api.definition_versions("team", "agents/research", page=2, page_size=10)
+    api.definition_version("team", "agents/research", "a" * 64)
+    api.publish_definition("team", "agents/research", expected_updated_at=stamp, label="v1")
+    api.activate_definition("team", "agents/research", "a" * 64, expected_updated_at=stamp)
+    assert dict(requests[0].url.params) == {"page": "2", "pageSize": "10"}
+    assert requests[1].url.raw_path == b"/namespaces/team/runnables/agents%2Fresearch/definition-versions/" + b"a" * 64
+    assert json.loads(requests[2].content) == {"expectedUpdatedAt": stamp, "label": "v1"}
+    assert json.loads(requests[3].content) == {"expectedUpdatedAt": stamp}
+    assert requests[3].url.path.endswith("/" + "a" * 64 + "/activate")
+    assert [r.method for r in requests] == ["GET", "GET", "POST", "POST"]
+    with pytest.raises(ValueError):
+        api.definition_version("team", "agent", "latest")
+    assert len(requests) == 4
+
+
 def test_inline_and_note_backed_agents_use_caller_identity_and_atomic_project_payloads():
     requests = []
 
