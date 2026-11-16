@@ -55,6 +55,7 @@ class Runnable(TypedDict):
     content: RunnableContent | None
     channel: dict[str, Any] | None
     metadata: dict[str, Any] | None
+    publishedDefinitionVersion: str | None
     latestVersion: str | None
     archivedAt: str | None
     createdAt: str
@@ -88,16 +89,24 @@ def _segment(value: str, label: str) -> str:
     return quote(value, safe="")
 
 
+def _version(value: str) -> str:
+    import re
+    if not isinstance(value, str) or not re.fullmatch(r"[a-f0-9]{64}", value):
+        raise ValueError("Use the full definition version hash")
+    return value
+
+
 class Runnables:
     def __init__(self, client: DreamLakeClient):
         self.client = client
 
     def _request(self, namespace: str, method: str = "GET", *,
                  runnable: str | None = None, payload: Any = None,
-                 params: dict[str, Any] | None = None) -> dict[str, Any] | None:
+                 params: dict[str, Any] | None = None, suffix: str = "") -> dict[str, Any] | None:
         path = f"/namespaces/{_segment(namespace, 'namespace')}/runnables"
         if runnable is not None:
             path += "/" + _segment(runnable, "runnable ID or name")
+        path += suffix
         with self.client.http() as http:
             response = http.request(method, path, json=payload, params=params)
         if not response.is_success:
@@ -155,6 +164,35 @@ class Runnables:
         markdown; to switch back, send markdown=None with content.
         """
         return cast(Runnable, self._request(namespace, "PATCH", runnable=runnable, payload=changes))
+
+    def definition_versions(self, namespace: str, runnable: str, *, page: int = 1,
+                            page_size: int = 20) -> dict[str, Any]:
+        """List immutable whole-agent releases; prompt bodies are detail-only."""
+        if type(page) is not int or page < 1 or type(page_size) is not int or not 1 <= page_size <= 200:
+            raise ValueError("Invalid pagination")
+        return cast(dict[str, Any], self._request(namespace, runnable=runnable,
+                    suffix="/definition-versions", params={"page": page, "pageSize": page_size}))
+
+    def definition_version(self, namespace: str, runnable: str, version: str) -> dict[str, Any]:
+        """Read a frozen definition with current permissions on all referenced memos."""
+        return cast(dict[str, Any], self._request(namespace, runnable=runnable,
+                    suffix="/definition-versions/" + _version(version)))
+
+    def publish_definition(self, namespace: str, runnable: str, *, expected_updated_at: str,
+                           label: str | None = None) -> dict[str, Any]:
+        """Publish and activate the saved draft. A stale timestamp returns 409; no retry."""
+        payload = {"expectedUpdatedAt": expected_updated_at}
+        if label is not None:
+            payload["label"] = label
+        return cast(dict[str, Any], self._request(namespace, "POST", runnable=runnable,
+                    suffix="/definition-versions", payload=payload))
+
+    def activate_definition(self, namespace: str, runnable: str, version: str, *,
+                            expected_updated_at: str) -> dict[str, Any]:
+        """Roll back to an immutable release without changing the editable draft."""
+        return cast(dict[str, Any], self._request(namespace, "POST", runnable=runnable,
+                    suffix="/definition-versions/" + _version(version) + "/activate",
+                    payload={"expectedUpdatedAt": expected_updated_at}))
 
     def delete(self, namespace: str, runnable: str) -> RunnableDeleteResult | None:
         """Soft-delete and remove project filings; immutable versions are retained."""

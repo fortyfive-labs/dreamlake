@@ -115,3 +115,29 @@ checks. Namespace authority still applies to creating or deleting runnables.
 Existing definitions can also be filed through
 `client.projects.attach(namespace, project, "runnable", agent_id)` and detached
 with `client.projects.detach(...)`. Use the database ID for attachments.
+
+## Whole-agent releases
+
+Draft updates are independent of published definitions. Publish a reviewed draft
+using its `updatedAt`; stale changes return `RunnableError` with status 409.
+
+```python
+agents = client.runnables
+draft = agents.get("fortyfive", agent["id"])
+release = agents.publish_definition("fortyfive", draft["id"],
+    expected_updated_at=draft["updatedAt"], label="v1")
+history = agents.definition_versions("fortyfive", draft["id"], page=1, page_size=20)
+frozen = agents.definition_version("fortyfive", draft["id"], release["version"])
+current = agents.get("fortyfive", draft["id"])
+agents.activate_definition("fortyfive", draft["id"], release["version"],
+    expected_updated_at=current["updatedAt"])
+```
+
+A release freezes the README template (`metadata.readme`), prompt, configuration,
+source-version reference and resolved memo content/revisions. Activation changes
+`publishedDefinitionVersion` and preserves the editable draft. Existing
+`latestVersion` still means executable source. Labels are optional display names;
+the full content hash identifies a release. Duplicate content reuses the original
+release. History returns bounded summaries; detail checks current source memo
+permissions. After an uncertain write, read the head/history before retrying.
+These helpers do not retry writes or start execution.
