@@ -162,10 +162,23 @@ def test_published_examples_execute_through_the_client_contract(monkeypatch):
     import dreamlake
 
     saved = {}
+    releases = {}
     requests = []
 
     def serve(request):
         requests.append(request)
+        if "/definition-versions" in request.url.path:
+            prefix, suffix = request.url.path.split("/definition-versions")
+            item = saved[prefix.rsplit("/", 1)[1]]
+            if request.method == "POST":
+                payload = json.loads(request.content)
+                assert payload["expectedUpdatedAt"] == item["updatedAt"]
+                version = suffix.split("/")[1] if suffix else "a" * 64
+                if not suffix:
+                    releases[version] = {"version": version, "snapshot": dict(item), "label": payload.get("label")}
+                item["publishedDefinitionVersion"] = version
+                return httpx.Response(200, json={**releases[version], "publishedDefinitionVersion": version, "updatedAt": item["updatedAt"]})
+            return httpx.Response(200, json=releases[suffix[1:]] if suffix else {"versions": list(releases.values()), "totalPages": 1})
         if request.method == "POST":
             item = {"id": f"agent-{len(saved) + 1}", "archivedAt": None,
                     "updatedAt": "2026-11-03T10:00:00.000Z", **json.loads(request.content)}
@@ -188,7 +201,7 @@ def test_published_examples_execute_through_the_client_contract(monkeypatch):
         monkeypatch.setenv(key, "000000000000000000000001")
     document = Path(__file__).parents[1] / "docs/api/runnables.md"
     snippets = re.findall(r"```python\n(.*?)\n```", document.read_text(), re.DOTALL)
-    assert len(snippets) == 3
+    assert len(snippets) == 4
     scope = {}
     for snippet in snippets:
         exec(compile(snippet, str(document), "exec"), scope)

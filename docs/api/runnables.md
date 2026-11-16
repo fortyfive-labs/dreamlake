@@ -123,13 +123,13 @@ using its `updatedAt`; stale changes return `RunnableError` with status 409.
 
 ```python
 agents = client.runnables
-draft = agents.get("team", "Reviewer")
-release = agents.publish_definition("team", draft["id"],
+draft = agents.get("fortyfive", agent["id"])
+release = agents.publish_definition("fortyfive", draft["id"],
     expected_updated_at=draft["updatedAt"], label="v1")
-history = agents.definition_versions("team", draft["id"], page=1, page_size=20)
-frozen = agents.definition_version("team", draft["id"], release["version"])
-current = agents.get("team", draft["id"])
-agents.activate_definition("team", draft["id"], release["version"],
+history = agents.definition_versions("fortyfive", draft["id"], page=1, page_size=20)
+frozen = agents.definition_version("fortyfive", draft["id"], release["version"])
+current = agents.get("fortyfive", draft["id"])
+agents.activate_definition("fortyfive", draft["id"], release["version"],
     expected_updated_at=current["updatedAt"])
 ```
 
