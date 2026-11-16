@@ -256,8 +256,10 @@ of the namespace. Refusals raise `HostError` subclasses whose `code` names the
 reason, such as `host_access_grant_org_only`, `grantee_not_found`,
 `grantee_is_owner`, `grantee_not_member` or `enrollment_not_found`.
 
-Granting is idempotent: repeating the same inputs returns the same grant, so an
-uncertain response can be reconciled by listing or repeating it. Every
+Granting the same enrollment to the same person returns the existing active
+grant. After an uncertain grant response, reconcile with `access_grants(...)`
+rather than repeating the call: a repeated grant also re-activates one that was
+revoked in the meantime, so grant again only as a fresh, explicit decision. Every
 connection rechecks the grant, the owner's and the grantee's current access, so
 a listed `active` grant may still be inert (for example after the member leaves
 the organization). Revocation denies new connections immediately and asks the

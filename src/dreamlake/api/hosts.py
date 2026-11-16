@@ -419,8 +419,10 @@ class Hosts:
 
         ``grantee`` is a DreamLake username (a leading ``@`` is accepted). The grant
         covers only ``enrollment_id``'s Unix account and its existing OS
-        permissions. Idempotent: repeating the same inputs returns the same grant,
-        so an uncertain response may be reconciled by repeating it or by listing.
+        permissions. An unchanged active grant is returned as is. After an
+        uncertain response, call ``access_grants`` to reconcile instead of
+        repeating the grant: a repeat also re-activates a grant revoked
+        meanwhile, so grant again only as a fresh, explicit decision.
         Returns ``{"grant": {...}}``. Personal namespaces, non-members and the
         owner themselves are refused (see ``HostError.code``).
         """
