@@ -240,7 +240,7 @@ can create its filings atomically; see [Agents and runnable definitions](runnabl
 
 ## Hosts in Projects
 
-Requires the next SDK release and a server with Host placement. Filing a Host
+Requires Python 0.56.0 and a server with Host placement. Filing a Host
 records where it belongs; it is **metadata only** and grants no SSH, terminal,
 lifecycle, metrics, checks or jobs to anyone. Connection access comes only from
 an explicit person or team grant, see

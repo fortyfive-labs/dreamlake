@@ -1,5 +1,19 @@
 # Release notes
 
+## 0.56.0 — Team host grants and Hosts in Projects
+
+`client.hosts.grant_access(ns, host_id, enrollment_id=..., team=...)` shares one
+enrollment with a team's current and future direct members; pass exactly one of
+`grantee` or `team` (existing `grantee=` calls are unchanged).
+`access_grants` returns `grants`, `teamGrants` and the organization's `teams`,
+and raises `HostError` with code `host_team_grants_unsupported` on a server
+without team grants instead of reporting none. `revoke_access` reports
+`stillAuthorizedConnections`, sessions kept open by another current grant.
+`client.projects.attach(ns, project, "host", host_id)` files a Host in a
+Project as placement only; it grants no connection access. Requires a server
+with team Host grants and Host placement. See [Host enrollment](hosts.md) and
+[Hosts in Projects](api/projects.md#hosts-in-projects).
+
 ## 0.55.0 — Whole-agent releases
 
 `client.runnables.definition_versions`, `definition_version`,
