@@ -262,7 +262,9 @@ caller sees enrollments, Unix accounts, machine IDs or status through the Projec
 Sharing the Project later does not change this. Project content-delete or the
 Host owner can unfile; unfiling removes the node's bindr tags and leaves the Host
 and its grants unchanged. Moving the Host to another namespace unfiles it;
-deleting the Project never deletes the Host.
+deleting the Project never deletes the Host. A whole-Project move
+(`client.projects.move`) is blocked while a Host is filed in the Project:
+detach it first, then preview the move again.
 
 Filing and tagging are two requests. `attach` is idempotent and returns the
 existing node when the Host is already filed, so after a failed or uncertain
