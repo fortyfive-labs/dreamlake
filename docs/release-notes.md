@@ -1,5 +1,18 @@
 # Release notes
 
+## 0.53.0 — CI/CT onboarding status and usage detail
+
+`client.cict.onboarding(ns)` reports where a namespace stands on CI/CT
+(GitHub, DreamLake GPU, the own-machine steps) and the next step with UI, CLI
+and API hints, so an agent can set a namespace up step by step.
+`client.cict.usage` adds `sender` and `limit` and returns GPU time by the
+GitHub user who triggered each job and the jobs themselves.
+`client.cict.platform.status` includes the evidence `authorizer`.
+`client.cict.admin.providers()` lists the platform's Slurm providers with what
+one job gets on each; `overview(month=...)` returns the platform total, and
+`put_machine` no longer takes `spec` (it is read from the launch layer). See
+[CI/CT with GitHub Actions](cict.md).
+
 ## 0.52.3 — Source, Folder and Bindr visibility
 
 `client.sources.set_visibility`, `client.folders.set_visibility` and

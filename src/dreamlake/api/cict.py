@@ -17,6 +17,7 @@ _RUN = re.compile(r"\d{1,12}-\d{1,20}\Z")
 _ENV = re.compile(r"[A-Z][A-Z0-9_]{0,63}\Z")
 _FILE = re.compile(r"[A-Za-z0-9_.][A-Za-z0-9_./-]{0,1023}\Z")
 _CODE = re.compile(r"[a-z_]{1,64}\Z")
+_LOGIN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.\[\]-]{0,99}")
 _MONTH = re.compile(r"\d{4}-(0[1-9]|1[0-2])\Z")
 _MACHINE = re.compile(r"[a-z0-9][a-z0-9-]{0,62}\Z")
 
@@ -228,7 +229,9 @@ class CictPlatform(_Base):
     """DreamLake GPU: machines DreamLake provides, chosen by ``runs-on`` label."""
 
     def status(self, namespace):
-        """Machine catalog, the namespace's access, limit, occupancy and this month's GPU time."""
+        """Machine catalog (what one job gets on each), the namespace's access, limit, occupancy,
+        this month's GPU time and ``authorizer`` (who authorizes evidence writes and whether they
+        still can; jobs wait while ``writable`` is false). Re-authorize with :meth:`set_source`."""
         return self._request("GET", self._ns(namespace) + "/cict/platform")
 
     def start(self, namespace, *, source_id=None):
@@ -237,15 +240,24 @@ class CictPlatform(_Base):
         return self._request("POST", self._ns(namespace) + "/cict/platform/activate", body=body)
 
     def set_source(self, namespace, source_id):
-        """Change where DreamLake GPU runs save results."""
+        """Change where DreamLake GPU runs save results. Passing the current Source re-authorizes:
+        the caller becomes the evidence authorizer."""
         return self._request("PATCH", self._ns(namespace) + "/cict/platform", body={"sourceId": _text(source_id, _ID, "Source ID")})
 
 
 class CictAdmin(_Base):
     """DreamLake GPU administration, for admins of the platform namespace."""
 
-    def overview(self):
-        return self._request("GET", "/cict/platform/admin")
+    def overview(self, *, month=None):
+        """Namespaces and machine types, with a month's GPU time (``YYYY-MM``, default this month)
+        per namespace and the platform ``total``."""
+        if month is not None and (not isinstance(month, str) or not _MONTH.fullmatch(month)):
+            raise CictError("month must be YYYY-MM")
+        return self._request("GET", "/cict/platform/admin" + ("?" + urlencode({"month": month}) if month else ""))
+
+    def providers(self):
+        """Slurm providers in the platform namespace and what one job gets on each (from its launch layer)."""
+        return self._request("GET", "/cict/platform/admin/providers")["providers"]
 
     def set_namespace(self, namespace, *, state=None, max_concurrent=None):
         """Allow (``"allowed"``), pause (``"suspended"``) or limit a namespace."""
@@ -261,9 +273,11 @@ class CictAdmin(_Base):
         return self._request("PUT", "/cict/platform/admin/namespaces/" + quote(_text(namespace, _SEGMENT, "namespace"), safe=""), body=body)
 
     def put_machine(self, machine_id, **fields):
-        """Create or change a machine type: ``label``, ``title``, ``provider_id``, ``enabled``, ``max_concurrent``, ``env``, ``spec``."""
+        """Create or change a machine type: ``label``, ``title``, ``provider_id``, ``enabled``,
+        ``max_concurrent``, ``env``. What one job gets (GPUs, CPUs, memory, time limit) is read from
+        the provider's launch layer; a layer without a GPU is refused (``launch_spec_unavailable``)."""
         names = {"label": "label", "title": "title", "provider_id": "providerId", "enabled": "enabled",
-                 "max_concurrent": "maxConcurrent", "env": "env", "spec": "spec"}
+                 "max_concurrent": "maxConcurrent", "env": "env"}
         unknown = set(fields) - set(names)
         if unknown:
             raise CictError("Unknown machine field: " + ", ".join(sorted(unknown)))
@@ -282,12 +296,33 @@ class Cict:
         self.admin = CictAdmin(client)
         self._jobs = _Base(client)
 
-    def usage(self, namespace, *, month=None):
-        """DreamLake GPU time in a month (``YYYY-MM``, default this month), by repository and workflow."""
-        if month is not None and (not isinstance(month, str) or not _MONTH.fullmatch(month)):
-            raise CictError("month must be YYYY-MM")
-        path = self._jobs._ns(namespace) + "/cict/usage" + ("?" + urlencode({"month": month}) if month else "")
+    def usage(self, namespace, *, month=None, sender=None, limit=None):
+        """DreamLake GPU time in a month (``YYYY-MM``, default this month): totals, ``byWorkflow``,
+        ``bySender`` (the GitHub user who triggered each job) and ``runs`` (newest first; ``sender``
+        narrows them, ``limit`` 1-500 caps them; ``runsTotal`` counts them)."""
+        query = {}
+        if month is not None:
+            if not isinstance(month, str) or not _MONTH.fullmatch(month):
+                raise CictError("month must be YYYY-MM")
+            query["month"] = month
+        if sender is not None:
+            query["sender"] = _text(sender, _LOGIN, "GitHub login")
+        if limit is not None:
+            if type(limit) is not int or not 1 <= limit <= 500:
+                raise CictError("limit must be between 1 and 500")
+            query["limit"] = limit
+        path = self._jobs._ns(namespace) + "/cict/usage" + ("?" + urlencode(query) if query else "")
         return self._jobs._request("GET", path)
+
+    def onboarding(self, namespace):
+        """Where the namespace stands on CI/CT and the next step.
+
+        Reports GitHub, DreamLake GPU and the own-machine steps (enrolled login node, service
+        account, Slurm provider, association, launch layer, runner pool), each ``done`` or not with
+        ``how`` hints (``ui``, ``cli``, ``api``, ``human``), plus ``ready``, ``next`` and, once ready,
+        the ``workflow`` runs-on line. Only installing the GitHub App needs a person.
+        """
+        return self._jobs._request("GET", self._jobs._ns(namespace) + "/cict/onboarding")
 
     def jobs(self, namespace, *, limit=None):
         """Raw recorded GitHub job events, including jobs that matched no pool."""
