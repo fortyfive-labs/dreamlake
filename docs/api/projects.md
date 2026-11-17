@@ -18,7 +18,8 @@ client.projects.revoke("acme", "research", grant_id)
 ```
 
 Attachments take the resource database ID and support memo, artifact, annotation,
-workflow, env and source. Source uses its whole-Source reference. Attaching
+workflow, env, source, runnable and host. Source uses its whole-Source reference;
+a Host is a placement only (see [Hosts in Projects](#hosts-in-projects)). Attaching
 requires Project content-create and independent resource sharing-management
 permissions. Detachment/revocation removes only the corresponding access source;
 other Project grants, namespace membership and independent share links remain.
@@ -236,6 +237,43 @@ Use `client.projects.attach(namespace, project, "runnable", agent_id)` to file
 an existing runnable definition, and `detach` to remove its filing. The
 resource ID is the runnable database ID. Creating an agent with `projects`
 can create its filings atomically; see [Agents and runnable definitions](runnables.md).
+
+## Hosts in Projects
+
+Requires the next SDK release and a server with Host placement. Filing a Host
+records where it belongs; it is **metadata only** and grants no SSH, terminal,
+lifecycle, metrics, checks or jobs to anyone. Connection access comes only from
+an explicit person or team grant, see
+[Share connection access](../hosts.md#share-connection-access-with-a-member-or-a-team).
+
+```python
+host_id = client.hosts.status("acme/lab/gpu-01")["host"]["id"]
+placed = client.projects.attach("acme", "research", "host", host_id)
+# Optional: tag the placement into a bindr of the same Project.
+client.add_bindr_members("acme", "research", "Lab machines", [placed["nodeId"]])
+client.projects.detach("acme", "research", "host", host_id)  # unfile
+```
+
+Only the exact Host owner can file it, into a Project of the Host's own
+namespace where they have WRITE. By filing, the owner agrees that members of the
+Project in that organization, now and later, see the Host's name and owner. Public
+viewers, external grantees and service accounts never see filed Hosts, and no
+caller sees enrollments, Unix accounts, machine IDs or status through the Project.
+Sharing the Project later does not change this. Project content-delete or the
+Host owner can unfile; unfiling removes the node's bindr tags and leaves the Host
+and its grants unchanged. Moving the Host to another namespace unfiles it:
+`client.hosts.move_preview(...)` reports `projectPlacements` (`count` and
+`policy: "unfile"`) when the Host is filed, and the move removes those placements
+and their Bindr tags atomically;
+deleting the Project never deletes the Host. A whole-Project move
+(`client.projects.move`) is blocked while a Host is filed in the Project:
+detach it first, then preview the move again.
+
+Filing and tagging are two requests. `attach` is idempotent and returns the
+existing node when the Host is already filed, so after a failed or uncertain
+tag repeat `attach` and tag the returned `nodeId` again; this never creates a
+second placement. `add_bindr_members` raises `BindrMembershipError` with the
+confirmed progress when a tag fails.
 
 ## Effective audience and other interfaces
 

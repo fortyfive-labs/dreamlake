@@ -221,14 +221,16 @@ client.hosts.rename("fortyfive", host_id,
 
 Rename preserves the existing enrollment and keys. On an uncertain response, retry the same inputs.
 
-## Share connection access with an organization member
+## Share connection access with a member or a team
 
-Python 0.54.0 or later. The exact owner of a Host in an organization namespace can
-let one named member connect (terminal/SSH relay) to one enrollment. The grant
-covers only that enrollment's Unix account: the member acts with that account's
-existing OS permissions, and no OS user is created. It confers no Host
-management, rename/move/lifecycle, metrics, checks, saved sessions or
-credentials. Personal namespaces cannot share hosts.
+Python 0.54.0 or later for people; team grants need the next SDK release and a
+server with team Host grants. The exact owner of a Host in an organization
+namespace can let one named member, or one team, connect (terminal/SSH relay) to
+one enrollment. The grant covers only that enrollment's Unix account: everyone it
+reaches acts with that account's existing OS permissions, as the same Unix user,
+and no OS user is created. It confers no Host management, rename/move/lifecycle,
+metrics, checks, saved sessions or credentials. Personal namespaces cannot share
+hosts.
 
 ```python
 hosts = client.hosts
@@ -240,34 +242,76 @@ grant = hosts.grant_access("fortyfive", host_id,
                            enrollment_id=enrollment_id, grantee="alice")["grant"]
 print(grant["unixUser"], grant["grantee"]["username"])
 
-for g in hosts.access_grants("fortyfive", host_id)["grants"]:
+team_grant = hosts.grant_access("fortyfive", host_id,
+                                enrollment_id=enrollment_id, team="robotics")["teamGrant"]
+print(team_grant["unixUser"], team_grant["team"]["slug"])
+
+listing = hosts.access_grants("fortyfive", host_id)
+for g in listing["grants"]:
     print(g["id"], g["state"], g["unixUser"], g["grantee"]["username"],
           g.get("pendingConnections"), g.get("pendingUntil"))
+for g in listing["teamGrants"]:
+    print(g["id"], g["state"], g["unixUser"], g["team"]["slug"])
+print([team["slug"] for team in listing["teams"]])  # teams that can be granted
 
-result = hosts.revoke_access("fortyfive", host_id, grant["id"])
+result = hosts.revoke_access("fortyfive", host_id, team_grant["id"])
+print(result.get("stillAuthorizedConnections"))  # kept open by another grant
 if result["unconfirmedConnections"]:
     # Not confirmed closed: revoke again to retry, or they end at this time.
     print(result["unconfirmedConnections"], result["unconfirmedUntil"])
 ```
 
-All three calls are owner-only and require an explicit enrollment ID; the grantee
-is a DreamLake username (a leading `@` is accepted) who must currently be a member
-of the namespace. Refusals raise `HostError` subclasses whose `code` names the
-reason, such as `host_access_grant_org_only`, `grantee_not_found`,
-`grantee_is_owner`, `grantee_not_member` or `enrollment_not_found`.
+All three calls are owner-only and require an explicit enrollment ID.
+`grant_access` takes exactly one of `grantee`, a DreamLake username (a leading
+`@` is accepted) who must currently be a member of the namespace, or `team`, the
+slug of a live team in the namespace's organization. Supplying both or neither
+raises `HostConfigurationError` before any request. Refusals raise `HostError`
+subclasses whose `code` names the reason, such as `host_access_grant_org_only`,
+`grantee_not_found`, `grantee_is_owner`, `grantee_not_member`, `team_not_found`
+or `enrollment_not_found`.
 
-Granting the same enrollment to the same person returns the existing active
-grant. After an uncertain grant response, reconcile with `access_grants(...)`
-rather than repeating the call: a repeated grant also re-activates one that was
-revoked in the meantime, so grant again only as a fresh, explicit decision. Every
-connection rechecks the grant, the owner's and the grantee's current access, so
-a listed `active` grant may still be inert (for example after the member leaves
-the organization). Revocation denies new connections immediately and asks the
-control plane to close open ones; `closedConnections` counts confirmed closes
-only. A revoked grant stays listed with `state: "revoked"`,
-`pendingConnections` and `pendingUntil` while connections remain unconfirmed.
-Responses that do not match the requested Host, enrollment, grantee or grant
-raise `HostError` instead of being reported as success; no call retries a write.
+A team grant reaches the team's **current and future direct members** while they
+remain members; parent and child teams are not followed. Team maintainers
+therefore decide who can connect, and adding someone to the team adds them to the
+organization. Access is the union of a person's own grant and their teams'
+grants for that enrollment: revoking one grant, or leaving one team, never
+closes a session that another current grant still authorizes; such sessions are
+counted in `stillAuthorizedConnections`. When a member is removed, leaves the
+organization, or the team is deleted, only their team-path sessions are closed:
+browser terminals end at their next lease (about 3 s); `dl ssh` sessions close
+when the control plane is reachable and otherwise end at their deadline
+(at most 30 min after opening, or 30 min 10 s after the last renewal). Renewal is
+refused once access is gone.
+
+Granting the same enrollment to the same person or team returns the existing
+active grant. After an uncertain grant response, reconcile with
+`access_grants(...)` rather than repeating the call: a repeated grant also
+re-activates one that was revoked in the meantime, so grant again only as a fresh,
+explicit decision. Every connection rechecks the grant, the owner's and the
+connecting user's current access, so a listed `active` grant may still be inert
+(for example after the member leaves the organization). Revocation denies new
+connections immediately and asks the control plane to close open ones;
+`closedConnections` counts confirmed closes only. A revoked grant stays listed
+with `state: "revoked"`, `pendingConnections` and `pendingUntil` while
+connections remain unconfirmed. Responses that do not match the requested Host,
+enrollment, grantee, team or grant raise `HostError` instead of being reported as
+success; no call retries a write.
+
+`access_grants` requests the full listing (`?grantees=all`). A server without
+team grants cannot report who else can connect, so it raises `HostError` with
+code `host_team_grants_unsupported` instead of returning an incomplete list; a
+team grant sent to such a server is refused with HTTP 400 and grants nothing.
+Earlier SDKs, which list people only, receive HTTP 409
+`host_access_grant_client_upgrade_required` from a team-capable server once the
+Host has team grants; upgrade the SDK to list them.
 
 A grantee's `status(...)` shows only the granted enrollments and a
-`host["access"]` marker with `kind: "grant"` and the grant IDs.
+`host["access"]` marker with `kind: "grant"` and the grant IDs. With team
+grants, each entry also carries `via` (`"user"` or `"team"`) and, for teams,
+`team`.
+
+## Hosts in Projects
+
+Filing places a Host in a Project for organization members to find; it is
+**metadata only** and never grants connection access. See
+[Project grants and attachments](api/projects.md#hosts-in-projects).
