@@ -131,6 +131,12 @@ class DreamLakeClient:
         return Sources(self)
 
     @property
+    def connections(self):
+        """Connections: credentials DreamLake holds to reach external systems (managers only)."""
+        from .connections import Connections
+        return Connections(self)
+
+    @property
     def annotations(self):
         """Annotation metadata, titles and guarded URL slug changes."""
         from .annotations import Annotations

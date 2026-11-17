@@ -51,6 +51,73 @@ class Sources:
     def detail(self, namespace, source_id):
         return self._request(namespace, source_id)
 
+    def _namespace_request(self, namespace, suffix, method="GET", payload=None, key=None):
+        if not namespace:
+            raise ValueError("Namespace is required")
+        if method != "GET" and (not isinstance(key, str) or not key.strip() or len(key) > 255):
+            raise ValueError("Supply a nonempty idempotency key of at most 255 characters")
+        path = "/namespaces/" + quote(namespace, safe="") + suffix
+        with self.client.http() as http:
+            response = http.request(method, path, json=payload, headers={"Idempotency-Key": key} if key else None)
+        if not response.is_success:
+            try:
+                body = response.json()
+                code = (body.get("error") or {}).get("code", "SOURCE_REQUEST_FAILED") if isinstance(body.get("error"), dict) else body.get("code", "SOURCE_REQUEST_FAILED")
+            except ValueError:
+                code = "SOURCE_REQUEST_FAILED"
+            raise SourceError(code, response.status_code)
+        return None if response.status_code == 204 else response.json()
+
+    def connectors(self, namespace):
+        """Which Connection kinds each Source connector accepts (``source-connectors``)."""
+        return self._namespace_request(namespace, "/source-connectors")
+
+    @staticmethod
+    def _external(connector_kind, target, connection_id, scope, config):
+        if not connector_kind:
+            raise ValueError("connector_kind is required")
+        external = {"connectorKind": connector_kind, "target": target}
+        if connection_id is not None:
+            external["connectionId"] = connection_id
+        if scope is not None:
+            external["scope"] = scope
+        if config is not None:
+            external["config"] = config
+        return external
+
+    def import_external(self, namespace, *, connector_kind, target, idempotency_key, connection_id=None,
+                        scope=None, config=None, name=None, description=None,
+                        visibility: SourceVisibility | None = None):
+        """Create a Source with an external layer that reads through a Connection.
+
+        For S3, ``target`` is ``{"bucket": ..., "prefix": ...}`` and the
+        Connection decides the endpoint profile.
+        """
+        payload = {"external": self._external(connector_kind, target, connection_id, scope, config)}
+        if name is not None:
+            payload["name"] = name
+        if description is not None:
+            payload["description"] = description
+        if visibility is not None:
+            payload["visibility"] = _visibility(visibility)
+        return self._namespace_request(namespace, "/sources:import-external", "POST", payload, idempotency_key)
+
+    def set_external(self, namespace, source_id, *, connector_kind, target, expected_composition_revision,
+                     idempotency_key, connection_id=None, scope=None, config=None):
+        """Attach or replace a Source's external layer, guarded by its composition revision."""
+        if type(expected_composition_revision) is not int or expected_composition_revision < 0:
+            raise ValueError("A current composition revision is required")
+        payload = {"expectedCompositionRevision": expected_composition_revision,
+                   "external": self._external(connector_kind, target, connection_id, scope, config)}
+        return self._request(namespace, source_id, "PUT", "/external", payload, idempotency_key)
+
+    def remove_external(self, namespace, source_id, *, expected_composition_revision, idempotency_key):
+        """Detach the external layer; the provider is untouched."""
+        if type(expected_composition_revision) is not int or expected_composition_revision < 0:
+            raise ValueError("A current composition revision is required")
+        return self._request(namespace, source_id, "DELETE", "/external",
+                             {"expectedCompositionRevision": expected_composition_revision}, idempotency_key)
+
     def metadata(self, namespace, source_id, *, expected_settings_revision, idempotency_key,
                  visibility: SourceVisibility | None = None, name=None, description=None):
         """Update metadata using the revision returned by detail(). Never retries."""

@@ -35,6 +35,7 @@ Python SDK for ML experiment tracking and data storage.
    api-client
    sessions
    hosts
+   connections
    memos
    notes-diffs
    note-archive
