@@ -31,8 +31,12 @@ for connector in client.connections.connectors("my-team"):
 credential). Each field's `target` says whether it belongs in `credential` or
 `private_config`; `requiredWhen` and `options` carry conditional requirements
 and choices. S3 offers an `access-key` auth kind (access key id, secret,
-optional session token) and a `role` auth kind (role ARN and external id); its
-`profileId` options are the profiles this deployment configured.
+optional session token) and, for the `aws` profile only, a `role` auth kind:
+`roleArn` goes in `private_config` and `externalId` in `credential`. The role's
+trust policy must already allow DreamLake's AWS identity with an
+`sts:ExternalId` condition equal to that external id; get that identity from
+whoever operates your DreamLake deployment. `profileId` options are the
+profiles this deployment configured.
 
 ## Create, inspect and change
 
@@ -48,6 +52,11 @@ created = client.connections.create(
 client.connections.check("my-team", created["id"])        # available | unavailable | unverified
 page = client.connections.list("my-team", lifecycle="active")
 ```
+
+A refused credential creates no Connection. `check` reports `available` when the
+provider accepted the credential at the Connection's endpoint (no bucket is
+implied) and `unverified` when that way in has no check without a target;
+bucket and prefix access is checked by `import_external`.
 
 `rename`, `reconnect`, `enable`, `disable` and `delete` take the
 `expected_settings_revision` you last read and an `idempotency_key`. A stale

@@ -173,9 +173,13 @@ class Connections:
         return self._call("GET", self._path(namespace, connection_id, "/affected-sources"), params=params or None)
 
     def check(self, namespace: str, connection_id: str) -> dict:
-        """Probe without changing anything: ``status`` is ``available``,
-        ``unavailable`` or ``unverified`` (a target-bound credential such as an
-        S3 key, until a Source uses it)."""
+        """Probe without changing anything.
+
+        ``available``: the provider accepted the credential at this Connection's
+        endpoint (no particular bucket or target is implied). ``unverified``
+        (reason ``target-required``): this way in has no check that works
+        without a target. ``unavailable``: see ``reason``. Bucket and prefix
+        access is checked when a Source is imported, not here."""
         return self._call("POST", self._path(namespace, connection_id, ":check"), json={})
 
     # ── writes ───────────────────────────────────────────────────────────────
@@ -208,7 +212,10 @@ class Connections:
         if private_config is not None:
             body["privateConfig"] = _object(private_config, "private_config")
         if enable_after_success is not None:
-            body["enableAfterSuccess"] = bool(enable_after_success)
+            # Never coerce: bool("false") is True, which would reopen a disabled Connection.
+            if not isinstance(enable_after_success, bool):
+                raise ValueError("enable_after_success must be True, False or None")
+            body["enableAfterSuccess"] = enable_after_success
         return self._call("POST", self._path(namespace, connection_id, ":reconnect"), json=body,
                           key=_key(idempotency_key))
 

@@ -170,3 +170,16 @@ def test_external_source_methods_use_the_connection():
     with pytest.raises(SourceError) as missing:
         failing.remove_external("acme", SID, expected_composition_revision=1, idempotency_key="k")
     assert missing.value.code == "SOURCE_NOT_FOUND"
+
+
+def test_reconnect_keeps_enable_after_success_false_and_refuses_non_bool():
+    sent = []
+    c = fixture(lambda req: sent.append(req) or httpx.Response(200, json=DETAIL)).connections
+    c.reconnect("acme", CID, credential={"secretAccessKey": SECRET}, expected_settings_revision=1,
+                idempotency_key="k", enable_after_success=False)
+    assert json.loads(sent[0].content)["enableAfterSuccess"] is False
+    with pytest.raises(ValueError) as bad:
+        c.reconnect("acme", CID, credential={"secretAccessKey": SECRET}, expected_settings_revision=1,
+                    idempotency_key="k", enable_after_success="false")
+    assert str(bad.value) == "enable_after_success must be True, False or None"  # value never formatted
+    assert len(sent) == 1
