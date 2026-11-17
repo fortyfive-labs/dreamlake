@@ -223,7 +223,7 @@ Rename preserves the existing enrollment and keys. On an uncertain response, ret
 
 ## Share connection access with a member or a team
 
-Python 0.54.0 or later for people; team grants need the next SDK release and a
+Python 0.54.0 or later for people; team grants need Python 0.56.0 and a
 server with team Host grants. The exact owner of a Host in an organization
 namespace can let one named member, or one team, connect (terminal/SSH relay) to
 one enrollment. The grant covers only that enrollment's Unix account: everyone it
