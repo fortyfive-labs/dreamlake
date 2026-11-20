@@ -212,8 +212,8 @@ def test_upload_and_download_round_trip_every_byte(tmp_path: Path):
     src = tmp_path / "blob.bin"
     src.write_bytes(BLOB)
 
-    note = note_with(FakeServer())
-    f = note.files.upload(src, path="assets/blob.bin")
+    memo = note_with(FakeServer())
+    f = memo.files.upload(src, path="assets/blob.bin")
     assert f.size_bytes == 256
 
     out = f.download(tmp_path / "back.bin")
@@ -222,8 +222,8 @@ def test_upload_and_download_round_trip_every_byte(tmp_path: Path):
 
 def test_upload_sends_the_body_without_encoding_it():
     s = FakeServer()
-    note = note_with(s)
-    note.files.create("a.bin", data=BLOB)
+    memo = note_with(s)
+    memo.files.create("a.bin", data=BLOB)
     method, url, kw = s.calls[-1]
     assert method == "PUT"
     # `content=`, not `json=` or `data=`: the other two would encode it.
@@ -231,16 +231,16 @@ def test_upload_sends_the_body_without_encoding_it():
 
 
 def test_download_into_a_directory_uses_the_file_name(tmp_path: Path):
-    note = note_with(FakeServer())
-    f = note.files.create("assets/diagram.png", data=BLOB)
+    memo = note_with(FakeServer())
+    f = memo.files.create("assets/diagram.png", data=BLOB)
     out = f.download(tmp_path)
     assert out.name == "diagram.png"
     assert out.read_bytes() == BLOB
 
 
 def test_download_creates_missing_parent_directories(tmp_path: Path):
-    note = note_with(FakeServer())
-    f = note.files.create("a.bin", data=b"x")
+    memo = note_with(FakeServer())
+    f = memo.files.create("a.bin", data=b"x")
     out = f.download(tmp_path / "deep" / "deeper" / "a.bin")
     assert out.read_bytes() == b"x"
 
@@ -250,8 +250,8 @@ def test_download_refuses_to_replace_a_local_file_unless_told(tmp_path: Path):
     dest = tmp_path / "precious.txt"
     dest.write_text("do not lose me")
 
-    note = note_with(FakeServer())
-    f = note.files.create("a.txt", text="new")
+    memo = note_with(FakeServer())
+    f = memo.files.create("a.txt", text="new")
 
     with pytest.raises(FileExists):
         f.download(dest)
@@ -267,8 +267,8 @@ def test_reading_a_binary_as_text_is_refused_before_any_request():
     # Locally, from the metadata the server already sent. A round trip to be
     # told no is a round trip the caller did not need.
     s = FakeServer()
-    note = note_with(s)
-    f = note.files.create("a.bin", data=BLOB)
+    memo = note_with(s)
+    f = memo.files.create("a.bin", data=BLOB)
     before = len(s.calls)
 
     with pytest.raises(NotTextFile, match="corrupts them"):
@@ -280,15 +280,15 @@ def test_a_server_side_text_refusal_is_the_same_error_type():
     # The client's own check and the server's must not be two different
     # failures for one mistake.
     s = FakeServer()
-    note = note_with(s)
-    f = note.files.create("a.bin", data=BLOB)
+    memo = note_with(s)
+    f = memo.files.create("a.bin", data=BLOB)
     with pytest.raises(NotTextFile):
-        note.files.read_text(f.id)
+        memo.files.read_text(f.id)
 
 
 def test_text_files_read_back_as_text():
-    note = note_with(FakeServer())
-    f = note.files.create("a.md", text="# hi\n", content_type="text/markdown")
+    memo = note_with(FakeServer())
+    f = memo.files.create("a.md", text="# hi\n", content_type="text/markdown")
     assert f.is_text is True
     assert f.text() == "# hi\n"
 
@@ -296,11 +296,11 @@ def test_text_files_read_back_as_text():
 # ── the collection ───────────────────────────────────────────────────────────
 
 def test_create_requires_exactly_one_of_text_or_data():
-    note = note_with(FakeServer())
+    memo = note_with(FakeServer())
     with pytest.raises(ValueError, match="exactly one"):
-        note.files.create("a.txt")
+        memo.files.create("a.txt")
     with pytest.raises(ValueError, match="exactly one"):
-        note.files.create("a.txt", text="x", data=b"x")
+        memo.files.create("a.txt", text="x", data=b"x")
 
 
 def test_overwrite_is_off_by_default_and_reaches_the_server():
@@ -328,8 +328,8 @@ def test_glob_and_trashed_reach_the_server_only_when_asked():
 
 def test_a_file_keeps_its_id_across_a_move():
     # The id is what a reference held elsewhere resolves through.
-    note = note_with(FakeServer())
-    f = note.files.create("from.txt", text="x")
+    memo = note_with(FakeServer())
+    f = memo.files.create("from.txt", text="x")
     moved = f.move("to.txt")
     assert moved.id == f.id
     assert moved.path == "to.txt"
@@ -337,8 +337,8 @@ def test_a_file_keeps_its_id_across_a_move():
 
 def test_if_match_is_sent_as_a_header_when_given():
     s = FakeServer()
-    note = note_with(s)
-    f = note.files.create("a.txt", text="x")
+    memo = note_with(s)
+    f = memo.files.create("a.txt", text="x")
     f.move("b.txt", if_match=f.etag)
     assert s.calls[-1][2]["headers"]["If-Match"] == f.etag
 
@@ -347,33 +347,33 @@ def test_no_precondition_header_when_none_was_asked_for():
     # An If-Match the caller did not write would make every unconditional
     # write start failing the moment anything else touched the file.
     s = FakeServer()
-    note = note_with(s)
-    note.files.create("a.txt", text="x").move("b.txt")
+    memo = note_with(s)
+    memo.files.create("a.txt", text="x").move("b.txt")
     assert not s.calls[-1][2]["headers"]
 
 
 def test_trash_then_restore_round_trip():
-    note = note_with(FakeServer())
-    f = note.files.create("a.txt", text="x")
+    memo = note_with(FakeServer())
+    f = memo.files.create("a.txt", text="x")
     assert f.trash().trashed is True
     assert f.restore().trashed is False
 
 
 def test_purge_asks_for_it_explicitly():
     s = FakeServer()
-    note = note_with(s)
-    note.files.create("a.txt", text="x").purge()
+    memo = note_with(s)
+    memo.files.create("a.txt", text="x").purge()
     assert s.calls[-1][2]["params"]["purge"] == "true"
 
-    note.files.create("b.txt", text="x").trash()
+    memo.files.create("b.txt", text="x").trash()
     assert s.calls[-2][2]["params"]["purge"] == "false"
 
 
 def test_find_returns_none_rather_than_raising_for_a_missing_path():
-    note = note_with(FakeServer())
-    note.files.create("there.txt", text="x")
-    assert note.files.find("there.txt") is not None
-    assert note.files.find("nowhere.txt") is None
+    memo = note_with(FakeServer())
+    memo.files.create("there.txt", text="x")
+    assert memo.files.find("there.txt") is not None
+    assert memo.files.find("nowhere.txt") is None
 
 
 def test_a_detached_file_says_so_instead_of_failing_obscurely():
@@ -389,15 +389,15 @@ def test_a_detached_file_says_so_instead_of_failing_obscurely():
 def test_the_files_url_is_built_from_the_note_s_own_base():
     # Not a second construction of it: escaping a namespace slug twice, two
     # different ways, is how one of them addresses a different namespace.
-    note = Note("651111111111111111111111", namespace="with space", client=FakeServer())
-    assert note.files._base() == f"{note._base}/files"
+    memo = Note("651111111111111111111111", namespace="with space", client=FakeServer())
+    assert memo.files._base() == f"{memo._base}/files"
 
 
 def test_preview_kind_travels_so_a_caller_knows_what_can_be_rendered():
-    note = note_with(FakeServer())
-    page = note.files.create("page.html", text="<b>hi</b>", content_type="text/html")
+    memo = note_with(FakeServer())
+    page = memo.files.create("page.html", text="<b>hi</b>", content_type="text/html")
     assert page.preview_kind == "html"
-    assert note.files.create("a.bin", data=BLOB).preview_kind is None
+    assert memo.files.create("a.bin", data=BLOB).preview_kind is None
 
 
 # ── Preview links ────────────────────────────────────────────────────────────
@@ -408,8 +408,8 @@ def test_preview_url_defaults_to_the_session_link():
     s = FakeServer()
     s.preview = {"url": "https://dreamlake.ai/preview/note-file?ns=me&note=n&file=f",
                  "kind": "session", "previewKind": "html"}
-    note = note_with(s)
-    f = note.files.create("a.html", text="<p>x</p>", content_type="text/html")
+    memo = note_with(s)
+    f = memo.files.create("a.html", text="<p>x</p>", content_type="text/html")
     assert "preview/note-file" in f.preview_url()
     assert s.calls[-1][2]["params"] == {}
 
@@ -418,8 +418,8 @@ def test_preview_url_share_asks_for_the_shared_kind():
     s = FakeServer()
     s.preview = {"url": "https://dreamlake.ai/preview/note-file?t=tok",
                  "kind": "shared", "previewKind": "html"}
-    note = note_with(s)
-    f = note.files.create("a.html", text="<p>x</p>", content_type="text/html")
+    memo = note_with(s)
+    f = memo.files.create("a.html", text="<p>x</p>", content_type="text/html")
     url = f.preview_url(share=True)
     assert s.calls[-1][2]["params"] == {"share": "true"}
     assert "t=tok" in url
@@ -430,8 +430,8 @@ def test_a_shared_link_carries_no_expiry():
     # before the person you sent it to opens it.
     s = FakeServer()
     s.preview = {"url": "https://dreamlake.ai/preview/note-file?t=tok", "kind": "shared"}
-    note = note_with(s)
-    f = note.files.create("a.html", text="<p>x</p>", content_type="text/html")
+    memo = note_with(s)
+    f = memo.files.create("a.html", text="<p>x</p>", content_type="text/html")
     from urllib.parse import urlparse, parse_qs
 
     q = parse_qs(urlparse(f.preview_url(share=True)).query)
@@ -444,8 +444,8 @@ def test_a_file_with_no_rendered_form_says_so():
     s = FakeServer()
     s.preview_status = 400
     s.preview = {"error": "not_previewable", "message": "a.zip is application/zip"}
-    note = note_with(s)
-    f = note.files.create("a.zip", data=b"PK")
+    memo = note_with(s)
+    f = memo.files.create("a.zip", data=b"PK")
     with pytest.raises(NotPreviewable, match="application/zip"):
         f.preview_url()
 
@@ -453,8 +453,8 @@ def test_a_file_with_no_rendered_form_says_so():
 def test_unshare_withdraws_the_link():
     s = FakeServer()
     s.preview = {"url": "x", "kind": "shared"}
-    note = note_with(s)
-    f = note.files.create("a.html", text="<p>x</p>", content_type="text/html")
+    memo = note_with(s)
+    f = memo.files.create("a.html", text="<p>x</p>", content_type="text/html")
     f.unshare()
     method, url, _ = s.calls[-1]
     assert method == "DELETE"
@@ -487,11 +487,11 @@ def test_upload_still_accepts_bytes_when_that_is_what_the_caller_has():
 
 
 def test_put_refuses_more_than_one_source():
-    note = note_with(FakeServer())
+    memo = note_with(FakeServer())
     with pytest.raises(ValueError, match="exactly one"):
-        note.files.put("a", text="x", data=b"y")
+        memo.files.put("a", text="x", data=b"y")
     with pytest.raises(ValueError, match="exactly one"):
-        note.files.put("a")
+        memo.files.put("a")
 
 
 def test_download_streams_to_disk_in_chunks(tmp_path: Path):
@@ -514,8 +514,8 @@ def test_an_interrupted_download_leaves_the_destination_untouched(tmp_path: Path
     dest.write_bytes(b"original")
 
     s = FakeServer()
-    note = note_with(s)
-    f = note.files.create("a.bin", data=BLOB)
+    memo = note_with(s)
+    f = memo.files.create("a.bin", data=BLOB)
 
     # The transport fails partway, which is the case that matters: some bytes
     # arrived, so a writer that wrote straight to the destination would have

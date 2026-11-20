@@ -50,19 +50,19 @@ class FakeNote:
 
 
 def doc_of(text: str = MD) -> tuple[Doc, FakeNote]:
-    note = FakeNote(text)
-    return Doc(note, text, note.etag), note
+    memo = FakeNote(text)
+    return Doc(memo, text, memo.etag), memo
 
 
 # ── The shape of a session ───────────────────────────────────────────────────
 
 def test_edits_are_local_until_save():
-    doc, note = doc_of()
+    doc, memo = doc_of()
     doc.replace("Published", query="Draft", all=True)
-    assert note.writes == []
+    assert memo.writes == []
     assert doc.dirty
     doc.save()
-    assert note.writes == ["# Title\n\nPublished one\nPublished two\n"]
+    assert memo.writes == ["# Title\n\nPublished one\nPublished two\n"]
 
 
 def test_every_edit_returns_the_whole_updated_source():
@@ -89,14 +89,14 @@ def test_toc_and_find_address_the_current_draft():
 
 
 def test_revert_returns_to_the_source_as_read():
-    doc, note = doc_of()
+    doc, memo = doc_of()
     doc.replace("X", line=3)
     assert doc.dirty
     doc.revert()
     assert not doc.dirty
     assert doc.text == MD
     doc.save()
-    assert note.writes == []  # nothing to commit
+    assert memo.writes == []  # nothing to commit
 
 
 def test_diff_describes_the_change_and_is_empty_when_there_is_none():
@@ -120,9 +120,9 @@ def test_save_reports_the_new_revision():
 
 def test_saving_an_unchanged_draft_writes_nothing():
     # So a caller can save unconditionally without first checking `dirty`.
-    doc, note = doc_of()
+    doc, memo = doc_of()
     assert doc.save().etag == "rev-1"
-    assert note.writes == []
+    assert memo.writes == []
 
 
 def test_a_stale_document_is_refused_rather_than_retried():
@@ -130,21 +130,21 @@ def test_a_stale_document_is_refused_rather_than_retried():
     # them anyway is how one agent silently reverts another.
     from dreamlake.api.notes import NoteChanged
 
-    doc, note = doc_of()
+    doc, memo = doc_of()
     doc.replace("X", line=3)
-    note.stale = True
+    memo.stale = True
     with pytest.raises(NoteChanged):
         doc.save()
-    assert note.writes == []
+    assert memo.writes == []
     assert doc.dirty  # the draft survives, so the caller can re-read and redo
 
 
 def test_force_is_available_but_never_automatic():
-    doc, note = doc_of()
+    doc, memo = doc_of()
     doc.replace("X", line=3)
-    note.stale = True
+    memo.stale = True
     doc.save(force=True)
-    assert len(note.writes) == 1
+    assert len(memo.writes) == 1
 
 
 # ── Refusals carry through ───────────────────────────────────────────────────
@@ -465,18 +465,18 @@ def test_save_is_conditional_on_the_revision_the_draft_was_read_at():
     # anything else writes through the same note, and then the precondition
     # passes against a revision this draft never saw — a silent overwrite of
     # somebody else's work, reported as success.
-    doc, note = doc_of("one\n")
+    doc, memo = doc_of("one\n")
     read_at = doc.etag
 
-    note.write("somebody else\n")          # the note object's cache moves on
+    memo.write("somebody else\n")          # the note object's cache moves on
     doc.replace("mine", query="one")
     doc.save()
 
-    assert note.preconditions[-1] == read_at
+    assert memo.preconditions[-1] == read_at
 
 
 def test_force_sends_no_precondition_at_all():
-    doc, note = doc_of("one\n")
+    doc, memo = doc_of("one\n")
     doc.replace("mine", query="one")
     doc.save(force=True)
-    assert note.preconditions[-1] is None
+    assert memo.preconditions[-1] is None
