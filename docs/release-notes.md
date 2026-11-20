@@ -1,6 +1,19 @@
 # Release notes
 
-## 0.57.0 — Named tmux terminals
+## Unreleased — CI/CT without baseline comparisons
+
+`client.cict.runs.comparison` was removed: CI/CT no longer compares a run with
+a default-branch baseline (the server answers `410 comparison_removed`).
+`runs.result(ns, run_id, file=...)` reads any JSON file the run declared as
+evidence; `file` still defaults to `result.json`.
+
+## 0.56.1 — Memo naming and named tmux terminals
+
+Memo implementation locals and public docstrings use canonical Memo terminology.
+Existing Note imports, methods, keyword arguments, payload keys and wire routes
+remain compatible.
+
+### Named tmux terminals
 
 `client.tmux.create`, `operation`, `resolve`, `list` and `attach_ticket` expose
 the same named-terminal contract as `dl tmux new NAME --host HOST` and the
@@ -8,19 +21,6 @@ command palette. New sessions use caller-persisted request UUIDs; existing names
 conflict, and attachment never creates a missing session. References bind the
 exact enrollment, server and session name. Requires the compatible backend,
 terminal gateway and enrolled Nymph. See [Named tmux sessions](tmux.md).
-
-### CI/CT without baseline comparisons
-
-`client.cict.runs.comparison` was removed: CI/CT no longer compares a run with
-a default-branch baseline (the server answers `410 comparison_removed`).
-`runs.result(ns, run_id, file=...)` reads any JSON file the run declared as
-evidence; `file` still defaults to `result.json`.
-
-## 0.56.1 — Memo naming consistency
-
-Memo implementation locals and public docstrings use canonical Memo terminology.
-Existing Note imports, methods, keyword arguments, payload keys and wire routes
-remain compatible.
 
 ## 0.56.0 — Team host grants and Hosts in Projects
 
