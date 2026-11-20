@@ -108,9 +108,11 @@ def test_conflict_unsupported_and_transport_failure_never_retry_or_attach():
 def test_invalid_creation_arguments_and_gateway_origins_fail_before_network():
     requests = []
     api = client(lambda req: requests.append(req)).tmux
-    for kwargs in [{'request_id': 'not-uuid'}, {'request_id': REQUEST_ID, 'name': 'two words'}, {'request_id': REQUEST_ID, 'name': 'bad:window'}, {'request_id': REQUEST_ID, 'name': ''}]:
+    for kwargs in [{'request_id': 'not-uuid'}, {'request_id': 'AAAAAAAA-BBBB-4CCC-8DDD-EEEEEEEEEEEE'}, {'request_id': REQUEST_ID, 'name': 'two words'}, {'request_id': REQUEST_ID, 'name': 'bad:window'}, {'request_id': REQUEST_ID, 'name': ''}]:
         with pytest.raises(ValueError):
             api.create(ENROLLMENT, **kwargs)
+    with pytest.raises(ValueError):
+        api.operation(ENROLLMENT, 'AAAAAAAA-BBBB-4CCC-8DDD-EEEEEEEEEEEE')
     for origin in ['http://external.example', 'https://user:password@app.example', 'https://app.example/path', 'https://app.example/?token=x', 'https://app.example\r\nBad: header']:
         with pytest.raises(ValueError):
             api.attach_ticket('test', REF, origin=origin)

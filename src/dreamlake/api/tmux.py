@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 _ID = re.compile(r"[a-f0-9]{24}\Z")
 _SERVER = re.compile(r"[a-f0-9]{16}\Z")
 _NEW_NAME = re.compile(r"[A-Za-z0-9_-]{1,64}\Z")
-_UUID = re.compile(r"[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}\Z", re.I)
+_UUID = re.compile(r"[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}\Z")
 _CODE = re.compile(r"[a-z][a-z0-9_]{0,95}\Z")
 _UNSET = object()
 
@@ -256,7 +256,7 @@ class Tmux:
         """Create only. Persist request_id beforehand and reuse identical inputs after uncertainty."""
         enrollment = _enrollment(enrollment)
         if not _match(_UUID, request_id) or (name is not None and not _match(_NEW_NAME, name)):
-            raise ValueError("Use a UUID request_id and a name of 1–64 letters, digits, underscores or hyphens")
+            raise ValueError("Use a lowercase UUID request_id and a name of 1–64 letters, digits, underscores or hyphens")
         body = {"requestId": request_id, **({"name": name} if name is not None else {})}
         return _operation(self._request("POST", f"/terminal-references/{enrollment}/tmux/sessions", body=body), enrollment, request_id, name)
 
@@ -264,7 +264,7 @@ class Tmux:
         """Read the same operation. This GET cannot enqueue creation or trigger discovery."""
         enrollment = _enrollment(enrollment)
         if not _match(_UUID, request_id) or type(timeout) not in (int, float) or not 0 < timeout <= 60:
-            raise ValueError("Use a UUID request_id and a timeout of at most 60 seconds")
+            raise ValueError("Use a lowercase UUID request_id and a timeout of at most 60 seconds")
         return _operation(self._request("GET", f"/terminal-references/{enrollment}/tmux/operations/{request_id}", timeout=timeout), enrollment, request_id, expected_name)
 
     def resolve(self, reference: TmuxReference | str) -> TmuxResolution:
