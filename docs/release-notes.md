@@ -16,6 +16,12 @@ a default-branch baseline (the server answers `410 comparison_removed`).
 `runs.result(ns, run_id, file=...)` reads any JSON file the run declared as
 evidence; `file` still defaults to `result.json`.
 
+## 0.56.1 — Memo naming consistency
+
+Memo implementation locals and public docstrings use canonical Memo terminology.
+Existing Note imports, methods, keyword arguments, payload keys and wire routes
+remain compatible.
+
 ## 0.56.0 — Team host grants and Hosts in Projects
 
 `client.hosts.grant_access(ns, host_id, enrollment_id=..., team=...)` shares one
