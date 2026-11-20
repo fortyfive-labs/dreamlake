@@ -1,6 +1,6 @@
 # Named tmux sessions
 
-`DreamLakeClient.tmux` exposes the same named-terminal contract as
+Available in Python 0.57.0 and later. `DreamLakeClient.tmux` exposes the same named-terminal contract as
 `dl tmux new NAME --host HOST` and the command palette's
 `/tmux new NAME --host HOST`. It requires a capable backend, terminal gateway
 and enrolled Nymph. An unsupported deployment fails explicitly; a local SDK
