@@ -113,7 +113,7 @@ class MemoNotFound(MemoError):
 
 
 class MemoChanged(MemoError):
-    """The note moved between your read and your write (HTTP 412).
+    """The memo moved between your read and your write (HTTP 412).
 
     Not a transient error: retrying the same write reproduces it. Call
     ``note.refresh()``, redo the edit against the new text, and write again.
@@ -140,7 +140,7 @@ class MemoBusy(MemoError):
 
 
 class MemoReadOnly(MemoError):
-    """You may read this note but not write it (HTTP 403)."""
+    """You may read this memo but not write it (HTTP 403)."""
 
     outcome = "no-write"
 
@@ -381,7 +381,7 @@ class LineRange:
     """Part of a body, with enough context to know it is a part.
 
     `total_lines` and `truncated` are not decoration: without them a caller
-    cannot tell "this is the whole note" from "this is the first page", and a
+    cannot tell "this is the whole memo" from "this is the first page", and a
     rewrite built on a partial read silently drops everything it never saw.
     """
 
@@ -402,7 +402,7 @@ class LineRange:
 
 @dataclass(frozen=True)
 class Section:
-    """One addressable part of a note: a heading plus everything under it."""
+    """One addressable part of a memo: a heading plus everything under it."""
 
     anchor: str
     title: str
@@ -416,7 +416,7 @@ class Section:
 
 @dataclass(frozen=True)
 class SectionMatch:
-    """Where a search hit landed inside a note."""
+    """Where a search hit landed inside a memo."""
 
     anchor: str
     title: str
@@ -428,7 +428,7 @@ class SectionMatch:
 
 @dataclass(frozen=True)
 class MemoRef:
-    """A note in a listing. Call ``.open()`` for one you can read and write."""
+    """A memo in a listing. Call ``.open()`` for one you can read and write."""
 
     id: str
     namespace: str
@@ -468,7 +468,7 @@ class Hit:
                 document — what ``replace(ind=...)`` addresses
 
     ``etag`` is the revision these offsets were computed against. Pass it to
-    ``patch(legacy=True, if_match=...)`` and a note edited in between is refused rather than
+    ``patch(legacy=True, if_match=...)`` and a memo edited in between is refused rather than
     overwritten at offsets that have since moved.
     """
 
@@ -564,9 +564,9 @@ def _raise_for(resp: httpx.Response, what: str) -> None:
 
 
 class Memo:
-    """A note you can read and edit.
+    """A memo you can read and edit.
 
-    Addressed as ``namespace/slug`` or ``namespace/<id>``; see ``dl.note()``,
+    Addressed as ``namespace/slug`` or ``namespace/<id>``; see ``dl.memo()``,
     which resolves both. The text is fetched on first use and cached with the
     ETag it came with, so a write knows what it was based on.
     """
@@ -609,7 +609,7 @@ class Memo:
         return f"<Memo {self._ns}/{self._id}>"
 
     def metadata(self) -> MemoRef:
-        """Read current metadata without restoring an archived note."""
+        """Read current metadata without restoring an archived memo."""
         with self._client.http() as http:
             response = http.get(f"/notes/{_seg(self._id)}")
         _raise_for(response, f"read metadata {self._ns}/{self._id}")
@@ -724,13 +724,13 @@ class Memo:
         """Archive without deleting or changing tags; return acknowledged metadata.
 
         The server flushes pending edits first and may raise MemoBusy if it
-        cannot do so safely. A later saved edit restores the note and its live
+        cannot do so safely. A later saved edit restores the memo and its live
         folder paths. Failed operations do not retry or discard local drafts.
         """
         return self._set_archived(True)
 
     def unarchive(self) -> MemoRef:
-        """Restore the note and its live archived folder paths."""
+        """Restore the memo and its live archived folder paths."""
         return self._set_archived(False)
 
     # ── plumbing ────────────────────────────────────────────────────────────
@@ -869,7 +869,7 @@ class Memo:
     def read_section(self, anchor: str) -> str:
         """One section's text, heading included.
 
-        Named for what it reads. `note.text` is the whole note; every method
+        Named for what it reads. `note.text` is the whole memo; every method
         with `_section` in its name works on one part of it, and every method
         without works on all of it. There is no third rule.
         """
@@ -880,7 +880,7 @@ class Memo:
     # ── writing ─────────────────────────────────────────────────────────────
 
     def write_section(self, anchor: str, text: str, *, force: bool = False) -> str:
-        """Replace one section. Returns the note's new ETag.
+        """Replace one section. Returns the memo's new ETag.
 
         The text is taken verbatim, heading and all — which is how a section is
         renamed. Omit the heading and the section stops being one.
@@ -889,15 +889,15 @@ class Memo:
 
     @property
     def files(self) -> "MemoFiles":
-        """Files attached to this note.
+        """Files attached to this memo.
 
             note.files.list("assets/*.png")
             note.files.upload(Path("diagram.png"), path="assets/diagram.png")
 
         Distinct from note MEDIA, which is the image-embedding path: a media
         URL is its own credential and readable by anyone holding it, which is
-        right for a picture in a public note and wrong for an attachment. These
-        inherit the note's permissions on every read.
+        right for a picture in a public memo and wrong for an attachment. These
+        inherit the memo's permissions on every read.
         """
         from ._files import MemoFiles
 
@@ -914,7 +914,7 @@ class Memo:
             part.truncated      # there is more below
             part.total_lines    # how much more
 
-        For looking at a large note without pulling all of it. NOT a basis for
+        For looking at a large memo without pulling all of it. NOT a basis for
         a write: the ETag identifies the WHOLE snapshot, so sending `part.text`
         back as the body would delete everything outside the range. Use
         `read()` and edit the draft, or address the range with `line=`.
@@ -1155,7 +1155,7 @@ class Memo:
         ``GET .../commands/{command_id}``, scoped to the calling actor. An
         unknown id raises ``MemoNotFound``. ``receipt`` is the stored v2
         receipt when the state is ``accepted`` or ``no-write``, verified
-        before it is returned: it must name this note and this command, its
+        before it is returned: it must name this memo and this command, its
         ``revision`` and ``baseRevision`` must be complete native ``rtc:`` or room-bound ``memo-rtc:v1:`` references, ``mode``
         exact or merge, and envelope and receipt must agree — an
         ``accepted``/``no-write`` state requires a receipt whose ``outcome``
@@ -1214,7 +1214,7 @@ class Memo:
         after: str | None = None,
         force: bool = False,
     ) -> list[Section]:
-        """Add a section, and return the note's new outline.
+        """Add a section, and return the memo's new outline.
 
         `after` places it past that section AND its subsections — anything else
         would drop the new one inside the section you named. With neither
@@ -1314,9 +1314,9 @@ def _seg(value: str) -> str:
 def _resolve(ref: str, client: DreamLakeClient) -> tuple[str, str]:
     """``"<id>"``, ``"ns/slug"`` or ``"ns/<id>"`` -> ``(namespace, note_id)``.
 
-    An id identifies a note on its own, so it does not need a namespace in
+    An id identifies a memo on its own, so it does not need a namespace in
     front of it — the server resolves which namespace it is in, and answers
-    404 for a note the caller may not see exactly as it does for one that does
+    404 for a memo the caller may not see exactly as it does for one that does
     not exist. A slug is only unique within a namespace, so that form still
     names one.
     """
@@ -1356,14 +1356,14 @@ def _resolve(ref: str, client: DreamLakeClient) -> tuple[str, str]:
 
 
 def memo(ref: str, *, client: DreamLakeClient | None = None) -> Memo:
-    """Open a note by ``namespace/slug`` or ``namespace/<id>``.
+    """Open a memo by ``namespace/slug`` or ``namespace/<id>``.
 
-        dl.note("<namespace>/design-doc")
-        dl.note("<namespace>/507f1f77bcf86cd799439011")
+        dl.memo("<namespace>/design-doc")
+        dl.memo("<namespace>/507f1f77bcf86cd799439011")
     """
     c = client or get_client()
-    ns, note_id = _resolve(ref, c)
-    return Memo(note_id, namespace=ns, client=c)
+    ns, memo_id = _resolve(ref, c)
+    return Memo(memo_id, namespace=ns, client=c)
 
 
 def create_memo(
@@ -1374,12 +1374,12 @@ def create_memo(
     visibility: MemoVisibility = "private",
     client: DreamLakeClient | None = None,
 ) -> Memo:
-    """Create a note, optionally with a body, and return it ready to edit.
+    """Create a memo, optionally with a body, and return it ready to edit.
 
-        note = dl.create_note("<namespace>", "Design Doc", text="# Design Doc\n")
+        note = dl.create_memo("<namespace>", "Design Doc", text="# Design Doc\n")
 
-    Two calls behind one: the note is created, then the body written. The write
-    is unconditional — the note is one request old and there is nothing yet for
+    Two calls behind one: the memo is created, then the body written. The write
+    is unconditional — the memo is one request old and there is nothing yet for
     anyone to have changed.
 
     Titles may repeat; the server appends a suffix to the SLUG to keep it
@@ -1395,14 +1395,14 @@ def create_memo(
         )
     _raise_for(r, f"create memo {name!r} in {namespace}")
     try:
-        note_id = r.json()["note"]["id"]
-        _memo_directive(note_id)
+        memo_id = r.json()["note"]["id"]
+        _memo_directive(memo_id)
     except (ValueError, KeyError, TypeError, MemoError):
         raise MemoError("Memo may already exist, but its full ID was not confirmed. Inspect Memos before creating again.") from None
-    note = Memo(note_id, namespace=namespace, client=c)
+    memo = Memo(memo_id, namespace=namespace, client=c)
     if text:
-        note.write(text, force=True)
-    return note
+        memo.write(text, force=True)
+    return memo
 
 
 def list_memos(
@@ -1413,10 +1413,10 @@ def list_memos(
     include_archived: bool = False,
     client: DreamLakeClient | None = None,
 ) -> list[MemoRef]:
-    """Active notes in a namespace; include_archived also returns archived notes.
+    """Active memos in a namespace; include_archived also returns archived memos.
 
     `namespace` is required and has no default. A personal namespace and an
-    organization's are different places holding different notes, and guessing
+    organization's are different places holding different memos, and guessing
     which one you meant would quietly answer for the wrong one. An
     organization's slug is its own — `dreamlake org list` in the CLI shows the
     ones you belong to.
@@ -1443,7 +1443,7 @@ def search_memos(
 
     Case-insensitive. Archived notes are excluded unless include_archived=True.
 
-    Substring matching, so a phrase inside a note finds it and a fragment of a
+    Substring matching, so a phrase inside a memo finds it and a fragment of a
     word or an identifier works too. CJK is matched the same way as anything
     else.
 
@@ -1455,7 +1455,7 @@ def search_memos(
     waiting for anything.
 
     Each result carries `.matches`: which sections the query was found in, with
-    a snippet. That is what saves reading a whole note to locate the part you
+    a snippet. That is what saves reading a whole memo to locate the part you
     were looking for — go straight to `note.read_section(match.anchor)`.
 
     Scoped to one namespace, like `list_notes` — searching "everywhere" is not
@@ -1593,7 +1593,7 @@ def grep_memos(
 
 
 def shared_with_me(*, include_archived: bool = False, client: DreamLakeClient | None = None) -> list[MemoRef]:
-    """Active notes shared with you; include_archived also returns archived notes."""
+    """Active memos shared with you; include_archived also returns archived memos."""
     c = client or get_client()
     with c.http() as http:
         r = http.get("/me/notes/shared", params={"includeArchived": str(include_archived).lower()})

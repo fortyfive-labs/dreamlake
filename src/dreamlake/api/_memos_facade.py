@@ -310,7 +310,7 @@ class FocusedRead:
     ``@@ chars`` patch addresses, so a targeted edit at it is supported.
     ``scope`` is ``{"lines": [a, b]}``. ``complete`` is always ``False`` and
     ``next`` is the line to continue from (``None`` at the end), so a page is
-    never mistaken for the note and cannot be a whole-body ``write`` baseline.
+    never mistaken for the memo and cannot be a whole-body ``write`` baseline.
     """
 
     note: str
@@ -554,22 +554,22 @@ class MemoHandle:
         if self._note is None:
             client = self._client or get_client()
             if _OBJECT_ID.fullmatch(self._ref):
-                namespace, note_id = self._ns, self._ref
+                namespace, memo_id = self._ns, self._ref
                 if namespace is None:
                     # IDs are primary: the server resolves the owner. One request,
                     # once; opening the handle made none.
                     with client.http() as http:
-                        response = http.get(f"/notes/{_seg(note_id)}")
-                    _raise_for(response, f"resolve {note_id}")
+                        response = http.get(f"/notes/{_seg(memo_id)}")
+                    _raise_for(response, f"resolve {memo_id}")
                     row = response.json()
                     namespace = row.get("namespaceSlug") if isinstance(row, dict) else None
-                    if row.get("id") != note_id or not isinstance(namespace, str) or not namespace:
-                        raise MemoError(f"server did not identify memo {note_id!r}")
+                    if row.get("id") != memo_id or not isinstance(namespace, str) or not namespace:
+                        raise MemoError(f"server did not identify memo {memo_id!r}")
             else:
                 assert self._ns is not None
-                _, note_id = _resolve(f"{self._ns}/{self._ref}", client)
+                _, memo_id = _resolve(f"{self._ns}/{self._ref}", client)
                 namespace = self._ns
-            self._note = Memo(note_id, namespace=namespace, client=client)
+            self._note = Memo(memo_id, namespace=namespace, client=client)
         return self._note
 
     def _own(self, value: Any, name: str) -> None:
@@ -614,7 +614,7 @@ class MemoHandle:
     def _mapped(self, *, at: str | None, section: str | None = None, tag: str | None = None,
                 toc: bool = False) -> HtmlSnapshot:
         """The mapped snapshot the CLI's ``--view html`` reads, validated the same way."""
-        note = self._target()
+        memo = self._target()
         params: dict[str, Any] = {"contract": "v2"}
         if at is not None:
             params["at"] = at
@@ -626,13 +626,13 @@ class MemoHandle:
             params["toc"] = "true"
         params["view"] = "html"
         params["contentFormat"] = "literal-markdown"
-        with note._client.http() as http:
-            response = http.get(f"{note._base}/body", params=params, follow_redirects=False)
-        _raise_for(response, f"read {note.namespace}/{note.id}")
+        with memo._client.http() as http:
+            response = http.get(f"{memo._base}/body", params=params, follow_redirects=False)
+        _raise_for(response, f"read {memo.namespace}/{memo.id}")
         if response.status_code != 200:
             raise MemoError("unexpected mapped read response; nothing was adopted")
         try:
-            snapshot = parse_html_snapshot(response.text, note.id, section=section, tag=tag, toc=toc)
+            snapshot = parse_html_snapshot(response.text, memo.id, section=section, tag=tag, toc=toc)
         except HtmlSnapshotError as error:
             raise MemoError(f"invalid mapped read: {error}") from None
         if at is not None and snapshot.revision != at:
@@ -729,7 +729,7 @@ class MemoHandle:
         return Outline(note=page.note, hash=page.hash, revision=page.revision, entries=tuple(entries), text=text)
 
     def find(self, *, text: str, case_sensitive: bool = False, at: Any = None, limit: int = 1000) -> FindResult:
-        """Literal search of this note's exact source at one revision.
+        """Literal search of this memo's exact source at one revision.
 
         Returns every match up to ``limit`` with exact matched text and
         absolute code-point and line ranges; ``truncated`` says the limit was
@@ -767,27 +767,27 @@ class MemoHandle:
             raise ValueError("format must be 'diff' or 'inline-dff'")
         self._own(since, "since")
         revision = _revision_of(since, "since")
-        note = self._target()
-        base = note.read_snapshot(at=revision)
-        with note._client.http() as http:
-            response = http.get(f"{note._base}/body", params={"contract": "v2", "since": base.hash, "format": format},
+        memo = self._target()
+        base = memo.read_snapshot(at=revision)
+        with memo._client.http() as http:
+            response = http.get(f"{memo._base}/body", params={"contract": "v2", "since": base.hash, "format": format},
                                 follow_redirects=False)
-        _raise_for(response, f"diff {note.namespace}/{note.id}")
+        _raise_for(response, f"diff {memo.namespace}/{memo.id}")
         if response.status_code != 200:
             raise MemoError("unexpected diff response; nothing was adopted")
         try:
             data = response.json()
-            _v2_tokens(data, note.id)
+            _v2_tokens(data, memo.id)
             if data.get("base") != base.hash or data.get("format") != format or not isinstance(data.get("patch"), str):
                 raise MemoError("inconsistent source diff")
             if len(data["patch"].encode("utf-8")) > 8_000_000:
                 raise MemoError("source diff too large")
         except (ValueError, MemoError):
             raise MemoError("invalid source diff response; nothing was adopted") from None
-        acknowledged = note.read_snapshot(at=data["revision"])
+        acknowledged = memo.read_snapshot(at=data["revision"])
         if acknowledged.hash != data["hash"]:
             raise MemoError("source diff does not match its acknowledged source hash")
-        return DiffResult(note=note.id, base_revision=revision, base_hash=base.hash, revision=data["revision"],
+        return DiffResult(note=memo.id, base_revision=revision, base_hash=base.hash, revision=data["revision"],
                           hash=data["hash"], format=format, patch=data["patch"])
 
     # ── editing ─────────────────────────────────────────────────────────────
@@ -1007,11 +1007,11 @@ class MemoHandle:
         """
         if not isinstance(name, str) or not name.strip():
             raise ValueError("name must be a nonempty string")
-        note = self._target()
-        with note._client.http() as http:
-            response = http.patch(note._base, json={"name": name})
-        _raise_for(response, f"rename {note.namespace}/{note.id}")
-        return _ref(response.json(), note.namespace)
+        memo = self._target()
+        with memo._client.http() as http:
+            response = http.patch(memo._base, json={"name": name})
+        _raise_for(response, f"rename {memo.namespace}/{memo.id}")
+        return _ref(response.json(), memo.namespace)
 
     @property
     def versions(self) -> MemoVersions:
@@ -1020,7 +1020,7 @@ class MemoHandle:
 
     @property
     def files(self) -> MemoFiles:
-        """Files attached to this note (``files.list``, ``files.upload``, ``files.move(file=..., ...)``)."""
+        """Files attached to this memo (``files.list``, ``files.upload``, ``files.move(file=..., ...)``)."""
         return self._target().files
 
     # ── collaboration ───────────────────────────────────────────────────────
@@ -1072,7 +1072,7 @@ class MemoHandle:
         located = address is not None or cursor is not None
         if located and at is None:
             raise ValueError("a located visit needs its original source baseline: pass at=")
-        note = self._target()
+        memo = self._target()
         payload: dict[str, Any] = {"action": "join"}
         if summary:
             payload["intent"] = {"summary": summary}
@@ -1086,21 +1086,21 @@ class MemoHandle:
             else:
                 span, _ = self._span_for_address(baseline, address)  # type: ignore[arg-type]
             location = {"hash": baseline.hash, "chars": [span[0], span[1]]}
-        with note._client.http() as http:
-            response = http.post(f"{note._base}/presence", json=payload, follow_redirects=False)
-            _raise_for(response, f"visit {note.namespace}/{note.id}")
+        with memo._client.http() as http:
+            response = http.post(f"{memo._base}/presence", json=payload, follow_redirects=False)
+            _raise_for(response, f"visit {memo.namespace}/{memo.id}")
             data = self._presence_receipt(response)
             if location is not None:
-                response = http.post(f"{note._base}/presence", follow_redirects=False,
+                response = http.post(f"{memo._base}/presence", follow_redirects=False,
                                      json={"action": "seek", "hash": location["hash"],
                                            "ranges": [{"start": location["chars"][0], "end": location["chars"][1]}]})
-                _raise_for(response, f"visit {note.namespace}/{note.id}")
+                _raise_for(response, f"visit {memo.namespace}/{memo.id}")
                 data = self._presence_receipt(response)
                 activity = (data.get("state") or {}).get("activity") or {}
                 if activity.get("hash") != location["hash"]:
                     raise MemoError("server did not acknowledge the visited location at its source hash")
         state = data.get("state") or {}
-        return VisitReceipt(note=note.id, expires_at=state.get("expiresAt"), location=location, raw=data)
+        return VisitReceipt(note=memo.id, expires_at=state.get("expiresAt"), location=location, raw=data)
 
     @staticmethod
     def _presence_receipt(response: Any) -> dict[str, Any]:
@@ -1141,10 +1141,10 @@ class MemoVersions:
         """One saved version's content and metadata, verified against its hash. Not a current-write baseline."""
         if not isinstance(version_id, str) or not version_id.startswith("v_") or version_id.strip() != version_id:
             raise ValueError("version_id must be a saved version id (v_<timestamp>_<uuid>)")
-        note = self._handle._target()
-        with note._client.http() as http:
-            response = http.get(f"{note._base}/versions/{_seg(version_id)}", follow_redirects=False)
-        _raise_for(response, f"version {version_id} of {note.namespace}/{note.id}")
+        memo = self._handle._target()
+        with memo._client.http() as http:
+            response = http.get(f"{memo._base}/versions/{_seg(version_id)}", follow_redirects=False)
+        _raise_for(response, f"version {version_id} of {memo.namespace}/{memo.id}")
         try:
             data = response.json()
         except ValueError:
@@ -1191,7 +1191,7 @@ class Memos:
 
     def create(self, *, namespace: str, name: str | None = None, text: str | None = None,
                visibility: MemoVisibility = "private") -> MemoHandle:
-        """Create a note and return its handle; ``name`` and ``text`` are optional.
+        """Create a memo and return its handle; ``name`` and ``text`` are optional.
 
         Omitted ``text`` means exact empty source; omitted ``name`` displays as
         ``Untitled``. Initial source is written through the retained-baseline
@@ -1215,20 +1215,20 @@ class Memos:
                                  json={"name": name if name is not None else "Untitled", "visibility": visibility})
         _raise_for(response, f"create memo in {namespace}")
         try:
-            note_id = response.json()["note"]["id"]
+            memo_id = response.json()["note"]["id"]
         except (ValueError, KeyError, TypeError):
             raise MemoError("Memo may already exist, but its full ID was not confirmed. Inspect Memos before creating again.") from None
-        if not isinstance(note_id, str) or not _OBJECT_ID.fullmatch(note_id):
+        if not isinstance(memo_id, str) or not _OBJECT_ID.fullmatch(memo_id):
             raise MemoError("Memo may already exist, but its full ID was not confirmed. Inspect Memos before creating again.")
-        handle = MemoHandle(note_id, namespace=namespace, client=client)
+        handle = MemoHandle(memo_id, namespace=namespace, client=client)
         if text:
             # From here on the note exists: whatever fails, the caller must
             # learn its id, or a retry creates a duplicate.
             try:
-                note = handle._target()
-                note.write(text, at=note.read_snapshot(), exact=True)
+                memo = handle._target()
+                memo.write(text, at=memo.read_snapshot(), exact=True)
             except Exception as error:
-                raise MemoCreatedWithoutSource(note_id, namespace, error) from error
+                raise MemoCreatedWithoutSource(memo_id, namespace, error) from error
         return handle
 
     def __repr__(self) -> str:  # pragma: no cover - display only
