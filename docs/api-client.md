@@ -90,3 +90,11 @@ checks the acknowledgment before filing additional nodes. `dl.bindr(...,
 visibility="unlisted")` sets it on a new or existing Bindr; existing Bindrs use a
 fresh version read. Ordinary files inherit folder visibility. Sharing a Bindr
 shares the grouping, without changing access to its members or Project.
+
+## Named tmux sessions
+
+`client.tmux` provides typed create, operation, resolve, cached-list and
+attach-ticket calls. It shares the CLI's create-only and attach-only contracts;
+see [Named tmux sessions](tmux.md) for reference syntax, idempotent retry IDs and
+the explicit gateway transport. These sessions are distinct from saved Codex
+and Claude conversation records.
