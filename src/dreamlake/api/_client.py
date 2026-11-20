@@ -203,6 +203,12 @@ class DreamLakeClient:
         return Sessions(self)
 
     @property
+    def tmux(self):
+        """Named tmux references, explicit creation and attach-only gateway tickets."""
+        from .tmux import Tmux
+        return Tmux(self)
+
+    @property
     def hosts(self):
         """Host enrollment, input validation, and status using this account."""
         from .hosts import Hosts
