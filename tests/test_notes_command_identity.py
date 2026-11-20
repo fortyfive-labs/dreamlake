@@ -80,13 +80,13 @@ def test_command_id_accepted_charset(good):
 
 
 def test_legacy_paths_have_no_command_identity():
-    note = Note(ID, namespace='ns', client=object())
+    memo = Note(ID, namespace='ns', client=object())
     with pytest.raises(ValueError):
-        note.patch(PATCH, legacy=True, command_id=CMD)
+        memo.patch(PATCH, legacy=True, command_id=CMD)
     with pytest.raises(ValueError):
-        note.append('x', legacy=True, command_id=CMD)
+        memo.append('x', legacy=True, command_id=CMD)
     with pytest.raises(ValueError):
-        note.write('x', force=True, command_id=CMD)
+        memo.write('x', force=True, command_id=CMD)
 
 
 # ── wire ─────────────────────────────────────────────────────────────────────
@@ -174,16 +174,16 @@ def test_pre_connection_transport_errors_are_deterministic_not_uncertain(failure
 
 def test_unsupported_scheme_with_a_real_transport_is_not_sent():
     # No mock: httpx's own transport refuses 'ftp://' before resolving or connecting.
-    note = Note(ID, namespace='ns', client=DreamLakeClient(dl_url='ftp://example.invalid', token='t'))
+    memo = Note(ID, namespace='ns', client=DreamLakeClient(dl_url='ftp://example.invalid', token='t'))
     with pytest.raises(NoteError, match='not sent') as error:
-        note.patch(PATCH, base_revision=REV, command_id=CMD)
+        memo.patch(PATCH, base_revision=REV, command_id=CMD)
     assert not isinstance(error.value, UncertainOutcomeError)
 
 
 def test_invalid_base_url_is_built_outside_the_uncertain_window():
-    note = Note(ID, namespace='ns', client=DreamLakeClient(dl_url='http://exa\nmple.test', token='t'))
+    memo = Note(ID, namespace='ns', client=DreamLakeClient(dl_url='http://exa\nmple.test', token='t'))
     with pytest.raises(NoteError, match='nothing was sent') as error:
-        note.patch(PATCH, base_revision=REV, command_id=CMD)
+        memo.patch(PATCH, base_revision=REV, command_id=CMD)
     assert not isinstance(error.value, UncertainOutcomeError)
 
 

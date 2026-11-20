@@ -96,10 +96,10 @@ def test_if_match_alone_selects_exact_and_supplies_original_baseline():
 
 @pytest.mark.parametrize('kwargs', [{}, {'base_revision': '*'}, {'base_revision': 'bad\nheader'}, {'base_revision': BASE, 'if_match': 'different'}, {'base_revision': BASE, 'force': True}, {'base_revision': BASE, 'format': 'unknown'}, {'base_revision': BASE, 'legacy': True}, {'legacy': True, 'exact': True}])
 def test_invalid_options_fail_before_any_network_request(kwargs):
-    note = Note(NOTE, namespace='ns', client=object())
-    note._etag = BASE  # must not silently use even a populated cache
+    memo = Note(NOTE, namespace='ns', client=object())
+    memo._etag = BASE  # must not silently use even a populated cache
     with pytest.raises(ValueError):
-        note.patch(PATCH, **kwargs)
+        memo.patch(PATCH, **kwargs)
 
 
 @pytest.mark.parametrize('status,error', [(404, NoteNotFound), (412, NoteChanged), (422, PatchFailed), (503, NoteBusy)])
