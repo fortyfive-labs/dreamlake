@@ -304,19 +304,19 @@ def test_unknown_address_is_a_selection_error_with_no_write():
 
 
 def test_selector_rules_for_replace_and_remove():
-    note = handle(never)
+    memo = handle(never)
     with pytest.raises(ValueError, match='exactly one'):
-        note.replace(text='X', at=snap())
+        memo.replace(text='X', at=snap())
     with pytest.raises(ValueError, match='exactly one'):
-        note.replace(text='X', lines=(1, 1), address='s1', at=snap())
+        memo.replace(text='X', lines=(1, 1), address='s1', at=snap())
     with pytest.raises(ValueError, match='exactly one'):
-        note.remove(at=snap())
+        memo.remove(at=snap())
     with pytest.raises(TypeError):
-        note.remove(lines=(1, 1), text='X', at=snap())
+        memo.remove(lines=(1, 1), text='X', at=snap())
     with pytest.raises(InvalidLineRange):
-        note.replace(lines=(9, 9), text='X', at=snap())
+        memo.replace(lines=(9, 9), text='X', at=snap())
     with pytest.raises(InvalidLineRange):
-        note.remove(lines=(3, 2), at=snap())
+        memo.remove(lines=(3, 2), at=snap())
 
 
 def test_identical_replacement_is_a_local_no_write():
@@ -338,16 +338,16 @@ def test_insert_placements():
 
 
 def test_insert_placement_rules():
-    note = handle(never)
+    memo = handle(never)
     with pytest.raises(SelectionError, match='past the end'):
-        note.insert(cursor=53, text='x', at=snap())
+        memo.insert(cursor=53, text='x', at=snap())
     for bad in (-1, True, 1.5):
         with pytest.raises(ValueError):
-            note.insert(cursor=bad, text='x', at=snap())
+            memo.insert(cursor=bad, text='x', at=snap())
     with pytest.raises(ValueError, match='exactly one'):
-        note.insert(text='x', at=snap())
+        memo.insert(text='x', at=snap())
     with pytest.raises(ValueError, match='exactly one'):
-        note.insert(before='s1', after='s1', text='x', at=snap())
+        memo.insert(before='s1', after='s1', text='x', at=snap())
 
 
 def test_edits_against_a_focused_read_stay_inside_it():
@@ -370,10 +370,10 @@ def test_edits_against_a_focused_read_stay_inside_it():
 
 def test_remove_deletes_exactly_the_span_with_canonical_escaping():
     calls = []
-    note = handle(serve(calls))
-    note.remove(lines=(7, 8), at=snap())
-    mapped = note.read(view='mapped')
-    note.remove(address='s1.1.l1.i2', at=mapped, command_id='cmd-conformance-0001')
+    memo = handle(serve(calls))
+    memo.remove(lines=(7, 8), at=snap())
+    mapped = memo.read(view='mapped')
+    memo.remove(address='s1.1.l1.i2', at=mapped, command_id='cmd-conformance-0001')
     patches = sent(calls)
     assert patches[0] == {'format': 'inline-dff', 'patch': '@@ chars 30:52 @@\n~ [-\\- item one\\n\\- item two\\n-]\n',
                           'baseRevision': REV, 'mode': 'merge'}

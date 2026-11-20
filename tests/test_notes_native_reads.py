@@ -59,8 +59,8 @@ def test_diff_invalid_envelope_no_adoption_or_fallback(change):
 
 
 def test_diff_rtc_reference_refused_before_io():
-    note=Note(ID,namespace='ns',client=object())
-    with pytest.raises(ValueError):note.diff(since='rtc:original')
+    memo=Note(ID,namespace='ns',client=object())
+    with pytest.raises(ValueError):memo.diff(since='rtc:original')
 
 
 def test_legacy_append_uses_legacy_body_on_cache_miss():
