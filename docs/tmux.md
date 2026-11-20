@@ -31,7 +31,7 @@ a conflict; this operation never attaches, replaces a process, or sends input
 into another session. The operation returns `pending`, `succeeded` or `failed`.
 A pending receipt does not confirm successful creation.
 
-If a response is lost, reuse the same request UUID and original arguments.
+If a response is lost, reuse the same lowercase request UUID and original arguments.
 `operation` reads `GET /terminal-references/:enrollment/tmux/operations/:requestId`
 and never resubmits creation. Its optional `expected_name` validates that the
 receipt still describes your submitted name; use `None` for an omitted name.
