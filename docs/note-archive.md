@@ -50,7 +50,7 @@ members = client.projects.resources("my-namespace", "my-project",
 
 Folder mutations return the server's node dictionary and raise
 `httpx.HTTPStatusError` on rejection, matching other node helpers. Only folders
-can be archived through `/nodes/:id`; memos use `Note.archive()` even when they
+can be archived through `/nodes/:id`; memos use `Memo.archive()` even when they
 have a project mount. Project resource requests use `ProjectAccessError` for
 server rejection. Listing methods retain server pagination metadata and raw
 `archivedAt` fields. Filters apply before pagination and counts.
