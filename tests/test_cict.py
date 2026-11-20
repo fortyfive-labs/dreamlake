@@ -101,14 +101,12 @@ def test_errors_and_refusals():
     assert len(seen) == before
 
 
-def test_comparison_pool_edits_platform_usage_and_admin():
+def test_pool_edits_platform_usage_and_admin():
     seen = []
 
     def handler(req):
         seen.append(req)
         path = req.url.path
-        if path.endswith("/comparison"):
-            return httpx.Response(200, json={"comparison": {"regressions": 1, "baseline": {"branch": "main"}, "cases": []}})
         if path.endswith("/runner-targets"):
             return httpx.Response(200, json={"targets": [{"id": PROVIDER, "usable": True, "reason": None}]})
         if req.method == "PATCH":
@@ -120,8 +118,8 @@ def test_comparison_pool_edits_platform_usage_and_admin():
         return httpx.Response(200, json={"ok": True})
 
     cict = make(handler)
-    assert cict.runs.comparison("team", "91-4881")["regressions"] == 1
-    assert seen[-1].url.path == "/namespaces/team/cict/runs/91-4881/comparison"
+    # Baseline comparisons were removed with the server's.
+    assert not hasattr(cict.runs, "comparison")
 
     cict.pools.update("team", POOL, provider_id=PROVIDER, no_evidence=True, env=None)
     assert json.loads(seen[-1].content) == {"target": {"kind": "slurm", "providerId": PROVIDER}, "evidence": None, "env": None}
@@ -153,7 +151,6 @@ def test_comparison_pool_edits_platform_usage_and_admin():
         lambda: cict.usage("team", month="26-11"),
         lambda: cict.admin.set_namespace("robotics", state="active"),
         lambda: cict.admin.put_machine("gpu", color="red"),
-        lambda: cict.runs.comparison("team", "../x"),
     ]:
         with pytest.raises(CictError):
             call()

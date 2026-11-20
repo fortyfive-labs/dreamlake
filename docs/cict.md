@@ -65,24 +65,18 @@ for run in client.cict.runs.list("team", limit=20):
     print(run["id"], run["status"], run["conclusion"], run["routing"]["kind"])
 
 run = client.cict.runs.get("team", "91234567-48812345678")
-result = client.cict.runs.result("team", run["id"])  # result.json, or None
+metrics = client.cict.runs.result("team", run["id"], file="metrics.json")  # or None
 ```
 
-A run ID is `<installationId>-<jobId>`. `runs.result` reads a JSON evidence file
-(`file="metrics.json"` for another) through a short-lived Source read
+A run ID is `<installationId>-<jobId>`. `runs.result` reads one JSON file the
+run declared as evidence (`file=`, relative to its evidence folder; it defaults
+to `result.json` for existing callers) through a short-lived Source read
 capability; it returns `None` when the run has no evidence location or did not
 write the file. `client.cict.jobs("team")` lists the raw recorded GitHub jobs.
 
-## Compare with the baseline
-
-```python
-c = client.cict.runs.comparison("team", run["id"])   # None until evidence is written
-if c and c["baseline"]:
-    print(c["regressions"], "regressed vs", c["baseline"]["branch"])
-    for case in c["cases"]:
-        if case["change"] != "unchanged":
-            print(case["change"], case["id"], case.get("score"))
-```
+CI/CT does not compare runs with a baseline or read a result format: a job's
+own steps decide whether it passes. `runs.comparison` was removed; the server
+answers `410 comparison_removed`.
 
 ## Edit pools
 

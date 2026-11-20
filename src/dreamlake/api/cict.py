@@ -91,15 +91,6 @@ class CictRuns(_Base):
         """``run_id`` is ``<installationId>-<jobId>``."""
         return self._request("GET", self._ns(namespace) + "/cict/runs/" + _text(run_id, _RUN, "run ID"))["run"]
 
-    def comparison(self, namespace, run_id):
-        """The run compared case by case with its baseline; ``None`` until its evidence is written.
-
-        The baseline is the latest earlier run of the same repository, workflow
-        and job on the default branch whose evidence was written.
-        """
-        path = self._ns(namespace) + "/cict/runs/" + _text(run_id, _RUN, "run ID") + "/comparison"
-        return self._request("GET", path)["comparison"]
-
     def result(self, namespace, run_id, *, file="result.json"):
         """Read one evidence file (default ``result.json``) as JSON; ``None`` if absent.
 

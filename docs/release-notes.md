@@ -1,5 +1,12 @@
 # Release notes
 
+## Unreleased — CI/CT without baseline comparisons
+
+`client.cict.runs.comparison` was removed: CI/CT no longer compares a run with
+a default-branch baseline (the server answers `410 comparison_removed`).
+`runs.result(ns, run_id, file=...)` reads any JSON file the run declared as
+evidence; `file` still defaults to `result.json`.
+
 ## 0.56.0 — Team host grants and Hosts in Projects
 
 `client.hosts.grant_access(ns, host_id, enrollment_id=..., team=...)` shares one
