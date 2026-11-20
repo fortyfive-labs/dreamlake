@@ -36,13 +36,13 @@ def test_element_and_revert():
 ])
 @pytest.mark.parametrize('context', [0, 3])
 def test_round_trip(before, after, context):
-    doc, note = doc_of(before)
+    doc, memo = doc_of(before)
     patch = unified_diff(before, after, 'note', context)
     assert doc.patch(patch) == after
-    assert note.writes == []
+    assert memo.writes == []
     assert doc.diff(since='last_edit') == doc.diff()
     doc.save()
-    assert note.preconditions == ['rev-1']
+    assert memo.preconditions == ['rev-1']
 
 
 @pytest.mark.parametrize('patch', [
@@ -52,14 +52,14 @@ def test_round_trip(before, after, context):
     '@@ -1 +1 @@\n-old\n+new\n@@ -2 +2 @@\n-missing\n+other\n',
 ])
 def test_failure_is_atomic(patch):
-    doc, note = doc_of('initial\n')
+    doc, memo = doc_of('initial\n')
     doc.replace('old', query='initial')
     previous_diff = doc.diff(since='last_edit')
     with pytest.raises(EditError):
         doc.patch(patch)
     assert doc.text == 'old\n'
     assert doc.diff(since='last_edit') == previous_diff
-    assert note.writes == []
+    assert memo.writes == []
 
 
 def test_options_and_empty_patch():
@@ -80,9 +80,9 @@ def test_jsdiff_preamble():
 
 def test_patched_draft_retained_when_save_is_stale():
     from dreamlake.api.notes import NoteChanged
-    doc, note = doc_of('old\n')
+    doc, memo = doc_of('old\n')
     doc.patch(unified_diff('old\n', 'new\n', 'note', 3))
-    note.stale = True
+    memo.stale = True
     with pytest.raises(NoteChanged):
         doc.save()
     assert doc.text == 'new\n'
