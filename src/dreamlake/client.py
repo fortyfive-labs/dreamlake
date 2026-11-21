@@ -102,6 +102,14 @@ class RemoteClient:
             RuntimeError: If the server reports no namespace for the user
             httpx.HTTPStatusError: If request fails
         """
+        from .auth.profiles import bound_namespace
+        selected = bound_namespace(self._api_key, self.base_url)
+        if selected:
+            return selected
+        return self.resolve_personal_namespace()
+
+    def resolve_personal_namespace(self) -> str:
+        """Resolve the account's personal namespace independently of defaults."""
         if self._default_namespace:
             return self._default_namespace
 

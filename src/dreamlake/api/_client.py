@@ -329,6 +329,19 @@ class DreamLakeClient:
         """Deprecated — use register_node() instead."""
         return self.register_node(body)
 
+    def resolve_namespace(self, namespace: str | None = None) -> str:
+        """Explicit namespace > saved credential-bound default > personal slug."""
+        if namespace:
+            return namespace
+        from dreamlake.auth.profiles import bound_namespace
+        selected = bound_namespace(self._token or "", self.dl_url)
+        if selected:
+            return selected
+        personal = (self.get_auth_me().get("namespace") or {}).get("slug")
+        if not personal:
+            raise RuntimeError("Server returned no personal namespace; pass a namespace explicitly.")
+        return personal
+
     def get_auth_me(self) -> dict:
         with self.http() as http:
             r = http.get(f"/auth/me", timeout=10)
