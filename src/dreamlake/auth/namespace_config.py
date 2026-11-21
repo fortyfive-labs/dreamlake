@@ -24,6 +24,7 @@ class NamespaceConfig:
     scope: Literal['local', 'global']
     path: Path | None = None
     namespace: str | None = None
+    original: str | None = None
 
 
 def validate_namespace(value: str) -> str:
@@ -44,7 +45,7 @@ def _yaml() -> YAML:
 def _read(path: Path):
     parser = _yaml()
     if not path.exists() and not path.is_symlink():
-        return parser, CommentedMap(), ""
+        return parser, CommentedMap(), "", None
     if not path.is_file():
         raise ValueError(f'Namespace configuration is not a readable file: {path}')
     try:
@@ -67,7 +68,7 @@ def _read(path: Path):
             validate_namespace(value)
         except ValueError as error:
             raise ValueError(f'Invalid namespace in {path}: use a literal namespace slug.') from error
-    return parser, document, empty_prefix
+    return parser, document, empty_prefix, original
 
 
 def namespace_config(*, scope: NamespaceScope = 'auto', cwd: str | Path | None = None,
@@ -101,8 +102,8 @@ def namespace_config(*, scope: NamespaceScope = 'auto', cwd: str | Path | None =
             break
         directory = directory.parent
     if found is not None:
-        _, document, _ = _read(found)
-        return NamespaceConfig('local', found, dict(document.non_merged_items()).get('namespace'))
+        _, document, _, original = _read(found)
+        return NamespaceConfig('local', found, dict(document.non_merged_items()).get('namespace'), original)
     if scope == 'auto':
         return NamespaceConfig('global')
     if not for_write:
@@ -113,11 +114,19 @@ def namespace_config(*, scope: NamespaceScope = 'auto', cwd: str | Path | None =
     return NamespaceConfig('local', destination / '.dreamrc')
 
 
-def write_local_namespace(path: Path, namespace: str | None) -> None:
-    """Edit only namespace semantics while preserving other YAML data/comments."""
+def write_local_namespace(snapshot: NamespaceConfig, namespace: str | None) -> None:
+    """Preserve YAML data/comments and refuse replacement of changed files."""
+    path = snapshot.path
+    if snapshot.scope != 'local' or path is None:
+        raise ValueError('Expected a local namespace configuration.')
     if namespace is not None:
         validate_namespace(namespace)
-    parser, document, prefix = _read(path)
+    if path.is_symlink():
+        raise ValueError(f'Cannot replace symbolic link {path}; edit its target explicitly.')
+    current = path.read_text() if path.exists() else None
+    if current != snapshot.original:
+        raise ValueError(f'{path} changed while selecting a namespace; retry.')
+    parser, document, prefix, _ = _read(path)
     if namespace is None:
         if 'namespace' in dict(document.non_merged_items()):
             document.pop('namespace')
@@ -125,15 +134,15 @@ def write_local_namespace(path: Path, namespace: str | None) -> None:
         document['namespace'] = namespace
     stream = StringIO()
     parser.dump(document, stream)
-    # Preserve a deliberate symlink and the existing target's permissions.
-    target = path.resolve() if path.is_symlink() else path
-    mode = stat.S_IMODE(target.stat().st_mode) if target.exists() else 0o644
-    fd, temporary = tempfile.mkstemp(dir=target.parent, prefix=f'.{target.name}.')
+    mode = stat.S_IMODE(path.stat().st_mode) if path.exists() else 0o644
+    fd, temporary = tempfile.mkstemp(dir=path.parent, prefix=f'.{path.name}.')
     try:
         with os.fdopen(fd, 'w') as output:
             output.write(prefix + ("\n" if prefix and not prefix.endswith("\n") else "") + stream.getvalue())
             os.fchmod(output.fileno(), mode)
-        os.replace(temporary, target)
+        if (path.read_text() if path.exists() else None) != snapshot.original:
+            raise ValueError(f'{path} changed while selecting a namespace; retry.')
+        os.replace(temporary, path)
     finally:
         if os.path.exists(temporary):
             os.unlink(temporary)

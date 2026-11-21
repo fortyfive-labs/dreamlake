@@ -171,7 +171,7 @@ class Auth:
                   "defaultNamespace": local.namespace,
                   "profileDefaultNamespace": None,
                   "namespaceSource": "local" if local.namespace else "personal",
-                  "configFile": str(local.path) if local.path else None,
+                  "configFile": str(local.path) if local.path else str(self.config_dir / "config.json"),
                   "configScope": local.scope}
         try:
             token, remote = self._context()
@@ -361,7 +361,7 @@ class Auth:
         if namespace not in {row["slug"] for row in self.namespaces(profile=membership_profile, scope="global")}:
             raise ValueError(f"Namespace {namespace!r} is not available to this account; default unchanged.")
         if local.scope == "local":
-            write_local_namespace(local.path, namespace)
+            write_local_namespace(local, namespace)
             return self.status(scope="local", cwd=cwd)
         entry["defaultNamespace"] = namespace
         return self._save_default(name, entry)
@@ -371,7 +371,7 @@ class Auth:
         """Remove the selected default, preserving other repository/global settings."""
         local = self._namespace_config(scope, cwd, for_write=True)
         if local.scope == "local":
-            write_local_namespace(local.path, None)
+            write_local_namespace(local, None)
             return self.status(scope="local", cwd=cwd)
         self._guard()
         name, entry = self._profile(profile)

@@ -238,3 +238,27 @@ def test_status_explicit_global_default_is_distinct_from_personal_fallback(works
     assert status['profileDefaultNamespace'] is None
     assert status['defaultNamespace'] == 'fortyfive'
     assert status['namespaceSource'] == 'local'
+
+
+def test_local_write_refuses_stale_snapshot_or_symlink(workspace):
+    _, repo, _, auth = workspace
+    config = repo / '.dreamrc'
+    config.write_text('namespace: fortyfive\n')
+    snapshot = namespace_config(cwd=repo)
+    config.write_text('namespace: dyna-robotics\n# concurrent change\n')
+    with pytest.raises(ValueError, match='changed while selecting'):
+        write_local_namespace(snapshot, 'fortyfive')
+    assert '# concurrent change' in config.read_text()
+    target = repo / 'shared-config.yml'
+    config.rename(target)
+    config.symlink_to(target)
+    assert auth.get_namespace() == 'dyna-robotics'
+    with pytest.raises(ValueError, match='symbolic link'):
+        auth.set_default_namespace('fortyfive')
+    assert config.is_symlink()
+    assert '# concurrent change' in target.read_text()
+
+
+def test_global_status_names_global_config_file(workspace):
+    _, _, _, auth = workspace
+    assert auth.status(scope='global')['configFile'] == str(auth.config_dir / 'config.json')

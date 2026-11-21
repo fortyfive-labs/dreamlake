@@ -129,7 +129,8 @@ A namespace present only through a YAML merge is not a local selection.
 
 The parser keeps custom tags such as `!providers` inert. Editing preserves other
 YAML values, comments, quotes, and anchors. YAML formatting may be normalized by
-the round-trip writer. Setting a namespace verifies membership first; rejection
+the round-trip writer. Edits refuse symbolic links and files changed during
+selection; edit the symlink target explicitly or retry after a concurrent edit. Setting a namespace verifies membership first; rejection
 leaves the file unchanged and does not create one. Reading an imported valid file
 uses its namespace directly, without a separate approval or override store.
 Local writes can use environment credentials for membership verification while
