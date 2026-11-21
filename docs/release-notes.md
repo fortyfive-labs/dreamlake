@@ -1,5 +1,14 @@
 # Release notes
 
+## 0.58.0 — Repository namespace defaults
+
+Python and the DreamLake CLI share a top-level `namespace` in the nearest
+repository `.dreamrc`. Namespace APIs accept `scope="auto"`, `"local"`, or
+`"global"` and an optional `cwd`. Status reports the effective source separately
+from the saved profile default. Local setters verify membership and update the
+YAML file while preserving unrelated values, comments, and inert custom tags.
+Credentials remain global. See [Authentication](authentication.md).
+
 ## 0.57.1 — Quiet credential removal
 
 Logging out no longer prints a misleading plaintext-storage warning. The legacy
