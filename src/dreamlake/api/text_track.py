@@ -108,8 +108,7 @@ class TextTrack:
             project_slug = parts[0]
             # Try to resolve namespace from auth
             try:
-                me = self._client.get_auth_me()
-                namespace = me.get("namespace", {}).get("slug", "")
+                namespace = self._client.resolve_namespace()
             except Exception:
                 raise ValueError("Cannot resolve namespace. Use project='project@namespace' format.")
 

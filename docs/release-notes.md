@@ -1,5 +1,13 @@
 # Release notes
 
+## 0.57.0 — Authentication profiles and namespace defaults
+
+`dreamlake.auth.Auth` manages shared CLI/SDK login, status, profiles, switching,
+refresh, token access, logout, and membership-verified namespace defaults.
+Implicit SDK paths use the selected default when its server and token binding
+match; explicit namespaces and personal account identity remain separate.
+See [Authentication](authentication.md).
+
 ## Unreleased — CI/CT without baseline comparisons
 
 `client.cict.runs.comparison` was removed: CI/CT no longer compares a run with

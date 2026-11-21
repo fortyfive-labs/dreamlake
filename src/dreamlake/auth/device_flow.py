@@ -30,7 +30,7 @@ class DeviceFlowResponse:
 class DeviceFlowClient:
     """Client for OAuth 2.0 Device Authorization Flow (RFC 8628)."""
 
-    def __init__(self, device_secret: str, dreamlake_server_url: str):
+    def __init__(self, device_secret: str, dreamlake_server_url: str, *, auth_url: str | None = None):
         """Initialize device flow client.
 
         Args:
@@ -38,6 +38,7 @@ class DeviceFlowClient:
             dreamlake_server_url: DreamLake server URL for token exchange.
         """
         self.device_secret = device_secret
+        self.auth_url = (auth_url or VUER_AUTH_URL).rstrip("/")
         self.dreamlake_server_url = dreamlake_server_url.rstrip("/")
 
     def start_device_flow(self, scope: str = DEFAULT_SCOPE) -> DeviceFlowResponse:
@@ -53,7 +54,7 @@ class DeviceFlowClient:
             httpx.HTTPError: If request fails.
         """
         response = httpx.post(
-            f"{VUER_AUTH_URL}/api/device/start",
+            f"{self.auth_url}/api/device/start",
             json={
                 "client_id": CLIENT_ID,
                 "scope": scope,
@@ -105,7 +106,7 @@ class DeviceFlowClient:
 
             try:
                 response = httpx.post(
-                    f"{VUER_AUTH_URL}/api/device/poll",
+                    f"{self.auth_url}/api/device/poll",
                     json={
                         "client_id": CLIENT_ID,
                         "device_secret_hash": device_secret_hash,

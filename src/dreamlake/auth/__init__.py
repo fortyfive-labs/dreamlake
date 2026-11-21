@@ -31,3 +31,7 @@ __all__ = [
     "get_token_storage",
     "decode_jwt_payload",
 ]
+
+from .profiles import Auth
+
+__all__.append("Auth")

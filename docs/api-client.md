@@ -1,5 +1,8 @@
 # Python client sessions and transport
 
+For saved account profiles and workspace defaults, see
+[Authentication profiles and default namespaces](authentication.md).
+
 `DreamLakeClient`, `RemoteClient`, and remote or hybrid `Episode` instances use
 one credential order: an explicit client token, then `DREAMLAKE_API_KEY`, then
 the session saved by `dreamlake login`. `Episode` delegates to `RemoteClient`.

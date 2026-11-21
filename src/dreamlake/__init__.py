@@ -127,8 +127,7 @@ def upload(
     else:
         project_slug = parts[0]
         client = _get_client()
-        me = client.get_auth_me()
-        namespace = me.get("namespace", {}).get("slug", "")
+        namespace = client.resolve_namespace()
 
     client = _get_client()
 
@@ -477,8 +476,7 @@ def _resolve_to_node(node_id_or_path: str, project: str | None) -> dict:
         project_slug, namespace = parts[0], parts[1]
     else:
         project_slug = parts[0]
-        me = client.get_auth_me()
-        namespace = me.get("namespace", {}).get("slug", "")
+        namespace = client.resolve_namespace()
 
     ctx_prefix_str = _ctx_prefix.get().strip("/")
     episode_name = ctx_prefix_str.split("/")[-1] if ctx_prefix_str else None
@@ -593,8 +591,7 @@ def _parse_project_arg(project: str | None) -> tuple[str, str]:
     if len(parts) == 2:
         return parts[0], parts[1]
     project_slug = parts[0]
-    me = _get_client().get_auth_me()
-    namespace = me.get("namespace", {}).get("slug", "")
+    namespace = _get_client().resolve_namespace()
     return project_slug, namespace
 
 
