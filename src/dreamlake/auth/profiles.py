@@ -106,13 +106,9 @@ class Auth:
             value = self._profile(profile)[1].get("token")
         else:
             value = _read(self.config_dir / "tokens.json").get("dreamlake-token")
-            if not value:
-                try:
-                    value = self._profile()[1].get("token")
-                except NotAuthenticatedError:
-                    if self.config_dir == Path.home() / ".dreamlake":
-                        from .token_storage import get_token_storage
-                        value = get_token_storage(self.config_dir).load("dreamlake-token")
+            if not value and self.config_dir == Path.home() / ".dreamlake":
+                from .token_storage import get_token_storage
+                value = get_token_storage(self.config_dir).load("dreamlake-token")
         if not value:
             raise NotAuthenticatedError("Not authenticated. Run 'dreamlake auth login'.")
         return value
@@ -135,28 +131,48 @@ class Auth:
         return response.json()
 
     def profiles(self) -> list[dict]:
-        """List safe profile metadata; never disclose saved credentials."""
+        """List safe profile metadata; active means the effective connection matches."""
         store = self._store()
-        return [{"profile": name, "active": name == store.get("current"),
-                 **{key: value.get(key) for key in ("server", "account", "environment", "namespace", "defaultNamespace")},
+        try:
+            token, remote = self._context()
+        except NotAuthenticatedError:
+            token, remote = None, None
+        machine = os.environ.get("DREAMLAKE_IDENTITY") == "machine"
+        return [{"profile": name,
+                 "active": not machine and name == store.get("current")
+                 and value.get("token") == token and value.get("server", "").rstrip("/") == remote,
+                 **{key: value.get(key) for key in ("server", "account", "environment", "namespace")},
+                 "defaultNamespace": value.get("defaultNamespace") or value.get("namespace"),
                  "authenticated": bool(value.get("token"))}
                 for name, value in store["envs"].items()]
 
     def status(self, *, verify: bool = False) -> dict:
-        """Report local identity context; optionally verify the selected token."""
-        result = {"profile": self._store().get("current"), "profiles": self.profiles(),
-                  "source": "environment" if os.environ.get("DREAMLAKE_API_KEY") else "saved",
-                  "machine": os.environ.get("DREAMLAKE_IDENTITY") == "machine"}
+        """Report local identity context; ``verified`` distinguishes server validation."""
+        profiles = self.profiles()
+        active = next((entry for entry in profiles if entry["active"]), None)
+        overrides = [key for key in ("DREAMLAKE_API_KEY", "DREAMLAKE_REMOTE") if os.environ.get(key)]
+        result = {"profile": active["profile"] if active else None, "profiles": profiles,
+                  "source": "environment" if overrides else "saved", "overrides": overrides,
+                  "verified": False,
+                  "machine": os.environ.get("DREAMLAKE_IDENTITY") == "machine",
+                  "account": active.get("account") if active else None,
+                  "namespace": active.get("namespace") if active else None,
+                  "defaultNamespace": None}
         try:
             token, remote = self._context()
         except NotAuthenticatedError:
             return {**result, "authenticated": False}
+        selected = bound_namespace(token, remote, self.config_dir)
         result.update(authenticated=True, server=remote,
-                      defaultNamespace=bound_namespace(token, remote, self.config_dir))
+                      defaultNamespace=selected or result["namespace"])
         if verify:
             me = self._request("GET", "/auth/me", token, remote)
             result["account"] = me.get("username") or me.get("email") or me.get("sub") or me.get("id")
             result["namespace"] = (me.get("namespace") or {}).get("slug")
+            if not result["namespace"]:
+                raise ValueError("Server returned no personal namespace; authentication was not verified.")
+            result["defaultNamespace"] = selected or result["namespace"]
+            result["verified"] = True
         return result
 
     def _project(self, name: str | None, entry: dict | None, store: dict) -> None:
@@ -175,7 +191,8 @@ class Auth:
                     "namespace": entry["defaultNamespace"], "remote": entry["server"].rstrip("/"),
                     "tokenSha256": hashlib.sha256(entry["token"].encode()).hexdigest()}
         else:
-            config.pop("namespace", None)
+            for key in ("remote_url", "namespace", "bss_url"):
+                config.pop(key, None)
             tokens.pop("dreamlake-token", None)
         store["current"] = name
         _write(self.config_dir / "auth.yml", store)
@@ -242,11 +259,13 @@ class Auth:
         store = self._store()
         del store["envs"][name]
         if store.get("current") == name:
-            self._project(None, None, store)
-            # Remove legacy secure-store credentials to prevent silent re-login.
+            # Remove legacy credentials before projecting a successor: the
+            # plaintext fallback shares the active projection's token slot.
             if self.config_dir == Path.home() / ".dreamlake":
                 from .token_storage import get_token_storage
                 get_token_storage(self.config_dir).delete("dreamlake-token")
+            successor = next(iter(store["envs"]), None)
+            self._project(successor, store["envs"].get(successor), store)
         else:
             _write(self.config_dir / "auth.yml", store)
 

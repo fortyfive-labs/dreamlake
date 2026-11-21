@@ -46,7 +46,7 @@ def test_profile_namespace_roundtrip_shared_contract(auth):
     assert auth.status()["defaultNamespace"] == "fortyfive"
     assert auth.token() == "secret-token"
     auth.clear_default_namespace()
-    assert auth.status()["defaultNamespace"] is None
+    assert auth.status()["defaultNamespace"] == "personal"
     for name in ("auth.yml", "config.json", "tokens.json"):
         assert stat.S_IMODE((auth.config_dir / name).stat().st_mode) == 0o600
 
@@ -78,7 +78,7 @@ def test_refresh_binds_new_token_and_clears_different_identity(auth):
     assert bound_namespace("new-token", "https://api.dreamlake.ai", auth.config_dir) == "fortyfive"
     assert bound_namespace("secret-token", "https://api.dreamlake.ai", auth.config_dir) is None
     auth.refresh(token="other-token")
-    assert auth.status()["defaultNamespace"] is None
+    assert auth.status()["defaultNamespace"] == "other-person"
 
 
 @pytest.mark.parametrize("key,value", [("DREAMLAKE_API_KEY", "override"), ("DREAMLAKE_REMOTE", "https://other"), ("DREAMLAKE_IDENTITY", "machine")])
@@ -152,7 +152,7 @@ def test_login_explicit_server_replaces_profile_server(auth):
     auth.set_default_namespace("fortyfive")
     auth.login("same-token", profile="work", server="https://staging.invalid", environment="staging")
     assert auth.status()["server"] == "https://staging.invalid"
-    assert auth.status()["defaultNamespace"] is None
+    assert auth.status()["defaultNamespace"] == "personal"
     assert auth.profiles()[0]["environment"] == "staging"
 
 
@@ -185,3 +185,70 @@ def test_refresh_uses_saved_deployment_auth_provider(auth, monkeypatch):
     assert factory.call_args.kwargs["auth_url"] == "https://staging-auth.vuer.ai"
     callback.assert_called_once_with(flow.start_device_flow.return_value)
     assert auth.token() == "replacement-token"
+
+
+def test_status_reports_verification_and_personal_fallback_without_network(auth):
+    auth.login('secret-token')
+    transport = auth.transport
+    def forbid(request):
+        raise AssertionError('Local status must not request the network')
+    auth.transport = httpx.MockTransport(forbid)
+    status = auth.status()
+    assert status['authenticated'] is True
+    assert status['verified'] is False
+    assert status['profile'] == 'prod'
+    assert status['defaultNamespace'] == 'personal'
+    auth.transport = transport
+    assert auth.status(verify=True)['verified'] is True
+
+
+@pytest.mark.parametrize('key,value', [('DREAMLAKE_API_KEY', 'override-token'), ('DREAMLAKE_REMOTE', 'https://override.invalid')])
+def test_status_overrides_do_not_claim_saved_profile_is_active(auth, monkeypatch, key, value):
+    auth.login('secret-token')
+    auth.set_default_namespace('fortyfive')
+    monkeypatch.setenv(key, value)
+    status = auth.status()
+    assert status['source'] == 'environment'
+    assert status['overrides'] == [key]
+    assert status['profile'] is None
+    assert status['verified'] is False
+    assert status['defaultNamespace'] is None
+    assert all(not profile['active'] for profile in auth.profiles())
+    verified = auth.status(verify=True)
+    assert verified['verified'] is True
+    assert verified['defaultNamespace'] == 'personal'
+    assert verified['profile'] is None
+
+
+def test_implicit_token_does_not_resurrect_cached_profile(auth):
+    from dreamlake.auth.exceptions import NotAuthenticatedError
+    auth.login('cached-secret')
+    (auth.config_dir / 'tokens.json').unlink()
+    assert auth.token('prod') == 'cached-secret'
+    with pytest.raises(NotAuthenticatedError):
+        auth.token()
+    status = auth.status()
+    assert status['authenticated'] is False
+    assert status['verified'] is False
+    assert status['profile'] is None
+    assert all(not profile['active'] for profile in status['profiles'])
+
+
+def test_logout_restores_successor_and_last_clears_only_connection(auth):
+    auth.login('first-token', profile='first')
+    auth.set_default_namespace('fortyfive')
+    auth.login('second-token', profile='second')
+    auth.set_default_namespace('dyna-robotics')
+    config_path = auth.config_dir / 'config.json'
+    config = json.loads(config_path.read_text())
+    config['device_secret'] = 'retained-device-setting'
+    config_path.write_text(json.dumps(config))
+    auth.logout('second')
+    assert auth.status()['profile'] == 'first'
+    assert auth.token() == 'first-token'
+    assert auth.status()['defaultNamespace'] == 'fortyfive'
+    auth.logout()
+    config = json.loads(config_path.read_text())
+    assert all(key not in config for key in ('remote_url', 'namespace', 'default_namespace', 'bss_url'))
+    assert config['device_secret'] == 'retained-device-setting'
+    assert auth.status()['authenticated'] is False

@@ -125,6 +125,8 @@ class PlaintextFileStorage(TokenStorage):
         self.tokens_file = self.config_dir / "tokens.json"
         self.config_dir.mkdir(parents=True, exist_ok=True)
 
+    def _warn_plaintext(self) -> None:
+        """Warn on credential storage; opening, reading, or deleting is quiet."""
         if not PlaintextFileStorage._warning_shown:
             try:
                 from rich.console import Console
@@ -152,6 +154,7 @@ class PlaintextFileStorage(TokenStorage):
         all_tokens = self._load_all()
         all_tokens[key] = value
         self._save_all(all_tokens)
+        self._warn_plaintext()
 
     def load(self, key: str) -> Optional[str]:
         return self._load_all().get(key)
