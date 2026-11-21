@@ -1,5 +1,11 @@
 # Release notes
 
+## 0.57.1 — Quiet credential removal
+
+Logging out no longer prints a misleading plaintext-storage warning. The legacy
+plaintext backend still warns when it actually stores credentials; opening,
+reading, and deleting credentials stay quiet.
+
 ## 0.57.0 — Authentication profiles and namespace defaults
 
 `dreamlake.auth.Auth` manages shared CLI/SDK login, status, profiles, switching,
