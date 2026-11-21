@@ -17,6 +17,11 @@ import yaml
 
 from .exceptions import NotAuthenticatedError
 
+BUILTIN_ENVIRONMENTS = {
+    "prod": {"server": "https://api.dreamlake.ai", "auth": "https://auth.vuer.ai"},
+    "staging": {"server": "https://staging-api.dreamlake.ai", "auth": "https://staging-auth.vuer.ai"},
+}
+
 
 def _read(path: Path) -> dict:
     if not path.exists():
@@ -175,23 +180,29 @@ class Auth:
         if singleton.config_dir == self.config_dir:
             singleton._load()
 
-    def login(self, token: str, *, profile: str = "production", server: str | None = None,
+    def login(self, token: str, *, profile: str = "prod", server: str | None = None,
               environment: str | None = None, activate: bool = True) -> dict:
         """Validate a token before saving; existing unrelated profiles survive."""
         self._guard()
         if not profile or profile.strip() != profile:
             raise ValueError("Profile name must be nonempty without surrounding whitespace.")
         from dreamlake.config import DEFAULT_REMOTE_URL
-        server = (server or DEFAULT_REMOTE_URL).rstrip("/")
+        store = self._store()
+        old = store["envs"].get(profile, {})
+        builtin = BUILTIN_ENVIRONMENTS.get(environment) if environment else None
+        if environment and not builtin and not server:
+            raise ValueError("Unknown environment; provide server= for a custom deployment.")
+        server = (server or (builtin or {}).get("server") or old.get("server") or DEFAULT_REMOTE_URL).rstrip("/")
         me = self._request("GET", "/auth/me", token, server)
         namespace = (me.get("namespace") or {}).get("slug")
         if not namespace:
             raise ValueError("Server returned no personal namespace; no credentials were saved.")
-        store = self._store()
-        old = store["envs"].get(profile, {})
         entry = {"server": server, "namespace": namespace, "token": token,
                  "account": me.get("username") or me.get("email") or me.get("sub") or me.get("id")}
-        if old.get("auth"):
+        deployment = next((value for value in BUILTIN_ENVIRONMENTS.values() if value["server"] == server), None)
+        if deployment:
+            entry["auth"] = deployment["auth"]
+        elif old.get("auth") and old.get("server", "").rstrip("/") == server:
             entry["auth"] = old["auth"]
         if environment is not None:
             entry["environment"] = environment
@@ -245,7 +256,7 @@ class Auth:
                 raise ValueError("Provide token= or on_device_code= to reauthorize with device flow.")
             from .device_flow import DeviceFlowClient
             from .device_secret import generate_device_secret
-            flow = DeviceFlowClient(generate_device_secret(), entry["server"])
+            flow = DeviceFlowClient(generate_device_secret(), entry["server"], auth_url=entry.get("auth"))
             on_device_code(flow.start_device_flow())
             token = flow.exchange_token(flow.poll_for_token())
         return self.login(token, profile=name, server=entry["server"],

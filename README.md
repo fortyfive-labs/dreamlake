@@ -30,7 +30,7 @@ uv add dreamlake@0.56.2
 <td>
 
 ```shell
-pip install dreamlake==0.56.2
+pip install dreamlake==0.57.0
 ```
 
 </td>

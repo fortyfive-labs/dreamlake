@@ -22,7 +22,9 @@ auth.clear_default_namespace()  # Return to personal namespace fallback
 
 `Auth.login(token, profile="work", server="https://api.dreamlake.ai")` verifies
 the token before saving it. Pass `activate=False` to save an inactive profile.
-`environment="production"` records an optional label. `Auth.refresh(token=...)`
+`environment="prod"` or `environment="staging"` selects the built-in deployment
+and its authentication provider. An explicit `server=` takes precedence; custom
+environment labels require `server=`. The default profile name is `prod`. `Auth.refresh(token=...)`
 replaces the current profile's credentials. To reauthorize through the existing
 device flow, supply `on_device_code=callback`; the callback receives a
 `DeviceFlowResponse` containing the verification URL and user code. For example:

@@ -86,7 +86,7 @@ def test_overrides_refuse_all_persistent_actions(auth, monkeypatch, key, value):
     auth.login("secret-token")
     before = {p.name: p.read_bytes() for p in auth.config_dir.iterdir()}
     monkeypatch.setenv(key, value)
-    for action in [lambda: auth.login("token"), lambda: auth.switch("production"), auth.logout,
+    for action in [lambda: auth.login("token"), lambda: auth.switch("prod"), auth.logout,
                    lambda: auth.refresh(token="new"), lambda: auth.set_default_namespace("fortyfive"),
                    auth.clear_default_namespace]:
         with pytest.raises(ValueError):
@@ -154,3 +154,32 @@ def test_login_explicit_server_replaces_profile_server(auth):
     assert auth.status()["server"] == "https://staging.invalid"
     assert auth.status()["defaultNamespace"] is None
     assert auth.profiles()[0]["environment"] == "staging"
+
+
+def test_explicit_builtin_environment_selects_server_and_auth(auth):
+    auth.login("secret-token", profile="work", environment="prod")
+    auth.set_default_namespace("fortyfive")
+    auth.login("staging-token", profile="work", environment="staging")
+    saved = yaml.safe_load((auth.config_dir / "auth.yml").read_text())["envs"]["work"]
+    assert saved["server"] == "https://staging-api.dreamlake.ai"
+    assert saved["auth"] == "https://staging-auth.vuer.ai"
+    assert "defaultNamespace" not in saved
+    auth.login("replacement-token", profile="work")
+    assert auth.status()["server"] == "https://staging-api.dreamlake.ai"
+    with pytest.raises(ValueError, match="Unknown environment"):
+        auth.login("secret-token", environment="typo")
+
+
+def test_refresh_uses_saved_deployment_auth_provider(auth, monkeypatch):
+    from unittest.mock import Mock
+    auth.login("secret-token", environment="staging")
+    flow = Mock()
+    flow.exchange_token.return_value = "replacement-token"
+    factory = Mock(return_value=flow)
+    monkeypatch.setattr("dreamlake.auth.device_flow.DeviceFlowClient", factory)
+    callback = Mock()
+    auth.refresh(on_device_code=callback)
+    assert factory.call_args.args[1] == "https://staging-api.dreamlake.ai"
+    assert factory.call_args.kwargs["auth_url"] == "https://staging-auth.vuer.ai"
+    callback.assert_called_once_with(flow.start_device_flow.return_value)
+    assert auth.token() == "replacement-token"
