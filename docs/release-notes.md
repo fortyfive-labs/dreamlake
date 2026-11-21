@@ -7,6 +7,11 @@ a default-branch baseline (the server answers `410 comparison_removed`).
 `runs.result(ns, run_id, file=...)` reads any JSON file the run declared as
 evidence; `file` still defaults to `result.json`.
 
+## 0.56.2 — Memo local binding cleanup
+
+- Complete internal Memo naming in nested Python scopes and Project transfer validation.
+- Preserve legacy aliases, keyword arguments, receipt fields and transport keys.
+
 ## 0.56.1 — Memo naming and named tmux terminals
 
 Memo implementation locals and public docstrings use canonical Memo terminology.
