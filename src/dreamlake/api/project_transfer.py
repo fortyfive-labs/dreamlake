@@ -61,14 +61,14 @@ def _key(ref):
 
 def validate_plan(plan, project_id):
     try:
-        manifest, notes, limits = plan["manifest"], plan["noteNames"], plan["limits"]
+        manifest, memos, limits = plan["manifest"], plan["noteNames"], plan["limits"]
         max_resources = limits.get("maxResources", limits["maxNotes"] + 1)
         valid = (
             type(plan["apiVersion"]) is int and plan["apiVersion"] == 1
             and _ref(plan["resource"]) and plan["resource"] == {"type": "project", "id": project_id}
             and _text(plan["ownerNamespaceId"]) and _text(plan["version"]) and _text(plan["projectName"])
             and isinstance(plan["executable"], bool)
-            and isinstance(manifest, list) and isinstance(notes, list)
+            and isinstance(manifest, list) and isinstance(memos, list)
             and _integer(limits["maxNotes"]) and _integer(limits["maxTreeNodes"], 1)
             and _integer(max_resources, 1) and 1 <= len(manifest) <= max_resources
             and manifest[0] == plan["resource"]
@@ -76,19 +76,19 @@ def validate_plan(plan, project_id):
             and len({_key(ref) for ref in manifest}) == len(manifest)
         )
         if valid:
-            note_refs = [ref for ref in manifest if ref["type"] == "note"]
-            valid = (len(note_refs) <= limits["maxNotes"] and len(notes) == len(note_refs)
-                     and all(_id(note["id"]) and _text(note["name"])
-                             and {"type": "note", "id": note["id"]} in note_refs for note in notes)
-                     and len({note["id"].lower() for note in notes}) == len(notes))
+            memo_refs = [ref for ref in manifest if ref["type"] == "note"]
+            valid = (len(memo_refs) <= limits["maxNotes"] and len(memos) == len(memo_refs)
+                     and all(_id(memo["id"]) and _text(memo["name"])
+                             and {"type": "note", "id": memo["id"]} in memo_refs for memo in memos)
+                     and len({memo["id"].lower() for memo in memos}) == len(memos))
         if valid and "resourceNames" in plan:
             names, members = plan["resourceNames"], manifest[1:]
             valid = (isinstance(names, list) and len(names) == len(members)
                      and all(_id(row["id"]) and _text(row["name"])
                              and {"type": row["type"], "id": row["id"]} in members for row in names)
                      and len({_key(row) for row in names}) == len(members)
-                     and all(any(row["type"] == "note" and row["id"] == note["id"] and row["name"] == note["name"]
-                                 for row in names) for note in notes)
+                     and all(any(row["type"] == "note" and row["id"] == memo["id"] and row["name"] == memo["name"]
+                                 for row in names) for memo in memos)
                      and (all(ref["type"] == "note" for ref in members) or "maxResources" in limits))
         elif valid:
             # Older Note-only servers provide the complete member names here.

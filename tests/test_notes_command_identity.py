@@ -55,11 +55,11 @@ def receipt_for(req, **extra):
 @pytest.mark.parametrize('bad', ['short7!', 'a' * 7, 'a' * 129, 'has space', 'tab\tbed', 'ünïcode-id', 42, '',
                                  'a' * 8 + '\n', 'a' * 8 + '\r\n', '\n' + 'a' * 8])
 def test_command_id_charset_and_length_are_checked_before_io(bad):
-    note = Note(ID, namespace='ns', client=object())
-    for call in (lambda: note.patch(PATCH, base_revision=REV, command_id=bad),
-                 lambda: note.append('x', at=snap(''), command_id=bad),
-                 lambda: note.write('x', at=snap(''), command_id=bad),
-                 lambda: note.command_status(bad)):
+    memo = Note(ID, namespace='ns', client=object())
+    for call in (lambda: memo.patch(PATCH, base_revision=REV, command_id=bad),
+                 lambda: memo.append('x', at=snap(''), command_id=bad),
+                 lambda: memo.write('x', at=snap(''), command_id=bad),
+                 lambda: memo.command_status(bad)):
         with pytest.raises(ValueError):
             call()
 
@@ -126,18 +126,18 @@ def test_replayed_receipt_is_returned_as_the_server_stored_it():
 
 
 def test_receipt_without_echo_is_typed_unsupported_and_cache_untouched():
-    note = make(lambda req: receipt_for(req))  # an older server: no commandId in the receipt
-    note._text, note._etag = 'cache', 'legacy'
+    memo = make(lambda req: receipt_for(req))  # an older server: no commandId in the receipt
+    memo._text, memo._etag = 'cache', 'legacy'
     with pytest.raises(CommandIdentityUnsupportedError, match=CMD):
-        note.patch(PATCH, base_revision=REV, command_id=CMD)
-    assert (note._text, note._etag) == ('cache', 'legacy')
+        memo.patch(PATCH, base_revision=REV, command_id=CMD)
+    assert (memo._text, memo._etag) == ('cache', 'legacy')
 
 
 @pytest.mark.parametrize('change', [{'commandId': 'cmd-somebody-else-01'}, {'outcome': 'maybe'}, {'replayed': 'yes'}])
 def test_inconsistent_identity_fields_are_uncertain_not_success(change):
-    note = make(lambda req: receipt_for(req, **dict({'outcome': 'accepted', 'commandId': CMD, 'replayed': False}, **change)))
+    memo = make(lambda req: receipt_for(req, **dict({'outcome': 'accepted', 'commandId': CMD, 'replayed': False}, **change)))
     with pytest.raises(UncertainOutcomeError) as error:
-        note.patch(PATCH, base_revision=REV, command_id=CMD)
+        memo.patch(PATCH, base_revision=REV, command_id=CMD)
     assert error.value.command_id == CMD
 
 
@@ -268,9 +268,9 @@ def test_unchanged_merge_with_command_id_is_submitted_so_the_server_records_it()
     def handler(req):
         calls.append(json.loads(req.content))
         return receipt_for(req, outcome='no-write', commandId=CMD, replayed=False)
-    note = make(handler)
-    assert note.append('', at=snap('x\n'), command_id=CMD).outcome == 'no-write'
-    assert note.write('same', at=snap('same'), command_id=CMD).outcome == 'no-write'
+    memo = make(handler)
+    assert memo.append('', at=snap('x\n'), command_id=CMD).outcome == 'no-write'
+    assert memo.write('same', at=snap('same'), command_id=CMD).outcome == 'no-write'
     assert [c['patch'] for c in calls] == ['', ''] and all(c['commandId'] == CMD for c in calls)
 
 
