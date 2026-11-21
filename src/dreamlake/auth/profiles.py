@@ -16,6 +16,7 @@ import httpx
 import yaml
 
 from .exceptions import NotAuthenticatedError
+from .namespace_config import NamespaceScope, namespace_config, validate_namespace, write_local_namespace
 
 BUILTIN_ENVIRONMENTS = {
     "prod": {"server": "https://api.dreamlake.ai", "auth": "https://auth.vuer.ai",
@@ -70,14 +71,22 @@ def bound_namespace(token: str, remote: str, config_dir: Path | None = None) -> 
 class Auth:
     """Manage the same local profiles as ``dreamlake auth``.
 
-    Status and profile listings never include tokens. Persistent operations are
-    refused under environment overrides and machine identity. ``transport`` is
+    Status and profile listings never include tokens. Global persistent operations
+    are refused under environment overrides and machine identity. Namespace scope
+    defaults to the nearest repository .dreamrc, otherwise the global profile. ``transport`` is
     an optional caller-owned httpx transport, useful for controlled clients.
     """
 
-    def __init__(self, config_dir: str | Path | None = None, *, transport: httpx.BaseTransport | None = None):
+    def __init__(self, config_dir: str | Path | None = None, *, transport: httpx.BaseTransport | None = None,
+                 scope: NamespaceScope = "auto", cwd: str | Path | None = None):
         self.config_dir = Path(config_dir) if config_dir is not None else Path.home() / ".dreamlake"
         self.transport = transport
+        self.scope = scope
+        self.cwd = cwd
+
+    def _namespace_config(self, scope=None, cwd=None, *, for_write=False):
+        return namespace_config(scope=scope if scope is not None else self.scope,
+                                cwd=cwd if cwd is not None else self.cwd, for_write=for_write)
 
     def _store(self) -> dict:
         data = _read(self.config_dir / "auth.yml")
@@ -146,8 +155,10 @@ class Auth:
                  "authenticated": bool(value.get("token"))}
                 for name, value in store["envs"].items()]
 
-    def status(self, *, verify: bool = False) -> dict:
+    def status(self, *, verify: bool = False, scope: NamespaceScope | None = None,
+               cwd: str | Path | None = None) -> dict:
         """Report local identity context; ``verified`` distinguishes server validation."""
+        local = self._namespace_config(scope, cwd)
         profiles = self.profiles()
         active = next((entry for entry in profiles if entry["active"]), None)
         overrides = [key for key in ("DREAMLAKE_API_KEY", "DREAMLAKE_REMOTE") if os.environ.get(key)]
@@ -157,21 +168,28 @@ class Auth:
                   "machine": os.environ.get("DREAMLAKE_IDENTITY") == "machine",
                   "account": active.get("account") if active else None,
                   "namespace": active.get("namespace") if active else None,
-                  "defaultNamespace": None}
+                  "defaultNamespace": local.namespace,
+                  "profileDefaultNamespace": None,
+                  "namespaceSource": "local" if local.namespace else "personal",
+                  "configFile": str(local.path) if local.path else str(self.config_dir / "config.json"),
+                  "configScope": local.scope}
         try:
             token, remote = self._context()
         except NotAuthenticatedError:
             return {**result, "authenticated": False}
         selected = bound_namespace(token, remote, self.config_dir)
         result.update(authenticated=True, server=remote,
-                      defaultNamespace=selected or result["namespace"])
+                      profileDefaultNamespace=selected,
+                      defaultNamespace=local.namespace or selected or result["namespace"],
+                      namespaceSource="local" if local.namespace else "global" if selected else "personal")
         if verify:
             me = self._request("GET", "/auth/me", token, remote)
             result["account"] = me.get("username") or me.get("email") or me.get("sub") or me.get("id")
             result["namespace"] = (me.get("namespace") or {}).get("slug")
             if not result["namespace"]:
                 raise ValueError("Server returned no personal namespace; authentication was not verified.")
-            result["defaultNamespace"] = selected or result["namespace"]
+            result["profileDefaultNamespace"] = selected
+            result["defaultNamespace"] = local.namespace or selected or result["namespace"]
             result["verified"] = True
         return result
 
@@ -250,7 +268,7 @@ class Auth:
         if not entry.get("token"):
             raise NotAuthenticatedError(f"Profile {name!r} has no token. Log in again.")
         self._project(name, entry, self._store())
-        return self.status()
+        return self.status(scope="global")
 
     def logout(self, profile: str | None = None) -> None:
         """Remove local credentials only; this does not revoke server tokens."""
@@ -289,8 +307,10 @@ class Auth:
         return self.login(token, profile=name, server=entry["server"],
                           activate=name == self._store().get("current"))
 
-    def namespaces(self, *, profile: str | None = None) -> list[dict]:
+    def namespaces(self, *, profile: str | None = None, scope: NamespaceScope | None = None,
+                   cwd: str | Path | None = None) -> list[dict]:
         """List the personal namespace and organizations the server authorizes."""
+        local = self._namespace_config(scope, cwd)
         token, remote = self._context(profile)
         me = self._request("GET", "/auth/me", token, remote)
         data = self._request("POST", "/graphql", token, remote,
@@ -304,19 +324,55 @@ class Auth:
         for org in (data.get("data") or {}).get("myOrganizations", []):
             result.append({"slug": org["slug"], "kind": "organization",
                            "name": org.get("name"), "role": org.get("myRole")})
-        return result
+        profile_default = (self._profile(profile)[1].get("defaultNamespace") if profile
+                           else bound_namespace(token, remote, self.config_dir))
+        selected = local.namespace or profile_default or personal
+        return [{**row, "selected": row["slug"] == selected} for row in result]
 
-    def set_default_namespace(self, namespace: str, *, profile: str | None = None) -> dict:
-        """Verify current membership before persisting a profile's default."""
-        self._guard()
-        name, entry = self._profile(profile)
-        if namespace not in {row["slug"] for row in self.namespaces(profile=name)}:
+    def get_namespace(self, namespace: str | None = None, *, scope: NamespaceScope | None = None,
+                      cwd: str | Path | None = None) -> str:
+        """Resolve explicit, repository, global profile, then personal namespace."""
+        if namespace is not None:
+            return namespace
+        local = self._namespace_config(scope, cwd)
+        if local.namespace:
+            return local.namespace
+        status = self.status(scope="global")
+        if status["defaultNamespace"]:
+            return status["defaultNamespace"]
+        status = self.status(verify=True, scope="global")
+        if not status["defaultNamespace"]:
+            raise NotAuthenticatedError("No namespace configured; run 'dreamlake auth login'.")
+        return status["defaultNamespace"]
+
+    def set_default_namespace(self, namespace: str, *, profile: str | None = None,
+                              scope: NamespaceScope | None = None, cwd: str | Path | None = None) -> dict:
+        """Verify membership, then update the selected .dreamrc or global profile."""
+        validate_namespace(namespace)
+        local = self._namespace_config(scope, cwd, for_write=True)
+        if local.scope == "global":
+            self._guard()
+            name, entry = self._profile(profile)
+            membership_profile = name
+        else:
+            if os.environ.get("DREAMLAKE_IDENTITY") == "machine":
+                raise ValueError("Select user identity to verify namespace membership.")
+            membership_profile = profile
+        if namespace not in {row["slug"] for row in self.namespaces(profile=membership_profile, scope="global")}:
             raise ValueError(f"Namespace {namespace!r} is not available to this account; default unchanged.")
+        if local.scope == "local":
+            write_local_namespace(local, namespace)
+            return self.status(scope="local", cwd=cwd)
         entry["defaultNamespace"] = namespace
         return self._save_default(name, entry)
 
-    def clear_default_namespace(self, *, profile: str | None = None) -> dict:
-        """Restore personal namespace fallback for a saved profile."""
+    def clear_default_namespace(self, *, profile: str | None = None,
+                                scope: NamespaceScope | None = None, cwd: str | Path | None = None) -> dict:
+        """Remove the selected default, preserving other repository/global settings."""
+        local = self._namespace_config(scope, cwd, for_write=True)
+        if local.scope == "local":
+            write_local_namespace(local, None)
+            return self.status(scope="local", cwd=cwd)
         self._guard()
         name, entry = self._profile(profile)
         entry.pop("defaultNamespace", None)

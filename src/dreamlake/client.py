@@ -91,9 +91,12 @@ class RemoteClient:
         response.raise_for_status()
         return response.json()
 
-    def resolve_namespace(self) -> str:
+    def resolve_namespace(self, namespace: str | None = None, *, scope: str = "auto", cwd=None) -> str:
         """
-        Resolve the authenticated user's default namespace slug (cached).
+        Resolve explicit, repository, global, then personal namespace.
+
+        Repository and global defaults are read on each call. Only personal
+        identity resolution is cached; scope="global" bypasses repository files.
 
         Returns:
             Namespace slug string
@@ -102,6 +105,12 @@ class RemoteClient:
             RuntimeError: If the server reports no namespace for the user
             httpx.HTTPStatusError: If request fails
         """
+        if namespace is not None:
+            return namespace
+        from .auth.namespace_config import namespace_config
+        local = namespace_config(scope=scope, cwd=cwd)
+        if local.namespace:
+            return local.namespace
         from .auth.profiles import bound_namespace
         selected = bound_namespace(self._api_key, self.base_url)
         if selected:

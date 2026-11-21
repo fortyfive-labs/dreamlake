@@ -54,8 +54,9 @@ Refreshing the same personal identity on the same server preserves its default;
 logging in as another personal identity clears it. Server authorization still
 applies to every operation, including after membership changes.
 
-SDK namespace precedence is explicit argument/path, then the selected default,
-then the personal namespace. A stored default is bound to both server URL and
+SDK namespace precedence is explicit argument/path, then the selected repository
+`.dreamrc` namespace, then the credential-bound global default, then the personal
+namespace. A stored default is bound to both server URL and
 token fingerprint, so overriding credentials or server cannot inherit another
 account's default. `DreamLakeClient.resolve_namespace(namespace=None)` and
 `RemoteClient.resolve_namespace()` use this policy. For identity inspection,
@@ -70,7 +71,77 @@ an extra copy of the token. `Auth(config_dir=...)` supports an isolated store;
 `transport=` accepts a caller-owned synchronous httpx transport. The SDK reads
 the current CLI token projection before falling back to legacy token storage.
 
-Saved authentication and defaults cannot be changed while `DREAMLAKE_API_KEY`,
+Saved global authentication and defaults cannot be changed while `DREAMLAKE_API_KEY`,
 `DREAMLAKE_REMOTE`, or `DREAMLAKE_IDENTITY=machine` overrides are active. Machine
 identity also ignores saved user namespace defaults. Explicit namespaces remain
 available for per-call selection. These settings do not modify Git credentials.
+
+
+## Repository namespaces (Python 0.58.0+)
+
+A repository can select its workspace directly in `.dreamrc`:
+
+```yaml
+# Robotics project
+namespace: dyna-robotics
+```
+
+Only the top-level namespace is used for this selection. Credentials, server
+URLs, and authentication profiles always come from the global login store or
+explicit client/environment settings. A repository file cannot change them.
+
+```python
+from dreamlake.auth import Auth
+
+auth = Auth(cwd="/path/to/repository")
+auth.set_default_namespace("fortyfive", scope="global")
+auth.set_default_namespace("dyna-robotics", scope="local")
+assert auth.get_namespace() == "dyna-robotics"
+assert auth.get_namespace(scope="global") == "fortyfive"
+status = auth.status(verify=True)
+# status["namespaceSource"] == "local"
+# status["configFile"] is the actual .dreamrc path
+# status["configScope"] == "local"
+# status["profileDefaultNamespace"] == "fortyfive" (None without an explicit global default)
+auth.clear_default_namespace(scope="local")  # Keeps the file; inherits global.
+```
+
+`scope="auto"` is the default. Discovery starts at `cwd` (the process working
+directory by default) and walks upward to the nearest `.dreamrc`, checking the
+Git root itself and stopping there. It stops before the home directory, which
+is not a repository configuration source. A `.git` directory or worktree `.git`
+file is a boundary. A nearer file takes precedence over any ancestor file.
+
+With an existing file, auto reads its namespace and auto writes target that same
+file. A file without a namespace inherits the global default when read, while
+auto writes still target the file. Without a discovered file, auto reads and
+writes use the global profile. `scope="global"` bypasses repository discovery
+and parsing entirely, including an invalid repository file.
+
+`scope="local"` reads require a discovered file. Local writes without one create
+`.dreamrc` at the nearest Git root, or in `cwd` outside Git. Creating one at the
+excluded home boundary is rejected. Reset removes only the namespace field and
+preserves the file, so future auto reads inherit the global or personal default.
+Invalid YAML, a non-mapping document, duplicate keys, and invalid namespace values
+raise errors; they never silently fall back to a global namespace. The namespace
+key and value must be literal: tags, anchors, or aliases on them are rejected.
+A namespace present only through a YAML merge is not a local selection.
+
+The parser keeps custom tags such as `!providers` inert. Editing preserves other
+YAML values, comments, quotes, and anchors. YAML formatting may be normalized by
+the round-trip writer. Edits refuse symbolic links and files changed during
+selection; edit the symlink target explicitly or retry after a concurrent edit. Setting a namespace verifies membership first; rejection
+leaves the file unchanged and does not create one. Reading an imported valid file
+uses its namespace directly, without a separate approval or override store.
+Local writes can use environment credentials for membership verification while
+leaving the global credential store untouched.
+
+`Auth(scope="local", cwd=...)` sets defaults for namespace operations. The
+`status`, `namespaces`, `get_namespace`, `set_default_namespace`, and
+`clear_default_namespace` methods accept per-call `scope` and `cwd` overrides.
+`namespaces()` marks the effective namespace with `selected=True`. Login, token,
+profile switching, refresh, and logout always operate on the global credential
+store, independent of repository namespace scope. For SDK clients,
+`resolve_namespace(namespace=None, *, scope="auto", cwd=None)` applies the same
+precedence; `dreamlake._session.get_namespace` also accepts these scope options.
+Explicit namespace arguments bypass repository configuration entirely.

@@ -329,10 +329,14 @@ class DreamLakeClient:
         """Deprecated — use register_node() instead."""
         return self.register_node(body)
 
-    def resolve_namespace(self, namespace: str | None = None) -> str:
-        """Explicit namespace > saved credential-bound default > personal slug."""
-        if namespace:
+    def resolve_namespace(self, namespace: str | None = None, *, scope: str = "auto", cwd=None) -> str:
+        """Explicit namespace > local .dreamrc > saved global default > personal."""
+        if namespace is not None:
             return namespace
+        from dreamlake.auth.namespace_config import namespace_config
+        local = namespace_config(scope=scope, cwd=cwd)
+        if local.namespace:
+            return local.namespace
         from dreamlake.auth.profiles import bound_namespace
         selected = bound_namespace(self._token or "", self.dl_url)
         if selected:
