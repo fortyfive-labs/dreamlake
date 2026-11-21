@@ -163,6 +163,8 @@ def test_explicit_builtin_environment_selects_server_and_auth(auth):
     saved = yaml.safe_load((auth.config_dir / "auth.yml").read_text())["envs"]["work"]
     assert saved["server"] == "https://staging-api.dreamlake.ai"
     assert saved["auth"] == "https://staging-auth.vuer.ai"
+    assert saved["bss"] == "https://bs-0b713023d6574ac2936eb1e9cbe9cfaa.ecs.us-east-1.on.aws"
+    assert json.loads((auth.config_dir / "config.json").read_text())["bss_url"] == saved["bss"]
     assert "defaultNamespace" not in saved
     auth.login("replacement-token", profile="work")
     assert auth.status()["server"] == "https://staging-api.dreamlake.ai"

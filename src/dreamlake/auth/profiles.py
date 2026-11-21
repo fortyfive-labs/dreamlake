@@ -18,8 +18,10 @@ import yaml
 from .exceptions import NotAuthenticatedError
 
 BUILTIN_ENVIRONMENTS = {
-    "prod": {"server": "https://api.dreamlake.ai", "auth": "https://auth.vuer.ai"},
-    "staging": {"server": "https://staging-api.dreamlake.ai", "auth": "https://staging-auth.vuer.ai"},
+    "prod": {"server": "https://api.dreamlake.ai", "auth": "https://auth.vuer.ai",
+             "bss": "https://bs-66d8a7267cdf47e1809553f1b0c00edf.ecs.us-east-1.on.aws"},
+    "staging": {"server": "https://staging-api.dreamlake.ai", "auth": "https://staging-auth.vuer.ai",
+                "bss": "https://bs-0b713023d6574ac2936eb1e9cbe9cfaa.ecs.us-east-1.on.aws"},
 }
 
 
@@ -163,6 +165,10 @@ class Auth:
         config.pop("default_namespace", None)
         if entry:
             config.update(remote_url=entry["server"], namespace=entry.get("namespace"))
+            if entry.get("bss"):
+                config["bss_url"] = entry["bss"]
+            else:
+                config.pop("bss_url", None)
             tokens["dreamlake-token"] = entry["token"]
             if entry.get("defaultNamespace"):
                 config["default_namespace"] = {
@@ -201,12 +207,14 @@ class Auth:
                  "account": me.get("username") or me.get("email") or me.get("sub") or me.get("id")}
         deployment = next((value for value in BUILTIN_ENVIRONMENTS.values() if value["server"] == server), None)
         if deployment:
-            entry["auth"] = deployment["auth"]
-        elif old.get("auth") and old.get("server", "").rstrip("/") == server:
-            entry["auth"] = old["auth"]
+            entry.update(deployment)
+        elif old.get("server", "").rstrip("/") == server:
+            for key in ("auth", "bss"):
+                if old.get(key):
+                    entry[key] = old[key]
         if environment is not None:
             entry["environment"] = environment
-        elif old.get("environment"):
+        elif old.get("environment") and old.get("server", "").rstrip("/") == server:
             entry["environment"] = old["environment"]
         if old.get("server", "").rstrip("/") == server and old.get("namespace") == namespace:
             if old.get("defaultNamespace"):
