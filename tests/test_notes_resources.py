@@ -70,11 +70,11 @@ def test_versions_list_and_read_verify_identity_and_hash():
             return httpx.Response(200, json={'versions': [{'id': 'v_1_a', 'tag': 'release', 'createdAt': 't', 'summary': 's', 'hash': sha(text)}],
                                              'nextCursor': 'v_0_z'}, request=req)
         return httpx.Response(200, json={'id': 'v_1_a', 'tag': 'release', 'createdAt': 't', 'summary': 's', 'hash': sha(text), 'text': text}, request=req)
-    note = handle(handler)
-    page = note.versions.list()
+    memo = handle(handler)
+    page = memo.versions.list()
     assert page == VersionPage(versions=(SavedVersion('v_1_a', 'release', 't', 's', sha(text)),), next_cursor='v_0_z')
-    note.versions.list(before='v_0_z')
-    saved = note.versions.read(version_id='v_1_a')
+    memo.versions.list(before='v_0_z')
+    saved = memo.versions.read(version_id='v_1_a')
     assert saved.text == text and saved.id == 'v_1_a'
     assert [(r.method, r.url.path, dict(r.url.params)) for r in calls] == [
         ('GET', f'/namespaces/{NS}/notes/{ID}/versions', {}), ('GET', f'/namespaces/{NS}/notes/{ID}/versions', {'before': 'v_0_z'}),
@@ -106,18 +106,18 @@ def test_files_move_computes_the_destination_path_from_folder_and_name():
         if req.method == 'PATCH':
             row = dict(row, path=json.loads(req.content)['path'])
         return httpx.Response(200, json=row, request=req)
-    note = handle(handler)
-    assert note.files.move(file=FILE, to_folder='reviews/2026', name='final.md').path == 'reviews/2026/final.md'
-    assert note.files.move(file=FILE, name='final.md').path == 'old/final.md'
-    assert note.files.move(file=FILE, to_folder='/reviews/').path == 'reviews/a.md'
+    memo = handle(handler)
+    assert memo.files.move(file=FILE, to_folder='reviews/2026', name='final.md').path == 'reviews/2026/final.md'
+    assert memo.files.move(file=FILE, name='final.md').path == 'old/final.md'
+    assert memo.files.move(file=FILE, to_folder='/reviews/').path == 'reviews/a.md'
     patches = [json.loads(r.content) for r in calls if r.method == 'PATCH']
     assert patches == [{'path': 'reviews/2026/final.md', 'overwrite': False}, {'path': 'old/final.md', 'overwrite': False},
                        {'path': 'reviews/a.md', 'overwrite': False}]
     assert all(r.url.path.endswith(f'/files/{FILE}') for r in calls)
     with pytest.raises(ValueError):
-        note.files.move(file=FILE)
+        memo.files.move(file=FILE)
     with pytest.raises(ValueError):
-        note.files.move(file=FILE, name='a/b')
+        memo.files.move(file=FILE, name='a/b')
 
 
 # ── presence / visit ─────────────────────────────────────────────────────────
@@ -173,15 +173,15 @@ def test_located_visit_seeks_the_range_at_the_baseline_hash():
 
 
 def test_visit_rules_and_unacknowledged_location():
-    note = handle(never)
+    memo = handle(never)
     with pytest.raises(ValueError, match='1-280'):
-        note.visit(intent='x' * 281)
+        memo.visit(intent='x' * 281)
     with pytest.raises(ValueError, match='1-280'):
-        note.visit(intent='   ')
+        memo.visit(intent='   ')
     with pytest.raises(ValueError, match='at most one'):
-        note.visit(address='s1', cursor=1, at=snap('x'))
+        memo.visit(address='s1', cursor=1, at=snap('x'))
     with pytest.raises(ValueError, match='baseline'):
-        note.visit(cursor=1)
+        memo.visit(cursor=1)
     def handler(req):
         body = json.loads(req.content)
         state = {'expiresAt': 7, 'activity': {'hash': 'sha256:' + '0' * 64}} if body['action'] == 'seek' else {'expiresAt': 7}

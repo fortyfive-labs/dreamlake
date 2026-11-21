@@ -282,9 +282,9 @@ def test_replace_lines_compiles_one_record_against_the_snapshot():
 
 def test_replace_address_from_a_mapped_read_needs_no_extra_request():
     calls = []
-    note = handle(serve(calls))
-    mapped = note.read(view='mapped')
-    note.replace(address='s1.p1', text='X', at=mapped, mode='exact')
+    memo = handle(serve(calls))
+    mapped = memo.read(view='mapped')
+    memo.replace(address='s1.p1', text='X', at=mapped, mode='exact')
     assert [r.method for r in calls] == ['GET', 'PATCH']
     assert sent(calls) == [{'format': 'inline-dff', 'patch': '@@ chars 9:20 @@\n~ [-First para.-]{+X+}\n', 'baseRevision': REV, 'mode': 'exact'}]
 
@@ -326,12 +326,12 @@ def test_identical_replacement_is_a_local_no_write():
 
 def test_insert_placements():
     calls = []
-    note = handle(serve(calls))
-    mapped = note.read(view='mapped')
-    note.insert(after='s1.p1', text='\n\nNew', at=mapped)
-    note.insert(before='s1.p1', text='Lead ', at=mapped)
-    note.insert(cursor=0, text='^', at=snap())
-    note.insert(cursor=52, text='$', at=snap())
+    memo = handle(serve(calls))
+    mapped = memo.read(view='mapped')
+    memo.insert(after='s1.p1', text='\n\nNew', at=mapped)
+    memo.insert(before='s1.p1', text='Lead ', at=mapped)
+    memo.insert(cursor=0, text='^', at=snap())
+    memo.insert(cursor=52, text='$', at=snap())
     assert [c['patch'] for c in sent(calls)] == ['@@ chars 20:20 @@\n~ {+\\n\\nNew+}\n', '@@ chars 9:9 @@\n~ {+Lead +}\n',
                                                '@@ chars 0:0 @@\n~ {+^+}\n', '@@ chars 52:52 @@\n~ {+$+}\n']
     assert all(c['mode'] == 'merge' for c in sent(calls))
@@ -354,9 +354,9 @@ def test_edits_against_a_focused_read_stay_inside_it():
     focused = FocusedRead(note=ID, hash=sha(SRC), revision=REV, scope={'lines': [7, 8]}, lines=(7, 8), chars=(30, 52),
                           content='- item one\n- item two\n')
     calls = []
-    note = handle(serve(calls))
-    note.replace(lines=(8, 8), text='- item 2\n', at=focused)
-    note.insert(cursor=41, text='> ', at=focused)
+    memo = handle(serve(calls))
+    memo.replace(lines=(8, 8), text='- item 2\n', at=focused)
+    memo.insert(cursor=41, text='> ', at=focused)
     assert [c['patch'] for c in sent(calls)] == ['@@ chars 41:52 @@\n~ [-\\- item two\\n-]{+\\- item 2\\n+}\n', '@@ chars 41:41 @@\n~ {+> +}\n']
     with pytest.raises(SelectionError, match='outside'):
         handle(never).replace(lines=(3, 3), text='x', at=focused)
@@ -386,14 +386,14 @@ def test_address_outside_a_partial_mapped_read_is_refused_not_resolved_from_the_
     # Regression: lines 7-8 observed chars 30:52, yet remove(address="s1.p1")
     # fetched the whole mapping and deleted chars 9:20.
     calls = []
-    note = handle(serve(calls))
-    part = note.read(view='mapped', lines=(7, 8))
+    memo = handle(serve(calls))
+    part = memo.read(view='mapped', lines=(7, 8))
     with pytest.raises(SelectionError, match='outside the partial read'):
-        note.remove(address='s1.p1', at=part)
+        memo.remove(address='s1.p1', at=part)
     with pytest.raises(SelectionError, match='outside the partial read'):
-        note.insert(after='s1.p1', text='x', at=part)
+        memo.insert(after='s1.p1', text='x', at=part)
     assert [r.method for r in calls] == ['GET']  # the read itself; no second mapping, no PATCH
-    note.remove(address='s1.1.l1.i2', at=part)   # inside the observed span: fine
+    memo.remove(address='s1.1.l1.i2', at=part)   # inside the observed span: fine
     assert sent(calls)[-1]['patch'] == '@@ chars 41:51 @@\n~ [-\\- item two-]\n'
 
 
@@ -406,10 +406,10 @@ def test_focused_line_read_cannot_baseline_an_address_edit():
 
 def test_complete_mapped_read_decides_unknown_addresses_without_another_request():
     calls = []
-    note = handle(serve(calls))
-    mapped = note.read(view='mapped')
+    memo = handle(serve(calls))
+    mapped = memo.read(view='mapped')
     with pytest.raises(SelectionError, match='outside the mapping'):
-        note.replace(address='s9.p9', text='x', at=mapped)
+        memo.replace(address='s9.p9', text='x', at=mapped)
     assert [r.method for r in calls] == ['GET']
 
 

@@ -1035,17 +1035,17 @@ class MemoHandle:
         """
         if not isinstance(selections, bool):
             raise ValueError("selections must be a bool")
-        note = self._target()
-        with note._client.http() as http:
-            response = http.get(f"{note._base}/presence", params={"format": "json", **({"selections": "true"} if selections else {})}, follow_redirects=False)
-        _raise_for(response, f"presence {note.namespace}/{note.id}")
+        memo = self._target()
+        with memo._client.http() as http:
+            response = http.get(f"{memo._base}/presence", params={"format": "json", **({"selections": "true"} if selections else {})}, follow_redirects=False)
+        _raise_for(response, f"presence {memo.namespace}/{memo.id}")
         try:
             data = response.json()
         except ValueError:
             raise MemoError("invalid presence response") from None
         if response.status_code != 200 or not isinstance(data, dict) or not isinstance(data.get("participants"), list):
             raise MemoError("invalid presence response")
-        return Roster(note=note.id, participants=tuple(p for p in data["participants"] if isinstance(p, dict)),
+        return Roster(note=memo.id, participants=tuple(p for p in data["participants"] if isinstance(p, dict)),
                       observed_at=data.get("observedAt"), status=data.get("status", "unknown"),
                       selection_status=data.get("selectionStatus", "unsupported"), selection_hash=data.get("selectionHash"))
 
@@ -1123,11 +1123,11 @@ class MemoVersions:
 
     def list(self, *, before: str | None = None) -> VersionPage:
         """Newest first; ``before`` continues from a previous page's ``next_cursor``."""
-        note = self._handle._target()
-        with note._client.http() as http:
-            response = http.get(f"{note._base}/versions", params={} if before is None else {"before": before},
+        memo = self._handle._target()
+        with memo._client.http() as http:
+            response = http.get(f"{memo._base}/versions", params={} if before is None else {"before": before},
                                 follow_redirects=False)
-        _raise_for(response, f"versions of {note.namespace}/{note.id}")
+        _raise_for(response, f"versions of {memo.namespace}/{memo.id}")
         try:
             data = response.json()
         except ValueError:

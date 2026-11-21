@@ -496,8 +496,8 @@ def test_put_refuses_more_than_one_source():
 
 def test_download_streams_to_disk_in_chunks(tmp_path: Path):
     s = FakeServer()
-    note = note_with(s)
-    f = note.files.create("a.bin", data=BLOB)
+    memo = note_with(s)
+    f = memo.files.create("a.bin", data=BLOB)
     out = f.download(tmp_path / "out.bin")
 
     assert out.read_bytes() == BLOB

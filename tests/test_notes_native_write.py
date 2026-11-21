@@ -36,8 +36,8 @@ def test_doc_keeps_own_original_and_adopts_acknowledged_concurrent_source():
             return httpx.Response(200,json=original.to_dict())
         assert json.loads(req.content)['baseRevision']==original.revision
         return ack(req,merged.content,merged.revision)
-    note=make(handler); doc=note.read(); doc.replace('Done',query='Draft',all=True)
-    note._etag='unrelated'; note._text='unrelated'
+    memo=make(handler); doc=memo.read(); doc.replace('Done',query='Draft',all=True)
+    memo._etag='unrelated'; memo._text='unrelated'
     receipt=doc.save()
     assert doc.text==doc.original==merged.content and not doc.dirty
     assert receipt.revision==merged.revision
