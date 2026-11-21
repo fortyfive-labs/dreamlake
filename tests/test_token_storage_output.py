@@ -46,3 +46,22 @@ def test_auth_logout_plaintext_fallback_deletes_credentials_without_warning(tmp_
     assert auth.status()['authenticated'] is False
     assert capsys.readouterr().out == ''
     assert not token_storage.PlaintextFileStorage._warning_shown
+
+
+def test_logout_legacy_cleanup_does_not_delete_successor_projection(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(Path, 'home', lambda: tmp_path)
+    monkeypatch.setattr(token_storage.PlaintextFileStorage, '_warning_shown', False)
+    for key in ('DREAMLAKE_API_KEY', 'DREAMLAKE_REMOTE', 'DREAMLAKE_IDENTITY'):
+        monkeypatch.delenv(key, raising=False)
+    def unavailable(*args):
+        raise StorageError('optional secure backend not installed')
+    monkeypatch.setattr(token_storage, 'KeyringStorage', unavailable)
+    monkeypatch.setattr(token_storage, 'EncryptedFileStorage', unavailable)
+    auth = Auth(transport=httpx.MockTransport(lambda request: httpx.Response(200, json={
+        'id': 'account', 'namespace': {'slug': 'personal'}})))
+    auth.login('first-token', profile='first')
+    auth.login('second-token', profile='second')
+    auth.logout()
+    assert auth.token() == 'first-token'
+    assert auth.status()['profile'] == 'first'
+    assert capsys.readouterr().out == ''

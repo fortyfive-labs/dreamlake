@@ -37,10 +37,15 @@ auth.refresh(on_device_code=lambda code: webbrowser.open(code.verification_uri_c
 
 There is no refresh-token grant or arbitrary scope escalation. `auth.token()`
 explicitly returns the active token; avoid logging it. `auth.logout()` removes
-local saved credentials, without revoking tokens on the server. Pass `profile=`
+local saved credentials, without revoking tokens on the server. Removing the
+active profile selects the next saved profile; removing the last one clears the
+local connection while preserving unrelated settings such as the device secret. Pass `profile=`
 to `token`, `refresh`, `logout`, `namespaces`, `set_default_namespace`, or
 `clear_default_namespace` to address a particular profile. `switch` requires a
-saved profile name. `status(verify=False)` performs no server requests.
+saved profile name. `status(verify=False)` performs no server requests and returns `verified=False`;
+`authenticated=True` then means a credential is present. Use `verify=True` to
+verify it with the server. Profiles are active only when their server and token
+match the effective connection; environment overrides are reported explicitly.
 
 Defaults are verified against `/auth/me` and the server's organization
 membership list before anything is saved. Failed checks leave the existing

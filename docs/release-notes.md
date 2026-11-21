@@ -4,7 +4,11 @@
 
 Logging out no longer prints a misleading plaintext-storage warning. The legacy
 plaintext backend still warns when it actually stores credentials; opening,
-reading, and deleting credentials stay quiet.
+reading, and deleting credentials stay quiet. Status explicitly distinguishes
+local credentials from server verification and identifies effective overrides.
+Implicit token resolution uses the active projection, never an inactive cached
+profile token. Removing an active profile restores the next saved profile;
+removing the last clears the connection and preserves unrelated settings.
 
 ## 0.57.0 — Authentication profiles and namespace defaults
 
