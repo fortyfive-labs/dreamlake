@@ -3,8 +3,8 @@
   "generator": {
     "count": 1000,
     "distribution": {
-      "obj/mug": {
-        "at": "table",
+      "mug": {
+        "at": "site:table",
         "x": {
           "uniform": [
             0.35,
@@ -26,10 +26,8 @@
       }
     },
     "env": "#rizon4s-claw-pick-mug-v0",
-    "objects": {
-      "key": "obj/mug",
-      "prefix": "objects/mug-*"
-    },
+    "key": "mug",
+    "objects": "objects/mug-*",
     "seed": 0
   },
   "kind": "env-set",

@@ -72,7 +72,7 @@ def test_fetch_declared_prefixes_only(bundles, server):
     shared = h.file_hash(server.files("fortyfive/astribot-s1", 3)["shared/s1-meshes/base.stl"])
     assert shared not in server.blob_gets
     # Read-only blobs; the view links to them.
-    blob = bundles.cache_dir / "blobs" / h.file_hash(b"palm v2\n")
+    blob = bundles.cache_dir / "blobs" / "blake3" / h.file_hash(b"palm v2\n")
     assert not os.access(blob, os.W_OK) or os.geteuid() == 0
     record = json.loads((view.parent / f"{view.name}.json").read_text())
     assert record["lazy"] is False and record["ref"] == "fortyfive/astribot-s1@2#wuji-right"
@@ -139,7 +139,7 @@ def test_fetch_detects_wrong_effective_hash(bundles, server):
 
     def wrong(bundle, version, name):
         out = original(bundle, version, name)
-        out["effectiveHash"] = "sha256:" + "0" * 64
+        out["effectiveHash"] = "blake3:" + "0" * 64
         return out
 
     server._entry_json = wrong

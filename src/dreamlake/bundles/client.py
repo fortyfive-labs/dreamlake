@@ -4,7 +4,8 @@ Delivery rules:
 
 * ``fetch`` downloads only the ``uses`` prefixes of an entry, its manifest,
   ``bundle.json`` and the closure of its ``refs``. It does not parse files.
-* Blobs are stored once by sha256 in ``<cache>/blobs/<hex>`` (read-only).
+* Blobs are stored once by BLAKE3 hash in ``<cache>/blobs/blake3/<hex>``
+  (read-only; the CLI uses the same cache).
 * Each entry is materialized once per effective hash in
   ``<cache>/views/<hex>/``. Files are hard links to blobs (or copies when a
   hard link is not possible). ``<cache>/views/<hex>.json`` records the view
@@ -19,7 +20,6 @@ overrides it).
 
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import re
@@ -33,6 +33,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 from urllib.parse import quote, urlsplit
 
+import blake3
 import httpx
 
 from . import hashing as h
@@ -73,7 +74,7 @@ def _wire(value: str | None) -> str | None:
 class Resolved:
     """A resolved ref. ``version`` is the bundle version that the ref names
     (``@latest`` resolved); ``displayed_version`` is the version where the
-    entry last changed. Hashes are in the wire form ``sha256:<hex>``.
+    entry last changed. Hashes are in the wire form ``blake3:<hex>``.
     ``effective_hash`` and ``displayed_version`` are None for a whole-bundle
     ref (no ``#entry``)."""
 
@@ -197,7 +198,7 @@ class Bundles:
                 params["cursor"] = cursor
             page = self._request("GET", f"{self._base(bundle)}/versions/{int(version)}/tree", params=params)
             for item in page.get("items", []):
-                yield {"path": h.check_path(item["path"]), "sha256": h.to_hex(item["sha256"]),
+                yield {"path": h.check_path(item["path"]), "hash": h.to_hex(item["hash"]),
                        "size": int(item.get("size", 0))}
             cursor = page.get("nextCursor")
             if not cursor:
@@ -214,7 +215,7 @@ class Bundles:
         if prefixes:
             body["prefixes"] = list(prefixes)
         out = self._request("POST", f"{self._base(bundle)}/versions/{int(version)}/presign", json=body)
-        return [{"path": u["path"], "sha256": h.to_hex(u["sha256"]), "url": u["url"]}
+        return [{"path": u["path"], "hash": h.to_hex(u["hash"]), "url": u["url"]}
                 for u in out.get("urls", [])]
 
     # --------------------------------------------------------------- resolve
@@ -283,7 +284,7 @@ class Bundles:
     # ----------------------------------------------------------------- fetch
 
     def _blob(self, hex_: str) -> Path:
-        return self.cache_dir / "blobs" / hex_
+        return self.cache_dir / "blobs" / "blake3" / hex_
 
     def _storage(self) -> httpx.Client:
         return httpx.Client(timeout=60, follow_redirects=False, transport=self._storage_transport)
@@ -292,11 +293,11 @@ class Bundles:
         """Put the blobs of ``items`` into the blob cache (verified)."""
         need: dict[str, dict] = {}
         for item in items:
-            if not self._blob(item["sha256"]).is_file():
-                need.setdefault(item["sha256"], item)
+            if not self._blob(item["hash"]).is_file():
+                need.setdefault(item["hash"], item)
         if not need:
             return
-        blobs = self.cache_dir / "blobs"
+        blobs = self.cache_dir / "blobs" / "blake3"
         blobs.mkdir(parents=True, exist_ok=True)
         wanted = list(need.values())
         with self._storage() as storage:
@@ -307,9 +308,9 @@ class Bundles:
                     signed = urls.get(item["path"])
                     if signed is None:
                         raise BundleError("presign_missing", f"no signed URL for {item['path']}")
-                    if signed["sha256"] != item["sha256"]:
+                    if signed["hash"] != item["hash"]:
                         raise BundleError("hash_mismatch", f"{item['path']}: tree and presign disagree")
-                    self._get_blob(storage, signed["url"], item["sha256"], item["path"])
+                    self._get_blob(storage, signed["url"], item["hash"], item["path"])
 
     def _get_blob(self, storage: httpx.Client, url: str, hex_: str, label: str) -> None:
         parts = urlsplit(url)
@@ -318,7 +319,7 @@ class Bundles:
         target = self._blob(hex_)
         fd, tmp = tempfile.mkstemp(prefix=".dl-", dir=target.parent)
         try:
-            digest = hashlib.sha256()
+            digest = blake3.blake3()
             with os.fdopen(fd, "wb") as out, storage.stream("GET", url) as response:
                 if not response.is_success:
                     raise BundleError("download_failed", f"{label}: {response.status_code}", response.status_code)
@@ -326,7 +327,7 @@ class Bundles:
                     digest.update(chunk)
                     out.write(chunk)
             if digest.hexdigest() != hex_:
-                raise BundleError("integrity_failed", f"{label}: sha256 does not match")
+                raise BundleError("integrity_failed", f"{label}: blake3 hash does not match")
             os.chmod(tmp, stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH)
             os.replace(tmp, target)
         finally:
@@ -363,7 +364,7 @@ class Bundles:
         missing = [p for p in extra if p not in chosen]
         if missing:
             for t in self.presign(res.bundle, res.version, paths=missing):
-                chosen[t["path"]] = {"path": h.check_path(t["path"]), "sha256": t["sha256"], "size": None}
+                chosen[t["path"]] = {"path": h.check_path(t["path"]), "hash": t["hash"], "size": None}
         return sorted(chosen.values(), key=lambda t: t["path"])
 
     def _verify(self, res: Resolved, items: list[dict]) -> None:
@@ -373,18 +374,18 @@ class Bundles:
         manifest_item = next((t for t in items if t["path"] == mpath), None)
         if manifest_item is None:
             raise BundleError("manifest_missing", f"{mpath} is not in {res.bundle}@{res.version}")
-        raw = self._blob(manifest_item["sha256"]).read_bytes()
+        raw = self._blob(manifest_item["hash"]).read_bytes()
         declared = [i for i in res.uses]
         if h.manifest_uses(h.load_manifest(raw)) != declared:
             raise BundleError("uses_mismatch", f"{res.bundle}#{res.entry}: server uses differ from manifest")
-        selected = {t["path"]: t["sha256"] for t in items if any(h.path_in_uses(t["path"], u) for u in declared)}
+        selected = {t["path"]: t["hash"] for t in items if any(h.path_in_uses(t["path"], u) for u in declared)}
         ref_hashes = {}
         for r in res.refs:
             ref_hashes[_ref_hash_key(r)] = h.to_hex(r["effectiveHash"])
         local = h.effective_hash(raw, h.Tree(selected), ref_hashes)
         if local != h.to_hex(res.effective_hash):
             raise BundleError("effective_hash_mismatch",
-                              f"{res.ref}: local effective hash sha256:{local} != server {res.effective_hash}")
+                              f"{res.ref}: local effective hash blake3:{local} != server {res.effective_hash}")
 
     def _view_key(self, res: Resolved) -> str:
         return h.to_hex(res.effective_hash) if res.entry else "root-" + h.to_hex(res.root_hash)
@@ -435,7 +436,7 @@ class Bundles:
                 # this view (the closure of the entry in one tree).
                 sub = json.loads((sub_view.parent / f"{sub_view.name}.json").read_text())
                 for f in sub["files"]:
-                    by_path.setdefault(f["path"], {"path": f["path"], "sha256": h.to_hex(f["sha256"]),
+                    by_path.setdefault(f["path"], {"path": f["path"], "hash": h.to_hex(f["hash"]),
                                                    "size": f["size"]})
         items = sorted(by_path.values(), key=lambda t: t["path"])
         views = view.parent
@@ -443,12 +444,12 @@ class Bundles:
         if lazy:
             view.mkdir(parents=True, exist_ok=True)
             for t in manifests:
-                self._place(self._blob(t["sha256"]), view / t["path"])
+                self._place(self._blob(t["hash"]), view / t["path"])
         else:
             tmp = Path(tempfile.mkdtemp(prefix=".tmp-", dir=views))
             try:
                 for t in items:
-                    self._place(self._blob(t["sha256"]), tmp.joinpath(*PurePosixPath(t["path"]).parts))
+                    self._place(self._blob(t["hash"]), tmp.joinpath(*PurePosixPath(t["path"]).parts))
                 if view.exists():
                     shutil.rmtree(view)  # an old lazy view
                 os.replace(tmp, view)
@@ -458,7 +459,7 @@ class Bundles:
         record = {
             "ref": res.ref, "bundle": res.bundle, "version": res.version, "entry": res.entry,
             "effectiveHash": res.effective_hash, "rootHash": res.root_hash, "lazy": lazy,
-            "files": [{"path": t["path"], "sha256": h.to_wire(t["sha256"]), "size": t["size"]} for t in items],
+            "files": [{"path": t["path"], "hash": h.to_wire(t["hash"]), "size": t["size"]} for t in items],
             "refs": ref_views,
         }
         fd, tmp_record = tempfile.mkstemp(prefix=".rec-", dir=views)
@@ -478,13 +479,13 @@ class Bundles:
         unknown = [p for p in wanted if p not in index]
         if unknown:
             raise BundleError("not_declared", f"not in the declared prefixes: {unknown}")
-        items = [{"path": p, "sha256": h.to_hex(index[p]["sha256"]), "size": index[p]["size"]} for p in wanted]
+        items = [{"path": p, "hash": h.to_hex(index[p]["hash"]), "size": index[p]["size"]} for p in wanted]
         self._download(record["bundle"], record["version"], items)
         out = []
         for item in items:
             target = view.joinpath(*PurePosixPath(item["path"]).parts)
             if not target.is_file():
-                self._place(self._blob(item["sha256"]), target)
+                self._place(self._blob(item["hash"]), target)
             out.append(target)
         return out
 

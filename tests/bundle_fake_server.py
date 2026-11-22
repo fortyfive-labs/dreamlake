@@ -90,7 +90,7 @@ class FakeBundleServer:
                                                  "entries": [self._entry_json(bundle, v, n) for n in res.entries]})
             if m.group(2) == "/tree":
                 prefix = params.get("prefix", "")
-                items = [{"path": p, "sha256": h.to_wire(h.file_hash(b)), "size": len(b)}
+                items = [{"path": p, "hash": h.to_wire(h.file_hash(b)), "size": len(b)}
                          for p, b in sorted(files.items()) if p.startswith(prefix)]
                 start = int(params.get("cursor", "0"))
                 page = items[start:start + self.page_size]
@@ -103,7 +103,7 @@ class FakeBundleServer:
             for p in body.get("paths", []):
                 if p in files:
                     hex_ = h.file_hash(files[p])
-                    urls.append({"path": p, "sha256": h.to_wire(hex_), "url": STORAGE + hex_})
+                    urls.append({"path": p, "hash": h.to_wire(hex_), "url": STORAGE + hex_})
             return httpx.Response(200, json={"urls": urls})
         m = re.fullmatch(r"/entries/([^/]+)", rest)
         if m:

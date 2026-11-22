@@ -5,13 +5,13 @@
   "model": "s1-dual-wuji/robot.xml",
   "ops": [
     {
-      "op": "Merge",
-      "src": "#s1-base"
+      "src": "#s1-base",
+      "tag": "Merge"
     },
     {
+      "at": "site:flange_left",
+      "joint": "rigid",
       "key": "hand_left",
-      "mount": "flange_left",
-      "op": "Attach",
       "pos": [
         0,
         0,
@@ -23,12 +23,13 @@
         0,
         0
       ],
-      "src": "#wuji-left"
+      "src": "#wuji-left",
+      "tag": "Attach"
     },
     {
+      "at": "site:flange_right",
+      "joint": "rigid",
       "key": "hand_right",
-      "mount": "flange_right",
-      "op": "Attach",
       "pos": [
         0,
         0,
@@ -40,7 +41,8 @@
         0,
         0
       ],
-      "src": "#wuji-right"
+      "src": "#wuji-right",
+      "tag": "Attach"
     }
   ],
   "refs": [

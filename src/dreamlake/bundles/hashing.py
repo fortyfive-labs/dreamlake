@@ -6,12 +6,13 @@ here only together with the vectors and the other two implementations.
 
 Rules:
 
-* Hashes are lowercase hex sha256. APIs and lock files write ``sha256:<hex>``.
-* file hash = sha256(file bytes).
-* dir hash = sha256 of the concatenation, over the children sorted by the
+* Hashes are lowercase hex BLAKE3-256 (contract v2.0). APIs and lock files
+  write ``blake3:<hex>``; readers also accept bare hex.
+* file hash = BLAKE3(file bytes).
+* dir hash = BLAKE3 of the concatenation, over the children sorted by the
   UTF-8 bytes of their names, of ``<name>\\0<t>\\0<childhex>\\n``. ``t`` is
   ``f`` for a file and ``d`` for a directory. An empty or missing directory
-  has the hash sha256("").
+  has the hash BLAKE3("").
 * A bundle tree is a set of file paths. Directories exist only as the parents
   of files. Thus an empty directory is not part of a bundle and does not
   change any hash.
@@ -22,7 +23,7 @@ Rules:
 * Manifests are JSON with comments: ``bundle.json`` and
   ``entries/<name>.json``. Hashes use the raw manifest bytes, never a parsed
   form. Thus a comment or whitespace edit changes the entry version.
-* effective hash = sha256(``entry\\0`` + manifest file hex + ``\\n`` + one
+* effective hash = BLAKE3(``entry\\0`` + manifest file hex + ``\\n`` + one
   line ``<item>\\0<prefixhex>\\n`` per ``uses`` item in declared order + one
   line ``<ref>\\0<refeffhex>\\n`` per ref, sorted by the UTF-8 bytes of the
   canonical ref string: ``ns/bundle@N#entry`` with N the displayed version,
@@ -33,7 +34,6 @@ Rules:
 
 from __future__ import annotations
 
-import hashlib
 import os
 import re
 from collections.abc import Callable, Iterable, Mapping, Sequence
@@ -41,10 +41,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import blake3
+
 from . import jsonc
 
-EMPTY_HEX = hashlib.sha256(b"").hexdigest()
-PREFIX = "sha256:"
+PREFIX = "blake3:"
 _HEX_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
@@ -53,37 +54,44 @@ class BundleHashError(ValueError):
 
 
 # --------------------------------------------------------------------------
-# sha256 helpers
+# BLAKE3 helpers
 
 
-def sha256_hex(data: bytes) -> str:
-    return hashlib.sha256(data).hexdigest()
+def hash_hex(data: bytes) -> str:
+    """Lowercase hex BLAKE3-256 of bytes."""
+    return blake3.blake3(data).hexdigest()
+
+
+EMPTY_HEX = hash_hex(b"")
 
 
 def to_wire(hex_or_wire: str) -> str:
-    """Return ``sha256:<hex>``. Accepts bare hex or the wire form."""
+    """Return ``blake3:<hex>``. Accepts bare hex or the wire form."""
     return PREFIX + to_hex(hex_or_wire)
 
 
 def to_hex(value: str) -> str:
-    """Return the bare lowercase hex. Accepts ``sha256:<hex>`` or bare hex."""
+    """Return the bare lowercase hex. Accepts ``blake3:<hex>`` or bare hex."""
     if not isinstance(value, str):
         raise BundleHashError(f"hash must be a string, got {value!r}")
     hex_ = value.removeprefix(PREFIX)
     hex_ = hex_.lower()
     if not _HEX_RE.match(hex_):
-        raise BundleHashError(f"not a sha256 hash: {value!r}")
+        raise BundleHashError(f"not a blake3 hash: {value!r}")
     return hex_
 
 
 def file_hash(data: bytes) -> str:
     """Hex hash of the bytes of one file."""
-    return sha256_hex(data)
+    return hash_hex(data)
 
 
 def file_hash_path(path: str | os.PathLike) -> str:
     with open(path, "rb") as stream:
-        return hashlib.file_digest(stream, "sha256").hexdigest()
+        digest = blake3.blake3()
+        for chunk in iter(lambda: stream.read(1 << 20), b""):
+            digest.update(chunk)
+        return digest.hexdigest()
 
 
 # --------------------------------------------------------------------------
@@ -144,7 +152,7 @@ class Tree:
 
     @classmethod
     def from_items(cls, items: Iterable[Mapping[str, Any]]) -> Tree:
-        return cls({i["path"]: i["sha256"] for i in items})
+        return cls({i["path"]: i["hash"] for i in items})
 
     @classmethod
     def from_dir(cls, root: str | os.PathLike) -> Tree:
@@ -202,10 +210,10 @@ class Tree:
         return out
 
     def dir_hash(self, dirpath: str = "") -> str:
-        """Hex dir hash. A missing directory gives sha256("")."""
+        """Hex dir hash. A missing directory gives BLAKE3("")."""
         dirpath = dirpath.strip("/")
         if dirpath not in self._dir_cache:
-            self._dir_cache[dirpath] = sha256_hex(dir_preimage(self.children(dirpath)))
+            self._dir_cache[dirpath] = hash_hex(dir_preimage(self.children(dirpath)))
         return self._dir_cache[dirpath]
 
     @property
@@ -222,7 +230,7 @@ class Tree:
         parent, _, last = item.rpartition("/")
         stem = last[:-1]
         selected = [c for c in self.children(parent) if c[0].startswith(stem)]
-        return sha256_hex(dir_preimage(selected))
+        return hash_hex(dir_preimage(selected))
 
     def select(self, item: str) -> list[str]:
         """File paths covered by one ``uses`` item, sorted."""
@@ -442,7 +450,7 @@ def effective_hash(
     ref_hashes: Mapping[str, str] | None = None,
 ) -> str:
     """Hex effective hash of an entry. See :func:`effective_preimage`."""
-    return sha256_hex(effective_preimage(manifest_bytes, tree, ref_hashes))
+    return hash_hex(effective_preimage(manifest_bytes, tree, ref_hashes))
 
 
 # --------------------------------------------------------------------------

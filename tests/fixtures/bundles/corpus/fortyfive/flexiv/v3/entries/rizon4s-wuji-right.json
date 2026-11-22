@@ -4,13 +4,13 @@
   "license": "Apache-2.0",
   "ops": [
     {
-      "op": "Merge",
-      "src": "#rizon4s"
+      "src": "#rizon4s",
+      "tag": "Merge"
     },
     {
+      "at": "site:flange",
+      "joint": "rigid",
       "key": "hand",
-      "mount": "flange",
-      "op": "Attach",
       "pos": [
         0,
         0,
@@ -22,7 +22,8 @@
         0,
         1
       ],
-      "src": "fortyfive/astribot-s1@5#wuji-right"
+      "src": "fortyfive/astribot-s1@5#wuji-right",
+      "tag": "Attach"
     }
   ],
   "refs": [

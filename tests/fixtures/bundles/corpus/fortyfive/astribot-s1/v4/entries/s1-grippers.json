@@ -5,8 +5,8 @@
   "model": "s1-grippers/s1_grippers.xml",
   "ops": [
     {
-      "op": "Merge",
-      "src": "#s1-base"
+      "src": "#s1-base",
+      "tag": "Merge"
     }
   ],
   "refs": [

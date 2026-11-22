@@ -5,14 +5,15 @@
   "ops": [
     {
       "at": "world",
+      "joint": "rigid",
       "key": "robot",
-      "op": "Attach",
       "pos": [
         0,
         0,
         0
       ],
-      "src": "fortyfive/astribot-s1@8#s1-grippers"
+      "src": "fortyfive/astribot-s1@8#s1-grippers",
+      "tag": "Attach"
     }
   ],
   "refs": [

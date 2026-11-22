@@ -57,24 +57,25 @@
   },
   "ops": [
     {
-      "op": "Merge",
-      "src": "fortyfive/rizon-desk@1#rizon4s-desk"
+      "src": "fortyfive/rizon-desk@1#rizon4s-desk",
+      "tag": "Merge"
     },
     {
       "at": "world",
-      "key": "robot/arm",
-      "op": "Attach",
+      "joint": "rigid",
+      "key": "arm",
       "pos": [
         0,
         0,
         0
       ],
-      "src": "fortyfive/flexiv@1#rizon4s"
+      "src": "fortyfive/flexiv@1#rizon4s",
+      "tag": "Attach"
     },
     {
-      "key": "robot/gripper",
-      "mount": "robot/arm/flange",
-      "op": "Attach",
+      "at": "site:arm:flange",
+      "joint": "rigid",
+      "key": "gripper",
       "pos": [
         3.01643e-7,
         -0.0000203201,
@@ -86,19 +87,20 @@
         -0.382683,
         0
       ],
-      "src": "fortyfive/flexiv@2#claw"
+      "src": "fortyfive/flexiv@2#claw",
+      "tag": "Attach"
     },
     {
-      "at": "table",
+      "at": "site:table",
       "joint": "free",
-      "key": "obj/mug",
-      "op": "Attach",
+      "key": "mug",
       "pos": [
         0.45,
         0,
         0
       ],
-      "src": "objects/mug-ace-coffee-mug-kristen-16oz/model.xml"
+      "src": "./objects/mug-ace-coffee-mug-kristen-16oz/model.xml",
+      "tag": "Attach"
     }
   ],
   "rate_hz": 250,

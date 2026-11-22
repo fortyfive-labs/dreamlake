@@ -25,7 +25,7 @@ from . import hashing as h
 from . import jsonc
 
 SCHEMA = "dreamlake.bundle-hash-vectors/v1"
-CONTRACT = "bundle contract v1.6 (stored JSON manifests; effective hash over stored manifest bytes)"
+CONTRACT = "bundle contract v2.0 (BLAKE3-256; stored JSON manifests v1.6; effective hash over stored manifest bytes)"
 
 
 def _b64(data: bytes) -> str:
@@ -34,7 +34,7 @@ def _b64(data: bytes) -> str:
 
 def _file_record(path: str, data: bytes) -> dict[str, Any]:
     out: dict[str, Any] = {"path": path, "contentBase64": _b64(data),
-                           "sha256": h.to_wire(h.file_hash(data)), "size": len(data)}
+                           "hash": h.to_wire(h.file_hash(data)), "size": len(data)}
     try:
         out["text"] = data.decode("utf-8")
     except UnicodeDecodeError:
@@ -185,7 +185,7 @@ def build(corpus_root: Path, source: str) -> dict[str, Any]:
                 }
             out_versions.append({
                 "version": version,
-                "files": [{"path": p, "sha256": h.to_wire(h.file_hash(b)), "size": len(b)}
+                "files": [{"path": p, "hash": h.to_wire(h.file_hash(b)), "size": len(b)}
                           for p, b in files.items()],
                 "rootHash": h.to_wire(result.root_hash),
                 "entries": entries,
@@ -193,7 +193,7 @@ def build(corpus_root: Path, source: str) -> dict[str, Any]:
         bundles.append({"bundle": bundle, "versions": out_versions})
 
     files_cases = [
-        {"name": n, "contentBase64": _b64(b), "sha256": h.to_wire(h.file_hash(b)), "size": len(b)}
+        {"name": n, "contentBase64": _b64(b), "hash": h.to_wire(h.file_hash(b)), "size": len(b)}
         for n, b in [("empty file", b""), ("ascii", b"hello\n"), ("binary", bytes(range(256))),
                      ("utf-8 text", "mügé ü 杯子\n".encode())]
     ]
@@ -229,16 +229,16 @@ def build(corpus_root: Path, source: str) -> dict[str, Any]:
     }
     displayed = [
         {"name": "gap in stored versions",
-         "history": [{"version": 1, "entries": {"e": "sha256:" + "a" * 64}},
-                     {"version": 3, "entries": {"e": "sha256:" + "a" * 64}},
-                     {"version": 7, "entries": {"e": "sha256:" + "a" * 64, "f": "sha256:" + "b" * 64}}],
+         "history": [{"version": 1, "entries": {"e": "blake3:" + "a" * 64}},
+                     {"version": 3, "entries": {"e": "blake3:" + "a" * 64}},
+                     {"version": 7, "entries": {"e": "blake3:" + "a" * 64, "f": "blake3:" + "b" * 64}}],
          "expect": [{"version": 7, "entry": "e", "displayedVersion": 1},
                     {"version": 7, "entry": "f", "displayedVersion": 7}]},
         {"name": "change back to an old hash starts a new run",
-         "history": [{"version": 1, "entries": {"e": "sha256:" + "a" * 64}},
-                     {"version": 2, "entries": {"e": "sha256:" + "b" * 64}},
-                     {"version": 3, "entries": {"e": "sha256:" + "a" * 64}},
-                     {"version": 4, "entries": {"e": "sha256:" + "a" * 64}}],
+         "history": [{"version": 1, "entries": {"e": "blake3:" + "a" * 64}},
+                     {"version": 2, "entries": {"e": "blake3:" + "b" * 64}},
+                     {"version": 3, "entries": {"e": "blake3:" + "a" * 64}},
+                     {"version": 4, "entries": {"e": "blake3:" + "a" * 64}}],
          "expect": [{"version": 4, "entry": "e", "displayedVersion": 3},
                     {"version": 2, "entry": "e", "displayedVersion": 2},
                     {"version": 1, "entry": "e", "displayedVersion": 1}]},
@@ -259,7 +259,7 @@ def build(corpus_root: Path, source: str) -> dict[str, Any]:
     mt = h.Tree.from_files(mtree)
     manifest_bytes = {
         "tree": [_file_record(p, b) for p, b in mtree.items()],
-        "refHashes": {"fortyfive/zz@2#b": "sha256:" + "1" * 64, "fortyfive/aa@10#a": "sha256:" + "2" * 64},
+        "refHashes": {"fortyfive/zz@2#b": "blake3:" + "1" * 64, "fortyfive/aa@10#a": "blake3:" + "2" * 64},
         "manifests": [],
     }
     for raw in forms:
@@ -286,15 +286,15 @@ def build(corpus_root: Path, source: str) -> dict[str, Any]:
         "source": source,
         "emptyHash": h.to_wire(h.EMPTY_HEX),
         "notes": [
-            "Hashes are sha256:<lowercase hex>. Preimages are base64.",
+            "Hashes are blake3:<lowercase hex> (BLAKE3-256). Preimages are base64.",
             "dir line = <name> NUL <f|d> NUL <child hex> LF, children sorted by UTF-8 bytes of name.",
             "A tree is a set of file paths; empty directories (emptyDirs) are not in it.",
             "A dir prefix that is missing or names a file hashes to emptyHash.",
-            "effective = sha256('entry' NUL <manifest file hex> LF + uses lines in declared order "
+            "effective = BLAKE3('entry' NUL <manifest file hex> LF + uses lines in declared order "
             "+ ref lines sorted by UTF-8 bytes of the canonical ref ns/b@W#e, W = displayed version).",
             "Ref lines use resolvedRefs; the server resolves refs against the referenced bundle history. "
             "A local ref '#e' (same bundle version) has the canonical string '#e'.",
-            "bundles[].versions[].files list path, sha256 and size; the bytes are in blobs (sha256 -> base64).",
+            "bundles[].versions[].files list path, hash and size; the bytes are in blobs (hash -> base64).",
             "jsonc: source-manifest parse parity (value or error). storedForm: source -> stored bytes "
             "(JSON.stringify(sortKeys(v), null, 2) + LF); Python output, check with Node.",
             "manifestBytes: one value in three byte forms gives three effective hashes; only storedForm "

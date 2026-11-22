@@ -4,13 +4,13 @@
   "license": "Apache-2.0",
   "ops": [
     {
-      "op": "Merge",
-      "src": "#rizon4s"
+      "src": "#rizon4s",
+      "tag": "Merge"
     },
     {
+      "at": "site:flange",
+      "joint": "rigid",
       "key": "gripper",
-      "mount": "flange",
-      "op": "Attach",
       "pos": [
         3.01643e-7,
         -0.0000203201,
@@ -22,7 +22,8 @@
         -0.382683,
         0
       ],
-      "src": "#claw"
+      "src": "#claw",
+      "tag": "Attach"
     }
   ],
   "refs": [

@@ -5,10 +5,10 @@
       "env": "#rizon4s-claw-pick-mug-v0",
       "index": 3,
       "objects": {
-        "obj/mug": "objects/mug-ace-coffee-mug-kristen-16oz/"
+        "mug": "objects/mug-ace-coffee-mug-kristen-16oz/"
       },
       "poses": {
-        "obj/mug": {
+        "mug": {
           "x": 0.41,
           "y": -0.12,
           "yaw": 0.7
@@ -20,10 +20,10 @@
       "env": "#rizon4s-claw-pick-mug-v0",
       "index": 17,
       "objects": {
-        "obj/mug": "objects/mug-ycb-025-mug/"
+        "mug": "objects/mug-ycb-025-mug/"
       },
       "poses": {
-        "obj/mug": {
+        "mug": {
           "x": 0.52,
           "y": 0.08,
           "yaw": -1.9
@@ -35,10 +35,10 @@
       "env": "#rizon4s-claw-pick-mug-v0",
       "index": 42,
       "objects": {
-        "obj/mug": "objects/mug-ycb-025-mug/"
+        "mug": "objects/mug-ycb-025-mug/"
       },
       "poses": {
-        "obj/mug": {
+        "mug": {
           "x": 0.38,
           "y": 0.15,
           "yaw": 2.6
@@ -50,10 +50,10 @@
       "env": "#rizon4s-claw-pick-mug-v0",
       "index": 99,
       "objects": {
-        "obj/mug": "objects/mug-ace-coffee-mug-kristen-16oz/"
+        "mug": "objects/mug-ace-coffee-mug-kristen-16oz/"
       },
       "poses": {
-        "obj/mug": {
+        "mug": {
           "x": 0.57,
           "y": -0.03,
           "yaw": -0.4

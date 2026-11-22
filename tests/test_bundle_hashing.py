@@ -13,7 +13,7 @@ and the corpus disagree, regenerate with::
 from __future__ import annotations
 
 import base64
-import hashlib
+import blake3
 import json
 from pathlib import Path
 
@@ -55,12 +55,12 @@ def test_vectors_cover_the_required_cases():
 
 
 def test_empty_hash():
-    assert VECTORS["emptyHash"] == "sha256:" + hashlib.sha256(b"").hexdigest()
+    assert VECTORS["emptyHash"] == "blake3:" + blake3.blake3(b"").hexdigest()
 
 
 @pytest.mark.parametrize("case", VECTORS["files"], ids=lambda c: c["name"])
 def test_file_hash(case):
-    assert h.to_wire(h.file_hash(b64(case["contentBase64"]))) == case["sha256"]
+    assert h.to_wire(h.file_hash(b64(case["contentBase64"]))) == case["hash"]
 
 
 @pytest.mark.parametrize("case", VECTORS["trees"], ids=lambda c: c["name"])
@@ -94,11 +94,11 @@ def test_symlink_rejected(tmp_path):
 
 def test_dir_hash_by_hand():
     """One value computed without the module, from the rule text."""
-    a = hashlib.sha256(b"A").hexdigest()
-    b = hashlib.sha256(b"B").hexdigest()
-    sub = hashlib.sha256(f"x\0f\0{b}\n".encode()).hexdigest()
+    a = blake3.blake3(b"A").hexdigest()
+    b = blake3.blake3(b"B").hexdigest()
+    sub = blake3.blake3(f"x\0f\0{b}\n".encode()).hexdigest()
     # "Z" (0x5a) sorts before "a" (0x61); "é" (0xc3 0xa9) sorts last.
-    root = hashlib.sha256(f"Z\0f\0{a}\na\0d\0{sub}\né\0f\0{a}\n".encode()).hexdigest()
+    root = blake3.blake3(f"Z\0f\0{a}\na\0d\0{sub}\né\0f\0{a}\n".encode()).hexdigest()
     tree = h.Tree.from_files({"a/x": b"B", "Z": b"A", "é": b"A"})
     assert tree.root_hash == root
     assert tree.prefix_hash("a/") == sub
@@ -108,14 +108,14 @@ def test_dir_hash_by_hand():
 def test_effective_hash_by_hand():
     manifest = b'{\n  "kind": "object",\n  "uses": [\n    "m-*",\n    "/"\n  ]\n}\n'
     tree = h.Tree.from_files({"m-1": b"1", "n": b"2"})
-    m1 = hashlib.sha256(b"1").hexdigest()
-    m_prefix = hashlib.sha256(f"m-1\0f\0{m1}\n".encode()).hexdigest()
-    refs = {"b/z@1#e": "sha256:" + "f" * 64, "a/z@10#e": "a" * 64}
-    pre = (b"entry\0" + hashlib.sha256(manifest).hexdigest().encode() + b"\n"
+    m1 = blake3.blake3(b"1").hexdigest()
+    m_prefix = blake3.blake3(f"m-1\0f\0{m1}\n".encode()).hexdigest()
+    refs = {"b/z@1#e": "blake3:" + "f" * 64, "a/z@10#e": "a" * 64}
+    pre = (b"entry\0" + blake3.blake3(manifest).hexdigest().encode() + b"\n"
            + f"m-*\0{m_prefix}\n/\0{tree.root_hash}\n".encode()
            + f"a/z@10#e\0{'a' * 64}\nb/z@1#e\0{'f' * 64}\n".encode())
     assert h.effective_preimage(manifest, tree, refs) == pre
-    assert h.effective_hash(manifest, tree, refs) == hashlib.sha256(pre).hexdigest()
+    assert h.effective_hash(manifest, tree, refs) == blake3.blake3(pre).hexdigest()
 
 
 def test_manifest_bytes_vectors():
@@ -134,9 +134,9 @@ def test_bundle_histories(bundle):
     resolvedRefs table, as a server would after it resolves them."""
     history = []
     for v in bundle["versions"]:
-        files = {f["path"]: b64(VECTORS["blobs"][f["sha256"]]) for f in v["files"]}
+        files = {f["path"]: b64(VECTORS["blobs"][f["hash"]]) for f in v["files"]}
         for f in v["files"]:
-            assert h.to_wire(h.file_hash(files[f["path"]])) == f["sha256"]
+            assert h.to_wire(h.file_hash(files[f["path"]])) == f["hash"]
         tree = h.Tree.from_files(files)
         assert h.to_wire(tree.root_hash) == v["rootHash"]
         effs = {}
@@ -205,8 +205,8 @@ def test_manifest_refs_need_version_and_entry():
 
 def test_wire_form():
     hx = "A" * 64
-    assert h.to_wire(hx) == "sha256:" + "a" * 64
-    assert h.to_hex("sha256:" + "a" * 64) == "a" * 64
+    assert h.to_wire(hx) == "blake3:" + "a" * 64
+    assert h.to_hex("blake3:" + "a" * 64) == "a" * 64
     with pytest.raises(h.BundleHashError):
         h.to_hex("sha256:xyz")
 

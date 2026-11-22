@@ -4,13 +4,20 @@
   "license": "Apache-2.0",
   "ops": [
     {
-      "op": "Merge",
-      "src": "#rizon4s-claw"
+      "src": "#rizon4s-claw",
+      "tag": "Merge"
     },
     {
-      "from": "units/rizon4s-bench-sn0001-calibration.json",
-      "key": "actuator:arm/*",
-      "op": "Update"
+      "src": "./units/rizon4s-bench-sn0001-calibration.xml",
+      "tag": "Patch"
+    },
+    {
+      "forcerange": [
+        -20,
+        20
+      ],
+      "key": "actuator:gripper:left_1",
+      "tag": "Update"
     }
   ],
   "refs": [
