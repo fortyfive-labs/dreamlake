@@ -1,0 +1,8 @@
+#usda 1.0
+# stand-in for scene/dish_island.usda
+#   prepend references = @../shared/simready/food_produce_apple_h01/simready_usd/sm_food_produce_apple_h01_01.usd@
+#   prepend references = @../shared/simready/food_prepared_steak_c01/simready_usd/sm_food_prepared_steak_c01_01.usda@
+#   prepend references = @../shared/simready/kitchenware_fork_g01/simready_usd/sm_kitchenware_fork_g01_01.usd@
+#   prepend references = @../shared/simready/cleaning_soapDispenser_b01/simready_usd/sm_cleaning_soapDispenser_b01_01.usd@
+#   prepend references = @../shared/polyhaven/round_wooden_table_01/round_wooden_table_01_fixed.usda@
+#   prepend references = @../shared/polyhaven/dining_chair_02/dining_chair_02_fixed.usda@

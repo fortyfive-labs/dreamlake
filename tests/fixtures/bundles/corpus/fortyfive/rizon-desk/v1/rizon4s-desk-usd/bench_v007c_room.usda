@@ -1,0 +1,6 @@
+#usda 1.0
+(
+    upAxis = "Z"
+)
+# stand-in: room-only reconstruction with the photo-fitted tabletop and brick
+def Xform "Room" {}

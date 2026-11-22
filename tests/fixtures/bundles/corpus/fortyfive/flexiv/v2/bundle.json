@@ -1,0 +1,11 @@
+{
+  "attribution": "Flexiv (URDF upstream 7d5dd28); MJCF from proj-blind-assembly@8be86e8; claw from fortyfive-ai/mjlab tabletop-train@acb2a1c73.",
+  "description": "Flexiv Rizon 4s arm, the two-finger claw, composed and per-unit calibrated robots.",
+  "license": "Apache-2.0",
+  "tags": [
+    "flexiv",
+    "rizon4s",
+    "robot"
+  ],
+  "title": "Flexiv Rizon"
+}

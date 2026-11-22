@@ -1,0 +1,11 @@
+{
+  "attribution": "Astribot (astribot_descriptions, aos branch); Wuji description (MIT); Fortyfive packaging.",
+  "description": "Astribot S1 robot models (text of bundle version 8).",
+  "license": "Apache-2.0",
+  "tags": [
+    "astribot",
+    "s1",
+    "robot"
+  ],
+  "title": "Astribot S1"
+}

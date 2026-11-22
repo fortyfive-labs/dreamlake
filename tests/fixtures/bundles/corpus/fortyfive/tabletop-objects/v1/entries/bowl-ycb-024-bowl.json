@@ -1,0 +1,17 @@
+{
+  "attribution": "YCB 024_bowl",
+  "description": "A free tabletop prop.",
+  "kind": "object",
+  "license": "CC-BY-4.0",
+  "model": "objects/bowl-ycb-024-bowl/model.xml",
+  "subkind": "prop",
+  "tags": [
+    "bowl",
+    "prop"
+  ],
+  "title": "YCB 024 bowl",
+  "uses": [
+    "objects/bowl-ycb-024-bowl/",
+    "shared/materials/"
+  ]
+}

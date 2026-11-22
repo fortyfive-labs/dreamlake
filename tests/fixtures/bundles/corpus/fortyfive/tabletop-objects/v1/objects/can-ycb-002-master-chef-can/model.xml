@@ -1,0 +1,2 @@
+<!-- stand-in MJCF for YCB 002_master_chef_can -->
+<mujoco model="can-ycb-002-master-chef-can"/>

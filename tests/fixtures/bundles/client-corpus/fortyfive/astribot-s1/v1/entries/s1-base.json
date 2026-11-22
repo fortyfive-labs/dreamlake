@@ -1,0 +1,12 @@
+{
+  "kind": "robot",
+  "model": "robots/s1-base/s1.xml",
+  "slots": {
+    "right_wrist": "body:right_link7"
+  },
+  "title": "S1 base",
+  "uses": [
+    "shared/s1-meshes/",
+    "robots/s1-base/"
+  ]
+}

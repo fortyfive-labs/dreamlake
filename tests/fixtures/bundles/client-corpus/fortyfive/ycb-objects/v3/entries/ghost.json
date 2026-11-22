@@ -1,0 +1,8 @@
+{
+  "kind": "object",
+  "title": "Missing prefixes",
+  "uses": [
+    "missing/dir/",
+    "objects/zzz-*"
+  ]
+}

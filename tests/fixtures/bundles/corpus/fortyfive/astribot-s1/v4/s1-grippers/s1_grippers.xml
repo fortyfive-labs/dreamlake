@@ -1,0 +1,4 @@
+<!-- stand-in: s1-base with the vendor grippers -->
+<mujoco model="astribot_s1_grippers">
+  <asset><mesh file="meshes/astribot_gripper_L1_Link.STL"/></asset>
+</mujoco>

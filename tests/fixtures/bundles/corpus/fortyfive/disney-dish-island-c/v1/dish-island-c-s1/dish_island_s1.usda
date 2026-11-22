@@ -1,0 +1,12 @@
+#usda 1.0
+(
+    subLayers = [
+        @../dish-island-c/dish_island.usda@
+    ]
+    upAxis = "Z"
+)
+def Xform "S1" (
+    prepend references = @./robots/s1/astribot_s1.usd@
+)
+{
+}

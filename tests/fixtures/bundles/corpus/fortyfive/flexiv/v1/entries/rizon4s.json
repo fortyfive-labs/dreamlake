@@ -1,0 +1,31 @@
+{
+  "description": "The 7-DoF Rizon 4s arm with gravity compensation, without an end effector.",
+  "kind": "robot",
+  "license": "Apache-2.0",
+  "model": "rizon4s/flexiv_rizon4s.xml",
+  "slots": {
+    "flange": {
+      "body": "link7",
+      "pos": [
+        0,
+        0,
+        0.124
+      ],
+      "quat": [
+        0,
+        0,
+        0,
+        1
+      ]
+    }
+  },
+  "tags": [
+    "flexiv",
+    "rizon4s",
+    "arm"
+  ],
+  "title": "Flexiv Rizon 4s arm",
+  "uses": [
+    "rizon4s/"
+  ]
+}

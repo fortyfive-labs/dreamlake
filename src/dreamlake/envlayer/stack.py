@@ -25,7 +25,12 @@ Two forms share the schema:
 
 * **authored** -- ``src`` may be a registry ref and versions may float;
 * **resolved** -- every ``src`` is a local path (optionally carrying
-  ``"pin": "ns/name@N"`` recording where it was pulled from).
+  ``"pin": "ns/name@N"`` or ``"bundle:ns/name@N#entry"`` recording where
+  it was pulled from).
+
+A ``bundle:ns/name[@v]#entry`` src names a bundle entry. Resolve it with
+:func:`dreamlake.envlayer.resolve_bundle_srcs` (network: fetches the entry
+into the bundle cache); the result is a resolved stack.
 
 ``load_stack`` accepts both; the composition engine additionally calls
 :func:`require_resolved`, which rejects registry refs -- resolution
@@ -77,6 +82,15 @@ _TAG_KEYS = {
 
 _ENV_REF_RE = re.compile(r"^[^\s/@]+/[^\s/@]+(@\d+)?$")
 _PIN_RE = re.compile(r"^[^\s/@]+/[^\s/@]+@\d+$")
+#: A bundle entry src: ``bundle:ns/name[@N|@latest]#entry``.
+_BUNDLE_REF_RE = re.compile(r"^bundle:[^\s/@#]+/[^\s/@#]+(@(latest|[1-9]\d*))?#[^\s/@#]+$")
+#: A bundle pin is a normalized ref: ``bundle:ns/name@N#entry``.
+_BUNDLE_PIN_RE = re.compile(r"^bundle:[^\s/@#]+/[^\s/@#]+@[1-9]\d*#[^\s/@#]+$")
+
+
+def src_is_bundle(src: str) -> bool:
+    """True for a ``bundle:ns/name@v#entry`` src (a registry ref)."""
+    return src.startswith("bundle:")
 
 _V2_MIGRATION = (
     "the v2 {source, compose} schema is superseded by the v3 component "
@@ -223,15 +237,22 @@ def _validate_src(layer: dict, i: int) -> None:
     src = layer.get("src")
     if not isinstance(src, str) or not src:
         raise _err(f'{layer["tag"]} needs a non-empty "src" string', i)
-    if not src_is_local(src):
+    if src_is_bundle(src):
+        if not _BUNDLE_REF_RE.match(src):
+            raise _err(
+                f"src {src!r} is not a bundle entry ref "
+                "(bundle:ns/name[@N|@latest]#entry)", i)
+    elif not src_is_local(src):
         if not _ENV_REF_RE.match(src):
             raise _err(
-                f"src {src!r} is neither a registry ref (ns/name[@v]) nor a "
-                'local path -- local paths must start with "./", "../" or '
-                '"/"', i)
+                f"src {src!r} is neither a registry ref (ns/name[@v] or "
+                "bundle:ns/name@v#entry) nor a local path -- local paths "
+                'must start with "./", "../" or "/"', i)
     pin = layer.get("pin")
-    if pin is not None and (not isinstance(pin, str) or not _PIN_RE.match(pin)):
-        raise _err(f'"pin" must be "ns/name@N", got {pin!r}', i)
+    if pin is not None and (
+        not isinstance(pin, str) or not (_PIN_RE.match(pin) or _BUNDLE_PIN_RE.match(pin))
+    ):
+        raise _err(f'"pin" must be "ns/name@N" or "bundle:ns/name@N#entry", got {pin!r}', i)
     unpinned = layer.get("unpinned")
     if unpinned is not None and not isinstance(unpinned, bool):
         raise _err(f'"unpinned" must be a boolean, got {unpinned!r}', i)

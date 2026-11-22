@@ -1,0 +1,1 @@
+<mujoco model="s1"><compiler meshdir="../../shared/s1-meshes"/><asset><mesh file="base.stl"/><mesh file="link1.stl"/></asset></mujoco>

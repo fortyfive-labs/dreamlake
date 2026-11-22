@@ -1,0 +1,46 @@
+{
+  "description": "Variations of the pick-mug env over all mugs, mug poses and seeds. The variations are not stored.",
+  "generator": {
+    "count": 1000,
+    "distribution": {
+      "mug": {
+        "at": "site:table",
+        "x": {
+          "uniform": [
+            0.35,
+            0.6
+          ]
+        },
+        "y": {
+          "uniform": [
+            -0.2,
+            0.2
+          ]
+        },
+        "yaw": {
+          "uniform": [
+            -3.14159,
+            3.14159
+          ]
+        }
+      }
+    },
+    "env": "#rizon4s-claw-pick-mug-v0",
+    "key": "mug",
+    "objects": "objects/mug-*",
+    "seed": 0
+  },
+  "kind": "env-set",
+  "refs": [
+    "#rizon4s-claw-pick-mug-v0"
+  ],
+  "tags": [
+    "env-set",
+    "generator",
+    "mug"
+  ],
+  "title": "Rizon 4s claw pick mug, generated variations",
+  "uses": [
+    "objects/mug-*"
+  ]
+}

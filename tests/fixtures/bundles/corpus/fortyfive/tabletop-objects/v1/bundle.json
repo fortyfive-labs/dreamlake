@@ -1,0 +1,12 @@
+{
+  "attribution": "YCB object set; Google Scanned Objects (CC-BY-4.0), converted with obj2mjcf.",
+  "description": "A small object set in three categories (mug, bowl, can) from YCB and Google Scanned Objects.",
+  "license": "CC-BY-4.0",
+  "tags": [
+    "objects",
+    "tabletop",
+    "ycb",
+    "gso"
+  ],
+  "title": "Tabletop objects"
+}

@@ -1,0 +1,11 @@
+{
+  "kind": "part",
+  "model": "parts/wuji-right/wuji.xml",
+  "mount": {
+    "site": "attach"
+  },
+  "title": "Wuji right hand",
+  "uses": [
+    "parts/wuji-right/"
+  ]
+}

@@ -1,0 +1,2 @@
+<!-- stand-in: s1-base with the vendor grippers, revision 6 -->
+<mujoco model="astribot_s1_grippers"/>

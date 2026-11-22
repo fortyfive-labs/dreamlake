@@ -1,0 +1,14 @@
+{
+  "description": "The previous main-branch USD model. The entry has no uses field, thus it uses the full bundle.",
+  "format": "usd",
+  "kind": "robot",
+  "license": "Apache-2.0",
+  "model": "s1-usd/astribot_s1.usd",
+  "tags": [
+    "astribot",
+    "s1",
+    "usd",
+    "isaac"
+  ],
+  "title": "Astribot S1 (Isaac USD)"
+}

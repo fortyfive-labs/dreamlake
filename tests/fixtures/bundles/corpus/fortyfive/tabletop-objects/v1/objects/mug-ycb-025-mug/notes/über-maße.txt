@@ -1,0 +1,1 @@
+Stand-in note with a non-ASCII file name.

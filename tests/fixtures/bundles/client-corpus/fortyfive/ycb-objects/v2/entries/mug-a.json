@@ -1,0 +1,8 @@
+{
+  "kind": "object",
+  "model": "objects/mug-a/model.xml",
+  "title": "Mug A",
+  "uses": [
+    "objects/mug-a/"
+  ]
+}

@@ -1,0 +1,2 @@
+<!-- stand-in: s1-base with two Wuji gen1 hands on V2.2 16 mm plates -->
+<mujoco model="astribot_s1_dual_wuji"/>

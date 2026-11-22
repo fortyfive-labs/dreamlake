@@ -1,0 +1,22 @@
+{
+  "attribution": "Wuji description (MIT).",
+  "description": "The first-generation Wuji right hand with 20 joints, for a flange mount.",
+  "kind": "part",
+  "license": "MIT",
+  "model": "wuji-right/right.xml",
+  "mount": {
+    "root": "wuji_right_palm_link",
+    "site": "flange"
+  },
+  "subkind": "hand",
+  "tags": [
+    "wuji",
+    "hand",
+    "gen1"
+  ],
+  "title": "Wuji hand (gen 1), right",
+  "uses": [
+    "shared/wuji-gen1/",
+    "wuji-right/"
+  ]
+}

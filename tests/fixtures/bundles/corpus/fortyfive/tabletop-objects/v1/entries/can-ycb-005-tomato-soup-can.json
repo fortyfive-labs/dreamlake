@@ -1,0 +1,17 @@
+{
+  "attribution": "YCB 005_tomato_soup_can",
+  "description": "A free tabletop prop.",
+  "kind": "object",
+  "license": "CC-BY-4.0",
+  "model": "objects/can-ycb-005-tomato-soup-can/model.xml",
+  "subkind": "prop",
+  "tags": [
+    "can",
+    "prop"
+  ],
+  "title": "YCB 005 tomato soup can",
+  "uses": [
+    "objects/can-ycb-005-tomato-soup-can/",
+    "shared/materials/"
+  ]
+}

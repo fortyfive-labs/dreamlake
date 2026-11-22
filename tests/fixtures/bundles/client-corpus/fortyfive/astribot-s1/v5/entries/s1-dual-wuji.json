@@ -1,0 +1,11 @@
+{
+  "kind": "robot",
+  "refs": [
+    "fortyfive/ycb-objects@2#mugs",
+    "fortyfive/ycb-objects@1#mug-a"
+  ],
+  "title": "S1 with a mug set",
+  "uses": [
+    "robots/s1-dual/"
+  ]
+}

@@ -1,0 +1,48 @@
+{
+  "description": "Variations of the pick-mug env over the mugs of another bundle. The env-set has no files of its own.",
+  "generator": {
+    "count": 500,
+    "distribution": {
+      "mug": {
+        "at": "site:table",
+        "x": {
+          "uniform": [
+            0.35,
+            0.6
+          ]
+        },
+        "y": {
+          "uniform": [
+            -0.2,
+            0.2
+          ]
+        },
+        "yaw": {
+          "uniform": [
+            -3.14159,
+            3.14159
+          ]
+        }
+      }
+    },
+    "env": "#rizon4s-claw-pick-mug-v0",
+    "key": "mug",
+    "objects": {
+      "prefix": "objects/mug-*",
+      "ref": "fortyfive/tabletop-objects@1"
+    },
+    "seed": 7
+  },
+  "kind": "env-set",
+  "refs": [
+    "#rizon4s-claw-pick-mug-v0"
+  ],
+  "tags": [
+    "env-set",
+    "generator",
+    "mug",
+    "cross-bundle"
+  ],
+  "title": "Rizon 4s claw pick mug, mugs of the tabletop object set",
+  "uses": []
+}

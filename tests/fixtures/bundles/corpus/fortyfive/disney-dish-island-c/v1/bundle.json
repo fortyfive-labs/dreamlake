@@ -1,0 +1,13 @@
+{
+  "attribution": "NVIDIA SimReady (CC-BY-4.0); Poly Haven (CC0); Astribot S1 official URDF (aos cab872d).",
+  "description": "Robot-free Isaac Sim 5.1 dish station and the same station with the wheeled Astribot S1, as USD layers.",
+  "license": "CC-BY-4.0",
+  "tags": [
+    "scene",
+    "usd",
+    "isaac",
+    "disney",
+    "dish-station"
+  ],
+  "title": "Disney Cruise Dish Station (Island C)"
+}

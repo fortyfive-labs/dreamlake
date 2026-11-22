@@ -6,14 +6,16 @@ MjSpec into a self-contained env directory (entry XML + flat ``meshes/`` +
 pinned ``dreamlake.layers.json``).
 
 The engine composes only RESOLVED stacks -- every layer source a local
-path; registry refs (``{"env": ...}``) must be resolved by the caller
-(the DreamLake CLI) first.
+path; registry refs (``ns/name@v``) must be resolved by the caller
+(the DreamLake CLI) first. Bundle srcs (``bundle:ns/name@v#entry``) can be
+resolved here with :func:`resolve_bundle_srcs`.
 
 mujoco is an optional dependency: ``pip install 'dreamlake[compose]'``.
 ``stack`` (parsing/validation) imports without it; ``compose_stack``
 raises a :class:`ComposeError` pointing at the extra when it is missing.
 """
 
+from .bundles import resolve_bundle_srcs
 from .engine import Report, compose_stack
 from .stack import ComposeError, Stack, load_stack, require_resolved
 
@@ -24,4 +26,5 @@ __all__ = [
     "compose_stack",
     "load_stack",
     "require_resolved",
+    "resolve_bundle_srcs",
 ]

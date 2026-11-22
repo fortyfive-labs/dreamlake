@@ -1,0 +1,6 @@
+<!-- Stand-in calibration of one bench unit (sparse MJCF for a Patch op); the serial sn0001 is a stand-in. command_delay_s=0.012 -->
+<mujoco>
+  <actuator>
+    <position name="joint1" kp="400"/>
+  </actuator>
+</mujoco>

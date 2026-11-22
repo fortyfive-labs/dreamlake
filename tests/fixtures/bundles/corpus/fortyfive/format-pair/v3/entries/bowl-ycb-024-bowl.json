@@ -1,0 +1,24 @@
+{
+  "description": "A bowl with an http://example.org // URL-like text in a string.",
+  "inertial": {
+    "com": [
+      0,
+      0,
+      0.026
+    ],
+    "mass_kg": 0.147
+  },
+  "kind": "object",
+  "license": "CC-BY-4.0",
+  "model": "objects/bowl-ycb-024-bowl/model.xml",
+  "scale": 1,
+  "subkind": "prop",
+  "tags": [
+    "bowl",
+    "prop"
+  ],
+  "title": "YCB 024 bowl",
+  "uses": [
+    "objects/bowl-ycb-024-bowl/"
+  ]
+}

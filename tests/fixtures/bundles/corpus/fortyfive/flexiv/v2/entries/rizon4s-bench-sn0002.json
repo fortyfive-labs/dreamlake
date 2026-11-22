@@ -1,0 +1,39 @@
+{
+  "description": "The Rizon 4s with the claw, with the calibration and limits of one bench unit.",
+  "kind": "robot",
+  "license": "Apache-2.0",
+  "ops": [
+    {
+      "src": "#rizon4s-claw",
+      "tag": "Merge"
+    },
+    {
+      "src": "./units/rizon4s-bench-sn0002-calibration.xml",
+      "tag": "Patch"
+    },
+    {
+      "forcerange": [
+        -20,
+        20
+      ],
+      "key": "actuator:gripper:left_1",
+      "tag": "Update"
+    }
+  ],
+  "refs": [
+    "#rizon4s-claw"
+  ],
+  "tags": [
+    "flexiv",
+    "rizon4s",
+    "calibrated",
+    "per-unit"
+  ],
+  "title": "Rizon 4s bench unit sn0002",
+  "unit": {
+    "serial": "sn0002"
+  },
+  "uses": [
+    "units/rizon4s-bench-sn0002-*"
+  ]
+}
