@@ -1,0 +1,17 @@
+{
+  "attribution": "YCB 025_mug",
+  "description": "A free tabletop prop.",
+  "kind": "object",
+  "license": "CC-BY-4.0",
+  "model": "objects/mug-ycb-025-mug/model.xml",
+  "subkind": "prop",
+  "tags": [
+    "mug",
+    "prop"
+  ],
+  "title": "YCB 025 mug",
+  "uses": [
+    "objects/mug-ycb-025-mug/",
+    "shared/materials/"
+  ]
+}

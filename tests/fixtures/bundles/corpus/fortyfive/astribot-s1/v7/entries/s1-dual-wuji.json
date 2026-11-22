@@ -1,0 +1,61 @@
+{
+  "description": "The S1 base with a Wuji gen1 hand on each arm, on V2.2 16 mm wrist plates.",
+  "kind": "robot",
+  "license": "Apache-2.0",
+  "model": "s1-dual-wuji/robot.xml",
+  "ops": [
+    {
+      "op": "Merge",
+      "src": "#s1-base"
+    },
+    {
+      "key": "hand_left",
+      "mount": "flange_left",
+      "op": "Attach",
+      "pos": [
+        0,
+        0,
+        0.016
+      ],
+      "quat": [
+        1,
+        0,
+        0,
+        0
+      ],
+      "src": "#wuji-left"
+    },
+    {
+      "key": "hand_right",
+      "mount": "flange_right",
+      "op": "Attach",
+      "pos": [
+        0,
+        0,
+        0.016
+      ],
+      "quat": [
+        1,
+        0,
+        0,
+        0
+      ],
+      "src": "#wuji-right"
+    }
+  ],
+  "refs": [
+    "#s1-base",
+    "#wuji-left",
+    "#wuji-right"
+  ],
+  "tags": [
+    "astribot",
+    "s1",
+    "wuji",
+    "bimanual"
+  ],
+  "title": "Astribot S1 with dual Wuji hands (gen 1)",
+  "uses": [
+    "s1-dual-wuji/"
+  ]
+}

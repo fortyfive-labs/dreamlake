@@ -1,0 +1,39 @@
+{
+  "description": "The Rizon 4s arm with the Wuji gen1 right hand from the astribot-s1 bundle, on the 16 mm direct adapter.",
+  "kind": "robot",
+  "license": "Apache-2.0",
+  "ops": [
+    {
+      "op": "Merge",
+      "src": "#rizon4s"
+    },
+    {
+      "key": "hand",
+      "mount": "flange",
+      "op": "Attach",
+      "pos": [
+        0,
+        0,
+        0.14
+      ],
+      "quat": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "src": "fortyfive/astribot-s1@5#wuji-right"
+    }
+  ],
+  "refs": [
+    "#rizon4s",
+    "fortyfive/astribot-s1@5#wuji-right"
+  ],
+  "tags": [
+    "flexiv",
+    "rizon4s",
+    "wuji"
+  ],
+  "title": "Rizon 4s with the Wuji right hand",
+  "uses": []
+}

@@ -1,0 +1,10 @@
+{
+  "description": "A table with a block in front of the Astribot S1 with grippers (parked chassis).",
+  "license": "Apache-2.0",
+  "tags": [
+    "scene",
+    "tabletop",
+    "astribot"
+  ],
+  "title": "S1 tabletop"
+}

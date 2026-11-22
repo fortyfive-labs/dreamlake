@@ -1,0 +1,11 @@
+{
+  "attribution": "Astribot (astribot_descriptions, aos branch); Wuji description (MIT); Fortyfive packaging.",
+  "description": "Astribot S1 wheeled dual-arm robot, its gripper variant, Wuji hand parts and the dual-Wuji variant.",
+  "license": "Apache-2.0",
+  "tags": [
+    "astribot",
+    "s1",
+    "robot"
+  ],
+  "title": "Astribot S1"
+}

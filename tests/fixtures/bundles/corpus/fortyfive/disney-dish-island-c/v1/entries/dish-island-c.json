@@ -1,0 +1,28 @@
+{
+  "description": "Robot-free employee-side dish station behind a cruise tray-return belt, with SimReady props and Poly Haven furniture.",
+  "format": "usd",
+  "kind": "scene",
+  "license": "CC-BY-4.0",
+  "model": "dish-island-c/dish_island.usda",
+  "sites": {
+    "world": {
+      "pos": [
+        0,
+        0,
+        0
+      ]
+    }
+  },
+  "tags": [
+    "scene",
+    "usd",
+    "isaac",
+    "dish-station"
+  ],
+  "title": "Disney Cruise Dish Station (Island C)",
+  "uses": [
+    "dish-island-c/",
+    "shared/simready/",
+    "shared/polyhaven/"
+  ]
+}

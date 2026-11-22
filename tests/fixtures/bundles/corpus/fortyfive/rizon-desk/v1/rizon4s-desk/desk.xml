@@ -1,0 +1,6 @@
+<!-- desk as a box: 1.6002 x 0.80645 m, top at 0.74295 m, centre (0.5419, 0.0041) in the arm base frame -->
+<mujoco model="rizon4s_desk">
+  <worldbody>
+    <body name="table" pos="0.5419 0.0041 0.371475"><geom type="box" size="0.8001 0.403225 0.371475"/></body>
+  </worldbody>
+</mujoco>

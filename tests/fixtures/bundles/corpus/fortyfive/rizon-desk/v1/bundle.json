@@ -1,0 +1,10 @@
+{
+  "description": "The Rizon 4s bench desk room, as a USD reconstruction and as a simple MuJoCo desk. No robot.",
+  "license": "LicenseRef-fortyfive-internal",
+  "tags": [
+    "scene",
+    "rizon",
+    "desk"
+  ],
+  "title": "Rizon desk"
+}

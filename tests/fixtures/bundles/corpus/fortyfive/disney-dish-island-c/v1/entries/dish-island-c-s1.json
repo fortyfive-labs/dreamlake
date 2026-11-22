@@ -1,0 +1,21 @@
+{
+  "description": "The dish station as a USD sublayer, plus the wheeled S1 as a USD reference that the scene owns.",
+  "format": "usd",
+  "kind": "scene",
+  "license": "CC-BY-4.0",
+  "model": "dish-island-c-s1/dish_island_s1.usda",
+  "refs": [
+    "#dish-island-c"
+  ],
+  "tags": [
+    "scene",
+    "usd",
+    "isaac",
+    "dish-station",
+    "astribot"
+  ],
+  "title": "Disney Cruise Dish Station (Island C) with Astribot S1",
+  "uses": [
+    "dish-island-c-s1/"
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "description": "Envs and env-sets for the Rizon 4s with the claw on the bench desk, with a cube and with mugs.",
+  "license": "Apache-2.0",
+  "tags": [
+    "env",
+    "rizon4s",
+    "claw",
+    "desk",
+    "mug"
+  ],
+  "title": "Rizon 4s claw desk tasks"
+}

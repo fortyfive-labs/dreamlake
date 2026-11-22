@@ -1,0 +1,32 @@
+{
+  "description": "The bench desk as a box at the measured USD pose. The world frame is the arm base frame. No robot.",
+  "kind": "scene",
+  "model": "rizon4s-desk/desk.xml",
+  "sites": {
+    "table": {
+      "body": "table",
+      "pos": [
+        0.5419,
+        0.0041,
+        0.74295
+      ]
+    },
+    "world": {
+      "pos": [
+        0,
+        0,
+        0
+      ]
+    }
+  },
+  "tags": [
+    "scene",
+    "mujoco",
+    "rizon",
+    "desk"
+  ],
+  "title": "Rizon desk (MuJoCo)",
+  "uses": [
+    "rizon4s-desk/"
+  ]
+}

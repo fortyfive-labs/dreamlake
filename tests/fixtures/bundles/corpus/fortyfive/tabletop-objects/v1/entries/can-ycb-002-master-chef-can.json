@@ -1,0 +1,17 @@
+{
+  "attribution": "YCB 002_master_chef_can",
+  "description": "A free tabletop prop.",
+  "kind": "object",
+  "license": "CC-BY-4.0",
+  "model": "objects/can-ycb-002-master-chef-can/model.xml",
+  "subkind": "prop",
+  "tags": [
+    "can",
+    "prop"
+  ],
+  "title": "YCB 002 master chef can",
+  "uses": [
+    "objects/can-ycb-002-master-chef-can/",
+    "shared/materials/"
+  ]
+}

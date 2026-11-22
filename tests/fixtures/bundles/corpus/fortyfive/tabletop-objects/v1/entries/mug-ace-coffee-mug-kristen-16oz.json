@@ -1,0 +1,17 @@
+{
+  "attribution": "Google Scanned Objects ACE_Coffee_Mug_Kristen_16_oz_cup",
+  "description": "A free tabletop prop.",
+  "kind": "object",
+  "license": "CC-BY-4.0",
+  "model": "objects/mug-ace-coffee-mug-kristen-16oz/model.xml",
+  "subkind": "prop",
+  "tags": [
+    "mug",
+    "prop"
+  ],
+  "title": "ACE Coffee Mug Kristen 16 oz",
+  "uses": [
+    "objects/mug-ace-coffee-mug-kristen-16oz/",
+    "shared/materials/"
+  ]
+}

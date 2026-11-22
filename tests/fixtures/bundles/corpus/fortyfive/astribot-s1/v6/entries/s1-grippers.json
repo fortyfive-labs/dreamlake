@@ -1,0 +1,24 @@
+{
+  "description": "The S1 base with the two vendor grippers.",
+  "kind": "robot",
+  "license": "Apache-2.0",
+  "model": "s1-grippers/s1_grippers.xml",
+  "ops": [
+    {
+      "op": "Merge",
+      "src": "#s1-base"
+    }
+  ],
+  "refs": [
+    "#s1-base"
+  ],
+  "tags": [
+    "astribot",
+    "s1",
+    "gripper"
+  ],
+  "title": "Astribot S1 with grippers",
+  "uses": [
+    "s1-grippers/"
+  ]
+}

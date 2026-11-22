@@ -1,0 +1,43 @@
+{
+  "description": "A table with a block, with the S1 with grippers attached at the world origin.",
+  "kind": "scene",
+  "model": "s1-tabletop/scene.xml",
+  "ops": [
+    {
+      "at": "world",
+      "key": "robot",
+      "op": "Attach",
+      "pos": [
+        0,
+        0,
+        0
+      ],
+      "src": "fortyfive/astribot-s1@8#s1-grippers"
+    }
+  ],
+  "refs": [
+    "fortyfive/astribot-s1@8#s1-grippers"
+  ],
+  "sites": {
+    "table": {
+      "body": "table"
+    },
+    "world": {
+      "pos": [
+        0,
+        0,
+        0
+      ]
+    }
+  },
+  "tags": [
+    "scene",
+    "tabletop",
+    "astribot",
+    "s1"
+  ],
+  "title": "S1 tabletop",
+  "uses": [
+    "s1-tabletop/"
+  ]
+}

@@ -1,0 +1,5 @@
+<!-- stand-in for model/mjcf/robot/s1_kinematic.xml -->
+<mujoco model="astribot_s1">
+  <compiler meshdir="../shared/s1-meshes"/>
+  <asset><mesh file="s1_arm/astribot_arm_link_1.STL"/></asset>
+</mujoco>

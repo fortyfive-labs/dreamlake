@@ -1,0 +1,33 @@
+{
+  "binding": {
+    "backend": "robot",
+    "endpoint": "ws://rizon-bench.local:8012"
+  },
+  "code": "runnable://fortyfive/rigs.robot_backend@000000000000",
+  "description": "The real bench robot with the same contract as the sim env. The env uses no files of this bundle.",
+  "entry_point": "rigs.backend:RobotEnv",
+  "kind": "env",
+  "limits": {
+    "episode_s": 20,
+    "reset_timeout_s": 10
+  },
+  "modes": {
+    "arm": "joint_position",
+    "gripper": "joint_position"
+  },
+  "pair": "#rizon4s-claw-desk-v0",
+  "rate_hz": 250,
+  "reset": {
+    "duration_s": 4,
+    "pose": "home",
+    "settle_s": 0.2
+  },
+  "tags": [
+    "env",
+    "real",
+    "rizon4s",
+    "claw"
+  ],
+  "title": "Rizon 4s claw desk (real robot)",
+  "uses": []
+}

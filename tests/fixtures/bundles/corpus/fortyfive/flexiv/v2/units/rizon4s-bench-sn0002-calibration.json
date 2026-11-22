@@ -1,0 +1,5 @@
+{
+  "about": "Stand-in calibration of one bench unit; the serial sn0002 is a stand-in.",
+  "actuator_kp": 410,
+  "command_delay_s": 0.012
+}

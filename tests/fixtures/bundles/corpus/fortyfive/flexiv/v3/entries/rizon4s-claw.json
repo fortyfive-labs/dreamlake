@@ -1,0 +1,39 @@
+{
+  "description": "The Rizon 4s arm with the claw at the mjlab tool_mount pose. The entry has no files of its own.",
+  "kind": "robot",
+  "license": "Apache-2.0",
+  "ops": [
+    {
+      "op": "Merge",
+      "src": "#rizon4s"
+    },
+    {
+      "key": "gripper",
+      "mount": "flange",
+      "op": "Attach",
+      "pos": [
+        3.01643e-7,
+        -0.0000203201,
+        0.148
+      ],
+      "quat": [
+        0,
+        -0.92388,
+        -0.382683,
+        0
+      ],
+      "src": "#claw"
+    }
+  ],
+  "refs": [
+    "#rizon4s",
+    "#claw"
+  ],
+  "tags": [
+    "flexiv",
+    "rizon4s",
+    "claw"
+  ],
+  "title": "Rizon 4s with the two-finger claw",
+  "uses": []
+}

@@ -1,0 +1,17 @@
+{
+  "attribution": "YCB 007_tuna_fish_can",
+  "description": "A free tabletop prop.",
+  "kind": "object",
+  "license": "CC-BY-4.0",
+  "model": "objects/can-ycb-007-tuna-fish-can/model.xml",
+  "subkind": "prop",
+  "tags": [
+    "can",
+    "prop"
+  ],
+  "title": "YCB 007 tuna fish can",
+  "uses": [
+    "objects/can-ycb-007-tuna-fish-can/",
+    "shared/materials/"
+  ]
+}

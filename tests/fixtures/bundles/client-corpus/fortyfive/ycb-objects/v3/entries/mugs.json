@@ -1,0 +1,7 @@
+{
+  "kind": "object",
+  "title": "All mugs",
+  "uses": [
+    "objects/mug-*"
+  ]
+}

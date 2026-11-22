@@ -1,0 +1,4 @@
+<!-- stand-in for the Wuji gen1 right hand MJCF -->
+<mujoco model="wuji_right">
+  <asset><mesh file="meshes/right_palm_link.STL"/></asset>
+</mujoco>

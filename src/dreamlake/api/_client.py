@@ -113,6 +113,12 @@ class DreamLakeClient:
         return Libraries(self)
 
     @property
+    def bundles(self):
+        """Bundles: resolve, lock, fetch by declared prefixes, and check."""
+        from dreamlake.bundles import Bundles
+        return Bundles(self)
+
+    @property
     def folders(self):
         """Ordinary folder visibility by stable Node ID."""
         from .folder_visibility import FolderVisibility

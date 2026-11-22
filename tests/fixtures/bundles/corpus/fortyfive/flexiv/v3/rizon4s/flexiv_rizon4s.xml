@@ -1,0 +1,4 @@
+<!-- stand-in for flexiv_rizon4s.xml (rizon4s-arm-blind-assembly--v1) -->
+<mujoco model="flexiv_rizon4s">
+  <asset><mesh file="assets/link0/link0.obj"/></asset>
+</mujoco>

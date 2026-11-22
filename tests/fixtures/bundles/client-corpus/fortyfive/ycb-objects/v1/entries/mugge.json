@@ -1,0 +1,8 @@
+{
+  "kind": "object",
+  "model": "objects/mügé-ü/model.xml",
+  "title": "Non-ASCII path",
+  "uses": [
+    "objects/mügé-ü/"
+  ]
+}

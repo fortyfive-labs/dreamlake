@@ -1,0 +1,80 @@
+{
+  "description": "Four selected variations of the generator, frozen as an explicit list.",
+  "envs": [
+    {
+      "env": "#rizon4s-claw-pick-mug-v0",
+      "index": 3,
+      "objects": {
+        "obj/mug": "objects/mug-ace-coffee-mug-kristen-16oz/"
+      },
+      "poses": {
+        "obj/mug": {
+          "x": 0.41,
+          "y": -0.12,
+          "yaw": 0.7
+        }
+      },
+      "seed": 3
+    },
+    {
+      "env": "#rizon4s-claw-pick-mug-v0",
+      "index": 17,
+      "objects": {
+        "obj/mug": "objects/mug-ycb-025-mug/"
+      },
+      "poses": {
+        "obj/mug": {
+          "x": 0.52,
+          "y": 0.08,
+          "yaw": -1.9
+        }
+      },
+      "seed": 17
+    },
+    {
+      "env": "#rizon4s-claw-pick-mug-v0",
+      "index": 42,
+      "objects": {
+        "obj/mug": "objects/mug-ycb-025-mug/"
+      },
+      "poses": {
+        "obj/mug": {
+          "x": 0.38,
+          "y": 0.15,
+          "yaw": 2.6
+        }
+      },
+      "seed": 42
+    },
+    {
+      "env": "#rizon4s-claw-pick-mug-v0",
+      "index": 99,
+      "objects": {
+        "obj/mug": "objects/mug-ace-coffee-mug-kristen-16oz/"
+      },
+      "poses": {
+        "obj/mug": {
+          "x": 0.57,
+          "y": -0.03,
+          "yaw": -0.4
+        }
+      },
+      "seed": 99
+    }
+  ],
+  "kind": "env-set",
+  "refs": [
+    "#rizon4s-claw-pick-mug-v0"
+  ],
+  "tags": [
+    "env-set",
+    "frozen",
+    "eval",
+    "mug"
+  ],
+  "title": "Rizon 4s claw pick mug, frozen eval set of 4",
+  "uses": [
+    "objects/mug-ace-coffee-mug-kristen-16oz/",
+    "objects/mug-ycb-025-mug/"
+  ]
+}

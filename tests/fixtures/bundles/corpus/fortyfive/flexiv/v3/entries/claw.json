@@ -1,0 +1,21 @@
+{
+  "description": "The custom two-finger claw with four joints, for the Rizon flange.",
+  "kind": "part",
+  "license": "LicenseRef-fortyfive-internal",
+  "model": "claw/hand.xml",
+  "mount": {
+    "root": "hand_base",
+    "site": "flange"
+  },
+  "subkind": "gripper",
+  "tags": [
+    "flexiv",
+    "claw",
+    "gripper",
+    "full_hand"
+  ],
+  "title": "Flexiv two-finger claw (full_hand)",
+  "uses": [
+    "claw/"
+  ]
+}

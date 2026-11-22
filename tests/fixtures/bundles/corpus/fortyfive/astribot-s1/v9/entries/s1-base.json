@@ -1,0 +1,27 @@
+{
+  "description": "The S1 body with the omni-wheel chassis, torso, head and two 7-DoF arms, without end effectors.",
+  "kind": "robot",
+  "license": "Apache-2.0",
+  "model": "s1-base/s1_kinematic.xml",
+  "slots": {
+    "flange_left": {
+      "body": "astribot_arm_left_link_7"
+    },
+    "flange_right": {
+      "body": "astribot_arm_right_link_7"
+    },
+    "head": {
+      "body": "astribot_head_link_2"
+    }
+  },
+  "tags": [
+    "astribot",
+    "s1",
+    "mobile-manipulator"
+  ],
+  "title": "Astribot S1 base",
+  "uses": [
+    "shared/s1-meshes/",
+    "s1-base/"
+  ]
+}

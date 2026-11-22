@@ -1,0 +1,125 @@
+{
+  "code": "git+https://github.com/fortyfive-ai/robot-env@c95229af4dc583cacf3a403636fcb514a596156e",
+  "describe": {
+    "action_space": {
+      "arm": {
+        "shape": [
+          7
+        ],
+        "type": "box",
+        "unit": "rad"
+      },
+      "gripper": {
+        "shape": [
+          4
+        ],
+        "type": "box",
+        "unit": "rad"
+      }
+    },
+    "observation_space": {
+      "cameras": {
+        "bench_d435": {
+          "shape": [
+            240,
+            424,
+            3
+          ],
+          "type": "image"
+        },
+        "front": {
+          "shape": [
+            240,
+            320,
+            3
+          ],
+          "type": "image"
+        }
+      },
+      "joints": {
+        "shape": [
+          11
+        ],
+        "type": "box"
+      }
+    }
+  },
+  "description": "The Rizon 4s with the claw picks a mug from the desk.",
+  "entry_point": "rigs.sim.mujoco_robot:MujocoRobotEnv",
+  "kind": "env",
+  "limits": {
+    "episode_s": 20,
+    "reset_timeout_s": 5
+  },
+  "modes": {
+    "arm": "joint_position",
+    "gripper": "joint_position"
+  },
+  "ops": [
+    {
+      "op": "Merge",
+      "src": "fortyfive/rizon-desk@1#rizon4s-desk"
+    },
+    {
+      "at": "world",
+      "key": "robot/arm",
+      "op": "Attach",
+      "pos": [
+        0,
+        0,
+        0
+      ],
+      "src": "fortyfive/flexiv@1#rizon4s"
+    },
+    {
+      "key": "robot/gripper",
+      "mount": "robot/arm/flange",
+      "op": "Attach",
+      "pos": [
+        3.01643e-7,
+        -0.0000203201,
+        0.148
+      ],
+      "quat": [
+        0,
+        -0.92388,
+        -0.382683,
+        0
+      ],
+      "src": "fortyfive/flexiv@2#claw"
+    },
+    {
+      "at": "table",
+      "joint": "free",
+      "key": "obj/mug",
+      "op": "Attach",
+      "pos": [
+        0.45,
+        0,
+        0
+      ],
+      "src": "objects/mug-ace-coffee-mug-kristen-16oz/model.xml"
+    }
+  ],
+  "rate_hz": 250,
+  "refs": [
+    "fortyfive/rizon-desk@1#rizon4s-desk",
+    "fortyfive/flexiv@1#rizon4s",
+    "fortyfive/flexiv@2#claw"
+  ],
+  "reset": {
+    "pose": "home",
+    "settle_s": 0.2
+  },
+  "tags": [
+    "env",
+    "mujoco",
+    "rizon4s",
+    "claw",
+    "mug"
+  ],
+  "title": "Rizon 4s claw pick mug",
+  "uses": [
+    "objects/mug-ace-coffee-mug-kristen-16oz/"
+  ]
+}

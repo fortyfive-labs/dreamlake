@@ -1,0 +1,25 @@
+{
+  "description": "Room-only Isaac Sim USD with the photo-fitted tabletop and brick. No robot.",
+  "format": "usd",
+  "kind": "scene",
+  "model": "rizon4s-desk-usd/bench_v007c_room.usda",
+  "sites": {
+    "world": {
+      "pos": [
+        0,
+        0,
+        0
+      ]
+    }
+  },
+  "tags": [
+    "scene",
+    "usd",
+    "rizon",
+    "desk"
+  ],
+  "title": "Rizon desk room (USD)",
+  "uses": [
+    "rizon4s-desk-usd/"
+  ]
+}

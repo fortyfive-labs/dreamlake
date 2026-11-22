@@ -1,0 +1,5 @@
+{
+  "description": "Versions that differ only in comments, whitespace or key order of one source manifest.",
+  "license": "CC-BY-4.0",
+  "title": "Format pair"
+}
