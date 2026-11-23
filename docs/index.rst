@@ -36,6 +36,7 @@ Python SDK for ML experiment tracking and data storage.
    authentication
    sessions
    tmux
+   viewer
    hosts
    connections
    memos
