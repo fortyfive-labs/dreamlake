@@ -1,5 +1,12 @@
 # Release notes
 
+## 0.58.1 — 3D Preview references
+
+- `dreamlake.api.viewer`: `parse_viewer_ref`, `format_viewer_ref`,
+  `viewer_directive`, `viewer_href` and `viewer_layout_request` for
+  `:viewer[...]` references (bundle entry, library asset, scene version).
+  See [3D Preview references](viewer.md).
+
 ## 0.58.0 — Repository namespace defaults
 
 Python and the DreamLake CLI share a top-level `namespace` in the nearest
