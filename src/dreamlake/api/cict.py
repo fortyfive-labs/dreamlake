@@ -6,6 +6,7 @@ request is sent and never forwards server error text.
 from __future__ import annotations
 
 import re
+import uuid
 from collections.abc import Mapping, Sequence
 from urllib.parse import quote, urlencode
 
@@ -20,6 +21,11 @@ _CODE = re.compile(r"[a-z_]{1,64}\Z")
 _LOGIN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.\[\]-]{0,99}")
 _MONTH = re.compile(r"\d{4}-(0[1-9]|1[0-2])\Z")
 _MACHINE = re.compile(r"[a-z0-9][a-z0-9-]{0,62}\Z")
+_REPOSITORY = re.compile(r"[A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9._-]{1,100}\Z")
+_WORKFLOW = re.compile(r"[A-Za-z0-9._-]{1,100}\.ya?ml\Z")
+_REF = re.compile(r"[A-Za-z0-9_][A-Za-z0-9._/-]{0,199}\Z")
+_INPUT = re.compile(r"[A-Za-z_][A-Za-z0-9_-]{0,99}\Z")
+_REQUEST = re.compile(r"[A-Za-z0-9_-]{8,64}\Z")
 
 
 class CictError(Exception):
@@ -314,6 +320,59 @@ class Cict:
         the ``workflow`` runs-on line. Only installing the GitHub App needs a person.
         """
         return self._jobs._request("GET", self._jobs._ns(namespace) + "/cict/onboarding")
+
+    def dispatch(self, namespace, *, repository, workflow, ref=None, inputs=None, installation_id=None, request_id=None):
+        """Run a GitHub Actions workflow (``workflow_dispatch``) through the namespace's GitHub App
+        installation, as the App. Its DreamLake jobs run, queue and are billed like any other; the
+        runs then carry ``dispatchedBy``. Needs ``lakeshore:use``.
+
+        ``ref`` defaults to the repository's default branch and ``installation_id`` to the one
+        active installation. ``inputs`` must be inputs the workflow declares. A retry with the same
+        ``request_id`` returns the first answer. Returns the dispatch: ``state`` is ``dispatched``
+        (with ``workflowRunUrl``), ``failed`` (``error`` and GitHub's ``message``) or ``unknown``
+        (GitHub's answer was lost: check the repository's Actions page before running it again).
+        """
+        repository = _text(repository, _REPOSITORY, "repository (owner/repo)")
+        workflow = _text(workflow, _WORKFLOW, "workflow file name")
+        values = {}
+        for name, value in dict(inputs or {}).items():
+            if not isinstance(name, str) or not _INPUT.fullmatch(name) or not isinstance(value, str) or len(value) > 1024:
+                raise CictError("inputs must map input names to text of at most 1024 characters")
+            values[name] = value
+        if len(values) > 25:
+            raise CictError("At most 25 inputs")
+        if installation_id is None:
+            active = [i for i in self.github.installations(namespace) if i.get("state") == "active"]
+            if len(active) != 1:
+                raise CictError("Pass installation_id: several GitHub accounts are connected" if active
+                                else "No GitHub account is connected to this namespace")
+            installation_id = active[0]["installationId"]
+        if type(installation_id) is not int or installation_id <= 0:
+            raise CictError("Invalid installation ID")
+        if ref is None:
+            ref = self.dispatch_branches(namespace, installation_id=installation_id, repository=repository)["defaultBranch"]
+        ref = _text(ref, _REF, "ref")
+        if ".." in ref or ref.endswith("/") or ref.endswith(".lock"):
+            raise CictError("Invalid ref")
+        request_id = _text(request_id or "py-" + uuid.uuid4().hex, _REQUEST, "request ID")
+        body = {"installationId": installation_id, "repository": repository, "workflow": workflow, "ref": ref,
+                "inputs": values, "requestId": request_id}
+        return self._jobs._request("POST", self._jobs._ns(namespace) + "/cict/dispatches", body=body)["dispatch"]
+
+    def dispatches(self, namespace, *, limit=None):
+        """Workflow runs asked for from DreamLake, newest first (``limit`` 1-100, default 20)."""
+        if limit is not None and (type(limit) is not int or not 1 <= limit <= 100):
+            raise CictError("limit must be between 1 and 100")
+        query = {} if limit is None else {"limit": limit}
+        path = self._jobs._ns(namespace) + "/cict/dispatches" + ("?" + urlencode(query) if query else "")
+        return self._jobs._request("GET", path)["dispatches"]
+
+    def dispatch_branches(self, namespace, *, installation_id, repository):
+        """A repository's ``defaultBranch`` and ``branches`` (``None`` when the App may not list them)."""
+        if type(installation_id) is not int or installation_id <= 0:
+            raise CictError("Invalid installation ID")
+        query = urlencode({"installationId": installation_id, "repository": _text(repository, _REPOSITORY, "repository (owner/repo)")})
+        return self._jobs._request("GET", self._jobs._ns(namespace) + "/cict/dispatch/branches?" + query)
 
     def jobs(self, namespace, *, limit=None):
         """Raw recorded GitHub job events, including jobs that matched no pool."""

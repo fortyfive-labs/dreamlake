@@ -188,3 +188,41 @@ def test_usage_detail_onboarding_and_admin_providers():
         with pytest.raises(CictError):
             call()
     assert len(seen) == before
+
+
+def test_dispatch_runs_a_workflow_through_the_one_installation():
+    seen = []
+
+    def handler(req):
+        seen.append(req)
+        path = req.url.path
+        if path.endswith("/github/installations"):
+            return httpx.Response(200, json={"installations": [
+                {"installationId": 91, "state": "active"}, {"installationId": 92, "state": "suspended"}]})
+        if path.endswith("/cict/dispatch/branches"):
+            assert req.url.params["repository"] == "acme/sim" and req.url.params["installationId"] == "91"
+            return httpx.Response(200, json={"defaultBranch": "main", "branches": ["main"]})
+        if path.endswith("/cict/dispatches") and req.method == "POST":
+            body = json.loads(req.content)
+            return httpx.Response(201, json={"dispatch": {**body, "state": "dispatched", "workflowRunId": 9001}})
+        if path.endswith("/cict/dispatches"):
+            return httpx.Response(200, json={"dispatches": []})
+        return httpx.Response(404, json={"code": "not_found"})
+
+    cict = make(handler)
+    d = cict.dispatch("team", repository="acme/sim", workflow="cict.yml", inputs={"sim_seconds": "120"})
+    assert d["state"] == "dispatched"
+    body = json.loads(seen[-1].content)
+    assert {k: body[k] for k in ("installationId", "repository", "workflow", "ref", "inputs")} == {
+        "installationId": 91, "repository": "acme/sim", "workflow": "cict.yml", "ref": "main", "inputs": {"sim_seconds": "120"}}
+    assert body["requestId"].startswith("py-")
+    assert cict.dispatches("team", limit=5) == []
+    assert seen[-1].url.params["limit"] == "5"
+
+    count = len(seen)
+    for bad in (dict(repository="acme"), dict(workflow="x.json"), dict(ref="a..b"), dict(ref="main.lock"), dict(inputs={"bad name": "x"}),
+                dict(inputs={"n": 1}), dict(installation_id=0)):
+        args = dict(repository="acme/sim", workflow="cict.yml", ref="main", installation_id=91) | bad
+        with pytest.raises(CictError):
+            cict.dispatch("team", **args)
+    assert len(seen) == count, "malformed input is refused before any request"
