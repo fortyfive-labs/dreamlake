@@ -352,7 +352,7 @@ class Cict:
         if ref is None:
             ref = self.dispatch_branches(namespace, installation_id=installation_id, repository=repository)["defaultBranch"]
         ref = _text(ref, _REF, "ref")
-        if ".." in ref or ref.endswith("/"):
+        if ".." in ref or ref.endswith("/") or ref.endswith(".lock"):
             raise CictError("Invalid ref")
         request_id = _text(request_id or "py-" + uuid.uuid4().hex, _REQUEST, "request ID")
         body = {"installationId": installation_id, "repository": repository, "workflow": workflow, "ref": ref,

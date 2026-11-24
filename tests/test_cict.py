@@ -220,7 +220,7 @@ def test_dispatch_runs_a_workflow_through_the_one_installation():
     assert seen[-1].url.params["limit"] == "5"
 
     count = len(seen)
-    for bad in (dict(repository="acme"), dict(workflow="x.json"), dict(ref="a..b"), dict(inputs={"bad name": "x"}),
+    for bad in (dict(repository="acme"), dict(workflow="x.json"), dict(ref="a..b"), dict(ref="main.lock"), dict(inputs={"bad name": "x"}),
                 dict(inputs={"n": 1}), dict(installation_id=0)):
         args = dict(repository="acme/sim", workflow="cict.yml", ref="main", installation_id=91) | bad
         with pytest.raises(CictError):
