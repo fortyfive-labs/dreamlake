@@ -31,3 +31,12 @@ historical slugs are reserved for it. Integrations should retain stable IDs.
 An unsupported server fails before writing. After a timeout or
 `PROJECT_UPDATE_UNCONFIRMED`, inspect the project ID before deciding whether to
 retry. The returned `slug` is the canonical address.
+
+## Unlisted showcases
+
+With a server supporting unlisted Projects, pass `visibility="unlisted"` to
+`client.projects.create(namespace="acme", name="Product demo", visibility="unlisted")`.
+Anyone with the direct Project link can view its permitted content, without the
+Project appearing in public profiles or namespace discovery. Mounted resources
+retain their own access. Change visibility back to `private` to revoke link-only
+access. Restricted Projects must stay private.

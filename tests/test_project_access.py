@@ -242,3 +242,22 @@ def test_non_json_success_is_unknown_creation_not_a_safe_to_retry_failure():
         client_for(serve).projects.create(namespace="acme", name="Secret", access_mode="restricted")
     assert caught.value.outcome == "unknown" and caught.value.project_id is None
     assert [r.method for r in calls] == ["GET", "POST"]
+
+
+def test_unlisted_create_and_access_round_trip_without_restricted_fallback():
+    requests = []
+
+    def serve(request):
+        requests.append(request)
+        if request.method == "POST":
+            return httpx.Response(201, json={"id": PROJECT, "slug": "demo", "visibility": "unlisted", "accessMode": "workspace"})
+        return httpx.Response(200, json={**policy(visibility="unlisted"), "baseline": {"orgMembers": "READ", "namespaceOwners": "ADMIN", "public": "READ"}})
+
+    projects = client_for(serve).projects
+    assert projects.create(namespace="acme", name="Demo", visibility="unlisted")["visibility"] == "unlisted"
+    assert projects.set_access(namespace="acme", project=PROJECT, access_mode="workspace", visibility="unlisted")["visibility"] == "unlisted"
+    with pytest.raises(ValueError, match="must be private"):
+        projects.create(namespace="acme", name="Wrong", access_mode="restricted", visibility="unlisted")
+    with pytest.raises(ValueError, match="must be private"):
+        projects.set_access(namespace="acme", project=PROJECT, access_mode="restricted", visibility="unlisted")
+    assert len(requests) == 2
