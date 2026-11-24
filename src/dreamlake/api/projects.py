@@ -124,7 +124,7 @@ class Projects:
             and isinstance(value.get("projectSlug"), str)
             and bool(value["projectSlug"])
             and value.get("accessMode") in ("workspace", "restricted")
-            and value.get("visibility") in ("private", "public")
+            and value.get("visibility") in ("private", "unlisted", "public")
             and value.get("viewerRole") in ("READ", "WRITE", "ADMIN")
             and isinstance(value.get("manageGrants"), bool)
             and value["manageGrants"] == (value["viewerRole"] == "ADMIN")
@@ -164,17 +164,17 @@ class Projects:
 
         Restricted mode excludes workspace-member and public baseline access;
         explicit user/team grants and namespace-owner authority remain. Turning
-        a public Project restricted requires explicit ``visibility="private"``
+        a public or unlisted Project restricted requires explicit ``visibility="private"``
         in the same call. Independent resource shares are unchanged. No local
         role/permission inference and no automatic mutation retry are used.
         """
         self._access_target(namespace, project)
         if access_mode not in ("workspace", "restricted"):
             raise ValueError("access_mode must be workspace or restricted")
-        if visibility is not None and visibility not in ("private", "public"):
-            raise ValueError("visibility must be private or public")
-        if access_mode == "restricted" and visibility == "public":
-            raise ValueError("A restricted Project cannot be public")
+        if visibility is not None and visibility not in ("private", "unlisted", "public"):
+            raise ValueError("visibility must be private, unlisted or public")
+        if access_mode == "restricted" and visibility is not None and visibility != "private":
+            raise ValueError("A restricted Project must be private")
         payload = {"accessMode": access_mode}
         if visibility is not None:
             payload["visibility"] = visibility
@@ -196,10 +196,10 @@ class Projects:
             raise ValueError("description must be a string")
         if access_mode not in ("workspace", "restricted"):
             raise ValueError("access_mode must be workspace or restricted")
-        if visibility not in ("private", "public"):
-            raise ValueError("visibility must be private or public")
-        if access_mode == "restricted" and visibility == "public":
-            raise ValueError("A restricted Project cannot be public")
+        if visibility not in ("private", "unlisted", "public"):
+            raise ValueError("visibility must be private, unlisted or public")
+        if access_mode == "restricted" and visibility is not None and visibility != "private":
+            raise ValueError("A restricted Project must be private")
         path = "/namespaces/" + quote(namespace, safe="") + "/projects"
         if access_mode == "restricted":
             catalog = self._request_path(path, params={"pageSize": 1})

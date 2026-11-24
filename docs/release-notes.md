@@ -1,5 +1,11 @@
 # Release notes
 
+## 0.58.2 — Unlisted Projects
+
+Create and manage unlisted Project access policies for link-only sharing on a
+compatible server. Restricted Projects continue to require private visibility.
+
+
 ## Unreleased — Run a CI/CT workflow from DreamLake
 
 `client.cict.dispatch(ns, repository=..., workflow=..., ref=..., inputs=...)`
