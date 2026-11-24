@@ -171,11 +171,11 @@ def test_every_edit_returns_a_string_equal_to_the_draft():
 
 def test_saving_is_separate_from_editing():
     doc = doc_of("Draft\n")
-    note = doc._note
+    memo = doc._note
     doc.replace("Published", query="Draft")
-    assert note.writes == []
+    assert memo.writes == []
     doc.save()
-    assert note.writes == ["Published\n"]
+    assert memo.writes == ["Published\n"]
 
 
 # ── The conditional verification read ────────────────────────────────────────
@@ -187,8 +187,8 @@ def test_saving_is_separate_from_editing():
 # a different snapshot."
 
 def test_read_if_match_returns_the_named_revision():
-    note = _FakeReadNote("body", "rev-7")
-    doc = note.read(if_match="rev-7")
+    memo = _FakeReadNote("body", "rev-7")
+    doc = memo.read(if_match="rev-7")
     assert doc.text == "body"
     assert doc.etag == "rev-7"
 
@@ -199,24 +199,24 @@ def test_read_if_match_refuses_a_note_that_has_since_moved():
     # document.
     from dreamlake.api.notes import NoteChanged
 
-    note = _FakeReadNote("someone else's body", "rev-9")
+    memo = _FakeReadNote("someone else's body", "rev-9")
     with pytest.raises(NoteChanged) as exc:
-        note.read(if_match="rev-7")
+        memo.read(if_match="rev-7")
     assert "rev-7" in str(exc.value)
     assert exc.value.etag == "rev-9"
 
 
 def test_read_without_if_match_is_unconditional():
     # The plain read must keep working; the guard is opt-in.
-    note = _FakeReadNote("body", "rev-9")
-    assert note.read(legacy=True).etag == "rev-9"
+    memo = _FakeReadNote("body", "rev-9")
+    assert memo.read(legacy=True).etag == "rev-9"
 
 
 def test_a_snapshot_says_whether_it_is_the_whole_note():
     # The recipe opens with `if snapshot.truncated: raise`. It has to be
     # something you can write, and it has to be false for a whole read.
-    note = _FakeReadNote("body", "rev-1")
-    assert note.read(legacy=True).truncated is False
+    memo = _FakeReadNote("body", "rev-1")
+    assert memo.read(legacy=True).truncated is False
 
 
 def test_patch_result_carries_the_revision_and_still_equals_it():

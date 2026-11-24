@@ -101,14 +101,12 @@ def test_errors_and_refusals():
     assert len(seen) == before
 
 
-def test_comparison_pool_edits_platform_usage_and_admin():
+def test_pool_edits_platform_usage_and_admin():
     seen = []
 
     def handler(req):
         seen.append(req)
         path = req.url.path
-        if path.endswith("/comparison"):
-            return httpx.Response(200, json={"comparison": {"regressions": 1, "baseline": {"branch": "main"}, "cases": []}})
         if path.endswith("/runner-targets"):
             return httpx.Response(200, json={"targets": [{"id": PROVIDER, "usable": True, "reason": None}]})
         if req.method == "PATCH":
@@ -120,8 +118,8 @@ def test_comparison_pool_edits_platform_usage_and_admin():
         return httpx.Response(200, json={"ok": True})
 
     cict = make(handler)
-    assert cict.runs.comparison("team", "91-4881")["regressions"] == 1
-    assert seen[-1].url.path == "/namespaces/team/cict/runs/91-4881/comparison"
+    # Baseline comparisons were removed with the server's.
+    assert not hasattr(cict.runs, "comparison")
 
     cict.pools.update("team", POOL, provider_id=PROVIDER, no_evidence=True, env=None)
     assert json.loads(seen[-1].content) == {"target": {"kind": "slurm", "providerId": PROVIDER}, "evidence": None, "env": None}
@@ -153,8 +151,78 @@ def test_comparison_pool_edits_platform_usage_and_admin():
         lambda: cict.usage("team", month="26-11"),
         lambda: cict.admin.set_namespace("robotics", state="active"),
         lambda: cict.admin.put_machine("gpu", color="red"),
-        lambda: cict.runs.comparison("team", "../x"),
     ]:
         with pytest.raises(CictError):
             call()
     assert len(seen) == before
+
+
+def test_usage_detail_onboarding_and_admin_providers():
+    seen = []
+
+    def handler(req):
+        seen.append(req)
+        path = req.url.path
+        if path.endswith("/cict/onboarding"):
+            return httpx.Response(200, json={"ready": False, "route": "dreamlake-gpu", "next": {"key": "platform-started", "how": {"cli": "dl cict platform start team"}}})
+        if path.endswith("/admin/providers"):
+            return httpx.Response(200, json={"providers": [{"id": PROVIDER, "usable": True, "spec": {"gpus": 1}}]})
+        return httpx.Response(200, json={"ok": True})
+
+    cict = make(handler)
+    cict.usage("team", month="2026-11", sender="ada", limit=5)
+    assert dict(seen[-1].url.params) == {"month": "2026-11", "sender": "ada", "limit": "5"}
+    status = cict.onboarding("team")
+    assert (seen[-1].url.path, status["next"]["key"]) == ("/namespaces/team/cict/onboarding", "platform-started")
+    assert cict.admin.providers()[0]["spec"] == {"gpus": 1}
+    cict.admin.overview(month="2026-10")
+    assert (seen[-1].url.path, dict(seen[-1].url.params)) == ("/cict/platform/admin", {"month": "2026-10"})
+
+    before = len(seen)
+    for call in [
+        lambda: cict.usage("team", limit=0),
+        lambda: cict.usage("team", sender="bad login!"),
+        lambda: cict.admin.overview(month="2026-13"),
+        lambda: cict.admin.put_machine("gpu", spec={"gpus": 1}),
+    ]:
+        with pytest.raises(CictError):
+            call()
+    assert len(seen) == before
+
+
+def test_dispatch_runs_a_workflow_through_the_one_installation():
+    seen = []
+
+    def handler(req):
+        seen.append(req)
+        path = req.url.path
+        if path.endswith("/github/installations"):
+            return httpx.Response(200, json={"installations": [
+                {"installationId": 91, "state": "active"}, {"installationId": 92, "state": "suspended"}]})
+        if path.endswith("/cict/dispatch/branches"):
+            assert req.url.params["repository"] == "acme/sim" and req.url.params["installationId"] == "91"
+            return httpx.Response(200, json={"defaultBranch": "main", "branches": ["main"]})
+        if path.endswith("/cict/dispatches") and req.method == "POST":
+            body = json.loads(req.content)
+            return httpx.Response(201, json={"dispatch": {**body, "state": "dispatched", "workflowRunId": 9001}})
+        if path.endswith("/cict/dispatches"):
+            return httpx.Response(200, json={"dispatches": []})
+        return httpx.Response(404, json={"code": "not_found"})
+
+    cict = make(handler)
+    d = cict.dispatch("team", repository="acme/sim", workflow="cict.yml", inputs={"sim_seconds": "120"})
+    assert d["state"] == "dispatched"
+    body = json.loads(seen[-1].content)
+    assert {k: body[k] for k in ("installationId", "repository", "workflow", "ref", "inputs")} == {
+        "installationId": 91, "repository": "acme/sim", "workflow": "cict.yml", "ref": "main", "inputs": {"sim_seconds": "120"}}
+    assert body["requestId"].startswith("py-")
+    assert cict.dispatches("team", limit=5) == []
+    assert seen[-1].url.params["limit"] == "5"
+
+    count = len(seen)
+    for bad in (dict(repository="acme"), dict(workflow="x.json"), dict(ref="a..b"), dict(ref="main.lock"), dict(inputs={"bad name": "x"}),
+                dict(inputs={"n": 1}), dict(installation_id=0)):
+        args = dict(repository="acme/sim", workflow="cict.yml", ref="main", installation_id=91) | bad
+        with pytest.raises(CictError):
+            cict.dispatch("team", **args)
+    assert len(seen) == count, "malformed input is refused before any request"

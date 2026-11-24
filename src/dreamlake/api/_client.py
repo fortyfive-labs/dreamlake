@@ -113,10 +113,28 @@ class DreamLakeClient:
         return Libraries(self)
 
     @property
+    def folders(self):
+        """Ordinary folder visibility by stable Node ID."""
+        from .folder_visibility import FolderVisibility
+        return FolderVisibility(self)
+
+    @property
+    def bindrs(self):
+        """Bindr visibility by stable Bindr ID; members retain independent access."""
+        from .folder_visibility import FolderVisibility
+        return FolderVisibility(self, "bindr")
+
+    @property
     def sources(self):
         """Source management, access and terminal deletion under server authority."""
         from .sources import Sources
         return Sources(self)
+
+    @property
+    def connections(self):
+        """Connections: credentials DreamLake holds to reach external systems (managers only)."""
+        from .connections import Connections
+        return Connections(self)
 
     @property
     def annotations(self):
@@ -183,6 +201,12 @@ class DreamLakeClient:
         """Read Codex/Claude registry metadata without starting or attaching."""
         from .sessions import Sessions
         return Sessions(self)
+
+    @property
+    def tmux(self):
+        """Named tmux references, explicit creation and attach-only gateway tickets."""
+        from .tmux import Tmux
+        return Tmux(self)
 
     @property
     def hosts(self):
@@ -305,6 +329,23 @@ class DreamLakeClient:
         """Deprecated — use register_node() instead."""
         return self.register_node(body)
 
+    def resolve_namespace(self, namespace: str | None = None, *, scope: str = "auto", cwd=None) -> str:
+        """Explicit namespace > local .dreamrc > saved global default > personal."""
+        if namespace is not None:
+            return namespace
+        from dreamlake.auth.namespace_config import namespace_config
+        local = namespace_config(scope=scope, cwd=cwd)
+        if local.namespace:
+            return local.namespace
+        from dreamlake.auth.profiles import bound_namespace
+        selected = bound_namespace(self._token or "", self.dl_url)
+        if selected:
+            return selected
+        personal = (self.get_auth_me().get("namespace") or {}).get("slug")
+        if not personal:
+            raise RuntimeError("Server returned no personal namespace; pass a namespace explicitly.")
+        return personal
+
     def get_auth_me(self) -> dict:
         with self.http() as http:
             r = http.get(f"/auth/me", timeout=10)
@@ -413,14 +454,19 @@ class DreamLakeClient:
     def create_bindr(self, namespace: str, project: str, name: str,
                      members: list[str | dict] | None = None,
                      description: str | None = None,
-                     tags: list[str] | None = None) -> dict:
+                     tags: list[str] | None = None, *, visibility: str | None = None) -> dict:
         """Create a Bindr and file nodes, returning its flat view and members.
 
         Creation and the first filing are atomic. Later filings are sequential;
         BindrMembershipError exposes confirmed progress if a later filing fails.
         """
+        if visibility is not None:
+            from .folder_visibility import _visibility
+            _visibility(visibility)
         node_ids = _bindr_node_ids(members or [])
         body: dict = {"name": name}
+        if visibility is not None:
+            body["visibility"] = visibility
         if node_ids:
             body["member"] = {"nodeId": node_ids[0]}
         if description is not None:
@@ -434,6 +480,9 @@ class DreamLakeClient:
             )
         r.raise_for_status()
         bindr = r.json()["bindr"]
+        if visibility is not None and bindr.get("visibility") != visibility:
+            from .folder_visibility import VisibilityWriteUnconfirmed
+            raise VisibilityWriteUnconfirmed("Bindr creation visibility was not confirmed; inspect the created Bindr before retrying")
         self._file_bindr_nodes(bindr["id"], node_ids[1:], completed=node_ids[:1])
         return {**bindr, "memberCount": len(node_ids),
                 "members": [{"nodeId": node_id} for node_id in node_ids]}

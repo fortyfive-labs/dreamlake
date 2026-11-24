@@ -33,8 +33,12 @@ Python SDK for ML experiment tracking and data storage.
    files
    cli
    api-client
+   authentication
    sessions
+   tmux
+   viewer
    hosts
+   connections
    memos
    notes-diffs
    note-archive

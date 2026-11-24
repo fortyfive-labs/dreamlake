@@ -439,7 +439,9 @@ class TestSessionToken:
     """get_token / get_token_or_none precedence."""
 
     @pytest.fixture(autouse=True)
-    def _isolate(self, monkeypatch):
+    def _isolate(self, monkeypatch, tmp_path):
+        from dreamlake.config import Config
+        monkeypatch.setattr("dreamlake.config.config", Config(tmp_path))
         # Never let the developer's real env/keyring leak into these tests.
         monkeypatch.delenv("DREAMLAKE_API_KEY", raising=False)
         _session._namespace_cache.clear()

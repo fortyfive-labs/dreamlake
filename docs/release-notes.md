@@ -1,11 +1,129 @@
 # Release notes
 
-## 0.53.0
+## Unreleased — Run a CI/CT workflow from DreamLake
 
-- Stream generated Memo additions with `MemoHandle.stream_insert`, using the server's acknowledged cursor/revision after each bounded chunk.
-- Default whole-body `write` and `patch` to RTC merge; explicit exact remains supported.
-- Preserve interruption and command-replay evidence, including insertion continuation. Requires a server that returns continuation to advance beyond the first chunk.
+`client.cict.dispatch(ns, repository=..., workflow=..., ref=..., inputs=...)`
+runs a workflow through the namespace's GitHub App installation;
+`dispatches(ns)` lists what was run and `dispatch_branches(...)` a repository's
+branches. Needs a server with manual dispatch.
 
+## 0.58.1 — 3D Preview references
+
+- `dreamlake.api.viewer`: `parse_viewer_ref`, `format_viewer_ref`,
+  `viewer_directive`, `viewer_href` and `viewer_layout_request` for
+  `:viewer[...]` references (bundle entry, library asset, scene version).
+  See [3D Preview references](viewer.md).
+
+## 0.58.0 — Repository namespace defaults
+
+Python and the DreamLake CLI share a top-level `namespace` in the nearest
+repository `.dreamrc`. Namespace APIs accept `scope="auto"`, `"local"`, or
+`"global"` and an optional `cwd`. Status reports the effective source separately
+from the saved profile default. Local setters verify membership and update the
+YAML file while preserving unrelated values, comments, and inert custom tags.
+Credentials remain global. See [Authentication](authentication.md).
+
+## 0.57.1 — Quiet credential removal
+
+Logging out no longer prints a misleading plaintext-storage warning. The legacy
+plaintext backend still warns when it actually stores credentials; opening,
+reading, and deleting credentials stay quiet. Status explicitly distinguishes
+local credentials from server verification and identifies effective overrides.
+Implicit token resolution uses the active projection, never an inactive cached
+profile token. Removing an active profile restores the next saved profile;
+removing the last clears the connection and preserves unrelated settings.
+
+## 0.57.0 — Authentication profiles and namespace defaults
+
+`dreamlake.auth.Auth` manages shared CLI/SDK login, status, profiles, switching,
+refresh, token access, logout, and membership-verified namespace defaults.
+Implicit SDK paths use the selected default when its server and token binding
+match; explicit namespaces and personal account identity remain separate.
+See [Authentication](authentication.md).
+
+## Unreleased — CI/CT without baseline comparisons
+
+`client.cict.runs.comparison` was removed: CI/CT no longer compares a run with
+a default-branch baseline (the server answers `410 comparison_removed`).
+`runs.result(ns, run_id, file=...)` reads any JSON file the run declared as
+evidence; `file` still defaults to `result.json`.
+
+## 0.56.2 — Memo local binding cleanup
+
+- Complete internal Memo naming in nested Python scopes and Project transfer validation.
+- Preserve legacy aliases, keyword arguments, receipt fields and transport keys.
+
+## 0.56.1 — Memo naming and named tmux terminals
+
+Memo implementation locals and public docstrings use canonical Memo terminology.
+Existing Note imports, methods, keyword arguments, payload keys and wire routes
+remain compatible.
+
+### Named tmux terminals
+
+`client.tmux.create`, `operation`, `resolve`, `list` and `attach_ticket` expose
+the same named-terminal contract as `dl tmux new NAME --host HOST` and the
+command palette. New sessions use caller-persisted request UUIDs; existing names
+conflict, and attachment never creates a missing session. References bind the
+exact enrollment, server and session name. Requires the compatible backend,
+terminal gateway and enrolled Nymph. See [Named tmux sessions](tmux.md).
+
+## 0.56.0 — Team host grants and Hosts in Projects
+
+`client.hosts.grant_access(ns, host_id, enrollment_id=..., team=...)` shares one
+enrollment with a team's current and future direct members; pass exactly one of
+`grantee` or `team` (existing `grantee=` calls are unchanged).
+`access_grants` returns `grants`, `teamGrants` and the organization's `teams`,
+and raises `HostError` with code `host_team_grants_unsupported` on a server
+without team grants instead of reporting none. `revoke_access` reports
+`stillAuthorizedConnections`, sessions kept open by another current grant.
+`client.projects.attach(ns, project, "host", host_id)` files a Host in a
+Project as placement only; it grants no connection access. Requires a server
+with team Host grants and Host placement. See [Host enrollment](hosts.md) and
+[Hosts in Projects](api/projects.md#hosts-in-projects).
+
+## 0.55.0 — Whole-agent releases
+
+`client.runnables.definition_versions`, `definition_version`,
+`publish_definition` and `activate_definition` manage immutable snapshots of
+the complete agent definition, including its README template and prompt.
+Publication and activation require the reviewed `updatedAt`; activation keeps
+the working draft. Frozen source reads check current memo permissions, and
+write requests are never automatically retried. Requires the definition-version
+backend. See [Whole-agent releases](api/runnables.md#whole-agent-releases).
+
+## 0.54.0 — Host connection grants
+
+`client.hosts.access_grants(ns, host_id)`, `grant_access(ns, host_id,
+enrollment_id=..., grantee=...)` and `revoke_access(ns, host_id, grant_id)` let
+a Host owner share one enrollment's Unix account with one organization member,
+list grants and revoke them. Revocation reports confirmed closes separately from
+connections still pending close (`unconfirmedConnections`, `unconfirmedUntil`);
+revoked grants with pending connections stay listed. `HostError.code` exposes the
+server's error code. Requires a server with Host access grants. See
+[Host enrollment](hosts.md).
+
+## 0.53.0 — CI/CT onboarding status and usage detail
+
+`client.cict.onboarding(ns)` reports where a namespace stands on CI/CT
+(GitHub, DreamLake GPU, the own-machine steps) and the next step with UI, CLI
+and API hints, so an agent can set a namespace up step by step.
+`client.cict.usage` adds `sender` and `limit` and returns GPU time by the
+GitHub user who triggered each job and the jobs themselves.
+`client.cict.platform.status` includes the evidence `authorizer`.
+`client.cict.admin.providers()` lists the platform's Slurm providers with what
+one job gets on each; `overview(month=...)` returns the platform total, and
+`put_machine` no longer takes `spec` (it is read from the launch layer). See
+[CI/CT with GitHub Actions](cict.md).
+
+## 0.52.3 — Source, Folder and Bindr visibility
+
+`client.sources.set_visibility`, `client.folders.set_visibility` and
+`client.bindrs.set_visibility` support Private, Unlisted and Public with
+observed-version guards. Unlisted resources remain readable by direct link
+and are excluded from public discovery. Folder and Bindr visibility can also
+inherit from their containing context. Independent resource permissions and
+private parent Projects remain protected. See [Client APIs](api-client.md).
 
 ## 0.52.2 — Project names and URL slugs
 

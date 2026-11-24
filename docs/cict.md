@@ -11,6 +11,22 @@ The same operations are available as `dl cict` in the CLI and as
 The server must have the GitHub runner integration enabled; otherwise every call
 raises `CictNotFound` with code `github_runners_disabled`.
 
+## Where a namespace stands
+
+```python
+status = client.cict.onboarding("team")
+status["ready"], status["route"]          # True/False, "dreamlake-gpu" or "own-machines"
+status["next"]                            # {"key", "title", "how": {"ui", "cli", "api", "human"}}
+status["workflow"]                        # once ready: the runs-on line and the evidence contract
+```
+
+Each of `status["github"]`, `status["platform"]` and `status["ownMachines"]`
+(enroll the login node, service account, Slurm provider, association, launch
+layer, runner pool) says whether it is `done`. An agent can repeat this call
+and do `next` until `ready`. Only installing the GitHub App needs a person in a
+browser; enrolling a login node needs SSH and binding its service account a
+namespace owner. Added in 0.53.0.
+
 ## Connect GitHub
 
 ```python
@@ -49,24 +65,35 @@ for run in client.cict.runs.list("team", limit=20):
     print(run["id"], run["status"], run["conclusion"], run["routing"]["kind"])
 
 run = client.cict.runs.get("team", "91234567-48812345678")
-result = client.cict.runs.result("team", run["id"])  # result.json, or None
+metrics = client.cict.runs.result("team", run["id"], file="metrics.json")  # or None
 ```
 
-A run ID is `<installationId>-<jobId>`. `runs.result` reads a JSON evidence file
-(`file="metrics.json"` for another) through a short-lived Source read
+A run ID is `<installationId>-<jobId>`. `runs.result` reads one JSON file the
+run declared as evidence (`file=`, relative to its evidence folder; it defaults
+to `result.json` for existing callers) through a short-lived Source read
 capability; it returns `None` when the run has no evidence location or did not
 write the file. `client.cict.jobs("team")` lists the raw recorded GitHub jobs.
 
-## Compare with the baseline
+## Run a workflow from DreamLake
 
 ```python
-c = client.cict.runs.comparison("team", run["id"])   # None until evidence is written
-if c and c["baseline"]:
-    print(c["regressions"], "regressed vs", c["baseline"]["branch"])
-    for case in c["cases"]:
-        if case["change"] != "unchanged":
-            print(case["change"], case["id"], case.get("score"))
+d = client.cict.dispatch("team", repository="acme/sim", workflow="cict.yml",
+                         ref="isaac-sim", inputs={"sim_seconds": "120"})
+print(d["state"], d.get("workflowRunUrl"))     # dispatched | failed | unknown
+client.cict.dispatches("team", limit=10)
 ```
+
+`dispatch` sends GitHub's `workflow_dispatch` through the namespace's GitHub
+App installation (needs `lakeshore:use`); the workflow must declare
+`workflow_dispatch:` and each input. `ref` defaults to the default branch and
+`installation_id` to the one active installation. `failed` carries GitHub's
+reason in `message`; `unknown` means the answer was lost, so check the
+repository's Actions page before running it again. Runs started this way carry
+`dispatchedBy`.
+
+CI/CT does not compare runs with a baseline or read a result format: a job's
+own steps decide whether it passes. `runs.comparison` was removed; the server
+answers `410 comparison_removed`.
 
 ## Edit pools
 
@@ -85,13 +112,22 @@ raises `CictError` with code `runner_pool_busy`.
 status = client.cict.platform.status("team")      # catalog, access, limit, occupancy, month GPU time
 client.cict.platform.start("team")                 # creates cict-evidence; you authorize evidence writes
 client.cict.platform.set_source("team", "1123456789abcdef01234567")
-client.cict.usage("team", month="2026-11")         # GPU time by repository and workflow
+usage = client.cict.usage("team", month="2026-11")  # totals, byWorkflow, bySender, runs
+client.cict.usage("team", sender="ada", limit=50)    # one person's jobs, newest first
 ```
+
+`status["authorizer"]` names who authorizes evidence writes and whether they
+still can (`writable`). While it is false, jobs wait in the queue; a namespace
+admin calls `set_source` with the current Source to become the authorizer.
 
 Workflows then use a label from `status["machines"]`, such as
 `runs-on: dreamlake-gpu-rtx5090`. Admins of the platform namespace manage it
-with `client.cict.admin`: `overview()`, `set_namespace(slug, state="allowed",
-max_concurrent=2)` and `put_machine(id, label=..., provider_id=..., enabled=True)`.
+with `client.cict.admin`: `overview(month=...)` (namespaces, machine types and
+the month's platform total), `providers()` (Slurm providers in the platform
+namespace and what one job gets on each), `set_namespace(slug,
+state="allowed", max_concurrent=2)` and `put_machine(id, label=...,
+provider_id=..., enabled=True)`. A machine type's spec (GPUs, CPUs, memory,
+time limit) is read from the provider's launch layer, not passed in.
 
 Errors are `CictError` (and `CictNotFound` for HTTP 404) from
 `dreamlake.api.cict`, with `status` and the server's `code` when recognized.

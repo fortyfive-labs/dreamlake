@@ -253,7 +253,7 @@ class Projects:
         return self._request(namespace, project, "DELETE", "/grants/" + quote(grant_id, safe=""))
 
     def _attachment(self, namespace, project, resource_type, resource_id, *, detach):
-        if resource_type not in {"note", "artifact", "annotation", "workflow", "env", "source", "runnable"}:
+        if resource_type not in {"note", "artifact", "annotation", "workflow", "env", "source", "runnable", "host"}:
             raise ValueError("Unsupported resource type")
         if not re.fullmatch(r"[a-fA-F0-9]{24}", resource_id):
             raise ValueError("A resource database ID is required")
@@ -264,11 +264,23 @@ class Projects:
                              {"resourceType": resource_type, "resourceId": resource_id})
 
     def attach(self, namespace, project, resource_type, resource_id):
-        """Requires Project create and the resource's sharing-management authority."""
+        """Requires Project create and the resource's sharing-management authority.
+
+        ``"host"`` files a Host by its Host ID: the caller must be the exact Host
+        owner with Project WRITE in the same namespace. A filed Host is a
+        placement only: organization-member readers of the Project see its
+        name and owner, never terminal/SSH or any other Host access. Connection
+        access stays with ``client.hosts.grant_access``. Idempotent; the
+        returned ``nodeId`` can be tagged into a bindr.
+        """
         return self._attachment(namespace, project, resource_type, resource_id, detach=False)
 
     def detach(self, namespace, project, resource_type, resource_id):
-        """Removes only access inherited through this attachment, not other grants."""
+        """Removes only access inherited through this attachment, not other grants.
+
+        For ``"host"``, Project content-delete or the Host owner may unfile; the
+        node's bindr tags go with it and the Host and its grants are unchanged.
+        """
         return self._attachment(namespace, project, resource_type, resource_id, detach=True)
 
     def transfer_plan(self, namespace, project):

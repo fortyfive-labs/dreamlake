@@ -12,6 +12,28 @@ def client_with(handler):
                            transport=httpx.MockTransport(handler))
 
 
+def test_whole_definition_releases_preserve_cas_and_pinned_hash():
+    requests = []
+    def serve(request):
+        requests.append(request)
+        return httpx.Response(200, json={"version": "a" * 64})
+    api = client_with(serve).runnables
+    stamp = "2026-11-16T12:00:00.000Z"
+    api.definition_versions("team", "agents/research", page=2, page_size=10)
+    api.definition_version("team", "agents/research", "a" * 64)
+    api.publish_definition("team", "agents/research", expected_updated_at=stamp, label="v1")
+    api.activate_definition("team", "agents/research", "a" * 64, expected_updated_at=stamp)
+    assert dict(requests[0].url.params) == {"page": "2", "pageSize": "10"}
+    assert requests[1].url.raw_path == b"/namespaces/team/runnables/agents%2Fresearch/definition-versions/" + b"a" * 64
+    assert json.loads(requests[2].content) == {"expectedUpdatedAt": stamp, "label": "v1"}
+    assert json.loads(requests[3].content) == {"expectedUpdatedAt": stamp}
+    assert requests[3].url.path.endswith("/" + "a" * 64 + "/activate")
+    assert [r.method for r in requests] == ["GET", "GET", "POST", "POST"]
+    with pytest.raises(ValueError):
+        api.definition_version("team", "agent", "latest")
+    assert len(requests) == 4
+
+
 def test_inline_and_note_backed_agents_use_caller_identity_and_atomic_project_payloads():
     requests = []
 
@@ -140,10 +162,23 @@ def test_published_examples_execute_through_the_client_contract(monkeypatch):
     import dreamlake
 
     saved = {}
+    releases = {}
     requests = []
 
     def serve(request):
         requests.append(request)
+        if "/definition-versions" in request.url.path:
+            prefix, suffix = request.url.path.split("/definition-versions")
+            item = saved[prefix.rsplit("/", 1)[1]]
+            if request.method == "POST":
+                payload = json.loads(request.content)
+                assert payload["expectedUpdatedAt"] == item["updatedAt"]
+                version = suffix.split("/")[1] if suffix else "a" * 64
+                if not suffix:
+                    releases[version] = {"version": version, "snapshot": dict(item), "label": payload.get("label")}
+                item["publishedDefinitionVersion"] = version
+                return httpx.Response(200, json={**releases[version], "publishedDefinitionVersion": version, "updatedAt": item["updatedAt"]})
+            return httpx.Response(200, json=releases[suffix[1:]] if suffix else {"versions": list(releases.values()), "totalPages": 1})
         if request.method == "POST":
             item = {"id": f"agent-{len(saved) + 1}", "archivedAt": None,
                     "updatedAt": "2026-11-03T10:00:00.000Z", **json.loads(request.content)}
@@ -166,7 +201,7 @@ def test_published_examples_execute_through_the_client_contract(monkeypatch):
         monkeypatch.setenv(key, "000000000000000000000001")
     document = Path(__file__).parents[1] / "docs/api/runnables.md"
     snippets = re.findall(r"```python\n(.*?)\n```", document.read_text(), re.DOTALL)
-    assert len(snippets) == 3
+    assert len(snippets) == 4
     scope = {}
     for snippet in snippets:
         exec(compile(snippet, str(document), "exec"), scope)

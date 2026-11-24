@@ -153,3 +153,9 @@ __all__ += ['Note', 'NoteRef', 'NoteSnapshot', 'NoteError', 'NoteNotFound', 'Not
 from .annotations import Annotations, AnnotationMetadataError
 
 __all__ += ["Annotations", "AnnotationMetadataError"]
+
+from .tmux import Tmux, TmuxError, TmuxReference, TmuxResolution, TmuxOperation, TmuxTicket, TmuxInventory, parse_tmux_reference, tmux_directive
+__all__ += ["Tmux", "TmuxError", "TmuxReference", "TmuxResolution", "TmuxOperation", "TmuxTicket", "TmuxInventory", "parse_tmux_reference", "tmux_directive"]
+
+from .viewer import PreviewRef, parse_viewer_ref, format_viewer_ref, viewer_directive, viewer_href, viewer_layout_request
+__all__ += ["PreviewRef", "parse_viewer_ref", "format_viewer_ref", "viewer_directive", "viewer_href", "viewer_layout_request"]

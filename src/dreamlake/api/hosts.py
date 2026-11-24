@@ -19,7 +19,7 @@ from collections.abc import Mapping
 from datetime import UTC, datetime
 from importlib.resources import files
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal, TypedDict
 from urllib.parse import quote, urlsplit
 
 import httpx
@@ -28,17 +28,81 @@ if TYPE_CHECKING:
     from ._client import DreamLakeClient
 
 
+# Response shapes of the owner-only connection-grant routes. Servers may add
+# fields; these name the ones the SDK verifies or documents.
+class HostGrantPerson(TypedDict):
+    id: str
+    username: str | None
+    name: str | None
+
+
+class HostGrantTeam(TypedDict):
+    id: str
+    slug: str
+    name: str | None
+
+
+class _HostGrantListing(TypedDict, total=False):
+    state: Literal["active", "revoked"]
+    pendingConnections: int  # revoked only: sessions not yet confirmed closed
+    pendingUntil: str        # revoked only: latest expiry of those sessions
+
+
+class HostUserGrant(_HostGrantListing):
+    id: str
+    hostId: str
+    enrollmentId: str
+    unixUser: str
+    machineId: str
+    grantee: HostGrantPerson
+    grantedAt: str
+
+
+class _HostTeamGrantFlags(_HostGrantListing, total=False):
+    # Optional on the wire; a total=False base keeps it optional at runtime too
+    # (NotRequired is not seen through postponed annotations in this module).
+    inactive: bool  # only present (True) when the team was deleted; listed while sessions are pending
+
+
+class HostTeamGrant(_HostTeamGrantFlags):
+    id: str
+    hostId: str
+    enrollmentId: str
+    unixUser: str
+    machineId: str
+    team: HostGrantTeam
+    grantedAt: str
+
+
+class HostAccessGrants(TypedDict):
+    grants: list[HostUserGrant]
+    teamGrants: list[HostTeamGrant]
+    teams: list[HostGrantTeam]  # the organization's live teams, for choosing a grantee
+
+
+class HostRevokeResult(TypedDict, total=False):
+    revoked: bool
+    id: str
+    closedConnections: int
+    unconfirmedConnections: int
+    unconfirmedUntil: str
+    # Sessions kept open because their user still holds another current grant
+    # on the enrollment (team-grant servers only).
+    stillAuthorizedConnections: int
+
+
 class HostError(Exception):
     """Sanitized host failure; status and request_id support explicit recovery."""
 
     def __init__(self, message: str, *, status: int | None = None,
                  request_id: str | None = None, operation_id: str | None = None,
-                 retry_at: str | None = None):
+                 retry_at: str | None = None, code: str | None = None):
         super().__init__(message)
         self.status = status
         self.request_id = request_id
         self.operation_id = operation_id
         self.retry_at = retry_at
+        self.code = code
 
 
 class HostConfigurationError(HostError, ValueError):
@@ -77,6 +141,10 @@ def _recovery(data: Any) -> dict:
             safe["retry_at"] = retry
         except ValueError:
             pass
+    # Server error codes are fixed snake_case identifiers, never request data.
+    code = data.get("code")
+    if isinstance(code, str) and re.fullmatch(r"[a-z][a-z0-9_]{0,63}", code):
+        safe["code"] = code
     return safe
 
 
@@ -326,7 +394,12 @@ class Hosts:
             raise HostError("Host move response could not be verified; reconcile before retrying", request_id=request_id)
 
     def move_preview(self, namespace: str, host_id: str, destination_namespace: str) -> dict:
-        """Preview a private, identity-preserving namespace move without changing the host."""
+        """Preview a private, identity-preserving namespace move without changing the host.
+
+        When the Host is filed in Projects, the preview includes
+        ``projectPlacements`` (``{"count", "policy": "unfile"}``); the move
+        removes those placements and their Bindr tags in the same transaction.
+        """
         path = self._move_path(namespace, host_id)
         if not isinstance(destination_namespace, str) or not _SEGMENT.fullmatch(destination_namespace):
             raise HostConfigurationError("destination_namespace must be an exact namespace slug")
@@ -367,6 +440,152 @@ class Hosts:
             datetime.fromisoformat(data["recordedAt"].replace("Z", "+00:00"))
         except ValueError:
             raise HostError("Host move receipt timestamp is invalid", request_id=request_id) from None
+        return data
+
+    # Connection grants: the exact Host owner shares one enrollment (one Unix
+    # account, with that account's existing OS permissions) with one member of
+    # the organization namespace, or with the live direct members of one team.
+    # No OS user is created and no Host management, metrics, lifecycle or
+    # credential access is shared. Filing a Host in a Project never grants this.
+
+    def _grants_path(self, namespace: str, host_id: str) -> str:
+        return self._move_path(namespace, host_id).removesuffix("/move") + "/access-grants"
+
+    @staticmethod
+    def _grant_base(grant: Any, host_id: str) -> bool:
+        return (isinstance(grant, dict) and grant.get("hostId") == host_id
+                and isinstance(grant.get("id"), str) and re.fullmatch(r"[a-f0-9]{64}", grant["id"]) is not None
+                and isinstance(grant.get("enrollmentId"), str) and re.fullmatch(r"[a-f0-9]{24}", grant["enrollmentId"]) is not None
+                and isinstance(grant.get("unixUser"), str) and bool(grant["unixUser"])
+                and isinstance(grant.get("grantedAt"), str))
+
+    @classmethod
+    def _grant_view(cls, grant: Any, host_id: str) -> bool:
+        grantee = grant.get("grantee") if isinstance(grant, dict) else None
+        return (cls._grant_base(grant, host_id)
+                and isinstance(grantee, dict) and isinstance(grantee.get("id"), str) and bool(grantee["id"]))
+
+    @staticmethod
+    def _team_ref(team: Any) -> bool:
+        return (isinstance(team, dict) and isinstance(team.get("id"), str) and bool(team["id"])
+                and isinstance(team.get("slug"), str) and bool(team["slug"]))
+
+    @classmethod
+    def _team_grant_view(cls, grant: Any, host_id: str) -> bool:
+        return cls._grant_base(grant, host_id) and cls._team_ref(grant.get("team"))
+
+    @staticmethod
+    def _listed_state(grant: dict) -> bool:
+        return grant.get("state") == "active" or (
+            grant.get("state") == "revoked" and type(grant.get("pendingConnections")) is int
+            and grant["pendingConnections"] >= 1 and isinstance(grant.get("pendingUntil"), str))
+
+    def access_grants(self, namespace: str, host_id: str) -> HostAccessGrants:
+        """List everyone granted connection access to an owned Host.
+
+        Owner-only. Returns ``{"grants": [...], "teamGrants": [...], "teams": [...]}``
+        as sent by the server: person grants (``grantee``), team grants (``team``
+        with ``id``, ``slug``, ``name``) and the organization's live teams that
+        can be chosen as a grantee. Each grant names its enrollment and
+        ``unixUser``; ``state`` is ``"active"`` or ``"revoked"``. A revoked grant
+        stays listed only while connections opened through it are not confirmed
+        closed: ``pendingConnections`` and ``pendingUntil`` (their latest
+        expiry). An active grant can still be inert (for example the grantee left
+        the organization); every use is rechecked.
+
+        A server without team grants raises ``HostError`` with code
+        ``host_team_grants_unsupported`` rather than reporting that no team can
+        connect.
+        """
+        data = self._request("GET", self._grants_path(namespace, host_id) + "?grantees=all")
+        grants, team_grants, teams = data.get("grants"), data.get("teamGrants"), data.get("teams")
+        if isinstance(grants, list) and "teamGrants" not in data and "teams" not in data:
+            raise HostError("This DreamLake server does not support team Host grants; "
+                            "its grant list cannot show every team or person who can connect",
+                            code="host_team_grants_unsupported")
+        if (not isinstance(grants, list) or not isinstance(team_grants, list) or not isinstance(teams, list)
+                or any(not self._grant_view(g, host_id) or not self._listed_state(g) for g in grants)
+                or any(not self._team_grant_view(g, host_id) or not self._listed_state(g) for g in team_grants)
+                or any(not self._team_ref(team) for team in teams)):
+            raise HostError("Host access grant list could not be verified")
+        return data
+
+    def grant_access(self, namespace: str, host_id: str, *, enrollment_id: str,
+                     grantee: str | None = None, team: str | None = None) -> dict:
+        """Grant connection access to one enrollment of an owned Host.
+
+        Name exactly one recipient: ``grantee``, a DreamLake username (a leading
+        ``@`` is accepted) of a current organization member, or ``team``, the
+        slug of a live team in the namespace's organization. A team grant
+        reaches the team's current and future direct members (not parent or
+        child teams), all as the same Unix account, while they remain members.
+        The grant covers only ``enrollment_id``'s Unix account and its existing
+        OS permissions. An unchanged active grant is returned as is. After an
+        uncertain response, call ``access_grants`` to reconcile instead of
+        repeating the grant: a repeat also re-activates a grant revoked
+        meanwhile, so grant again only as a fresh, explicit decision.
+
+        Returns ``{"grant": {...}}`` for a person or ``{"teamGrant": {...}}`` for
+        a team. Personal namespaces, non-members, unknown teams and the owner
+        themselves are refused (see ``HostError.code``, e.g. ``team_not_found``).
+        A server without team grants refuses ``team`` with HTTP 400 and grants
+        nothing.
+        """
+        path = self._grants_path(namespace, host_id)
+        if not isinstance(enrollment_id, str) or not re.fullmatch(r"[a-f0-9]{24}", enrollment_id):
+            raise HostConfigurationError("enrollment_id must be an exact lowercase enrollment ID")
+        if (grantee is None) == (team is None):
+            raise HostConfigurationError("grant to exactly one of grantee (a username) or team (a team slug)")
+        if team is not None:
+            if not isinstance(team, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,99}", team):
+                raise HostConfigurationError("team must be a team slug")
+            try:
+                data = self._request("POST", path, body={"enrollmentId": enrollment_id, "team": team})
+            except HostError as error:
+                if error.status != 400:
+                    raise
+                # Servers without team grants reject the `team` field by schema validation.
+                raise HostError("Host team access grant refused (HTTP 400); nothing was granted. "
+                                "The server may not support team Host grants",
+                                status=400, code=error.code) from None
+            grant = data.get("teamGrant")
+            if (not self._team_grant_view(grant, host_id) or grant["enrollmentId"] != enrollment_id
+                    or grant["team"]["slug"] != team):
+                raise HostError("Host team access grant response could not be verified; list grants before retrying")
+            return data
+        if not isinstance(grantee, str) or not re.fullmatch(r"@?[A-Za-z0-9][A-Za-z0-9_.-]{0,99}", grantee):
+            raise HostConfigurationError("grantee must be a DreamLake username")
+        data = self._request("POST", path, body={"enrollmentId": enrollment_id, "grantee": grantee})
+        grant = data.get("grant")
+        if (not self._grant_view(grant, host_id) or grant["enrollmentId"] != enrollment_id
+                or grant["grantee"].get("username") != grantee.removeprefix("@")):
+            raise HostError("Host access grant response could not be verified; list grants before retrying")
+        return data
+
+    def revoke_access(self, namespace: str, host_id: str, grant_id: str) -> HostRevokeResult:
+        """Revoke one person or team connection grant. New connections through it are denied at once.
+
+        Returns ``{"revoked": True, "id", "closedConnections",
+        "unconfirmedConnections"[, "unconfirmedUntil"][, "stillAuthorizedConnections"]}``.
+        Connections whose user still holds another current grant on the same
+        enrollment (their own, or another team's) stay open and are counted in
+        ``stillAuthorizedConnections``. Others are asked to close; connections
+        the control plane did not confirm closed are not reported as closed:
+        revoke again to retry closing them, or they end at ``unconfirmedUntil``.
+        Idempotent.
+        """
+        path = self._grants_path(namespace, host_id)
+        if not isinstance(grant_id, str) or not re.fullmatch(r"[a-f0-9]{64}", grant_id):
+            raise HostConfigurationError("grant_id must be an exact grant ID")
+        data = self._request("DELETE", path + "/" + grant_id)
+        unconfirmed = data.get("unconfirmedConnections")
+        kept = data.get("stillAuthorizedConnections", 0)
+        if (data.get("revoked") is not True or data.get("id") != grant_id
+                or type(data.get("closedConnections")) is not int or data["closedConnections"] < 0
+                or type(unconfirmed) is not int or unconfirmed < 0
+                or (unconfirmed > 0) != isinstance(data.get("unconfirmedUntil"), str)
+                or type(kept) is not int or kept < 0):
+            raise HostError("Host access revoke response could not be verified; revoke again to reconcile")
         return data
 
     def enroll(self, name: str | None = None, *, prefix: str | None = None,

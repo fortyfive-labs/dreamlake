@@ -6,6 +6,7 @@ request is sent and never forwards server error text.
 from __future__ import annotations
 
 import re
+import uuid
 from collections.abc import Mapping, Sequence
 from urllib.parse import quote, urlencode
 
@@ -17,8 +18,14 @@ _RUN = re.compile(r"\d{1,12}-\d{1,20}\Z")
 _ENV = re.compile(r"[A-Z][A-Z0-9_]{0,63}\Z")
 _FILE = re.compile(r"[A-Za-z0-9_.][A-Za-z0-9_./-]{0,1023}\Z")
 _CODE = re.compile(r"[a-z_]{1,64}\Z")
+_LOGIN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.\[\]-]{0,99}")
 _MONTH = re.compile(r"\d{4}-(0[1-9]|1[0-2])\Z")
 _MACHINE = re.compile(r"[a-z0-9][a-z0-9-]{0,62}\Z")
+_REPOSITORY = re.compile(r"[A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9._-]{1,100}\Z")
+_WORKFLOW = re.compile(r"[A-Za-z0-9._-]{1,100}\.ya?ml\Z")
+_REF = re.compile(r"[A-Za-z0-9_][A-Za-z0-9._/-]{0,199}\Z")
+_INPUT = re.compile(r"[A-Za-z_][A-Za-z0-9_-]{0,99}\Z")
+_REQUEST = re.compile(r"[A-Za-z0-9_-]{8,64}\Z")
 
 
 class CictError(Exception):
@@ -89,15 +96,6 @@ class CictRuns(_Base):
     def get(self, namespace, run_id):
         """``run_id`` is ``<installationId>-<jobId>``."""
         return self._request("GET", self._ns(namespace) + "/cict/runs/" + _text(run_id, _RUN, "run ID"))["run"]
-
-    def comparison(self, namespace, run_id):
-        """The run compared case by case with its baseline; ``None`` until its evidence is written.
-
-        The baseline is the latest earlier run of the same repository, workflow
-        and job on the default branch whose evidence was written.
-        """
-        path = self._ns(namespace) + "/cict/runs/" + _text(run_id, _RUN, "run ID") + "/comparison"
-        return self._request("GET", path)["comparison"]
 
     def result(self, namespace, run_id, *, file="result.json"):
         """Read one evidence file (default ``result.json``) as JSON; ``None`` if absent.
@@ -228,7 +226,9 @@ class CictPlatform(_Base):
     """DreamLake GPU: machines DreamLake provides, chosen by ``runs-on`` label."""
 
     def status(self, namespace):
-        """Machine catalog, the namespace's access, limit, occupancy and this month's GPU time."""
+        """Machine catalog (what one job gets on each), the namespace's access, limit, occupancy,
+        this month's GPU time and ``authorizer`` (who authorizes evidence writes and whether they
+        still can; jobs wait while ``writable`` is false). Re-authorize with :meth:`set_source`."""
         return self._request("GET", self._ns(namespace) + "/cict/platform")
 
     def start(self, namespace, *, source_id=None):
@@ -237,15 +237,24 @@ class CictPlatform(_Base):
         return self._request("POST", self._ns(namespace) + "/cict/platform/activate", body=body)
 
     def set_source(self, namespace, source_id):
-        """Change where DreamLake GPU runs save results."""
+        """Change where DreamLake GPU runs save results. Passing the current Source re-authorizes:
+        the caller becomes the evidence authorizer."""
         return self._request("PATCH", self._ns(namespace) + "/cict/platform", body={"sourceId": _text(source_id, _ID, "Source ID")})
 
 
 class CictAdmin(_Base):
     """DreamLake GPU administration, for admins of the platform namespace."""
 
-    def overview(self):
-        return self._request("GET", "/cict/platform/admin")
+    def overview(self, *, month=None):
+        """Namespaces and machine types, with a month's GPU time (``YYYY-MM``, default this month)
+        per namespace and the platform ``total``."""
+        if month is not None and (not isinstance(month, str) or not _MONTH.fullmatch(month)):
+            raise CictError("month must be YYYY-MM")
+        return self._request("GET", "/cict/platform/admin" + ("?" + urlencode({"month": month}) if month else ""))
+
+    def providers(self):
+        """Slurm providers in the platform namespace and what one job gets on each (from its launch layer)."""
+        return self._request("GET", "/cict/platform/admin/providers")["providers"]
 
     def set_namespace(self, namespace, *, state=None, max_concurrent=None):
         """Allow (``"allowed"``), pause (``"suspended"``) or limit a namespace."""
@@ -261,9 +270,11 @@ class CictAdmin(_Base):
         return self._request("PUT", "/cict/platform/admin/namespaces/" + quote(_text(namespace, _SEGMENT, "namespace"), safe=""), body=body)
 
     def put_machine(self, machine_id, **fields):
-        """Create or change a machine type: ``label``, ``title``, ``provider_id``, ``enabled``, ``max_concurrent``, ``env``, ``spec``."""
+        """Create or change a machine type: ``label``, ``title``, ``provider_id``, ``enabled``,
+        ``max_concurrent``, ``env``. What one job gets (GPUs, CPUs, memory, time limit) is read from
+        the provider's launch layer; a layer without a GPU is refused (``launch_spec_unavailable``)."""
         names = {"label": "label", "title": "title", "provider_id": "providerId", "enabled": "enabled",
-                 "max_concurrent": "maxConcurrent", "env": "env", "spec": "spec"}
+                 "max_concurrent": "maxConcurrent", "env": "env"}
         unknown = set(fields) - set(names)
         if unknown:
             raise CictError("Unknown machine field: " + ", ".join(sorted(unknown)))
@@ -282,12 +293,86 @@ class Cict:
         self.admin = CictAdmin(client)
         self._jobs = _Base(client)
 
-    def usage(self, namespace, *, month=None):
-        """DreamLake GPU time in a month (``YYYY-MM``, default this month), by repository and workflow."""
-        if month is not None and (not isinstance(month, str) or not _MONTH.fullmatch(month)):
-            raise CictError("month must be YYYY-MM")
-        path = self._jobs._ns(namespace) + "/cict/usage" + ("?" + urlencode({"month": month}) if month else "")
+    def usage(self, namespace, *, month=None, sender=None, limit=None):
+        """DreamLake GPU time in a month (``YYYY-MM``, default this month): totals, ``byWorkflow``,
+        ``bySender`` (the GitHub user who triggered each job) and ``runs`` (newest first; ``sender``
+        narrows them, ``limit`` 1-500 caps them; ``runsTotal`` counts them)."""
+        query = {}
+        if month is not None:
+            if not isinstance(month, str) or not _MONTH.fullmatch(month):
+                raise CictError("month must be YYYY-MM")
+            query["month"] = month
+        if sender is not None:
+            query["sender"] = _text(sender, _LOGIN, "GitHub login")
+        if limit is not None:
+            if type(limit) is not int or not 1 <= limit <= 500:
+                raise CictError("limit must be between 1 and 500")
+            query["limit"] = limit
+        path = self._jobs._ns(namespace) + "/cict/usage" + ("?" + urlencode(query) if query else "")
         return self._jobs._request("GET", path)
+
+    def onboarding(self, namespace):
+        """Where the namespace stands on CI/CT and the next step.
+
+        Reports GitHub, DreamLake GPU and the own-machine steps (enrolled login node, service
+        account, Slurm provider, association, launch layer, runner pool), each ``done`` or not with
+        ``how`` hints (``ui``, ``cli``, ``api``, ``human``), plus ``ready``, ``next`` and, once ready,
+        the ``workflow`` runs-on line. Only installing the GitHub App needs a person.
+        """
+        return self._jobs._request("GET", self._jobs._ns(namespace) + "/cict/onboarding")
+
+    def dispatch(self, namespace, *, repository, workflow, ref=None, inputs=None, installation_id=None, request_id=None):
+        """Run a GitHub Actions workflow (``workflow_dispatch``) through the namespace's GitHub App
+        installation, as the App. Its DreamLake jobs run, queue and are billed like any other; the
+        runs then carry ``dispatchedBy``. Needs ``lakeshore:use``.
+
+        ``ref`` defaults to the repository's default branch and ``installation_id`` to the one
+        active installation. ``inputs`` must be inputs the workflow declares. A retry with the same
+        ``request_id`` returns the first answer. Returns the dispatch: ``state`` is ``dispatched``
+        (with ``workflowRunUrl``), ``failed`` (``error`` and GitHub's ``message``) or ``unknown``
+        (GitHub's answer was lost: check the repository's Actions page before running it again).
+        """
+        repository = _text(repository, _REPOSITORY, "repository (owner/repo)")
+        workflow = _text(workflow, _WORKFLOW, "workflow file name")
+        values = {}
+        for name, value in dict(inputs or {}).items():
+            if not isinstance(name, str) or not _INPUT.fullmatch(name) or not isinstance(value, str) or len(value) > 1024:
+                raise CictError("inputs must map input names to text of at most 1024 characters")
+            values[name] = value
+        if len(values) > 25:
+            raise CictError("At most 25 inputs")
+        if installation_id is None:
+            active = [i for i in self.github.installations(namespace) if i.get("state") == "active"]
+            if len(active) != 1:
+                raise CictError("Pass installation_id: several GitHub accounts are connected" if active
+                                else "No GitHub account is connected to this namespace")
+            installation_id = active[0]["installationId"]
+        if type(installation_id) is not int or installation_id <= 0:
+            raise CictError("Invalid installation ID")
+        if ref is None:
+            ref = self.dispatch_branches(namespace, installation_id=installation_id, repository=repository)["defaultBranch"]
+        ref = _text(ref, _REF, "ref")
+        if ".." in ref or ref.endswith("/") or ref.endswith(".lock"):
+            raise CictError("Invalid ref")
+        request_id = _text(request_id or "py-" + uuid.uuid4().hex, _REQUEST, "request ID")
+        body = {"installationId": installation_id, "repository": repository, "workflow": workflow, "ref": ref,
+                "inputs": values, "requestId": request_id}
+        return self._jobs._request("POST", self._jobs._ns(namespace) + "/cict/dispatches", body=body)["dispatch"]
+
+    def dispatches(self, namespace, *, limit=None):
+        """Workflow runs asked for from DreamLake, newest first (``limit`` 1-100, default 20)."""
+        if limit is not None and (type(limit) is not int or not 1 <= limit <= 100):
+            raise CictError("limit must be between 1 and 100")
+        query = {} if limit is None else {"limit": limit}
+        path = self._jobs._ns(namespace) + "/cict/dispatches" + ("?" + urlencode(query) if query else "")
+        return self._jobs._request("GET", path)["dispatches"]
+
+    def dispatch_branches(self, namespace, *, installation_id, repository):
+        """A repository's ``defaultBranch`` and ``branches`` (``None`` when the App may not list them)."""
+        if type(installation_id) is not int or installation_id <= 0:
+            raise CictError("Invalid installation ID")
+        query = urlencode({"installationId": installation_id, "repository": _text(repository, _REPOSITORY, "repository (owner/repo)")})
+        return self._jobs._request("GET", self._jobs._ns(namespace) + "/cict/dispatch/branches?" + query)
 
     def jobs(self, namespace, *, limit=None):
         """Raw recorded GitHub job events, including jobs that matched no pool."""

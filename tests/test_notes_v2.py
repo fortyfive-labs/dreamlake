@@ -37,12 +37,12 @@ def test_read_snapshot_keeps_exact_source_and_legacy_cache():
         assert req.url.params['contract'] == 'v2'
         assert 'if-match' not in req.headers
         return response(req, SNAPSHOT)
-    note = Note(NOTE, namespace='ns', client=client(handler))
-    note._text, note._etag = 'older local cache', '"legacy-etag"'
-    snapshot = note.read_snapshot()
+    memo = Note(NOTE, namespace='ns', client=client(handler))
+    memo._text, memo._etag = 'older local cache', '"legacy-etag"'
+    snapshot = memo.read_snapshot()
     assert isinstance(snapshot, NoteSnapshot)
     assert snapshot.to_dict() == SNAPSHOT
-    assert note._text == 'older local cache' and note.etag == '"legacy-etag"'
+    assert memo._text == 'older local cache' and memo.etag == '"legacy-etag"'
     with pytest.raises(FrozenInstanceError):
         snapshot.content = 'clobber'
     assert len(calls) == 1
@@ -50,11 +50,11 @@ def test_read_snapshot_keeps_exact_source_and_legacy_cache():
 
 @pytest.mark.parametrize('bad', [dict(SNAPSHOT, content='tampered'), dict(SNAPSHOT, note='other'), dict(SNAPSHOT, revision='bad\nheader'), {'text': SOURCE, 'etag': HASH}])
 def test_snapshot_refuses_malformed_contract_without_adopting_cache(bad):
-    note = Note(NOTE, namespace='ns', client=client(lambda req: response(req, bad)))
-    note._text, note._etag = 'preserve', 'legacy'
+    memo = Note(NOTE, namespace='ns', client=client(lambda req: response(req, bad)))
+    memo._text, memo._etag = 'preserve', 'legacy'
     with pytest.raises(NoteError):
-        note.read_snapshot()
-    assert (note._text, note._etag) == ('preserve', 'legacy')
+        memo.read_snapshot()
+    assert (memo._text, memo._etag) == ('preserve', 'legacy')
 
 
 def test_snapshot_explicit_verification_checks_both_request_and_response():
@@ -75,14 +75,14 @@ def test_patch_mode_original_baseline_and_shared_receipt(kwargs, mode):
         assert json.loads(req.content) == dict(format='inline-dff', patch=PATCH, baseRevision=BASE, mode=mode)
         assert req.headers.get('if-match') == kwargs.get('if_match')
         return response(req, expected)
-    note = Note(NOTE, namespace='ns', client=client(handler))
-    note._etag, note._text = 'cached-but-unrelated', 'draft'
-    result = note.patch(PATCH, base_revision=BASE, **kwargs)
+    memo = Note(NOTE, namespace='ns', client=client(handler))
+    memo._etag, memo._text = 'cached-but-unrelated', 'draft'
+    result = memo.patch(PATCH, base_revision=BASE, **kwargs)
     assert isinstance(result, PatchReceipt) and not isinstance(result, str)
     assert result.to_dict() == expected
     assert result.base_revision == BASE and result.revision == CURRENT
-    assert note.etag == '"' + HASH.removeprefix('sha256:') + '"'
-    assert note._text is None
+    assert memo.etag == '"' + HASH.removeprefix('sha256:') + '"'
+    assert memo._text is None
     assert len(calls) == 1  # no baseline refresh after concurrent changes
 
 
@@ -96,10 +96,10 @@ def test_if_match_alone_selects_exact_and_supplies_original_baseline():
 
 @pytest.mark.parametrize('kwargs', [{}, {'base_revision': '*'}, {'base_revision': 'bad\nheader'}, {'base_revision': BASE, 'if_match': 'different'}, {'base_revision': BASE, 'force': True}, {'base_revision': BASE, 'format': 'unknown'}, {'base_revision': BASE, 'legacy': True}, {'legacy': True, 'exact': True}])
 def test_invalid_options_fail_before_any_network_request(kwargs):
-    note = Note(NOTE, namespace='ns', client=object())
-    note._etag = BASE  # must not silently use even a populated cache
+    memo = Note(NOTE, namespace='ns', client=object())
+    memo._etag = BASE  # must not silently use even a populated cache
     with pytest.raises(ValueError):
-        note.patch(PATCH, **kwargs)
+        memo.patch(PATCH, **kwargs)
 
 
 @pytest.mark.parametrize('status,error', [(404, NoteNotFound), (412, NoteChanged), (422, PatchFailed), (503, NoteBusy)])
@@ -108,14 +108,14 @@ def test_failures_do_not_retry_or_change_local_snapshot_or_draft(tmp_path, statu
     def handler(req):
         calls.append(req)
         return response(req, {'error': 'rejected', 'message': 'preserve original baseline'}, status)
-    note = Note(NOTE, namespace='ns', client=client(handler))
-    note._text, note._etag = SOURCE, 'legacy-etag'
+    memo = Note(NOTE, namespace='ns', client=client(handler))
+    memo._text, memo._etag = SOURCE, 'legacy-etag'
     baseline = tmp_path / 'baseline.json'; baseline.write_text(json.dumps(SNAPSHOT))
     draft = tmp_path / 'draft.diff'; draft.write_text(PATCH)
     with pytest.raises(error):
-        note.patch(draft.read_text(), base_revision=BASE)
+        memo.patch(draft.read_text(), base_revision=BASE)
     assert len(calls) == 1
-    assert (note._text, note._etag) == (SOURCE, 'legacy-etag')
+    assert (memo._text, memo._etag) == (SOURCE, 'legacy-etag')
     assert json.loads(baseline.read_text()) == SNAPSHOT and draft.read_text() == PATCH
 
 
@@ -123,11 +123,11 @@ def test_failures_do_not_retry_or_change_local_snapshot_or_draft(tmp_path, statu
 def test_malformed_receipt_is_not_success_or_cache_advance(change):
     result = dict(note=NOTE, mode='merge', baseRevision=BASE, hash=HASH, revision=CURRENT)
     result.update(change)
-    note = Note(NOTE, namespace='ns', client=client(lambda req: response(req, result)))
-    note._text, note._etag = SOURCE, 'legacy'
+    memo = Note(NOTE, namespace='ns', client=client(lambda req: response(req, result)))
+    memo._text, memo._etag = SOURCE, 'legacy'
     with pytest.raises(NoteError):
-        note.patch(PATCH, base_revision=BASE)
-    assert (note._text, note._etag) == (SOURCE, 'legacy')
+        memo.patch(PATCH, base_revision=BASE)
+    assert (memo._text, memo._etag) == (SOURCE, 'legacy')
 
 
 def test_legacy_patch_retains_string_result_and_cached_guard():
@@ -135,8 +135,8 @@ def test_legacy_patch_retains_string_result_and_cached_guard():
         assert json.loads(req.content) == {'diff': PATCH}
         assert req.headers['if-match'] == 'legacy-etag'
         return response(req, {'etag': 'next-etag', 'sizeBytes': 42})
-    note = Note(NOTE, namespace='ns', client=client(handler)); note._etag = 'legacy-etag'
-    result = note.patch(PATCH, legacy=True)
+    memo = Note(NOTE, namespace='ns', client=client(handler)); memo._etag = 'legacy-etag'
+    result = memo.patch(PATCH, legacy=True)
     assert isinstance(result, PatchResult) and result == 'next-etag'
     assert result.etag == 'next-etag' and result.size_bytes == 42
 
@@ -191,12 +191,12 @@ def test_unknown_patch_status_preserves_cache_without_replay(status):
     def handler(req):
         calls.append(req)
         return response(req, {'message': 'SECRET RAW'}, status)
-    note = Note(NOTE, namespace='ns', client=client(handler))
-    note._text, note._etag = SOURCE, 'legacy'
+    memo = Note(NOTE, namespace='ns', client=client(handler))
+    memo._text, memo._etag = SOURCE, 'legacy'
     with pytest.raises(NoteError, match='write outcome unknown') as error:
-        note.append('tail', at=NoteSnapshot(**SNAPSHOT))
+        memo.append('tail', at=NoteSnapshot(**SNAPSHOT))
     assert 'SECRET' not in str(error.value)
-    assert len(calls) == 1 and (note._text, note._etag) == (SOURCE, 'legacy')
+    assert len(calls) == 1 and (memo._text, memo._etag) == (SOURCE, 'legacy')
 
 
 def test_dropped_ack_is_unknown_no_retry():
@@ -234,9 +234,9 @@ def test_legacy_append_cache_put_string_semantics(opts):
         assert req.method == 'PUT' and json.loads(req.content) == {'text': 'cached\ntail'}
         assert req.headers.get('if-match') == (None if opts.get('force') else 'legacy')
         return response(req, {'etag': 'next'})
-    note = Note(NOTE, namespace='ns', client=client(handler))
-    note._text, note._etag = 'cached', 'legacy'
-    assert note.append('tail', **opts) == 'next'
+    memo = Note(NOTE, namespace='ns', client=client(handler))
+    memo._text, memo._etag = 'cached', 'legacy'
+    assert memo.append('tail', **opts) == 'next'
 
 
 def test_retained_read_rejects_different_revision():
@@ -247,11 +247,11 @@ def test_retained_read_rejects_different_revision():
 def test_malformed_json_ack_preserves_cache():
     def handler(req):
         return httpx.Response(200, text='SECRET malformed', request=req)
-    note = Note(NOTE, namespace='ns', client=client(handler))
-    note._text, note._etag = SOURCE, 'legacy'
+    memo = Note(NOTE, namespace='ns', client=client(handler))
+    memo._text, memo._etag = SOURCE, 'legacy'
     with pytest.raises(NoteError, match='write outcome unknown'):
-        note.append('tail', at=NoteSnapshot(**SNAPSHOT))
-    assert (note._text, note._etag) == (SOURCE, 'legacy')
+        memo.append('tail', at=NoteSnapshot(**SNAPSHOT))
+    assert (memo._text, memo._etag) == (SOURCE, 'legacy')
 
 @pytest.mark.parametrize('status', [201, 202, 204, 302, 307])
 @pytest.mark.parametrize('at', [None, BASE])
@@ -260,12 +260,12 @@ def test_snapshot_requires_200_even_with_valid_envelope(status, at):
     def handler(req):
         calls.append(req)
         return httpx.Response(status, json=SNAPSHOT, headers={'location': 'https://other.test/SECRET'}, request=req)
-    note = Note(NOTE, namespace='ns', client=client(handler))
-    note._text, note._etag = 'cache', 'legacy'
+    memo = Note(NOTE, namespace='ns', client=client(handler))
+    memo._text, memo._etag = 'cache', 'legacy'
     with pytest.raises(NoteError, match='unexpected snapshot response') as error:
-        note.read_snapshot(at=at)
+        memo.read_snapshot(at=at)
     assert 'SECRET' not in str(error.value)
-    assert len(calls) == 1 and (note._text, note._etag) == ('cache', 'legacy')
+    assert len(calls) == 1 and (memo._text, memo._etag) == ('cache', 'legacy')
 
 
 def test_snapshot_explicitly_disables_redirects_even_for_following_client():
@@ -292,9 +292,9 @@ def test_delimiter_punctuation_is_escaped_like_the_cli():
     def handler(req):
         patches.append(json.loads(req.content)['patch'])
         return response(req, dict(note=NOTE, mode='merge', baseRevision=BASE, hash=HASH, revision=CURRENT))
-    note = Note(NOTE, namespace='ns', client=client(handler))
-    note.append('- item\n+ more', at=NoteSnapshot(NOTE, 'a\n', 'sha256:' + hashlib.sha256(b'a\n').hexdigest(), BASE))
-    note.write('a-b', at=NoteSnapshot(NOTE, 'a', 'sha256:' + hashlib.sha256(b'a').hexdigest(), BASE))
+    memo = Note(NOTE, namespace='ns', client=client(handler))
+    memo.append('- item\n+ more', at=NoteSnapshot(NOTE, 'a\n', 'sha256:' + hashlib.sha256(b'a\n').hexdigest(), BASE))
+    memo.write('a-b', at=NoteSnapshot(NOTE, 'a', 'sha256:' + hashlib.sha256(b'a').hexdigest(), BASE))
     assert patches == ['@@ chars 2:2 @@\n~ {+\\- item\\n\\+ more+}\n', '@@ chars 1:1 @@\n~ {+\\-b+}\n']
 
 

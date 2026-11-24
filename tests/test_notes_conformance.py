@@ -45,26 +45,26 @@ def _sha(text: str) -> str:
 
 def _replay(case: dict):
     content, revision = case["snapshot"]["content"], case["snapshot"]["revision"]
-    note = case["note"]
+    memo = case["note"]
     seen: list[httpx.Request] = []
 
     def handler(req: httpx.Request) -> httpx.Response:
         seen.append(req)
         if req.method == "GET":
-            return httpx.Response(200, json=dict(note=note, content=content, hash=_sha(content), revision=revision), request=req)
+            return httpx.Response(200, json=dict(note=memo, content=content, hash=_sha(content), revision=revision), request=req)
         sent = json.loads(req.content)
         return httpx.Response(200, json=dict(
-            note=note, mode=sent["mode"], baseRevision=sent["baseRevision"], hash=_sha(content + "Hi"), revision=NEXT,
+            note=memo, mode=sent["mode"], baseRevision=sent["baseRevision"], hash=_sha(content + "Hi"), revision=NEXT,
             outcome="accepted", commandId=sent.get("commandId"), replayed=False), request=req)
 
     client = DreamLakeClient(dl_url="https://example.test", token="t", transport=httpx.MockTransport(handler))
-    handle = client.notes(f"{case['namespace']}/{note}")
+    handle = client.notes(f"{case['namespace']}/{memo}")
     # The fixture spells named fields the contract's way; Python's are snake_case
     # and a two-element list is a tuple, exactly as test_shared_fixtures does.
     args = {("command_id" if k == "commandId" else k): (tuple(v) if k == "lines" else v)
             for k, v in case["args"].items()}
     if case["op"] == "append":
-        snapshot = NoteSnapshot(note=note, content=content, hash=_sha(content), revision=revision)
+        snapshot = NoteSnapshot(note=memo, content=content, hash=_sha(content), revision=revision)
         result = handle.append(at=snapshot, **args)
     elif case["op"] == "read":
         result = handle.read(**args)

@@ -92,9 +92,9 @@ def test_returns_hits_with_every_coordinate():
 
 def test_a_hit_knows_which_note_to_open():
     c = FakeClient([page([hit_row(1)])])
-    note = grep_notes("Draft", namespace="me", client=c).hits[0].open(client=c)
-    assert note._id == "651111111111111111111111"
-    assert note._ns == "me"
+    memo = grep_notes("Draft", namespace="me", client=c).hits[0].open(client=c)
+    assert memo._id == "651111111111111111111111"
+    assert memo._ns == "me"
 
 
 def test_literal_is_the_default_and_nothing_is_sent_that_was_not_asked_for():

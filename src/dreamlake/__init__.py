@@ -127,8 +127,7 @@ def upload(
     else:
         project_slug = parts[0]
         client = _get_client()
-        me = client.get_auth_me()
-        namespace = me.get("namespace", {}).get("slug", "")
+        namespace = client.resolve_namespace()
 
     client = _get_client()
 
@@ -477,8 +476,7 @@ def _resolve_to_node(node_id_or_path: str, project: str | None) -> dict:
         project_slug, namespace = parts[0], parts[1]
     else:
         project_slug = parts[0]
-        me = client.get_auth_me()
-        namespace = me.get("namespace", {}).get("slug", "")
+        namespace = client.resolve_namespace()
 
     ctx_prefix_str = _ctx_prefix.get().strip("/")
     episode_name = ctx_prefix_str.split("/")[-1] if ctx_prefix_str else None
@@ -593,8 +591,7 @@ def _parse_project_arg(project: str | None) -> tuple[str, str]:
     if len(parts) == 2:
         return parts[0], parts[1]
     project_slug = parts[0]
-    me = _get_client().get_auth_me()
-    namespace = me.get("namespace", {}).get("slug", "")
+    namespace = _get_client().resolve_namespace()
     return project_slug, namespace
 
 
@@ -632,6 +629,7 @@ def bindr(
     description: str | None = None,
     tags: list[str] | None = None,
     create: bool = True,
+    visibility: str | None = None,
 ) -> dict:
     """Get or create a Bindr and file its node members.
 
@@ -645,6 +643,8 @@ def bindr(
         description: Optional description (set on create)
         tags: Optional tag list (set on create)
         create: If True, create the bindr if missing. Default True.
+        visibility: Optional private, unlisted or public; sets visibility for a new
+            or existing Bindr using the current version and requires Project ADMIN.
 
     Examples:
         # File/folder members by path
@@ -652,6 +652,9 @@ def bindr(
             dl.bindr("training-set", members=["camera/front", "labels/yolo"])
 
     """
+    if visibility is not None:
+        from .api.folder_visibility import _visibility
+        _visibility(visibility)
     if bindrs:
         raise ValueError("Bindrs cannot be members; use the Bindr parent hierarchy instead")
     from .api.prefix import _ctx_prefix
@@ -677,13 +680,18 @@ def bindr(
             raise
     else:
         if refs:
-            return client.add_bindr_members(namespace, project_slug, name, refs)
+            existing = client.add_bindr_members(namespace, project_slug, name, refs)
+        if visibility is not None:
+            current = client.bindrs.get_visibility(existing["id"])
+            saved = client.bindrs.set_visibility(existing["id"], visibility, expected_updated_at=current["updatedAt"])
+            existing = {**existing, **saved}
         return existing
 
     # The compatibility client files each node through the canonical API.
     return client.create_bindr(
         namespace, project_slug, name,
         members=refs or None, description=description, tags=tags,
+        **({"visibility": visibility} if visibility is not None else {}),
     )
 
 

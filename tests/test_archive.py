@@ -25,13 +25,13 @@ def test_archive_is_metadata_only_and_preserves_original_edit_baseline():
         assert "if-match" not in req.headers
         archived = json.loads(req.content)["archived"] if req.method == "PATCH" else True
         return httpx.Response(200, json={"id": NOTE, "slug": "draft", "archivedAt": STAMP if archived else None})
-    note = Note(NOTE, namespace="ns", client=client(handler))
-    note._text, note._etag, note._text_snapshot = "unsaved draft", "original", object()
-    original = (note._text, note._etag, note._text_snapshot)
-    assert note.archive().archived_at == STAMP
-    assert note.metadata().archived_at == STAMP
-    assert note.unarchive().archived_at is None
-    assert (note._text, note._etag, note._text_snapshot) == original
+    memo = Note(NOTE, namespace="ns", client=client(handler))
+    memo._text, memo._etag, memo._text_snapshot = "unsaved draft", "original", object()
+    original = (memo._text, memo._etag, memo._text_snapshot)
+    assert memo.archive().archived_at == STAMP
+    assert memo.metadata().archived_at == STAMP
+    assert memo.unarchive().archived_at is None
+    assert (memo._text, memo._etag, memo._text_snapshot) == original
     assert [r.method for r in calls] == ["PATCH", "GET", "PATCH"]
     assert json.loads(calls[0].content) == {"archived": True}
     assert json.loads(calls[2].content) == {"archived": False}
@@ -43,11 +43,11 @@ def test_archive_failure_never_retries_or_changes_draft(status, error):
     def handler(req):
         calls.append(req)
         return httpx.Response(status, json={"error": "refused"})
-    note = Note(NOTE, namespace="ns", client=client(handler))
-    note._text, note._etag = "unsaved", "original"
+    memo = Note(NOTE, namespace="ns", client=client(handler))
+    memo._text, memo._etag = "unsaved", "original"
     with pytest.raises(error):
-        note.archive()
-    assert (note._text, note._etag) == ("unsaved", "original")
+        memo.archive()
+    assert (memo._text, memo._etag) == ("unsaved", "original")
     assert len(calls) == 1
 
 

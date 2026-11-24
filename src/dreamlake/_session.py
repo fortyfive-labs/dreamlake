@@ -6,11 +6,12 @@ works the same everywhere.
 
 Precedence:
 
-* token:      ``DREAMLAKE_API_KEY`` env var → token storage
+* token:      ``DREAMLAKE_API_KEY`` env var → active CLI token projection → token storage
               (keyring → encrypted file → plaintext, see ``auth.token_storage``)
 * remote:     ``DREAMLAKE_REMOTE`` env var → ``remote_url`` in
               ``~/.dreamlake/config.json`` → ``DEFAULT_REMOTE_URL``
-* namespace:  ``GET {remote}/auth/me`` (authoritative slug, cached per
+* namespace:  explicit argument → repository .dreamrc → credential-bound default →
+              ``GET {remote}/auth/me`` (authoritative personal slug, cached per
               (remote, token)) → JWT payload fallback (``username``/``sub``,
               stale but better than nothing) when the server is unreachable.
 
@@ -22,6 +23,7 @@ needs it.
 from __future__ import annotations
 
 import os
+import json
 
 import dreamlake.config as _config
 from dreamlake.auth.exceptions import NotAuthenticatedError
@@ -45,6 +47,13 @@ def get_token_or_none() -> str | None:
     if env:
         return env
     try:
+        # The standalone CLI projects the selected profile here. Prefer it to
+        # legacy secure-store entries left by older Python login commands.
+        token_file = _config.config.config_dir / "tokens.json"
+        if token_file.exists():
+            projected = json.loads(token_file.read_text()).get(TOKEN_STORAGE_KEY)
+            if projected:
+                return projected
         from dreamlake.auth.token_storage import get_token_storage
 
         return get_token_storage().load(TOKEN_STORAGE_KEY)
@@ -74,7 +83,23 @@ def remote_url() -> str:
     return _config.DEFAULT_REMOTE_URL
 
 
-def get_namespace(token: str | None = None, remote: str | None = None) -> str:
+def get_namespace(token: str | None = None, remote: str | None = None, *, namespace: str | None = None,
+                  scope: str = "auto", cwd=None) -> str:
+    """Resolve explicit namespace, local .dreamrc, global default, then personal."""
+    if namespace is not None:
+        return namespace
+    from dreamlake.auth.namespace_config import namespace_config
+    local = namespace_config(scope=scope, cwd=cwd)
+    if local.namespace:
+        return local.namespace
+    tok = token or get_token()
+    rem = (remote or remote_url()).rstrip("/")
+    from dreamlake.auth.profiles import bound_namespace
+    selected = bound_namespace(tok, rem)
+    return selected or get_personal_namespace(token=tok, remote=rem)
+
+
+def get_personal_namespace(token: str | None = None, remote: str | None = None) -> str:
     """Resolve the current user's namespace slug.
 
     Asks ``GET {remote}/auth/me`` for the authoritative slug (cached per

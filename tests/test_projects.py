@@ -20,11 +20,16 @@ def test_project_grants_and_attachments_use_existing_scoped_contracts():
     projects.attach("a/b", "research team", "source", resource)
     projects.detach("a/b", "research team", "source", resource)
     projects.revoke("a/b", "research team", "grant/id")
+    projects.attach("a/b", "research team", "host", resource)
+    projects.detach("a/b", "research team", "host", resource)
     assert requests[0].url.raw_path == b"/namespaces/a%2Fb/projects/research%20team/grants"
     assert json.loads(requests[0].content) == {"role": "READ", "granteeSlug": "ge"}
     assert json.loads(requests[1].content) == {"role": "WRITE", "teamId": "team-id"}
     assert json.loads(requests[2].content) == {"resourceType": "note", "resourceId": resource}
-    assert [r.method for r in requests] == ["POST", "POST", "POST", "DELETE", "PUT", "DELETE", "DELETE"]
+    assert [r.method for r in requests] == ["POST", "POST", "POST", "DELETE", "PUT", "DELETE", "DELETE", "POST", "DELETE"]
+    # A Host is filed through the generic Project resources route, as a placement only.
+    assert all(r.url.raw_path.endswith(b"/resources") for r in requests[7:])
+    assert [json.loads(r.content) for r in requests[7:]] == [{"resourceType": "host", "resourceId": resource}] * 2
     assert requests[4].url.raw_path.endswith(b"/sources/" + resource.encode())
     assert requests[6].url.raw_path.endswith(b"/grants/grant%2Fid")
     assert all(r.headers["authorization"] == "Bearer synthetic" for r in requests)

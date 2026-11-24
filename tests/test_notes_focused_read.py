@@ -111,12 +111,12 @@ def test_focused_read_cannot_be_a_whole_body_write_or_append_baseline():
     focused = handle('a\nb\nc\n').read(lines=(1, 1))
     def never(req):
         raise AssertionError('no write expected')
-    note = DreamLakeClient(dl_url='https://example.test', token='test',
+    memo = DreamLakeClient(dl_url='https://example.test', token='test',
                            transport=httpx.MockTransport(never)).notes(ID, namespace=NS)
     with pytest.raises(SnapshotRequired, match='partial read'):
-        note.write(text='whole\n', at=focused, mode='exact')
+        memo.write(text='whole\n', at=focused, mode='exact')
     with pytest.raises(SnapshotRequired):
-        note.append(text='more', at=focused, mode='exact')
+        memo.append(text='more', at=focused, mode='exact')
     # It is also not a NoteSnapshot, so the existing methods refuse it too.
     from dreamlake.api.notes import Note
     with pytest.raises(ValueError):
@@ -135,7 +135,7 @@ def test_focused_read_supports_a_targeted_patch_at_its_chars():
         assert data['patch'] == body and data['baseRevision'] == REV and data['mode'] == 'exact'
         return httpx.Response(200, json=dict(note=ID, mode='exact', baseRevision=REV, hash=snap('a\nB\nc\n').hash,
                                              revision='rtc:' + 'ab' * 32), request=req)
-    note = DreamLakeClient(dl_url='https://example.test', token='test',
+    memo = DreamLakeClient(dl_url='https://example.test', token='test',
                            transport=httpx.MockTransport(handler)).notes(ID, namespace=NS)
-    assert note.patch(patch=body, format='inline-dff', at=focused, mode='exact').revision == 'rtc:' + 'ab' * 32
-    assert note.read(at=focused).revision == REV  # a focused read also names a revision to read at
+    assert memo.patch(patch=body, format='inline-dff', at=focused, mode='exact').revision == 'rtc:' + 'ab' * 32
+    assert memo.read(at=focused).revision == REV  # a focused read also names a revision to read at

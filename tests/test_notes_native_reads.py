@@ -14,12 +14,12 @@ def test_text_verified_cache_and_explicit_refresh_keep_hash_domain():
         calls.append(req)
         assert req.url.params['contract']=='v2'
         return httpx.Response(200,json=current[0])
-    note=make(handler)
-    assert note.text==note.text=='😀\r\n' and len(calls)==1
-    assert note.etag=='"'+current[0]['hash'][7:]+'"'
+    memo=make(handler)
+    assert memo.text==memo.text=='😀\r\n' and len(calls)==1
+    assert memo.etag=='"'+current[0]['hash'][7:]+'"'
     current[0]=snap('new','rtc:later')
-    assert note.text=='😀\r\n'
-    assert note.refresh().text=='new' and len(calls)==2
+    assert memo.text=='😀\r\n'
+    assert memo.refresh().text=='new' and len(calls)==2
 
 @pytest.mark.parametrize('status,bad',[(302,None),(202,None),(200,{'hash':'sha256:'+'0'*64}),(200,{'revision':''})])
 def test_refresh_failure_preserves_prior_verified_cache(status,bad):
@@ -28,9 +28,9 @@ def test_refresh_failure_preserves_prior_verified_cache(status,bad):
         calls.append(req)
         if len(calls)==1:return httpx.Response(200,json=initial)
         return httpx.Response(status,json=dict(initial,**(bad or {})),headers={'location':'https://other.test'})
-    note=make(handler); assert note.text=='initial';old=note.etag
-    with pytest.raises(NoteError):note.refresh()
-    assert note._text=='initial' and note.etag==old and len(calls)==2
+    memo=make(handler); assert memo.text=='initial';old=memo.etag
+    with pytest.raises(NoteError):memo.refresh()
+    assert memo._text=='initial' and memo.etag==old and len(calls)==2
 
 
 def test_diff_modern_envelope_retained_hash_readback_no_cache_adoption():
@@ -42,9 +42,9 @@ def test_diff_modern_envelope_retained_hash_readback_no_cache_adoption():
             return httpx.Response(200,json=dict(note=ID,hash=current['hash'],revision=current['revision'],base=base['hash'],format='diff',patch='patch'))
         assert req.url.params['at']==current['revision']
         return httpx.Response(200,json=current)
-    note=make(handler);note._text='priorcache';note._etag='"'+base['hash'][7:]+'"'
-    assert note.diff()=='patch'
-    assert (note._text,note._etag)==('priorcache','"'+base['hash'][7:]+'"') and len(calls)==2
+    memo=make(handler);memo._text='priorcache';memo._etag='"'+base['hash'][7:]+'"'
+    assert memo.diff()=='patch'
+    assert (memo._text,memo._etag)==('priorcache','"'+base['hash'][7:]+'"') and len(calls)==2
 
 @pytest.mark.parametrize('change',[{'note':'other'},{'base':'sha256:'+'0'*64},{'format':'inline-dff'},{'revision':''},{'hash':'bad'},{'patch':1}])
 def test_diff_invalid_envelope_no_adoption_or_fallback(change):
@@ -53,14 +53,14 @@ def test_diff_invalid_envelope_no_adoption_or_fallback(change):
         calls.append(req)
         value=dict(note=ID,hash=base['hash'],revision='rtc:ack',base=base['hash'],format='diff',patch='patch');value.update(change)
         return httpx.Response(200,json=value)
-    note=make(handler);note._text='cache';note._etag='cached'
-    with pytest.raises(NoteError):note.diff(since=base['hash'])
-    assert len(calls)==1 and (note._text,note._etag)==('cache','cached')
+    memo=make(handler);memo._text='cache';memo._etag='cached'
+    with pytest.raises(NoteError):memo.diff(since=base['hash'])
+    assert len(calls)==1 and (memo._text,memo._etag)==('cache','cached')
 
 
 def test_diff_rtc_reference_refused_before_io():
-    note=Note(ID,namespace='ns',client=object())
-    with pytest.raises(ValueError):note.diff(since='rtc:original')
+    memo=Note(ID,namespace='ns',client=object())
+    with pytest.raises(ValueError):memo.diff(since='rtc:original')
 
 
 def test_legacy_append_uses_legacy_body_on_cache_miss():
@@ -80,11 +80,11 @@ def test_refresh_does_not_move_existing_doc_original_baseline():
     def handler(req):
         calls.append(req)
         return httpx.Response(200,json=initial if len(calls)==1 else later)
-    note=make(handler);doc=note.read()
-    assert note.text=='Draft' and len(calls)==1
-    assert note.refresh().text=='Human: Draft'
+    memo=make(handler);doc=memo.read()
+    assert memo.text=='Draft' and len(calls)==1
+    assert memo.refresh().text=='Human: Draft'
     assert doc.original==doc.text=='Draft' and doc._snapshot.revision=='rtc:original'
-    assert note.etag=='"'+later['hash'][7:]+'"'
+    assert memo.etag=='"'+later['hash'][7:]+'"'
 
 
 def test_diff_status_or_retained_hash_mismatch_keeps_cache():
@@ -94,9 +94,9 @@ def test_diff_status_or_retained_hash_mismatch_keeps_cache():
         if req.url.params.get('since'):
             return httpx.Response(200,json=dict(note=ID,hash=base['hash'],revision=current['revision'],base=base['hash'],format='diff',patch='patch'))
         return httpx.Response(200,json=current)
-    note=make(handler);note._text='cache';note._etag='etag'
-    with pytest.raises(NoteError,match='acknowledged source hash'):note.diff(since=base['hash'])
-    assert (note._text,note._etag)==('cache','etag') and len(calls)==2
+    memo=make(handler);memo._text='cache';memo._etag='etag'
+    with pytest.raises(NoteError,match='acknowledged source hash'):memo.diff(since=base['hash'])
+    assert (memo._text,memo._etag)==('cache','etag') and len(calls)==2
 
 
 def test_nondefault_context_selects_compatibility_before_transport():
@@ -111,10 +111,10 @@ def test_nondefault_context_selects_compatibility_before_transport():
 
 
 def test_refresh_malformed_json_is_typed_no_cache_update():
-    note=make(lambda req:httpx.Response(200,text='SECRET invalid json'))
-    note._text='saved';note._etag='etag'
-    with pytest.raises(NoteError,match='invalid snapshot') as error:note.refresh()
-    assert 'SECRET' not in str(error.value) and (note._text,note._etag)==('saved','etag')
+    memo=make(lambda req:httpx.Response(200,text='SECRET invalid json'))
+    memo._text='saved';memo._etag='etag'
+    with pytest.raises(NoteError,match='invalid snapshot') as error:memo.refresh()
+    assert 'SECRET' not in str(error.value) and (memo._text,memo._etag)==('saved','etag')
 
 @pytest.mark.parametrize('status',[201,202,302,307])
 def test_modern_diff_rejects_unexpected_success_or_redirect_without_followup(status):

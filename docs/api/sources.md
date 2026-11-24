@@ -15,6 +15,10 @@ be browsed. Delete queues terminal managed cleanup and returns a 202 operation
 handle; it does not delete external buckets or shared Connections and does not
 mean cleanup completed. Restore-after-delete and archive are unsupported.
 
+`connectors`, `import_external`, `set_external` and `remove_external` create a
+Source that reads through a Connection or change its external layer; see
+[Connections](../connections.md).
+
 Use `client.ownership.inspect`/`manifest` to inspect ownership and preflight
 constraints. Ownership transfer execution remains gated in package C.
 

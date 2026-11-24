@@ -13,7 +13,9 @@ from dreamlake.client import RemoteClient
 
 
 @pytest.fixture(autouse=True)
-def isolated_session(monkeypatch):
+def isolated_session(monkeypatch, tmp_path):
+    from dreamlake.config import Config
+    monkeypatch.setattr("dreamlake.config.config", Config(tmp_path))
     monkeypatch.delenv("DREAMLAKE_API_KEY", raising=False)
     storage = Mock()
     storage.load.return_value = None
