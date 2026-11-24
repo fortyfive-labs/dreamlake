@@ -156,17 +156,19 @@ for receipt in note.stream_insert(at=original, cursor=0, chunks=generated_chunks
     persist_receipt(receipt)
 ```
 
-The first cursor is a code-point position in the reviewed original source.
-Subsequent cursors come from the server's `continuation`, bound to each ACK
-revision. Human edits elsewhere survive; a changed target gap or deleted anchor
-stops the stream. Requests contain at most 2048 code points. Batch tokens in the
-producer to control request overhead; this is not a persistent token transport.
+The initial cursor is a code-point position in the reviewed source. One
+persistent authenticated connection keeps a native RTC session and relative
+cursor alive. The session advances the cursor after each accepted insertion;
+concurrent edits can move its displayed position. A deleted anchor or reset room
+stops the stream. Chunks are bounded to 2048 code points without artificial
+pacing. Producers may batch tokens to reduce acknowledgment overhead.
 
-On `dl.MemoStreamInterrupted`, preserve `last_receipt` and `pending`. Reconcile
-the pending command ID before resuming; never resend an accepted chunk under a
-new ID or restart the same stream at chunk zero. An older server may return an
-ACK without continuation; the iterator yields that receipt and then stops.
-Closing the iterator preserves already accepted text and sends no later chunks.
+On `dl.MemoStreamInterrupted`, preserve `last_receipt` and `pending`. Stream
+sequences are not HTTP command IDs and cannot be reconciled with
+`command_status`. Inspect the partial result before making another write; never
+restart at chunk zero or resend accepted text. Closing the iterator preserves
+accepted text and stops future chunks. `intent` sets the short purpose beside
+the cursor. Exact mode checks every chunk; a refusal does not undo earlier ones.
 
 Publish intent and save logical checkpoints through supported operations around
 the stream, rather than saving every chunk. The SDK's version facade currently

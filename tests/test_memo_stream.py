@@ -1,75 +1,94 @@
 import hashlib
 import json
-import httpx
+import threading
+from contextlib import contextmanager
+
 import pytest
+from websockets.sync.server import serve
 import dreamlake as dl
 from dreamlake.api._client import DreamLakeClient
 from dreamlake.api.memos import MemoSnapshot
 
 ID = '6ae3f318608512b4ba34860c'
-def snapshot(text, revision):
-    return MemoSnapshot(ID, text, 'sha256:' + hashlib.sha256(text.encode()).hexdigest(), revision)
+BASE = MemoSnapshot(ID, 'a', 'sha256:' + hashlib.sha256(b'a').hexdigest(), 'rtc:0')
 
-def stream_fixture(*, missing=False, fail=False):
-    calls = []
-    def handler(req):
-        if req.method == 'GET':
-            return httpx.Response(200, json=dict(note=ID, content='Human: ax', hash=snapshot('Human: ax', 'rtc:1').hash, revision='rtc:1'))
-        body = json.loads(req.content)
-        calls.append(body)
-        if fail and len(calls) == 2:
-            raise httpx.ReadError('lost ACK', request=req)
-        n = len(calls)
-        data = dict(note=ID, revision=f'rtc:{n}', hash=snapshot('Human: ax', f'rtc:{n}').hash,
-                    baseRevision=body['baseRevision'], mode=body['mode'], outcome='accepted',
-                    commandId=body['commandId'], replayed=False)
-        if not missing:
-            data['continuation'] = dict(revision=f'rtc:{n}', cursor=8)
-        return httpx.Response(200, json=data)
-    client = DreamLakeClient(dl_url='https://example.test', token='test', transport=httpx.MockTransport(handler))
-    return client.memos(ID, namespace='fortyfive'), calls
-
-def test_stream_uses_ack_cursor_and_revision_with_backpressure():
-    note, calls = stream_fixture()
-    stream = note.stream_insert(chunks=['x','y'], at=snapshot('a','rtc:0'), cursor=1, stream_id='stream:test')
-    first = next(stream)
-    assert len(calls) == 1 and first.continuation['cursor'] == 8
-    second = next(stream)
-    assert second.revision == 'rtc:2'
-    assert calls[1]['baseRevision'] == 'rtc:1'
-    assert calls[1]['patch'] == '@@ chars 8:8 @@\n~ {+y+}\n'
-    assert [c['commandId'] for c in calls] == ['stream:test:0','stream:test:1']
-    assert all(c['mode'] == 'merge' for c in calls)
-    with pytest.raises(StopIteration): next(stream)
-
-def test_missing_continuation_yields_ack_then_stops_without_resend():
-    note, calls = stream_fixture(missing=True)
-    stream = note.stream_insert(chunks=['x','y'], at=snapshot('a','rtc:0'), cursor=1)
-    first = next(stream)
-    with pytest.raises(dl.MemoStreamInterrupted) as error: next(stream)
-    assert error.value.last_receipt is first
-    assert error.value.pending is None and len(calls) == 1
-
-def test_uncertain_chunk_retains_its_command_and_last_ack():
-    note, calls = stream_fixture(fail=True)
-    stream = note.stream_insert(chunks=['x','y'], at=snapshot('a','rtc:0'), cursor=1, stream_id='stream:test')
-    first = next(stream)
-    with pytest.raises(dl.MemoStreamInterrupted) as error: next(stream)
-    assert error.value.last_receipt is first
-    assert error.value.pending['command_id'] == 'stream:test:1'
-    assert len(calls) == 2
-
-def test_close_prevents_future_writes_and_empty_stream_does_nothing():
-    note, calls = stream_fixture()
-    assert list(note.stream_insert(chunks=[''], at=snapshot('a','rtc:0'), cursor=1)) == []
-    stream = note.stream_insert(chunks=['x','y'], at=snapshot('a','rtc:0'), cursor=1, mode='exact')
-    next(stream); stream.close()
-    assert len(calls) == 1 and calls[0]['mode'] == 'exact'
+@contextmanager
+def stream_fixture(*, fail_at=-1):
+    calls, connections, headers = [], [], []
+    def handler(socket):
+        connections.append(socket)
+        headers.append(socket.request.headers)
+        for raw in socket:
+            message = json.loads(raw)
+            calls.append(message)
+            if message['type'] == 'open':
+                socket.send(json.dumps(dict(type='ready')))
+            elif message['type'] == 'end':
+                socket.send(json.dumps(dict(type='closed')))
+                return
+            else:
+                n = message['sequence']
+                if n == fail_at:
+                    socket.close()
+                    return
+                revision = f'rtc:{n+1}'
+                receipt = dict(note=ID, revision=revision, hash=BASE.hash, baseRevision='rtc:0', mode='merge',
+                               outcome='accepted', commandId=None, replayed=False, continuation=dict(revision=revision, cursor=8))
+                socket.send(json.dumps(dict(type='receipt', sequence=n, receipt=receipt)))
+    with serve(handler, '127.0.0.1', 0) as server:
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        client = DreamLakeClient(dl_url=f'http://127.0.0.1:{server.socket.getsockname()[1]}', token='test')
+        try:
+            yield client.memos(ID, namespace='fortyfive'), calls, connections, headers
+        finally:
+            server.shutdown()
+            thread.join(timeout=2)
 
 
-@pytest.mark.parametrize("stream_id", ["", False, 0, "short", "bad id here"])
-def test_invalid_explicit_stream_identity_is_not_silently_replaced(stream_id):
-    note, calls = stream_fixture()
-    with pytest.raises(ValueError, match="stream_id"):
-        list(note.stream_insert(chunks=['x'], at=snapshot('a', 'rtc:0'), cursor=1, stream_id=stream_id))
-    assert calls == []
+def test_native_stream_keeps_one_connection_and_one_cursor_with_ack_backpressure(monkeypatch):
+    monkeypatch.setenv('DREAMLAKE_AGENT_ID', 'codex:stream-test')
+    monkeypatch.setenv('DREAMLAKE_AGENT_NAME', 'Stream test')
+    with stream_fixture() as (memo, calls, connections, headers):
+        iterator = memo.stream_insert(chunks=['x', 'y'], at=BASE, cursor=1, intent='Add the example.')
+        assert next(iterator).revision == 'rtc:1'
+        assert [c['type'] for c in calls] == ['open', 'insert']
+        assert next(iterator).continuation['cursor'] == 8
+        with pytest.raises(StopIteration): next(iterator)
+        assert len(connections) == 1
+        assert calls[0] == dict(type='open', baseRevision='rtc:0', cursor=1, mode='merge', intent='Add the example.')
+        assert calls[2] == dict(type='insert', sequence=1, text='y')
+        assert headers[0]['Authorization'] == 'Bearer test'
+        assert headers[0]['X-DreamLake-Agent-Id'] == 'codex:stream-test'
+
+
+def test_native_stream_lost_ack_preserves_pending_and_never_reconnects():
+    with stream_fixture(fail_at=1) as (memo, calls, connections, _):
+        iterator = memo.stream_insert(chunks=['x', 'y', 'z'], at=BASE, cursor=1)
+        first = next(iterator)
+        with pytest.raises(dl.MemoStreamInterrupted) as error: next(iterator)
+        assert error.value.last_receipt is first
+        assert error.value.pending['sequence'] == 1
+        assert error.value.pending['text'] == 'y'
+        assert len(connections) == 1
+        assert len([c for c in calls if c['type'] == 'insert']) == 2
+
+
+def test_unicode_chunks_exact_and_close():
+    with stream_fixture() as (memo, calls, _, _):
+        assert len(list(memo.stream_insert(chunks=['', '😀' * 2049], at=BASE, cursor=1, mode='exact'))) == 2
+        assert calls[0]['mode'] == 'exact'
+        assert [len(c['text']) for c in calls if c['type'] == 'insert'] == [2048, 1]
+    with stream_fixture() as (memo, calls, _, _):
+        iterator = memo.stream_insert(chunks=['x', 'y'], at=BASE, cursor=1)
+        next(iterator)
+        iterator.close()
+        assert len([c for c in calls if c['type'] == 'insert']) == 1
+
+
+@pytest.mark.parametrize('stream_id', ['', False, 0, 'short', 'bad id here'])
+def test_invalid_stream_identity_is_refused_without_connecting(stream_id):
+    with stream_fixture() as (memo, calls, connections, _):
+        with pytest.raises(ValueError, match='stream_id'):
+            list(memo.stream_insert(chunks=['x'], at=BASE, cursor=1, stream_id=stream_id))
+        assert not calls and not connections

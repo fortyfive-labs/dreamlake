@@ -36,7 +36,6 @@ from __future__ import annotations
 import hashlib
 import os
 import re
-import uuid
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
@@ -119,10 +118,10 @@ class RevisionExpected(MemoError, ValueError):
 
 
 class MemoStreamInterrupted(MemoError):
-    """Stream stopped; inspect the last receipt and pending command before resuming."""
+    """Stream stopped; inspect the last receipt and pending chunk before continuing; never replay a stream."""
 
     def __init__(self, last_receipt, pending, cause):
-        super().__init__("Memo stream stopped; preserve the acknowledged cursor and reconcile the pending command.")
+        super().__init__("Memo stream stopped; preserve the last receipt and reconcile the pending chunk; never replay streamed text.")
         self.last_receipt = last_receipt
         self.pending = pending
         self.__cause__ = cause
@@ -985,39 +984,17 @@ class MemoHandle:
         assert isinstance(receipt, PatchReceipt)
         return receipt
 
-    def stream_insert(self, *, chunks, cursor: int, at: Any, mode: str = "merge", stream_id: str | None = None):
-        """Yield one receipt per acknowledged chunk, advancing only by server continuation.
+    def stream_insert(self, *, chunks, cursor: int, at: Any, mode: str = "merge", stream_id: str | None = None, intent: str | None = None):
+        """Stream additions over a persistent native RTC session with an anchored cursor.
 
-        Stops on overlap, missing continuation or uncertain outcome. Never
-        restart a partial stream at index zero or guess an offset from text.
-        Closing the iterator stops future chunks; accepted text remains.
+        Exact is opt-in and checked per chunk. Closing stops future chunks; accepted
+        text remains. A stream ID is diagnostic, not permission to replay text.
         """
+        from ._memo_stream import stream_insert
         _exact(mode)
-        if type(cursor) is not int or cursor < 0:
-            raise ValueError("cursor must be a nonnegative code-point position")
-        stream_id = f"stream:{uuid.uuid4()}" if stream_id is None else stream_id
-        if not isinstance(stream_id, str) or not re.fullmatch(r"[A-Za-z0-9._:-]{8,100}", stream_id):
-            raise ValueError("stream_id must contain 8–100 command-id characters")
         self._own(at, "at")
-        sequence, last_receipt, pending = 0, None, None
-        try:
-            for chunk in chunks:
-                if not isinstance(chunk, str):
-                    raise TypeError("stream chunks must be strings")
-                for offset in range(0, len(chunk), 2048):
-                    pending = dict(text=chunk[offset:offset + 2048], cursor=cursor, at=at,
-                                   mode=mode, command_id=f"{stream_id}:{sequence}")
-                    sequence += 1
-                    receipt = self.insert(**pending)
-                    last_receipt, pending = receipt, None
-                    yield receipt
-                    continuation = receipt.continuation
-                    if (not continuation or continuation.get("revision") != receipt.revision
-                            or type(continuation.get("cursor")) is not int or continuation["cursor"] < 0):
-                        raise ValueError("Server did not return an insertion continuation; do not resend the acknowledged chunk")
-                    at, cursor = continuation["revision"], continuation["cursor"]
-        except Exception as cause:
-            raise MemoStreamInterrupted(last_receipt, pending, cause) from cause
+        yield from stream_insert(self._target(), chunks=chunks, cursor=cursor,
+                                 revision=_revision_of(at, "at"), mode=mode, stream_id=stream_id, intent=intent)
 
     def command_status(self, *, command_id: str) -> CommandStatus:
         """What the server recorded for ``command_id``; the read after ``UncertainOutcomeError``."""
