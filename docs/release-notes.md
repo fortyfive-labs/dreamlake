@@ -1,5 +1,12 @@
 # Release notes
 
+## Unreleased — Run a CI/CT workflow from DreamLake
+
+`client.cict.dispatch(ns, repository=..., workflow=..., ref=..., inputs=...)`
+runs a workflow through the namespace's GitHub App installation;
+`dispatches(ns)` lists what was run and `dispatch_branches(...)` a repository's
+branches. Needs a server with manual dispatch.
+
 ## 0.58.1 — 3D Preview references
 
 - `dreamlake.api.viewer`: `parse_viewer_ref`, `format_viewer_ref`,

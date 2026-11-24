@@ -74,6 +74,23 @@ to `result.json` for existing callers) through a short-lived Source read
 capability; it returns `None` when the run has no evidence location or did not
 write the file. `client.cict.jobs("team")` lists the raw recorded GitHub jobs.
 
+## Run a workflow from DreamLake
+
+```python
+d = client.cict.dispatch("team", repository="acme/sim", workflow="cict.yml",
+                         ref="isaac-sim", inputs={"sim_seconds": "120"})
+print(d["state"], d.get("workflowRunUrl"))     # dispatched | failed | unknown
+client.cict.dispatches("team", limit=10)
+```
+
+`dispatch` sends GitHub's `workflow_dispatch` through the namespace's GitHub
+App installation (needs `lakeshore:use`); the workflow must declare
+`workflow_dispatch:` and each input. `ref` defaults to the default branch and
+`installation_id` to the one active installation. `failed` carries GitHub's
+reason in `message`; `unknown` means the answer was lost, so check the
+repository's Actions page before running it again. Runs started this way carry
+`dispatchedBy`.
+
 CI/CT does not compare runs with a baseline or read a result format: a job's
 own steps decide whether it passes. `runs.comparison` was removed; the server
 answers `410 comparison_removed`.
