@@ -565,8 +565,10 @@ class TestPicksUpTheCliLogin:
     pointing at the cause.
     """
 
-    def test_the_storage_key_matches_the_one_login_writes(self, monkeypatch):
+    def test_the_storage_key_matches_the_one_login_writes(self, monkeypatch, tmp_path):
         from unittest.mock import Mock
+        from dreamlake.config import Config
+        monkeypatch.setattr('dreamlake.config.config', Config(tmp_path))
 
         login_src = Path(__file__).parent.parent / "src/dreamlake/cli_commands/login.py"
         key = re.search(r'TOKEN_KEY\s*=\s*"([^"]+)"', login_src.read_text()).group(1)
