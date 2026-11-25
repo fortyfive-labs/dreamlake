@@ -1,5 +1,10 @@
 # Release notes
 
+## 0.60.0
+
+- Add `stream_insert` over one authenticated native RTC session, with a reviewed cursor, Unicode chunk bounds, per-chunk receipts and explicit partial-failure evidence.
+- Default Memo writes and patches to collaborative merge; exact mode remains opt-in. A stopped stream preserves accepted text and never reconnects or replays automatically.
+
 ## 0.59.0
 
 - Add saved web and DreamLake URLs through `DreamLakeClient.links` and `dreamlake.links`, with bounded lists, stable creation IDs and version-guarded edits/removal.
