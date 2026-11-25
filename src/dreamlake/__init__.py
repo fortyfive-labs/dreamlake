@@ -134,6 +134,7 @@ def upload(
     # Auto-detect kind from extension. Free-form — anything that isn't in this
     # table falls through to kind="file" (still uploads, just no special tag).
     ext_to_kind = {
+        ".url": "text",
         ".mp4": "video", ".mkv": "video", ".mov": "video", ".webm": "video",
         ".wav": "audio", ".mp3": "audio", ".aac": "audio", ".opus": "audio", ".flac": "audio",
         ".jpg": "image", ".jpeg": "image", ".png": "image", ".gif": "image",
@@ -147,6 +148,7 @@ def upload(
 
     # MIME content-types (browsers + S3 use this for Content-Type headers)
     ext_to_mime = {
+        ".url": "text/plain",
         ".mp4": "video/mp4", ".mkv": "video/x-matroska", ".mov": "video/quicktime", ".webm": "video/webm",
         ".wav": "audio/wav", ".mp3": "audio/mpeg", ".aac": "audio/aac",
         ".opus": "audio/ogg", ".flac": "audio/flac",
@@ -895,3 +897,6 @@ __all__ += ["ExperimentError", "MetricRowsError", "ConfigurationError", "Network
 
 from .api.saved_links import SavedLinks, links, new_link_id
 __all__ += ["SavedLinks", "links", "new_link_id"]
+
+from .api.link_file import encode_link_file, parse_link_file
+__all__ += ["encode_link_file", "parse_link_file"]

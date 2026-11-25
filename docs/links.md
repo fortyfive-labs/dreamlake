@@ -1,35 +1,47 @@
-# Saved Links
+# Link files
 
-Save web and DreamLake URLs on a resource with the same API used by its Links tab.
-Readers can list links; current content editors can change them. Saving a URL
-does not retrieve its contents or grant access to its destination.
+Saved web and DreamLake URLs are ordinary `.url` files in Project, Source, and
+Bindr file lists. They use the shared file preview and the usual file actions.
+There is no separate Links tab.
 
 ```python
-import os
-from dreamlake import DreamLakeClient, new_link_id
+from dreamlake import DreamLakeClient, encode_link_file, parse_link_file
 
-client = DreamLakeClient(token=os.environ['DREAMLAKE_API_KEY'])
-links = client.links(os.environ['NAMESPACE'], 'project', os.environ['PROJECT_ID'])
-link_id = new_link_id()  # retain before sending, so an uncertain create can be read
-saved = links.create('https://example.com/guide', title='Guide', link_id=link_id)['link']
-changed = links.update(saved['id'], expected_version=saved['version'], description='Getting started')['link']
-page = links.list(limit=25)
-print(page['links'])
-while page['nextCursor']:
-    page = links.list(cursor=page['nextCursor'], limit=25)
-    print(page['links'])
-links.remove(changed['id'], expected_version=changed['version'])
+client = DreamLakeClient()
+files = client.sources.files('example', 'SOURCE_ID', prefix='references')
+saved = files.write('Guide.url', encode_link_file('https://example.com/guide'), expected_revision=None)
+print(parse_link_file(saved['content']))
+current = files.read('Guide.url')
+files.write(current['path'], encode_link_file('https://docs.dreamlake.ai/'), expected_revision=current['revision'])
 ```
 
-Use immutable resource IDs and the current owning namespace. Kinds: `project`,
-`bindr`, `node` (file/folder), `source`, `note`, `artifact`, `annotation`,
-`workflow`, `env` (Scene), `repo`, `runnable`, `library`, `bundle`, and `session`.
-Sources have one list across folders. Links follow a renamed or transferred resource.
+`expected_revision=None` creates only; updating requires the revision from a read.
+Use the Source's immutable ID and an explicit prefix. The usual permissions and
+file revision checks apply. See `examples/saved_links.py` for a runnable example
+using environment variables.
 
-Updates and removal require the read version. On HTTP `409`, read again and
-reconcile changes rather than overwriting. No mutation is automatically retried.
-For an uncertain creation, call `links.get(link_id)`; reuse the same ID and
-identical content if retrying. A different payload at that ID is a conflict.
-See the [product contract](https://docs.dreamlake.ai/links) for fields and limits.
+For a Project folder, write the helper's contents to a local `.url` file and use
+the existing upload API:
 
-Available in dreamlake 0.59.0 and a server with the Links API.
+```python
+from pathlib import Path
+import dreamlake as dl
+
+path = Path('Guide.url')
+with path.open('x', encoding='utf-8', newline='') as out:
+    out.write(dl.encode_link_file('https://example.com/guide'))
+result = dl.upload(str(path), project='research@example', prefix='/references')
+print(result)
+```
+
+Link files contain `[InternetShortcut]` and one `URL=https://...` line. HTTP(S)
+URLs without embedded credentials are accepted; queries and fragments are kept.
+Link previews accept files up to 64 KiB. Saving does not fetch or index the target,
+and it grants no access to that target. Some websites block embedding; the preview
+includes an external open action.
+
+The earlier `DreamLakeClient.links(...)`, `dreamlake.links(...)`, `SavedLinks`,
+and `new_link_id` APIs remain for compatibility with resource URL sidecars.
+They do not create files. Read existing records, upload corresponding `.url`
+files and verify them before optionally removing the legacy records with their
+current `expected_version`. No automatic migration or deletion occurs.
