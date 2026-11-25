@@ -1,6 +1,6 @@
 # Release notes
 
-## 0.60.0
+## 0.61.0
 
 - Add `stream_insert` over one authenticated native RTC session, with a reviewed cursor, Unicode chunk bounds, per-chunk receipts and explicit partial-failure evidence.
 - Default Memo writes and patches to collaborative merge; exact mode remains opt-in. A stopped stream preserves accepted text and never reconnects or replays automatically.
