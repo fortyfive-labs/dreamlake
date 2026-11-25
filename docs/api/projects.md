@@ -70,18 +70,21 @@ or slug is accepted within the explicit source namespace. Namespace is lookup
 context, not proof of access. Python `access_mode` maps to the shared wire field
 `accessMode`; role and visibility strings match the other clients.
 
-`workspace` keeps the existing workspace-member and public baseline rules.
+`workspace` keeps workspace-member access. Public Projects are discoverable;
+unlisted Projects allow anyone with the link to read without appearing in public
+profiles or discovery. Mounted resources retain their own access settings.
 `restricted` excludes those baselines while retaining namespace-owner authority
-and active explicit user/team grants. A restricted Project cannot be public.
-If the current Project is public, explicitly pass `visibility="private"` with
+and active explicit user/team grants. A restricted Project must be private.
+If the current Project is public or unlisted, explicitly pass `visibility="private"` with
 `access_mode="restricted"` to change both atomically. Omitting visibility leaves
 it unchanged; the SDK never silently privatizes or publishes a Project. `visibility`
-is optional, accepts `private` or `public`, and cannot be `public` with restricted
+is optional, accepts `private`, `unlisted`, or `public`, and must be `private` with restricted
 mode. There is no new namespace-wide default setting in this feature.
 
 The response carries `projectId`, `namespace`, `projectSlug`, `accessMode`,
 `visibility`, `baseline`, `viewerRole` and `manageGrants`. Baseline fields describe
-organization-member, namespace-owner and public access. Grant details remain
+organization-member, namespace-owner and anonymous access. The `public` baseline
+field is `READ` for both public and unlisted Projects; it does not imply discovery. Grant details remain
 available through `grants()`. `access()` requires Project read access; changing
 the policy requires current Project ADMIN. Unauthorized/unsupported requests use
 the server's errors rather than a weaker fallback. The SDK checks that successful

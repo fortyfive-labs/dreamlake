@@ -89,6 +89,11 @@ def _bindr_node_ids(members: list) -> list[str]:
 class DreamLakeClient:
     """Unified HTTP client for dreamlake-server and Qdrant."""
 
+    def links(self, namespace: str, kind: str, resource_id: str):
+        """Saved web and DreamLake URLs on one resource, under its current permissions."""
+        from .saved_links import SavedLinks
+        return SavedLinks(self, namespace, kind, resource_id)
+
     def __init__(
         self,
         dl_url: str | None = None,

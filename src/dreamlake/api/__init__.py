@@ -159,3 +159,6 @@ __all__ += ["Tmux", "TmuxError", "TmuxReference", "TmuxResolution", "TmuxOperati
 
 from .viewer import PreviewRef, parse_viewer_ref, format_viewer_ref, viewer_directive, viewer_href, viewer_layout_request
 __all__ += ["PreviewRef", "parse_viewer_ref", "format_viewer_ref", "viewer_directive", "viewer_href", "viewer_layout_request"]
+
+from .saved_links import SavedLinks, links, new_link_id
+__all__ += ["SavedLinks", "links", "new_link_id"]

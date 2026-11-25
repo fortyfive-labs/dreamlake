@@ -892,3 +892,6 @@ __all__ += ["NativeLocalStorage", "MetricColumn", "MetricRowBlock", "MetricRowsP
 
 from .experiments import ExperimentError, MetricRowsError, ConfigurationError, NetworkError, StorageError, AuthenticationError, ExperimentRecordingError
 __all__ += ["ExperimentError", "MetricRowsError", "ConfigurationError", "NetworkError", "StorageError", "AuthenticationError", "ExperimentRecordingError"]
+
+from .api.saved_links import SavedLinks, links, new_link_id
+__all__ += ["SavedLinks", "links", "new_link_id"]
