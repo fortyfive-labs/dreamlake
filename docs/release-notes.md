@@ -1,5 +1,10 @@
 # Release notes
 
+## 0.59.0
+
+- Add saved web and DreamLake URLs through `DreamLakeClient.links` and `dreamlake.links`, with bounded lists, stable creation IDs and version-guarded edits/removal.
+
+
 ## 0.58.2 — Unlisted Projects
 
 Create and manage unlisted Project access policies for link-only sharing on a
