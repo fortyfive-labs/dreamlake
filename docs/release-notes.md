@@ -1,5 +1,14 @@
 # Release notes
 
+## Unreleased — Share a Project with another namespace
+
+`client.projects` gains `share_with_namespace`, `namespace_shares`,
+`revoke_namespace_share`, `shared_projects`, `accept_shared_project`,
+`decline_shared_project` and `leave_shared_project`. A Project ADMIN invites
+another namespace at READ (default) or WRITE; an OWNER there accepts the
+reviewed revision. Downgrades apply immediately; upgrades wait for acceptance. Needs a server with cross-namespace Project sharing. See
+[Share a Project with another namespace](api/projects.md#share-a-project-with-another-namespace).
+
 ## 0.59.0
 
 - Add saved web and DreamLake URLs through `DreamLakeClient.links` and `dreamlake.links`, with bounded lists, stable creation IDs and version-guarded edits/removal.

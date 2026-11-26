@@ -134,6 +134,88 @@ If creation returns an unconfirmed receipt, `PROJECT_CREATE_UNCONFIRMED` exposes
 the server before deciding what to do; do not create a replacement or delete it
 automatically. Existing creation paths retain their own compatibility behavior.
 
+## Share a Project with another namespace
+
+Unreleased in this SDK; requires a server with cross-namespace Project sharing.
+A Project ADMIN in the owning namespace invites another namespace, personal or
+organization. A new share takes effect only when an OWNER of that namespace
+accepts. The Project stays in its source namespace: this is access, not a
+transfer.
+
+```python
+from dreamlake import DreamLakeClient
+
+client = DreamLakeClient()
+
+# Source side: Project ADMIN in "acme".
+invitation = client.projects.share_with_namespace(
+    namespace="acme", project="research", target_namespace="lab", role="READ")
+client.projects.namespace_shares(namespace="acme", project="research")["shares"]
+
+# Recipient side: OWNER of "lab" reviews, then accepts that exact revision.
+pending = client.projects.shared_projects(namespace="lab")["shares"]
+share = next(s for s in pending if s["id"] == invitation["id"])
+active = client.projects.accept_shared_project(
+    namespace="lab", share_id=share["id"], revision=share["revision"])
+
+# Either side can end it.
+client.projects.leave_shared_project(namespace="lab", share_id=active["id"])
+client.projects.revoke_namespace_share(
+    namespace="acme", project="research", share_id=active["id"])
+```
+
+| Method | Request | Returns |
+| --- | --- | --- |
+| `namespace_shares(*, namespace, project)` | `GET /namespaces/:source/projects/:project/namespace-shares` | `{"shares": [...]}` |
+| `share_with_namespace(*, namespace, project, target_namespace, role="READ")` | `POST` the same path with `{targetNamespace, role}` | share |
+| `revoke_namespace_share(*, namespace, project, share_id)` | `DELETE` the same path `/:shareId` | `None` |
+| `shared_projects(*, namespace)` | `GET /namespaces/:target/shared-projects` | `{"shares": [...]}` |
+| `accept_shared_project(*, namespace, share_id, revision)` | `POST /namespaces/:target/shared-projects/:shareId/accept` with `{revision}` | share |
+| `decline_shared_project(*, namespace, share_id)` / `leave_shared_project(...)` | `DELETE /namespaces/:target/shared-projects/:shareId` | `None` |
+
+All arguments are keyword-only. `project` is the Project database ID or current
+slug within the explicit source namespace. Python `target_namespace` and
+`share_id` map to the wire fields `targetNamespace` and `shareId`. Namespace
+arguments are trimmed and may carry a leading `@`, as in `move`; letter case is
+sent as given.
+
+A share carries `id`, `projectId`, `projectSlug`, `sourceNamespace`,
+`targetNamespace`, `role`, `proposedRole` and `revision`. `role` is the role in
+effect, `READ` or `WRITE`, and is `None` while the first invitation is pending.
+`proposedRole` is a first invitation or a READ-to-WRITE upgrade awaiting the
+recipient OWNER, otherwise `None`. Build links from the stable `projectId` and
+`sourceNamespace`; a slug can change.
+
+- The shared role is `READ` (the default) or `WRITE`. ADMIN cannot be shared,
+  and sharing never grants execution. The SDK rejects any other role, and a
+  target equal to the source namespace, before sending a request.
+- Calling `share_with_namespace` again changes an existing share. A downgrade
+  from WRITE to READ applies immediately. An upgrade from READ to WRITE is a
+  proposal: READ stays in effect until the recipient OWNER accepts it.
+- Recipient members see active shares in `shared_projects`. Pending invitations
+  and pending upgrades are returned to namespace OWNERs only.
+- `decline_shared_project` and `leave_shared_project` send the same request and
+  remove the whole share for the recipient, including a role already in effect.
+- Revoking, declining or leaving removes only access derived from this share.
+  Independent user/team grants and resource shares remain.
+
+`accept_shared_project` requires `revision`: pass the value from the share you
+reviewed. The SDK sends it unchanged in the single request and never reads or
+substitutes a newer one; the server decides whether it still matches. The
+returned share must be active with no remaining proposal.
+
+Each mutation is one request and is never retried. A transport timeout can
+follow a committed change: read `namespace_shares` or `shared_projects` before
+acting again. Successful responses are checked against the requested scope.
+A share with neither a role nor a proposal, or with a proposal that is not a
+first invitation or a READ-to-WRITE upgrade, is malformed.
+A listing that is malformed or belongs to another scope raises
+`ProjectAccessError` `INVALID_PROJECT_SHARE_RESPONSE` (502). An invitation or
+acceptance whose receipt does not confirm the request raises
+`PROJECT_SHARE_UNCONFIRMED` (502) with `outcome="unknown"` and `share_id` when
+the server returned one. Server denials keep their HTTP status and error code;
+an unsupported server fails without a fallback.
+
 ## Whole Project transfer
 
 Typed Artifact/Env transfer plans require SDK **0.31.0+** and a compatible
