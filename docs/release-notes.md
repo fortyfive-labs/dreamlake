@@ -1,6 +1,6 @@
 # Release notes
 
-## Unreleased — Share a Project with another namespace
+## 0.61.0 — Share a Project with another namespace
 
 `client.projects` gains `share_with_namespace`, `namespace_shares`,
 `revoke_namespace_share`, `shared_projects`, `accept_shared_project`,
