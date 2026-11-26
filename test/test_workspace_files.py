@@ -87,3 +87,41 @@ def test_missing_file_and_empty_match_share_typescript_errors(workspace):
     with pytest.raises(WorkspaceFileError, match='file_replace_empty_match'):
         fs.replace('absent.xml', '', 'x', expected_revision='"rev1"')
     assert len(calls) == before
+
+
+def test_binary_round_trip_and_text_guard(workspace):
+    fs, _, _ = workspace
+    payload = b'\x00\xff\x80\r\n' * 100000
+    first = fs.write_bytes('mesh.stl', payload, expected_revision=None)
+    assert fs.read_bytes('mesh.stl') == first
+    with pytest.raises(WorkspaceFileError, match='file_text_too_large_or_binary'):
+        fs.read('mesh.stl')
+    with pytest.raises(WorkspaceFileError, match='file_revision_conflict'):
+        fs.write_bytes('mesh.stl', b'no', expected_revision=None)
+
+
+def test_explicit_project_endpoint_has_same_operation_shape():
+    from dreamlake.api.workspace_files import workspace_files
+    import json, base64
+    objects = {}
+    def api(request):
+        assert request.url.path.startswith('/namespaces/marvin/projects/' + 'b'*24 + '/workspace-files')
+        body = json.loads(request.content) if request.content else {}
+        path = body.get('path') or request.url.params.get('path')
+        if request.method == 'PUT':
+            current = objects.get(path)
+            if (current['revision'] if current else None) != body['expectedRevision']:
+                return httpx.Response(409, json={'error': 'file_revision_conflict'})
+            objects[path] = {'path': path, 'base64': body['base64'], 'revision': 'project:' + str(len(objects)+1)}
+            return httpx.Response(200, json={'path': path, 'revision': objects[path]['revision']})
+        return httpx.Response(200, json=objects[path])
+    class Client:
+        def http(self):
+            return httpx.Client(base_url='https://api.test', transport=httpx.MockTransport(api))
+    fs = workspace_files(Client(), {'kind':'project','namespace':'marvin','project_id':'b'*24,'prefix':'root'})
+    created = fs.write('scene.xml', '<mujoco/>', expected_revision=None)
+    assert fs.read('scene.xml') == created
+    assert fs.write_bytes('image.png', b'\x00\xff', expected_revision=None)['bytes'] == b'\x00\xff'
+    assert fs.read_bytes('image.png')['bytes'] == b'\x00\xff'
+    with pytest.raises(WorkspaceFileError, match='file_revision_conflict'):
+        fs.write('scene.xml', 'stale', expected_revision=None)

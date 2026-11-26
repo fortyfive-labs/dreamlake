@@ -1,9 +1,11 @@
-"""Bounded managed Source text workspaces. No shell, external fallback or unconditional writes."""
+"""Bounded Source and Project text/byte workspaces with explicit revision guards."""
 import re
+import base64
 from urllib.parse import quote, urlparse
 import httpx
 
 MAX_TEXT_BYTES = 256 * 1024
+MAX_FILE_BYTES = 32 * 1024 * 1024
 
 
 class WorkspaceFileError(Exception):
@@ -30,6 +32,8 @@ def _etag(value):
 
 class SourceWorkspace:
     """Explicit Source endpoint and prefix. Prefix narrows paths, not caller authority."""
+    capabilities = {'durable': True, 'max_text_bytes': MAX_TEXT_BYTES, 'max_file_bytes': MAX_FILE_BYTES}
+
     def __init__(self, client, namespace, source_id, prefix, *, storage_transport=None):
         if not re.fullmatch(r'[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}', namespace) or not re.fullmatch(r'[a-fA-F0-9]{24}', source_id):
             raise WorkspaceFileError('file_endpoint_invalid')
@@ -54,7 +58,11 @@ class SourceWorkspace:
         with self.client.http() as http:
             response = http.request(method, self.base + suffix, json=payload, params=params)
             if not response.is_success:
-                raise WorkspaceFileError('file_api_' + str(response.status_code))
+                try:
+                    code = response.json().get('error')
+                except ValueError:
+                    code = None
+                raise WorkspaceFileError(code if isinstance(code, str) and code.startswith('file_') else 'file_api_' + str(response.status_code))
             return response.json()
 
     def list(self, path='', cursor=None):
@@ -79,34 +87,45 @@ class SourceWorkspace:
                     if method == 'GET':
                         for chunk in response.iter_bytes():
                             data.extend(chunk)
-                            if len(data) > MAX_TEXT_BYTES:
-                                raise WorkspaceFileError('file_text_too_large_or_binary')
+                            if len(data) > MAX_FILE_BYTES:
+                                raise WorkspaceFileError('file_bytes_too_large')
                     return bytes(data), response.headers.get('etag')
         except httpx.HTTPError:
             raise WorkspaceFileError('file_write_unconfirmed' if method == 'PUT' else 'file_read_failed') from None
 
     def read(self, path):
+        result = self.read_bytes(path)
+        try:
+            content = _text(result['bytes'].decode('utf-8'))
+        except UnicodeDecodeError:
+            raise WorkspaceFileError('file_text_too_large_or_binary') from None
+        return {'path': path, 'content': content, 'revision': result['revision']}
+
+    def read_bytes(self, path):
         resolved = self._resolve(path)
         cap = self._api('POST', '/managed-read-capabilities', payload={'path': resolved})
         if cap['method'] != 'GET':
             raise WorkspaceFileError('file_capability_invalid')
         data, revision = self._storage('GET', cap['url'], cap.get('allowedHeaders', {}))
-        try:
-            content = _text(data.decode('utf-8'))
-        except UnicodeDecodeError:
-            raise WorkspaceFileError('file_text_too_large_or_binary') from None
         if not _etag(revision):
             raise WorkspaceFileError('file_revision_unavailable')
         self._api('POST', '/managed-read-capabilities', payload={'path': resolved})
-        return {'path': path, 'content': content, 'revision': revision}
+        return {'path': path, 'bytes': data, 'revision': revision}
 
     def write(self, path, content, *, expected_revision):
-        resolved, content = self._resolve(path), _text(content)
+        _text(content)
+        result = self.write_bytes(path, content.encode(), expected_revision=expected_revision)
+        return {'path': path, 'content': content, 'revision': result['revision']}
+
+    def write_bytes(self, path, data, *, expected_revision):
+        if not isinstance(data, bytes) or len(data) > MAX_FILE_BYTES:
+            raise WorkspaceFileError('file_bytes_too_large')
+        resolved = self._resolve(path)
         if expected_revision is not None and not _etag(expected_revision):
             raise WorkspaceFileError('file_revision_invalid')
         condition = {'ifNoneMatch': '*'} if expected_revision is None else {'ifMatch': expected_revision}
-        size = len(content.encode())
-        plan = self._api('POST', '/upload-authorizations', payload={'files': [{'relativePath': resolved, 'size': size, 'mediaType': 'text/plain; charset=utf-8', **condition}]})
+        size = len(data)
+        plan = self._api('POST', '/upload-authorizations', payload={'files': [{'relativePath': resolved, 'size': size, 'mediaType': 'application/octet-stream', **condition}]})
         files = plan.get('files', [])
         if plan.get('mode') != 's3-presigned-batch' or len(files) != 1:
             raise WorkspaceFileError('file_capability_invalid')
@@ -118,10 +137,10 @@ class SourceWorkspace:
         key, value = ('if-none-match', '*') if expected_revision is None else ('if-match', expected_revision)
         if headers.get(key) != value or ('if-match' in headers and 'if-none-match' in headers):
             raise WorkspaceFileError('file_precondition_missing')
-        self._storage('PUT', put['url'], put['headers'], content.encode())
+        self._storage('PUT', put['url'], put['headers'], data)
         try:
-            result = self.read(path)
-            if result['content'] != content:
+            result = self.read_bytes(path)
+            if result['bytes'] != data:
                 raise WorkspaceFileError('file_write_unconfirmed')
             return result
         except Exception:
@@ -138,3 +157,42 @@ class SourceWorkspace:
         if not old_text or at < 0 or file['content'].find(old_text, at + 1) >= 0:
             raise WorkspaceFileError('file_replace_match_not_unique')
         return self.write(path, file['content'][:at] + new_text + file['content'][at + len(old_text):], expected_revision=expected_revision)
+
+
+class ProjectWorkspace(SourceWorkspace):
+    """Same relative operations, backed by native Project files rather than a Source mount."""
+    def __init__(self, client, namespace, project_id, prefix):
+        super().__init__(client, namespace, project_id, prefix)
+        self.base = '/namespaces/' + quote(namespace, safe='') + '/projects/' + project_id + '/workspace-files'
+
+    def list(self, path='', cursor=None):
+        result = self._api('GET', '', params={k: v for k, v in {'path': self._resolve(path, True), 'cursor': cursor}.items() if v is not None})
+        return {'entries': [{**e, 'path': self._relative(e['path'])} for e in result['entries']], 'nextCursor': result['nextCursor']}
+
+    def read_bytes(self, path):
+        result = self._api('GET', '/bytes', params={'path': self._resolve(path)})
+        if self._relative(result['path']) != path:
+            raise WorkspaceFileError('file_endpoint_path_mismatch')
+        data = base64.b64decode(result['base64'], validate=True)
+        if len(data) > MAX_FILE_BYTES:
+            raise WorkspaceFileError('file_bytes_too_large')
+        return {'path': path, 'bytes': data, 'revision': result['revision']}
+
+    def write_bytes(self, path, data, *, expected_revision):
+        if not isinstance(data, bytes) or len(data) > MAX_FILE_BYTES:
+            raise WorkspaceFileError('file_bytes_too_large')
+        if expected_revision is not None and (not isinstance(expected_revision, str) or not expected_revision):
+            raise WorkspaceFileError('file_revision_required')
+        result = self._api('PUT', '/bytes', payload={'path': self._resolve(path), 'base64': base64.b64encode(data).decode(), 'expectedRevision': expected_revision})
+        if self._relative(result['path']) != path:
+            raise WorkspaceFileError('file_endpoint_path_mismatch')
+        return {'path': path, 'bytes': data, 'revision': result['revision']}
+
+
+def workspace_files(client, endpoint, *, storage_transport=None):
+    """Select an explicit endpoint; all operation arguments remain unchanged."""
+    if endpoint.get('kind') == 'source':
+        return SourceWorkspace(client, endpoint['namespace'], endpoint['source_id'], endpoint['prefix'], storage_transport=storage_transport)
+    if endpoint.get('kind') == 'project':
+        return ProjectWorkspace(client, endpoint['namespace'], endpoint['project_id'], endpoint['prefix'])
+    raise WorkspaceFileError('file_endpoint_invalid')

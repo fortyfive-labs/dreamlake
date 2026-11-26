@@ -1,0 +1,9 @@
+Live branch client acceptance, 2026-11-12
+
+Against a disposable prefix in an explicitly selected managed production Source:
+- Branch CLI: create text, read, guarded update, reject stale revision, final read verified.
+- Branch Python: create text, literal replacement with revision, reject stale revision, final read verified.
+- Each client uploaded a PNG and read the other client's object back byte-identically.
+- PNG size 52,241 bytes; SHA256 d3fa989ad3295511c6b86289c6d13dc1a92a5f47ee7859157656b7cde920d61f.
+
+CLI tested implementation6f250000; Python tested implementation7a50c83. Exact script, raw command results and endpoint mapping are in the private task Memo attachment files-evidence-v2.zip. No credentials were exported. This is branch runtime evidence, not published package or deployed Project acceptance. Consumers remain Draft pending backend Project release.
