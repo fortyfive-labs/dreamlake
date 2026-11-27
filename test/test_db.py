@@ -305,7 +305,9 @@ class TestCreatePlatformFlow:
             _platform.create_annotation("robo-set", object(), schema_type="robot")
         assert fake_dreamdb["create"] == []
 
-    def test_not_authenticated(self, monkeypatch, fake_dreamdb):
+    def test_not_authenticated(self, monkeypatch, fake_dreamdb, tmp_path):
+        from dreamlake.config import Config
+        monkeypatch.setattr('dreamlake.config.config', Config(tmp_path))
         monkeypatch.delenv("DREAMLAKE_API_KEY", raising=False)
 
         class NoToken:

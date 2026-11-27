@@ -77,6 +77,7 @@ __all__ = [
     "MappedRead",
     "MemoCreatedWithoutSource",
     "MemoHandle",
+    "MemoStreamInterrupted",
     "MemoVersions",
     "Memos",
     "Outline",
@@ -114,6 +115,16 @@ class RevisionExpected(MemoError, ValueError):
     """
 
     outcome = "invalid-usage"
+
+
+class MemoStreamInterrupted(MemoError):
+    """Stream stopped; inspect the last receipt and pending chunk before continuing; never replay a stream."""
+
+    def __init__(self, last_receipt, pending, cause):
+        super().__init__("Memo stream stopped; preserve the last receipt and reconcile the pending chunk; never replay streamed text.")
+        self.last_receipt = last_receipt
+        self.pending = pending
+        self.__cause__ = cause
 
 
 class ReadingViewRefused(MemoError, ValueError):
@@ -939,13 +950,13 @@ class MemoHandle:
         assert isinstance(receipt, PatchReceipt)
         return receipt
 
-    def write(self, *, text: str, at: Any, mode: str, command_id: str | None = None) -> PatchReceipt:
+    def write(self, *, text: str, at: Any, mode: str = "merge", command_id: str | None = None) -> PatchReceipt:
         """Replace the whole source with ``text``, planned against the complete snapshot ``at``.
 
         The difference is compiled against the original source and sent as
         retained-baseline edits; no latest-body replacement, no ETag path. A
-        partial read is refused as a baseline. ``mode`` is required until a
-        default is ratified; an unchanged target under ``exact`` is still
+        partial read is refused as a baseline. Merge is the default;
+        an unchanged target under ``exact`` is still
         submitted so the server checks the precondition.
         """
         _refuse_reading_view(text, "text")
@@ -955,10 +966,10 @@ class MemoHandle:
         assert isinstance(receipt, PatchReceipt)
         return receipt
 
-    def patch(self, *, patch: str, format: str, at: Any, mode: str, command_id: str | None = None) -> PatchReceipt:
+    def patch(self, *, patch: str, format: str, at: Any, mode: str = "merge", command_id: str | None = None) -> PatchReceipt:
         """Apply an explicit original-source patch (``diff`` or ``inline-dff``).
 
-        ``format`` and ``mode`` are required. Coordinates refer to the retained
+        ``format`` is required; ``mode`` defaults to merge. Coordinates refer to the retained
         original source named by ``at``; a newer revision is never attached to
         an old patch. ``at`` may be a complete or partial read result (its
         revision is the baseline) or an ``rtc:`` string.
@@ -972,6 +983,18 @@ class MemoHandle:
                                        command_id=command_id)
         assert isinstance(receipt, PatchReceipt)
         return receipt
+
+    def stream_insert(self, *, chunks, cursor: int, at: Any, mode: str = "merge", stream_id: str | None = None, intent: str | None = None):
+        """Stream additions over a persistent native RTC session with an anchored cursor.
+
+        Exact is opt-in and checked per chunk. Closing stops future chunks; accepted
+        text remains. A stream ID is diagnostic, not permission to replay text.
+        """
+        from ._memo_stream import stream_insert
+        _exact(mode)
+        self._own(at, "at")
+        yield from stream_insert(self._target(), chunks=chunks, cursor=cursor,
+                                 revision=_revision_of(at, "at"), mode=mode, stream_id=stream_id, intent=intent)
 
     def command_status(self, *, command_id: str) -> CommandStatus:
         """What the server recorded for ``command_id``; the read after ``UncertainOutcomeError``."""

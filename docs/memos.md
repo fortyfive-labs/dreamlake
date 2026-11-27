@@ -140,3 +140,36 @@ server enforces metadata management permission. Readers receive the same cover
 metadata; images remain subject to memo access. An unconfirmed write raises
 `WriteOutcomeUnknown`; inspect metadata before retrying. No body write, history
 reset or collaboration-room replacement is involved.
+
+## Stream an addition at a known cursor
+
+`MemoHandle.stream_insert` yields one acknowledged RTC receipt per chunk.
+`merge` is the default for it, `write` and `patch`; pass `mode="exact"` only
+when the baseline must remain current. Both modes use RTC.
+
+```python
+import dreamlake as dl
+
+note = dl.memos(memo_id)
+original = note.read()
+for receipt in note.stream_insert(at=original, cursor=0, chunks=generated_chunks):
+    persist_receipt(receipt)
+```
+
+The initial cursor is a code-point position in the reviewed source. One
+persistent authenticated connection keeps a native RTC session and relative
+cursor alive. The session advances the cursor after each accepted insertion;
+concurrent edits can move its displayed position. A deleted anchor or reset room
+stops the stream. Chunks are bounded to 2048 code points without artificial
+pacing. Producers may batch tokens to reduce acknowledgment overhead.
+
+On `dl.MemoStreamInterrupted`, preserve `last_receipt` and `pending`. Stream
+sequences are not HTTP command IDs and cannot be reconciled with
+`command_status`. Inspect the partial result before making another write; never
+restart at chunk zero or resend accepted text. Closing the iterator preserves
+accepted text and stops future chunks. `intent` sets the short purpose beside
+the cursor. Exact mode checks every chunk; a refusal does not undo earlier ones.
+
+Publish intent and save logical checkpoints through supported operations around
+the stream, rather than saving every chunk. The SDK's version facade currently
+provides list/read, not a `revise` or version-save wrapper.

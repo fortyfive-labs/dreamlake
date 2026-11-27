@@ -346,14 +346,12 @@ def test_every_handle_operation_takes_keyword_arguments_only(method):
         getattr(handle, method)('positional')
 
 
-def test_write_and_patch_require_mode_and_patch_requires_format():
+def test_write_and_patch_default_merge_and_patch_requires_format():
     handle = client(never).notes(ID, namespace=NS)
-    with pytest.raises(TypeError):
-        handle.write(text='x', at=snap(''))
+    assert client(ack).notes(ID, namespace=NS).write(text='x', at=snap('')).mode == 'merge'
     with pytest.raises(TypeError):
         handle.patch(patch='', at=snap(''), mode='exact')
-    with pytest.raises(TypeError):
-        handle.patch(patch='', format='diff', at=snap(''))
+    assert client(ack).notes(ID, namespace=NS).patch(patch='@@ chars 0:0 @@\n~ {+x+}\n', format='inline-dff', at=snap('')).mode == 'merge'
     with pytest.raises(ValueError):
         handle.patch(patch='', format='unified', at=snap(''), mode='exact')
 

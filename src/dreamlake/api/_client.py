@@ -253,7 +253,7 @@ class DreamLakeClient:
         base = httpx.URL(self.dl_url)
         if (request.url.scheme, request.url.host, request.url.port) != (base.scheme, base.host, base.port):
             return
-        route = re.match(r"^/namespaces/[^/]+/notes/[^/]+/(body|diff|sections|presence)(/|$)", request.url.path)
+        route = re.match(r"^/namespaces/[^/]+/notes/[^/]+/(body|diff|sections|presence|stream)(/|$)", request.url.path)
         if not route:
             return
         # Presence is attributed only when it is asserted (POST: visit/seek).
