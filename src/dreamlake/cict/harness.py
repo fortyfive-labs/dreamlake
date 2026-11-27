@@ -254,14 +254,19 @@ class Run:
         """Record explicit test execution; assertions fail, other exceptions are unknown.
 
         Exceptions propagate without recording their text, locals or output.
-        Explicit finish inside the block overrides the automatic pass.
+        A later exception overrides an earlier pass/skip inside the block.
         """
         self.start(node_id)
         try:
             yield self
         except BaseException as error:
-            if self._node(node_id)["status"] == "running":
-                self.finish(node_id, "failed" if isinstance(error, AssertionError) else "unknown")
+            node = self._node(node_id)
+            outcome = "failed" if isinstance(error, AssertionError) else "unknown"
+            if node["status"] == "running":
+                self.finish(node_id, outcome)
+            elif node["status"] in {"passed", "skipped"}:
+                node.update(status=outcome, finishedAt=datetime.now(timezone.utc).isoformat())
+                self._emit("node.updated", record=deepcopy(node))
             raise
         else:
             if self._node(node_id)["status"] == "running":

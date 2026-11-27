@@ -157,7 +157,7 @@ run = suite.run("commit-sha-attempt-1", on_event=lambda event: None)
 run.select("pick", "quick-path")
 with run.test("quick"):
     assert 1 + 1 == 2
-    run.finish("quick", "passed", metrics={"durationMs": 0})
+    run.record("quick", metrics={"durationMs": 0})
 run.write("outputs/cict.json")
 run.write_events("outputs/cict-events.jsonl")
 ```
@@ -184,8 +184,9 @@ test. Start a node before passing or failing it. Explicitly skip a node with
 outcome. Finished nodes cannot restart within a run. The `test` context manager
 marks an uncaught assertion as failed and another exception as unknown,
 propagates the exception, and never stores its message or output. A normally
-completed block passes unless it already finished explicitly. Avoid declaring
-a pass before the test's assertions are complete.
+completed block passes unless it already finished explicitly. A later exception
+in the block overrides an earlier pass or skip, so a failed assertion cannot
+leave a falsely passing test.
 
 While a node is running, call `run.record(id, metrics={"steps": 5})` to emit
 explicit live measurements without finishing it.

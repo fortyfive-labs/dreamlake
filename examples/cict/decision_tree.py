@@ -15,7 +15,7 @@ run = suite.run("local-example")
 run.select("choose-size", "use-small")
 with run.test("small"):
     assert sum([1, 2, 3]) == 6
-    run.finish("small", "passed", metrics={"durationMs": 0}, attributes={"samples": 3})
+    run.record("small", metrics={"durationMs": 0}, attributes={"samples": 3})
 # large remains not_run, and use-large selected:false, rather than guessed passed.
 run.write(out / "cict.json")
 run.write_events(out / "cict-events.jsonl")

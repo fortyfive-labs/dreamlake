@@ -135,3 +135,14 @@ def test_live_metrics_preserve_prior_measurements_and_validate_atomically():
     run.finish("a", "passed", metrics={"durationMs": 0})
     assert run.snapshot()["records"][1]["metrics"] == {"steps": 2, "durationMs": 0}
     assert run.events()[-2]["record"]["status"] == "running"
+
+
+@pytest.mark.parametrize("prior", ["passed", "skipped"])
+def test_late_assertion_cannot_leave_false_success(prior):
+    run = definition().run("r")
+    with pytest.raises(AssertionError):
+        with run.test("a"):
+            run.finish("a", prior, metrics={"durationMs": 0})
+            raise AssertionError("later check failed")
+    assert run.snapshot()["records"][1]["status"] == "failed"
+    assert run.events()[-1]["record"]["status"] == "failed"
