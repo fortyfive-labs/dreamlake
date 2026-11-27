@@ -16,3 +16,6 @@ def test_public_and_private_import_identity():
     from dreamlake_dash.dash import DashWriterError
     assert issubclass(DashWriterError, ExperimentRequestError)
     assert importlib.import_module("dreamlake.api._experiment_upload") is importlib.import_module("dreamlake_dash._upload")
+
+    assert importlib.import_module("dreamlake.auth.token_storage") is importlib.import_module("dreamlake_dash._secure_storage")
+    assert importlib.import_module("dreamlake.auth.exceptions") is importlib.import_module("dreamlake_dash._login_errors")

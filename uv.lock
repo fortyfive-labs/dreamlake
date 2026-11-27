@@ -654,8 +654,10 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "cryptography", marker = "extra == 'auth'", specifier = ">=42" },
     { name = "httpx", specifier = ">=0.27.0" },
     { name = "imageio", extras = ["ffmpeg"], marker = "extra == 'video'", specifier = ">=2.31" },
+    { name = "keyring", marker = "extra == 'auth'", specifier = ">=25" },
     { name = "numpy", marker = "extra == 'media'", specifier = ">=1.24" },
     { name = "params-proto", specifier = ">=1.9.0" },
     { name = "pillow", marker = "extra == 'media'", specifier = ">=10" },
@@ -663,7 +665,7 @@ requires-dist = [
     { name = "rich", specifier = ">=13.0.0" },
     { name = "scikit-image", marker = "extra == 'video'", specifier = ">=0.22" },
 ]
-provides-extras = ["media", "video", "dev"]
+provides-extras = ["auth", "media", "video", "dev"]
 
 [[package]]
 name = "etils"

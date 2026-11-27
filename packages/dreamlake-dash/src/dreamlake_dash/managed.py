@@ -25,11 +25,12 @@ def _page_url(value: str, run_id=None) -> str:
         raise ValueError('Invalid managed experiment page')
     return value.rstrip('/')
 
-def _login_provider(dreamlake_url=None, config_dir=None):
+def _login_provider(dreamlake_url=None, config_dir=None, *, token_storage_fallback=None):
     """The selected DreamLake URL and a provider of the current login token for it.
 
     Reads ``~/.dreamlake`` (or ``config_dir``) at each call; never writes files,
-    invokes Keychain or starts a login flow. A login for one server is never
+    invokes Keychain or starts a login flow by default. The historical managed
+    writer may explicitly supply its existing secure-store fallback. A login for one server is never
     returned for a different selected server.
     """
     directory = Path(config_dir or os.environ.get('DREAMLAKE_CONFIG_DIR') or os.environ.get('ML_DASH_MANAGED_CONFIG_DIR') or Path.home() / '.dreamlake')
@@ -53,6 +54,8 @@ def _login_provider(dreamlake_url=None, config_dir=None):
         # Re-read config as well as tokens. An environment switch cannot
         # cause an existing connection to send the new environment's token.
         token = read('tokens.json').get('dreamlake-token') if selected == current else None
+        if (not isinstance(token, str) or not token) and selected == current and token_storage_fallback is not None:
+            token = token_storage_fallback(directory)
         if not isinstance(token, str) or not token:
             raise ValueError('No DreamLake login for this server; run dreamlake login for the intended environment')
         return token

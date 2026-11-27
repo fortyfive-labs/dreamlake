@@ -104,3 +104,27 @@ def test_managed_default_reads_selected_login_and_preserves_route(tmp_path, monk
     assert seen[0].headers["authorization"] == "Bearer private-token"
     assert "private-token" not in repr(run)
     assert "dreamlake" not in sys.modules
+
+
+def test_managed_legacy_secure_store_fallback_is_preserved_and_server_pinned(tmp_path, monkeypatch):
+    from dreamlake_dash._control import ManagedControlClient
+    from dreamlake_dash import _secure_storage
+    monkeypatch.setenv("DREAMLAKE_CONFIG_DIR", str(tmp_path))
+    monkeypatch.delenv("DREAMLAKE_API_KEY", raising=False)
+    monkeypatch.delenv("DREAMLAKE_REMOTE", raising=False)
+    calls = []
+    class Storage:
+        def load(self, key):
+            calls.append(key)
+            return "secure-token"
+    monkeypatch.setattr(_secure_storage, "get_token_storage", lambda directory: Storage())
+    (tmp_path / "config.json").write_text(json.dumps({"remote_url": "https://first.test"}))
+    client = ManagedControlClient()
+    assert client._token == "secure-token"
+    assert calls == ["dreamlake-token"]
+    (tmp_path / "tokens.json").write_text(json.dumps({"dreamlake-token": "projected-token"}))
+    assert client._token == "projected-token"
+    assert calls == ["dreamlake-token"]
+    (tmp_path / "config.json").write_text(json.dumps({"remote_url": "https://other.test"}))
+    assert client._token is None
+    assert calls == ["dreamlake-token"]

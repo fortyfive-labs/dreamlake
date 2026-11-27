@@ -43,7 +43,8 @@ installing this package does not provision a service.
 separate from `Experiment`'s native recording routes, and do not migrate a run
 between backends. An existing `DreamLakeClient` can still be passed via `client=`;
 the standalone default reads the same server-pinned CLI login without importing
-the umbrella SDK.
+the umbrella SDK. Its historical secure-store fallback remains available with
+`dreamlake-dash[auth]`; the native writer retains its existing CLI-file behavior.
 
 `dreamlake-eval` owns test discovery, definitions and verdicts. Dash records
 measurements and artifacts; it does not discover tests or decide their outcomes.
