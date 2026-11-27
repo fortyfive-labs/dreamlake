@@ -23,11 +23,7 @@ from .params import ParametersBuilder
 from .files import FileBuilder, FilesBuilder
 
 
-class OperationMode(Enum):
-    """Operation mode for the episode."""
-    LOCAL = "local"
-    REMOTE = "remote"
-    HYBRID = "hybrid"  # Future: sync local to remote
+from dreamlake_dash._shared import OperationMode
 
 
 class RunManager:

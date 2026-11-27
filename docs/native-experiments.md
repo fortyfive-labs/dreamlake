@@ -1,5 +1,14 @@
 # Native Experiments
 
+
+Install the standalone recorder with `pip install dreamlake-dash` and import
+`Experiment`, `experiment`, `RUN` and `NativeConnection` from `dreamlake_dash`.
+DreamLake 0.63.0+ re-exports the same implementation for existing imports.
+The standalone package needs only HTTPX, params-proto and Rich; image helpers
+are available through `dreamlake-dash[media]`. It does not depend on the
+umbrella SDK. Test discovery and verdicts belong to `dreamlake-eval`; this
+package records explicit measurements and artifacts.
+
 `DreamLakeClient(...).experiments` logs runs straight to a DreamLake project over REST
 (`/native-experiments/ns/{namespace}/projects/{project}/...`).
 

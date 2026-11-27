@@ -8,7 +8,7 @@ from typing import Any, Optional
 # (login, profile, the CLI ServerConfig, and the SDK API client). Override with
 # `--url`, the DREAMLAKE_REMOTE env var, a stored `remote_url` in config.json,
 # or `--debug` (which points at the local dev server).
-DEFAULT_REMOTE_URL = "https://api.dreamlake.ai"
+from dreamlake_dash._shared import DEFAULT_REMOTE_URL
 
 
 class Config:
