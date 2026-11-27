@@ -132,3 +132,82 @@ time limit) is read from the provider's launch layer, not passed in.
 Errors are `CictError` (and `CictNotFound` for HTTP 404) from
 `dreamlake.api.cict`, with `status` and the server's `code` when recognized.
 Server error text is not included.
+
+## Local test harness and decision graphs
+
+Added in Python package 0.62.0. The `dreamlake.cict` module defines tests and
+records their execution locally.
+It is separate from `client.cict`, the authenticated CI/CT control-plane API
+above. Creating a suite or run does not dispatch jobs, allocate machines, upload
+files, read terminal output, or index anything.
+
+```python
+from dreamlake.cict import Suite
+
+suite = (Suite("simulation-smoke")
+    .node("pick", kind="decision", attributes={"suite": "simulation"})
+    .node("quick", attributes={"suite": "simulation", "device": "cpu"})
+    .node("extended", attributes={"suite": "simulation", "device": "gpu"})
+    .edge("quick-path", "pick", "quick", condition="quick check requested")
+    .edge("extended-path", "pick", "extended", condition="extended check requested"))
+suite.write("outputs/cict-suite.json")
+# Definitions can also be loaded with Suite.read("outputs/cict-suite.json").
+
+run = suite.run("commit-sha-attempt-1", on_event=lambda event: None)
+run.select("pick", "quick-path")
+with run.test("quick"):
+    assert 1 + 1 == 2
+    run.record("quick", metrics={"durationMs": 0})
+run.write("outputs/cict.json")
+run.write_events("outputs/cict-events.jsonl")
+```
+
+Supply stable suite, test/node, and edge IDs yourself; use a distinct run ID for
+an attempt or retry. All declared nodes appear in every snapshot, including
+unvisited branches. The extended test above remains `not_run`, its edge is
+`selected: false`, and its metric is absent. Before a decision, all outgoing
+edges have `selected: null`. A condition is descriptive text, never executable
+code. The harness does not schedule dependent nodes or infer their outcomes.
+
+A static definition and a runtime snapshot use the same
+`schemaVersion: "dreamlake.cict/v1"`, `suiteId`, `records`, and `edges`. Runtime
+snapshots add `kind: "run"` and `runId`; definitions use `kind: "suite"`.
+Each record has `id`, `testId`, `name`, `kind` (`test`, `decision`, or `group`),
+`status`, `attributes`, `metrics`, and an optional `parentId`. Declare parents
+before children. Edges have `id`, `source`, `target`, and `selected`, with
+optional `label` and `condition`. Dependency edges must be acyclic.
+
+The statuses are `not_run`, `running`, `passed`, `failed`, `skipped`, and
+`unknown`. Missing grid cells are a visualization concern, not a successful
+test. Start a node before passing or failing it. Explicitly skip a node with
+`run.finish(id, "skipped")`; use `unknown` when execution cannot establish an
+outcome. Finished nodes cannot restart within a run. The `test` context manager
+marks an uncaught assertion as failed and another exception as unknown,
+propagates the exception, and never stores its message or output. A normally
+completed block passes unless it already finished explicitly. A later exception
+in the block overrides an earlier pass or skip, so a failed assertion cannot
+leave a falsely passing test.
+
+While a node is running, call `run.record(id, metrics={"steps": 5})` to emit
+explicit live measurements without finishing it.
+
+Metrics are finite numbers keyed by a name that includes its unit, such as
+`durationMs`; zero remains zero, and missing values are absent. Attributes are
+explicit JSON values with string keys. Snapshots and callback payloads are
+detached copies. A run uses one writer; it is not a concurrent scheduler.
+
+`on_event` receives synchronous events with the schema version, suite/run IDs,
+a monotonically increasing `sequence`, UTC `time`, and `type`. `run.created`
+contains the initial `snapshot`, `node.updated` contains the full `record`, and
+`decision.selected` contains `nodeId` and all outgoing `edges` together. This
+lets a caller render a live decision graph without losing untraversed
+alternatives. Callback errors propagate after the state/event is recorded;
+there is no automatic retry. `run.events()` returns the recorded event stream.
+
+The [CPU-only example](https://github.com/fortyfive-labs/dreamlake/tree/main/examples/cict)
+includes a `.dreamrc` heatmap configuration mapping rows to
+`kind` (retaining decision nodes), columns to `testId`, values to `metrics.durationMs`, and
+status to `status`. The file names are intentional: **`results.json` is the
+existing CI/CT evidence manifest**, not a test snapshot. Use `cict.json` for
+records, and explicitly include the harness files when saving evidence with
+`dreamlake-ai/cict-evidence@v1`. Nothing is uploaded merely by using the harness.

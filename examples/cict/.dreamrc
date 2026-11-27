@@ -1,0 +1,10 @@
+{
+  "dataset": {"format": "cict", "file": "outputs/cict.json"},
+  "view": "activityHeatmap",
+  "records": ["records"],
+  "row": {"field": "kind"},
+  "column": {"field": "testId", "groupBy": "attributes.device"},
+  "value": "metrics.durationMs",
+  "status": "status",
+  "colorMap": {"colors": ["#eff6ff", "#1d4ed8"], "domain": [0, 1000]}
+}

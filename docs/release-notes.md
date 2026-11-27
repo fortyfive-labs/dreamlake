@@ -1,5 +1,16 @@
 # Release notes
 
+## 0.62.0 — Local CI/CT test suites and decision graphs
+
+`dreamlake.cict.Suite` defines stable test and decision nodes with explicit
+alternative edges. `Run` records statuses, finite metrics, JSON attributes and
+ordered runtime events. Export static definitions, runtime snapshots and NDJSON
+without capturing console output or uploading. Includes a CPU-only example and
+`.dreamrc` heatmap configuration. See [CI/CT harness](cict.md).
+
+Platform workflow examples use the canonical `blacksmith-4vcpu-gpu-<type>-ubuntu-2404`
+labels; existing platform labels remain server compatibility aliases.
+
 ## 0.61.0 — Share a Project with another namespace
 
 `client.projects` gains `share_with_namespace`, `namespace_shares`,
