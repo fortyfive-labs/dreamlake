@@ -6,7 +6,7 @@ Install the standalone recorder with `pip install dreamlake-dash` and import
 DreamLake 0.63.0+ re-exports the same implementation for existing imports.
 The standalone package needs only HTTPX, params-proto and Rich; image helpers
 are available through `dreamlake-dash[media]`. It does not depend on the
-umbrella SDK. Test discovery and verdicts belong to `pytest-dreamlake`; this
+umbrella SDK. Test discovery and verdicts belong to `dreamlake-eval`; this
 package records explicit measurements and artifacts.
 
 The following control-plane examples require the umbrella `dreamlake` SDK.
