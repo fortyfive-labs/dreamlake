@@ -61,7 +61,7 @@ def test_invalid_mutations_leave_state_unchanged():
         assert run.snapshot() == baseline
     run.start("a")
     running = run.snapshot()
-    for metrics in [{"x": math.nan}, {"x": math.inf}, {"x": True}, {"x": "1"}]:
+    for metrics in [{"x": math.nan}, {"x": math.inf}, {"x": True}, {"x": "1"}, {"x": 10 ** 400}]:
         with pytest.raises(ValueError):
             run.finish("a", "passed", metrics=metrics)
         assert run.snapshot() == running
@@ -79,6 +79,8 @@ def test_graph_integrity_and_static_input_validation():
                       lambda: suite.edge("bad", "a", "missing"),
                       lambda: suite.edge("a-path", "a", "b"),
                       lambda: suite.node("bad", attributes={1: "key"}),
+                      lambda: suite.edge("bad", [], "a"),
+                      lambda: suite.node("bad", parent_id=[]),
                       lambda: suite.node("bad", attributes={"secret": object()})]:
         with pytest.raises(ValueError):
             operation()

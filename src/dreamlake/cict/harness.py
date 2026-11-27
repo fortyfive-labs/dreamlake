@@ -41,8 +41,12 @@ def _attributes(value: dict | None) -> dict:
 
 def _metrics(value: dict | None) -> dict:
     value = _attributes(value)
-    if any(isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v)
-           for v in value.values()):
+    try:
+        valid = all(not isinstance(v, bool) and isinstance(v, (int, float)) and math.isfinite(v)
+                    for v in value.values())
+    except OverflowError:
+        valid = False
+    if not valid:
         raise ValueError("metrics must be finite numbers")
     return value
 
@@ -87,8 +91,10 @@ class Suite:
             raise ValueError(f"duplicate node ID: {node_id}")
         if kind not in {"test", "decision", "group"}:
             raise ValueError("kind must be test, decision or group")
-        if parent_id is not None and parent_id not in self._records:
-            raise ValueError("declare the parent before its child")
+        if parent_id is not None:
+            _id(parent_id)
+            if parent_id not in self._records:
+                raise ValueError("declare the parent before its child")
         title = name if name is not None else node_id
         if not isinstance(title, str):
             raise ValueError("name must be a string")
@@ -103,6 +109,8 @@ class Suite:
     def edge(self, edge_id: str, source: str, target: str, *,
              label: str | None = None, condition: str | None = None) -> "Suite":
         edge_id = _id(edge_id)
+        _id(source)
+        _id(target)
         if edge_id in self._edges:
             raise ValueError(f"duplicate edge ID: {edge_id}")
         if source not in self._records or target not in self._records:
@@ -189,6 +197,7 @@ class Run:
             self._on_event(deepcopy(event))
 
     def _node(self, node_id: str) -> dict:
+        _id(node_id)
         if node_id not in self._records:
             raise ValueError(f"unknown node: {node_id}")
         return self._records[node_id]
