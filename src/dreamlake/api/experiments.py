@@ -18,26 +18,10 @@ _KEY = re.compile(r"[A-Za-z0-9_-]{1,128}\Z")
 _ID = re.compile(r"[0-9a-f]{24}\Z")
 
 
-class ExperimentRequestError(Exception):
-    """A native Experiment request failed; writes are never retried implicitly.
-
-    ``status`` is the HTTP status (None for transport/shape failures), ``code``
-    the server's ``error.code`` string when the response carried one (e.g.
-    ``OPERATION_CONFLICT``, ``NATIVE_RUN_ACTIVE``), and ``body`` the parsed JSON
-    response (or raw text). ``str(error)`` never echoes the body.
-    """
-
-    def __init__(self, status: int | None, message: str, *, code: str | None = None, body=None):
-        super().__init__(message)
-        self.status = status
-        self.code = code
-        self.body = body
+from dreamlake_dash._shared import ExperimentRequestError
 
 
-def _error_code(body) -> str | None:
-    err = body.get("error") if isinstance(body, dict) else None
-    code = err.get("code") if isinstance(err, dict) else None
-    return code if isinstance(code, str) else None
+from dreamlake_dash._shared import _error_code
 
 
 _CONFLICT_CODE = "OPERATION_CONFLICT"

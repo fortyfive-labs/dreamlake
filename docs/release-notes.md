@@ -1,5 +1,15 @@
 # Release notes
 
+## 0.63.0 — Standalone dreamlake-dash recording
+
+Move the migrated ml-dash experiment recording implementation into separately
+released `dreamlake-dash` 0.1.0. Existing `dreamlake` imports alias its canonical
+modules, preserving exception/enum identities and private import compatibility.
+The standalone package includes local/native recording, scoped job credentials,
+metrics, tracks, files, buffering, lifecycle and the historical managed writer.
+It needs no umbrella SDK; media helpers remain optional. No automatic capture,
+indexing, provisioning or backend migration is introduced.
+
 ## 0.62.0 — Local CI/CT test suites and decision graphs
 
 `dreamlake.cict.Suite` defines stable test and decision nodes with explicit

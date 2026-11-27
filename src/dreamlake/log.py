@@ -12,52 +12,7 @@ if TYPE_CHECKING:
     from .episode import Episode
 
 
-class LogLevel(Enum):
-    """
-    Standard log levels for Dreamlake.
-
-    Supported levels:
-    - INFO: Informational messages
-    - WARN: Warning messages
-    - ERROR: Error messages
-    - DEBUG: Debug messages
-    - FATAL: Fatal error messages
-    """
-    INFO = "info"
-    WARN = "warn"
-    ERROR = "error"
-    DEBUG = "debug"
-    FATAL = "fatal"
-
-    @classmethod
-    def validate(cls, level: str) -> str:
-        """
-        Validate and normalize log level.
-
-        Args:
-            level: Log level string (case-insensitive)
-
-        Returns:
-            Normalized log level string (lowercase)
-
-        Raises:
-            ValueError: If level is not one of the 5 standard levels
-
-        Example:
-            >>> LogLevel.validate("INFO")
-            "info"
-            >>> LogLevel.validate("invalid")
-            ValueError: Invalid log level: 'invalid'. Must be one of: info, warn, error, debug, fatal
-        """
-        level_lower = level.lower()
-        try:
-            return cls[level_lower.upper()].value
-        except KeyError:
-            valid_levels = ", ".join([l.value for l in cls])
-            raise ValueError(
-                f"Invalid log level: '{level}'. "
-                f"Must be one of: {valid_levels}"
-            )
+from dreamlake_dash._shared import LogLevel
 
 
 class LogBuilder:

@@ -1,33 +1,4 @@
-"""Custom exceptions for ml-dash authentication."""
-
-from ..exceptions import AuthenticationError as _AuthenticationError
-
-
-class AuthenticationError(_AuthenticationError):
-    """Base exception for authentication errors."""
-    pass
-
-
-class NotAuthenticatedError(AuthenticationError):
-    """Raised when user is not authenticated."""
-    pass
-
-
-class DeviceCodeExpiredError(AuthenticationError):
-    """Raised when device code expires before authorization."""
-    pass
-
-
-class AuthorizationDeniedError(AuthenticationError):
-    """Raised when user denies authorization request."""
-    pass
-
-
-class TokenExchangeError(AuthenticationError):
-    """Raised when token exchange with ml-dash server fails."""
-    pass
-
-
-class StorageError(Exception):
-    """Base exception for token storage errors."""
-    pass
+"""Compatibility import; implementation lives in dreamlake-dash."""
+from importlib import import_module as _import_module
+import sys as _sys
+_sys.modules[__name__] = _import_module('dreamlake_dash.auth.exceptions')

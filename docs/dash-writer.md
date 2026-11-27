@@ -1,5 +1,10 @@
 # Dash writer (managed Dash)
 
+The managed writer is also available as `from dreamlake_dash import dash_writer`
+after `pip install dreamlake-dash`. Existing `dreamlake.experiments` imports
+remain aliases. This historical managed backend remains distinct from native
+`Experiment` recording; extracting the package does not switch backends.
+
 `dreamlake.experiments.dash_writer(namespace, project)` logs a run to the project's
 built-in Dash service. DreamLake stays the only identity: the writer asks
 dreamlake-server for a 60-second, project-scoped token

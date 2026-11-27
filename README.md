@@ -1,5 +1,10 @@
 # Dreamlake
 
+For experiment recording alone, install `dreamlake-dash` and use
+`from dreamlake_dash import Experiment, RUN`. The umbrella SDK keeps existing
+imports working through the same implementation. See
+[the standalone package](packages/dreamlake-dash/README.md).
+
 A simple and flexible SDK for ML experiment tracking and data storage.
 
 ## Features
@@ -23,14 +28,14 @@ A simple and flexible SDK for ML experiment tracking and data storage.
 <td>
 
 ```shell
-uv add dreamlake@0.62.0
+uv add dreamlake@0.63.0
 ```
 
 </td>
 <td>
 
 ```shell
-pip install dreamlake==0.62.0
+pip install dreamlake==0.63.0
 ```
 
 </td>

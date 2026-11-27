@@ -514,9 +514,10 @@ wheels = [
 
 [[package]]
 name = "dreamlake"
-version = "0.62.0"
+version = "0.63.0"
 source = { editable = "." }
 dependencies = [
+    { name = "dreamlake-dash" },
     { name = "httpx" },
     { name = "jsonschema" },
     { name = "msgpack" },
@@ -592,6 +593,7 @@ dev = [
 requires-dist = [
     { name = "cryptography", marker = "extra == 'auth'", specifier = ">=42.0.0" },
     { name = "dreamdb", marker = "extra == 'dreamdb'", specifier = ">=0.0.15,<0.1.0" },
+    { name = "dreamlake-dash", editable = "packages/dreamlake-dash" },
     { name = "furo", marker = "extra == 'dev'", specifier = ">=2024.0.0" },
     { name = "httpx", specifier = ">=0.27.0" },
     { name = "imageio", extras = ["ffmpeg"], marker = "extra == 'video'", specifier = ">=2.31" },
@@ -639,6 +641,31 @@ provides-extras = ["video", "auth", "dreamdb", "compose", "dev", "search", "embe
 
 [package.metadata.requires-dev]
 dev = [{ name = "pytest", specifier = ">=8.4.2" }]
+
+[[package]]
+name = "dreamlake-dash"
+version = "0.1.0"
+source = { editable = "packages/dreamlake-dash" }
+dependencies = [
+    { name = "httpx" },
+    { name = "params-proto" },
+    { name = "rich" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "cryptography", marker = "extra == 'auth'", specifier = ">=42" },
+    { name = "httpx", specifier = ">=0.27.0" },
+    { name = "imageio", extras = ["ffmpeg"], marker = "extra == 'video'", specifier = ">=2.31" },
+    { name = "keyring", marker = "extra == 'auth'", specifier = ">=25" },
+    { name = "numpy", marker = "extra == 'media'", specifier = ">=1.24" },
+    { name = "params-proto", specifier = ">=1.9.0" },
+    { name = "pillow", marker = "extra == 'media'", specifier = ">=10" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8" },
+    { name = "rich", specifier = ">=13.0.0" },
+    { name = "scikit-image", marker = "extra == 'video'", specifier = ">=0.22" },
+]
+provides-extras = ["auth", "media", "video", "dev"]
 
 [[package]]
 name = "etils"

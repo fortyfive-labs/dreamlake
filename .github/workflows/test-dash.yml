@@ -1,0 +1,26 @@
+name: standalone-dash
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+concurrency:
+  group: dash-tests-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  dash-package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: '3.12'
+      - name: Build standalone wheel and sdist
+        run: uv build --project packages/dreamlake-dash --out-dir dash-dist
+      - name: Install only the standalone recorder
+        run: |
+          uv venv /tmp/dash-test
+          uv pip install --python /tmp/dash-test/bin/python dash-dist/*.whl pytest
+      - name: Verify standalone recording without umbrella SDK
+        run: /tmp/dash-test/bin/python -m pytest -q packages/dreamlake-dash/tests

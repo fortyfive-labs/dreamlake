@@ -1,5 +1,17 @@
 # Native Experiments
 
+
+Install the standalone recorder with `pip install dreamlake-dash` and import
+`Experiment`, `experiment`, `RUN` and `NativeConnection` from `dreamlake_dash`.
+DreamLake 0.63.0+ re-exports the same implementation for existing imports.
+The standalone package needs only HTTPX, params-proto and Rich; image helpers
+are available through `dreamlake-dash[media]`. It does not depend on the
+umbrella SDK. Test discovery and verdicts belong to `pytest-dreamlake`; this
+package records explicit measurements and artifacts.
+
+The following control-plane examples require the umbrella `dreamlake` SDK.
+For standalone recording, see [dreamlake-dash](https://py.dreamlake.ai/dash).
+
 `DreamLakeClient(...).experiments` logs runs straight to a DreamLake project over REST
 (`/native-experiments/ns/{namespace}/projects/{project}/...`).
 
@@ -66,13 +78,13 @@ exports; the server's `parquet` format name returns an Arrow IPC file.
 
 Files support glob selection, downloads verified by SHA-256, metadata and Bindr
 membership, and JSON, text, binary, pickle, NumPy-compatible image, figure, Torch
-and video helpers through `run.files(...)`. Install `dreamlake[video]` for video;
+and video helpers through `run.files(...)`. Install `dreamlake-dash[video]` for video;
 Torch and plotting helpers use the corresponding libraries already in your environment.
 
 ### Local and hybrid recording
 
 ```python
-from dreamlake import Experiment
+from dreamlake_dash import Experiment
 
 with Experiment(prefix="team/research/trial-1", root=".dreamlake/experiments") as run:
     run.metrics("train").log(step=0, loss=1.2)
@@ -119,7 +131,7 @@ accepts `checkpoints` in its file-directory create/update helpers.
 ### Run inside a DreamLake job
 
 ```python
-from dreamlake import Experiment
+from dreamlake_dash import Experiment
 
 with Experiment() as run:
     run.params.set(seed=7)

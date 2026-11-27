@@ -39,18 +39,7 @@ def _saved_remote() -> str | None:
         return None
 
 
-class _BorrowedTransport(httpx.BaseTransport):
-    """Let short-lived HTTP clients share a transport owned by their caller."""
-
-    def __init__(self, transport: httpx.BaseTransport):
-        self._transport = transport
-
-    def handle_request(self, request: httpx.Request) -> httpx.Response:
-        return self._transport.handle_request(request)
-
-    def close(self) -> None:
-        # Only the caller that supplied the transport controls its lifetime.
-        pass
+from dreamlake_dash._shared import _BorrowedTransport
 
 
 class BindrMembershipError(RuntimeError):
