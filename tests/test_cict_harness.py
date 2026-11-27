@@ -117,3 +117,19 @@ def test_callback_failure_records_once_and_propagates():
     assert run.snapshot()["records"][1]["status"] == "running"
     assert len(run.events()) == 2
     assert len(observed) == 2
+
+
+def test_live_metrics_preserve_prior_measurements_and_validate_atomically():
+    run = definition().run("r")
+    with pytest.raises(ValueError):
+        run.record("a", metrics={"steps": 1})
+    run.start("a")
+    run.record("a", metrics={"steps": 1}, attributes={"phase": "warmup"})
+    before = run.snapshot()
+    with pytest.raises(ValueError):
+        run.record("a", metrics={"steps": 2}, attributes={"bad": set()})
+    assert run.snapshot() == before
+    run.record("a", metrics={"steps": 2})
+    run.finish("a", "passed", metrics={"durationMs": 0})
+    assert run.snapshot()["records"][1]["metrics"] == {"steps": 2, "durationMs": 0}
+    assert run.events()[-2]["record"]["status"] == "running"

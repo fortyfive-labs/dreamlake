@@ -213,6 +213,17 @@ class Run:
         node.update(status=status, finishedAt=datetime.now(timezone.utc).isoformat())
         self._emit("node.updated", record=deepcopy(node))
 
+    def record(self, node_id: str, *, metrics: dict | None = None,
+               attributes: dict | None = None) -> None:
+        """Record explicit live measurements without completing a running node."""
+        node = self._node(node_id)
+        if node["status"] != "running":
+            raise ValueError("live measurements require a running node")
+        metric_values, attribute_values = _metrics(metrics), _attributes(attributes)
+        node["metrics"].update(metric_values)
+        node["attributes"].update(attribute_values)
+        self._emit("node.updated", record=deepcopy(node))
+
     def select(self, node_id: str, edge_id: str, *, attributes: dict | None = None) -> None:
         node = self._node(node_id)
         if node["kind"] != "decision" or node["status"] not in {"not_run", "running"}:

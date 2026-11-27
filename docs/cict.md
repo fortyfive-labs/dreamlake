@@ -186,6 +186,9 @@ propagates the exception, and never stores its message or output. A normally
 completed block passes unless it already finished explicitly. Avoid declaring
 a pass before the test's assertions are complete.
 
+While a node is running, call `run.record(id, metrics={"steps": 5})` to emit
+explicit live measurements without finishing it.
+
 Metrics are finite numbers keyed by a name that includes its unit, such as
 `durationMs`; zero remains zero, and missing values are absent. Attributes are
 explicit JSON values with string keys. Snapshots and callback payloads are
