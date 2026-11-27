@@ -6,7 +6,7 @@
 alternative edges. `Run` records statuses, finite metrics, JSON attributes and
 ordered runtime events. Export static definitions, runtime snapshots and NDJSON
 without capturing console output or uploading. Includes a CPU-only example and
-`.dreamrc` heatmap configuration. See [CI/CT harness](cict.md#local-test-harness-and-decision-graphs).
+`.dreamrc` heatmap configuration. See [CI/CT harness](cict.md).
 
 Platform workflow examples use the canonical `blacksmith-4vcpu-gpu-<type>-ubuntu-2404`
 labels; existing platform labels remain server compatibility aliases.
