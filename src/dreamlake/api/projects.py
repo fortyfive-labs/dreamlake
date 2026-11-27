@@ -114,6 +114,13 @@ class Projects:
             raise ValueError("An explicit namespace and project ID or slug are required")
 
     @staticmethod
+    def _same_project(value, project):
+        """Whether a response names the requested Project, by scoped ID or slug."""
+        if re.fullmatch(r"[a-fA-F0-9]{24}", project):
+            return value["projectId"].lower() == project.lower()
+        return value["projectSlug"] == project
+
+    @staticmethod
     def _access_policy(value, namespace, project, *, mode=None, visibility=None):
         """Do not present an unconfirmed or wrong-resource policy as success."""
         valid = (
@@ -130,7 +137,7 @@ class Projects:
             and value["manageGrants"] == (value["viewerRole"] == "ADMIN")
         )
         if valid:
-            expected = value["projectId"].lower() == project.lower() if re.fullmatch(r"[a-fA-F0-9]{24}", project) else value["projectSlug"] == project
+            expected = Projects._same_project(value, project)
             baseline = value.get("baseline")
             valid = (
                 expected
@@ -240,6 +247,179 @@ class Projects:
             error.project_id = value.get("id") if isinstance(value, dict) and isinstance(value.get("id"), str) else None
             raise error
         return value
+
+    # -- Cross-namespace Project sharing ---------------------------------
+
+    @staticmethod
+    def _share_text(label, value):
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError(label + " must be a nonempty string")
+
+    @staticmethod
+    def _share_namespace(label, value):
+        """Namespace slug as Project moves take it: trimmed, optional ``@`` removed."""
+        Projects._share_text(label, value)
+        slug = value.strip().lstrip("@")
+        if not slug:
+            raise ValueError(label + " must be a nonempty string")
+        return slug
+
+    @staticmethod
+    def _share_valid(value):
+        return (
+            isinstance(value, dict)
+            and isinstance(value.get("id"), str) and bool(value["id"])
+            and isinstance(value.get("projectId"), str)
+            and re.fullmatch(r"[a-fA-F0-9]{24}", value["projectId"]) is not None
+            and isinstance(value.get("projectSlug"), str) and bool(value["projectSlug"])
+            and isinstance(value.get("sourceNamespace"), str) and bool(value["sourceNamespace"])
+            and isinstance(value.get("targetNamespace"), str) and bool(value["targetNamespace"])
+            and value["sourceNamespace"] != value["targetNamespace"]
+            # Active, a first invitation, or a READ share with a pending upgrade.
+            and (value.get("role", ""), value.get("proposedRole", "")) in (
+                ("READ", None), ("WRITE", None), (None, "READ"), (None, "WRITE"), ("READ", "WRITE"))
+            and type(value.get("revision")) is int and value["revision"] >= 0
+        )
+
+    def _share_list(self, value, accept):
+        """Do not present a malformed or wrong-scope listing as the share state."""
+        shares = value.get("shares") if isinstance(value, dict) else None
+        if not isinstance(shares, list) or not all(self._share_valid(s) and accept(s) for s in shares):
+            raise ProjectAccessError(502, "INVALID_PROJECT_SHARE_RESPONSE")
+        return value
+
+    def _share_write(self, path, payload, confirmed):
+        """Send one share mutation; an unverifiable receipt is an unknown outcome."""
+        try:
+            value = self._request_path(path, "POST", payload)
+        except ProjectAccessError as exc:
+            if not (200 <= exc.status < 300 and exc.code == "INVALID_PROJECT_RESPONSE"):
+                raise
+            value = None
+        if not (self._share_valid(value) and confirmed(value)):
+            error = ProjectAccessError(502, "PROJECT_SHARE_UNCONFIRMED")
+            error.outcome = "unknown"
+            error.share_id = value.get("id") if isinstance(value, dict) and isinstance(value.get("id"), str) else None
+            raise error
+        return value
+
+    def namespace_shares(self, *, namespace, project):
+        """List this Project's shares to other namespaces, pending and active.
+
+        ``namespace`` is the owning (source) namespace and ``project`` its
+        scoped ID or slug; the server requires Project ADMIN. Returns
+        ``{"shares": [...]}``. Each share carries ``id``, ``projectId``,
+        ``projectSlug``, ``sourceNamespace``, ``targetNamespace``, ``role``,
+        ``proposedRole`` and ``revision``. ``role`` is the role in effect
+        (``None`` while the first invitation is pending); ``proposedRole`` is
+        a first invitation or a READ-to-WRITE upgrade awaiting the recipient
+        owner, otherwise ``None``. A pending upgrade keeps READ in effect
+        until it is accepted. Namespaces are trimmed and may carry a leading
+        ``@``, as in ``move``.
+        """
+        namespace = self._share_namespace("namespace", namespace)
+        self._access_target(namespace, project)
+        value = self._request(namespace, project, suffix="/namespace-shares")
+        return self._share_list(value, lambda s: s["sourceNamespace"] == namespace
+                                and self._same_project(s, project))
+
+    def share_with_namespace(self, *, namespace, project, target_namespace, role="READ"):
+        """Invite another namespace (personal or organization) to this Project.
+
+        Requires Project ADMIN in the source ``namespace``. ``role`` is
+        ``"READ"`` (the default) or ``"WRITE"``; ADMIN cannot be shared and
+        sharing never grants execution. A new share takes effect only when an
+        OWNER of ``target_namespace`` accepts it. For an existing share, a
+        downgrade from WRITE to READ applies immediately, while an upgrade
+        from READ to WRITE is a proposal: READ stays in effect until the
+        recipient OWNER accepts. Sharing with the source namespace itself is
+        rejected before any request. Independent user/team grants and
+        resource shares are unchanged.
+
+        One POST is sent and never retried. After a timeout or
+        ``PROJECT_SHARE_UNCONFIRMED`` (``outcome="unknown"``, ``share_id`` when
+        known), read ``namespace_shares`` before deciding whether to resubmit.
+        """
+        namespace = self._share_namespace("namespace", namespace)
+        target_namespace = self._share_namespace("target_namespace", target_namespace)
+        self._access_target(namespace, project)
+        if role not in ("READ", "WRITE"):
+            raise ValueError("role must be READ or WRITE")
+        if target_namespace == namespace:
+            raise ValueError("A Project cannot be shared with its own namespace")
+        return self._share_write(
+            "/namespaces/" + quote(namespace, safe="") + "/projects/"
+            + quote(project, safe="") + "/namespace-shares",
+            {"targetNamespace": target_namespace, "role": role},
+            lambda s: s["sourceNamespace"] == namespace and s["targetNamespace"] == target_namespace
+            and self._same_project(s, project) and role in (s["role"], s["proposedRole"]))
+
+    def revoke_namespace_share(self, *, namespace, project, share_id):
+        """Withdraw a pending invitation or revoke an active namespace share.
+
+        Requires Project ADMIN in the source ``namespace``. Removes only the
+        access derived from this share; other grants remain. Returns ``None``.
+        One DELETE is sent and never retried: after a timeout, read
+        ``namespace_shares`` to learn whether the share is gone.
+        """
+        namespace = self._share_namespace("namespace", namespace)
+        self._access_target(namespace, project)
+        self._share_text("share_id", share_id)
+        self._request(namespace, project, "DELETE", "/namespace-shares/" + quote(share_id, safe=""))
+
+    def shared_projects(self, *, namespace):
+        """List Projects other namespaces share with the recipient ``namespace``.
+
+        Returns ``{"shares": [...]}`` with the same share fields as
+        ``namespace_shares``. Members see active shares; pending invitations
+        and pending upgrades are returned to namespace OWNERs only. Build
+        links from the stable ``projectId`` and ``sourceNamespace``: the
+        Project stays in its source namespace.
+        """
+        namespace = self._share_namespace("namespace", namespace)
+        value = self._request_path("/namespaces/" + quote(namespace, safe="") + "/shared-projects")
+        return self._share_list(value, lambda s: s["targetNamespace"] == namespace)
+
+    def accept_shared_project(self, *, namespace, share_id, revision):
+        """Accept the invitation or upgrade that was reviewed, as OWNER.
+
+        ``revision`` is required: pass the ``revision`` of the share as read
+        from ``shared_projects``. It is sent unchanged in the single request;
+        the SDK never reads or substitutes a newer one, and the server decides
+        whether it still matches. Returns the share, which must then be active
+        with no remaining proposal.
+
+        One POST is sent and never retried. After a timeout or
+        ``PROJECT_SHARE_UNCONFIRMED`` (``outcome="unknown"``), read
+        ``shared_projects`` before acting again.
+        """
+        namespace = self._share_namespace("namespace", namespace)
+        self._share_text("share_id", share_id)
+        if type(revision) is not int or revision < 0:
+            raise ValueError("revision must be the nonnegative integer revision that was reviewed")
+        path = ("/namespaces/" + quote(namespace, safe="") + "/shared-projects/"
+                + quote(share_id, safe="") + "/accept")
+        return self._share_write(
+            path, {"revision": revision},
+            lambda s: s["id"] == share_id and s["targetNamespace"] == namespace
+            and s["role"] is not None and s["proposedRole"] is None)
+
+    def decline_shared_project(self, *, namespace, share_id):
+        """Decline a pending invitation, or leave an active share, as recipient.
+
+        Removes the whole share for ``namespace``, including any role already
+        in effect; it does not touch the source Project or other grants.
+        Returns ``None``. One DELETE is sent and never retried: after a
+        timeout, read ``shared_projects`` to learn whether the share is gone.
+        """
+        namespace = self._share_namespace("namespace", namespace)
+        self._share_text("share_id", share_id)
+        self._request_path("/namespaces/" + quote(namespace, safe="") + "/shared-projects/"
+                           + quote(share_id, safe=""), "DELETE")
+
+    def leave_shared_project(self, *, namespace, share_id):
+        """Leave a Project shared with ``namespace``; same request as ``decline_shared_project``."""
+        self.decline_shared_project(namespace=namespace, share_id=share_id)
 
     def grant(self, namespace, project, role, *, user=None, team=None):
         if role not in {"READ", "WRITE", "ADMIN"} or bool(user) == bool(team):

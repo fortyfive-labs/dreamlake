@@ -1,9 +1,18 @@
 # Release notes
 
-## 0.61.0
+## 0.62.0
 
 - Add `stream_insert` over one authenticated native RTC session, with a reviewed cursor, Unicode chunk bounds, per-chunk receipts and explicit partial-failure evidence.
 - Default Memo writes and patches to collaborative merge; exact mode remains opt-in. A stopped stream preserves accepted text and never reconnects or replays automatically.
+
+## 0.61.0 — Share a Project with another namespace
+
+`client.projects` gains `share_with_namespace`, `namespace_shares`,
+`revoke_namespace_share`, `shared_projects`, `accept_shared_project`,
+`decline_shared_project` and `leave_shared_project`. A Project ADMIN invites
+another namespace at READ (default) or WRITE; an OWNER there accepts the
+reviewed revision. Downgrades apply immediately; upgrades wait for acceptance. Needs a server with cross-namespace Project sharing. See
+[Share a Project with another namespace](api/projects.md#share-a-project-with-another-namespace).
 
 ## 0.59.0
 
