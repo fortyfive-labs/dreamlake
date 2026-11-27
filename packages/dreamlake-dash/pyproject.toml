@@ -15,7 +15,7 @@ video = ["imageio[ffmpeg]>=2.31", "scikit-image>=0.22"]
 dev = ["pytest>=8"]
 
 [project.urls]
-Documentation = "https://py.dreamlake.ai/native-experiments"
+Documentation = "https://py.dreamlake.ai/dash"
 Source = "https://github.com/fortyfive-labs/dreamlake/tree/main/packages/dreamlake-dash"
 Issues = "https://github.com/fortyfive-labs/dreamlake/issues"
 
