@@ -49,3 +49,22 @@ These methods use the configured client token, remote and borrowed transport.
 `SessionError` carries a sanitized `code` and HTTP `status` (or `None` for
 transport failures). No PTY, GraphQL session wrapper, or MCP server is provided
 by this SDK. Existing CLI/GUI terminal operations remain separate.
+
+## Open a Thread in the browser
+
+Use the **Threads** sidebar entry for the selected organization. The
+**Sessions** entry at the bottom opens native sessions. To link to a saved Thread:
+
+```python
+from dreamlake.threads import thread_url, threads_url
+
+threads_url("example-org")
+thread_url(
+    "1ad5a956-c5fa-47c0-a9dc-9d29d2612c42",
+    session="saved-session",
+)
+```
+
+Both functions return a URL without making API calls. Saved layouts are
+available in the browser and account where they were saved. A link grants
+no access and does not start a terminal.
