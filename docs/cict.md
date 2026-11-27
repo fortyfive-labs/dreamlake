@@ -121,7 +121,7 @@ still can (`writable`). While it is false, jobs wait in the queue; a namespace
 admin calls `set_source` with the current Source to become the authorizer.
 
 Workflows then use a label from `status["machines"]`, such as
-`runs-on: dreamlake-gpu-rtx5090`. Admins of the platform namespace manage it
+`runs-on: blacksmith-4vcpu-gpu-rtx5090-ubuntu-2404`. Admins of the platform namespace manage it
 with `client.cict.admin`: `overview(month=...)` (namespaces, machine types and
 the month's platform total), `providers()` (Slurm providers in the platform
 namespace and what one job gets on each), `set_namespace(slug,
