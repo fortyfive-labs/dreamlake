@@ -46,7 +46,7 @@ the standalone default reads the same server-pinned CLI login without importing
 the umbrella SDK. Its historical secure-store fallback remains available with
 `dreamlake-dash[auth]`; the native writer retains its existing CLI-file behavior.
 
-`pytest-dreamlake` owns test discovery, definitions and verdicts. Dash records
+`dreamlake-eval` owns test discovery, definitions and verdicts. Dash records
 measurements and artifacts; it does not discover tests or decide their outcomes.
 
 ## Compatibility
