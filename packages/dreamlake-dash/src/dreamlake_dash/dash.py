@@ -469,8 +469,9 @@ def dash_writer(namespace: str, project: str, *, client=None, run_key: str | Non
                 refresh_margin: float = 15, auto_setup: bool = False, flush_every: int = _MAX_POINTS) -> DashRun:
     """Return a :class:`DashRun` writing to the project's managed Dash service.
 
-    ``client`` is a :class:`dreamlake.DreamLakeClient` (default: one built from the
-    saved login / ``DREAMLAKE_API_KEY``). ``run_key`` names the run idempotently
+    ``client`` may be a :class:`dreamlake.DreamLakeClient`; by default a lightweight
+    managed client reads the saved login / ``DREAMLAKE_API_KEY`` without importing
+    the umbrella SDK. ``run_key`` names the run idempotently
     (default: a timestamped key); reusing a key reopens that run. ``auto_setup``
     runs project Dash setup when it is missing (needs WRITE). Nothing is sent until
     the run is entered (or ``open()`` is called).
