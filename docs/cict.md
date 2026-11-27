@@ -135,7 +135,8 @@ Server error text is not included.
 
 ## Local test harness and decision graphs
 
-The `dreamlake.cict` module defines tests and records their execution locally.
+Added in Python package 0.62.0. The `dreamlake.cict` module defines tests and
+records their execution locally.
 It is separate from `client.cict`, the authenticated CI/CT control-plane API
 above. Creating a suite or run does not dispatch jobs, allocate machines, upload
 files, read terminal output, or index anything.
