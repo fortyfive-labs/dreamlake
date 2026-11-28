@@ -35,17 +35,22 @@ def _id(value: str) -> str:
 
 
 class Sessions:
-    """Metadata-only session reads using the client's existing account/transport."""
+    """Session metadata and personal list preferences using the existing account."""
 
     def __init__(self, client):
         self.client = client
 
     def _get(self, path: str, params: dict | None = None) -> dict[str, Any]:
+        return self._request("GET", path, params=params)
+
+    def _request(
+        self, method: str, path: str, *, params: dict | None = None, body: dict | None = None
+    ) -> dict[str, Any]:
         import httpx
 
         try:
             with self.client.http() as http:
-                response = http.get(path, params=params)
+                response = http.get(path, params=params) if method == "GET" else http.request(method, path, json=body)
         except httpx.HTTPError:
             raise SessionError("session_transport_unavailable") from None
         if not response.is_success:
@@ -68,6 +73,25 @@ class Sessions:
         if not isinstance(body, dict):
             raise SessionError("session_invalid_response", response.status_code)
         return body
+
+    def presentation(self, namespace: str, identities: list[dict[str, Any]]) -> list[dict]:
+        """Read list preferences and revisions for exact registered or native identities."""
+        path = f"/namespaces/{_namespace(namespace)}/session-presentation/query"
+        entries = self._request("POST", path, body={"identities": identities}).get("entries")
+        if not isinstance(entries, list):
+            raise SessionError("session_invalid_response")
+        return entries
+
+    def delete_from_list(
+        self, namespace: str, identity: dict[str, Any], *, expected_revision: int, deleted: bool = True
+    ) -> dict[str, Any]:
+        """Hide a session from your lists, or restore it with deleted=False."""
+        if type(expected_revision) is not int or not 0 <= expected_revision < 2**53 - 1:
+            raise ValueError("Use the revision from sessions.presentation")
+        path = f"/namespaces/{_namespace(namespace)}/session-presentation"
+        return self._request("PATCH", path, body={
+            "identity": identity, "expectedRevision": expected_revision, "patch": {"deleted": deleted}
+        })
 
     @staticmethod
     def _query(

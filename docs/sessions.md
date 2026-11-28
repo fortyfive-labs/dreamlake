@@ -68,3 +68,39 @@ thread_url(
 Both functions return a URL without making API calls. Saved layouts are
 available in the browser and account where they were saved. A link grants
 no access and does not start a terminal.
+
+## Saved Thread order
+
+Use the authenticated `DreamLakeClient` to read and change your order in one
+namespace. The browser registers saved Thread IDs and names. Layout contents
+stay in the browser.
+
+```python
+from dreamlake.api._client import DreamLakeClient
+
+client = DreamLakeClient()
+order = client.threads.order("fortyfive")
+ids = [thread["id"] for thread in order["threads"]]
+client.threads.reorder("fortyfive", ids[::-1], expected_revision=order["revision"])
+```
+
+Provide each returned ID once. On HTTP 409, read the current order again before
+retrying. A server that has not released Thread order returns HTTP 404.
+
+### Personal session deletion
+
+Use the same list preference for registered sessions and uploads. Supported native
+identities include the exact Source ID, provider, native session ID, and any component
+ID. A delete hides the row from the caller's active and archived lists. The saved
+session, transcript and runtime remain available through their usual authorized APIs.
+
+```python
+identity = {"kind": "registered", "sessionId": session_id}
+entry, = client.sessions.presentation("fortyfive", [identity])
+receipt = client.sessions.delete_from_list(
+    "fortyfive", identity, expected_revision=entry["revision"]
+)
+client.sessions.delete_from_list(
+    "fortyfive", identity, expected_revision=receipt["entry"]["revision"], deleted=False
+)
+```

@@ -191,6 +191,13 @@ class DreamLakeClient:
         return Experiments(self)
 
     @property
+    def threads(self):
+        """Read and update your personal Thread order."""
+        from .threads import Threads
+
+        return Threads(self)
+
+    @property
     def sessions(self):
         """Read Codex/Claude registry metadata without starting or attaching."""
         from .sessions import Sessions
